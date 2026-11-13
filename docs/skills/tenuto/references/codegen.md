@@ -92,7 +92,7 @@ go tool tenuto-workflow-gen generate \
 | 参数 | 作用 |
 | --- | --- |
 | `<pkgdir>...` | 包目录，位于某个 Go 模块内，至少含一条 `@Workflow` 或 `@Activity` |
-| `-watch` | 监听入口文件、同包 DTO、被引用的契约包；每次成功生成后更新监听目录 |
+| `-watch` | 监听入口文件、同包 DTO、被引用的契约包；每次成功生成后更新监听目录；生成进行中的保存在本次结束后再触发一次生成 |
 | `-url` | 生成成功后提交 `workflow.json` 到该 Server（只发 `namespace` 与 `workflow`）；省略时不联网 |
 | `-namespace` | 提交使用的 Namespace，缺省 `default` |
 | `-publish` | 配合 `-url`：注册并激活 latest；省略时只登记 |

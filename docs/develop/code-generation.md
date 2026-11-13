@@ -112,7 +112,7 @@ go run ./compiler/cmd/tenuto-workflow-gen generate \
 | 参数 | 作用 |
 | --- | --- |
 | `<pkgdir>...` | 一个或多个包目录，每个目录至少包含一条 `@Workflow` 或 `@Activity` |
-| `-watch` | 监听入口文件、同包 DTO 和被引用契约包；每次成功生成后按新的依赖更新监听目录；生成失败时保留上次成功产物 |
+| `-watch` | 监听入口文件、同包 DTO 和被引用契约包；每次成功生成后按新的依赖更新监听目录；生成进行中的保存在本次结束后再触发一次生成；生成失败时保留上次成功产物 |
 | `-url` | 生成成功后把 `workflow.json` 提交到该 Server（请求体只有 `namespace` 与 `workflow`）；省略时不联网 |
 | `-namespace` | 提交使用的 Namespace，默认 `default` |
 | `-publish` | 配合 `-url`：调用 `POST /runtime/workflow/register`（注册并激活 latest）；省略时调用 `POST /runtime/workflow/artifacts`（只登记） |

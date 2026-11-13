@@ -42,48 +42,61 @@ func watchDirsOf(result sdkgen.PackageResult) []string {
 	return dirs
 }
 
-// hashWatchDirs 计算被监听目录的合并内容哈希。只哈希手写 Go 源码。
-func hashWatchDirs(dirs []string) (string, error) {
+// hashWatchDir 计算一个被监听目录的内容哈希。只哈希手写 Go 源码。
+func hashWatchDir(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("读取 %s 失败: %w", dir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_") {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	digest := sha256.New()
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
+	for _, name := range names {
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
 		if err != nil {
-			return "", fmt.Errorf("读取 %s 失败: %w", dir, err)
+			return "", fmt.Errorf("读取 %s 失败: %w", path, err)
 		}
-		names := make([]string, 0, len(entries))
-		for _, entry := range entries {
-			name := entry.Name()
-			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "zz_") {
-				continue
-			}
-			names = append(names, name)
+		if sdkgen.IsGeneratedSource(data) {
+			continue
 		}
-		sort.Strings(names)
-		for _, name := range names {
-			path := filepath.Join(dir, name)
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return "", fmt.Errorf("读取 %s 失败: %w", path, err)
-			}
-			if sdkgen.IsGeneratedSource(data) {
-				continue
-			}
-			fmt.Fprintf(digest, "%s\x00", path)
-			digest.Write(data)
-			fmt.Fprintf(digest, "\x00")
-		}
+		fmt.Fprintf(digest, "%s\x00", name)
+		digest.Write(data)
+		fmt.Fprintf(digest, "\x00")
 	}
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
-// watchDirsWithInterval 轮询依赖源码内容哈希，变化时调用 regenerate。dirs 每轮重新取：
-// 重新生成可能引入新的依赖目录。失败时打印诊断并保留上次成功产物；后续保存会继续尝试。
+// hashWatchDirs 逐个目录计算内容哈希。
+func hashWatchDirs(dirs []string) (map[string]string, error) {
+	hashes := make(map[string]string, len(dirs))
+	for _, dir := range dirs {
+		hash, err := hashWatchDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		hashes[dir] = hash
+	}
+	return hashes, nil
+}
+
+// watchDirsWithInterval 轮询依赖源码内容哈希，已监听目录的内容变化时调用 regenerate。dirs 每轮
+// 重新取：重新生成可能引入新的依赖目录，新目录以首次读到的内容为基线，不触发生成。
+// 已监听目录的基线是触发这次生成时读到的内容，生成期间的保存在下一轮被发现并再生成一次。
+// 失败时打印诊断并保留上次成功产物；后续保存会继续尝试。
 func watchDirsWithInterval(ctx context.Context, dirs func() []string, regenerate func() error, stderr io.Writer, interval time.Duration) error {
-	hash, err := hashWatchDirs(dirs())
+	baseline, err := hashWatchDirs(dirs())
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "watching %d dirs (ctrl-c to stop)\n", len(dirs()))
+	fmt.Fprintf(stderr, "watching %d dirs (ctrl-c to stop)\n", len(baseline))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -91,21 +104,31 @@ func watchDirsWithInterval(ctx context.Context, dirs func() []string, regenerate
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			next, err := hashWatchDirs(dirs())
+			current, err := hashWatchDirs(dirs())
 			if err != nil {
 				fmt.Fprintf(stderr, "watch failed: %v\n", err)
 				continue
 			}
-			if next == hash {
+			changed := false
+			for dir, hash := range current {
+				if old, ok := baseline[dir]; ok && old != hash {
+					changed = true
+				}
+			}
+			baseline = current
+			if !changed {
 				continue
 			}
-			hash = next
 			if err := regenerate(); err != nil {
 				fmt.Fprintf(stderr, "generation failed: %v\n", err)
 			}
-			// 新加入的依赖目录从当前内容开始比较，不会立即再触发一次。
-			if rehashed, err := hashWatchDirs(dirs()); err == nil {
-				hash = rehashed
+			for _, dir := range dirs() {
+				if _, ok := baseline[dir]; ok {
+					continue
+				}
+				if hash, err := hashWatchDir(dir); err == nil {
+					baseline[dir] = hash
+				}
 			}
 		}
 	}

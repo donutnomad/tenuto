@@ -480,6 +480,52 @@ func TestWatchRegeneratesAfterSaveAndRecovers(t *testing.T) {
 	<-done
 }
 
+// TestWatchRegeneratesAfterSaveDuringGeneration: 生成进行中保存的修改在生成结束后再触发一次生成，
+// 不会被当成新的基线吞掉。
+func TestWatchRegeneratesAfterSaveDuringGeneration(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "workflow.go")
+	if err := os.WriteFile(source, []byte("package p\n// v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runs := make(chan int, 4)
+	count := 0
+	var output syncBuffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = watchDirsWithInterval(ctx, func() []string { return []string{dir} }, func() error {
+			count++
+			if count == 1 {
+				// 第一次生成期间再保存一次。
+				if err := os.WriteFile(source, []byte("package p\n// v3\n"), 0o644); err != nil {
+					return err
+				}
+			}
+			runs <- count
+			return nil
+		}, &output, 10*time.Millisecond)
+	}()
+	waitForOutput(t, &output, "watching", "watch 没有启动")
+	if err := os.WriteFile(source, []byte("package p\n// v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for want := 1; want <= 2; want++ {
+		select {
+		case got := <-runs:
+			if got != want {
+				t.Fatalf("第 %d 次生成编号为 %d", want, got)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("等不到第 %d 次生成：生成期间的保存被吞掉", want)
+		}
+	}
+	cancel()
+	<-done
+}
+
 // waitForOutput 轮询 watch 输出，直到出现指定片段。
 func waitForOutput(t *testing.T, output *syncBuffer, fragment, message string) {
 	t.Helper()
