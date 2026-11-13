@@ -527,9 +527,13 @@ func TestWatchRegeneratesAfterSaveDuringGeneration(t *testing.T) {
 }
 
 // waitForOutput 轮询 watch 输出，直到出现指定片段。
+// watchGenerationTimeout 是等待 watch 完成一次生成的上限。生成要加载并类型检查 SDK 依赖，
+// CI 上与其他测试包并行时单次可达 10 s 以上；成功时立即返回，不增加正常耗时。
+const watchGenerationTimeout = 90 * time.Second
+
 func waitForOutput(t *testing.T, output *syncBuffer, fragment, message string) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(watchGenerationTimeout)
 	for time.Now().Before(deadline) {
 		if output.contains(fragment) {
 			return
@@ -673,7 +677,7 @@ func TestWatchAllDirsWatchesDirectoryThatFailedFirstGeneration(t *testing.T) {
 	if err := os.WriteFile(dependency, append(data, []byte("\n// edited\n")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(watchGenerationTimeout)
 	for strings.Count(watchOutput.String(), "output: "+broken) <= before {
 		if time.Now().After(deadline) {
 			t.Fatalf("修好后新增的依赖目录没有被监听\nwatch 输出:\n%s", watchOutput.String())
@@ -727,7 +731,7 @@ func TestWatchAllDirsContinuesAfterOneDirectoryFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(watchGenerationTimeout)
 	for time.Now().Before(deadline) {
 		output := watchOutput.String()
 		if strings.Contains(output, "generation failed") && strings.Count(output, "output: "+second) >= 1 {
