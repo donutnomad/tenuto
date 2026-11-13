@@ -1,0 +1,79 @@
+{
+  "importMap": {
+    "workflow": "github.com/abt-tech-limited/app/workflow"
+  },
+  "imports": [
+    "workflow"
+  ],
+  "lang": "wflang/v1",
+  "program": [
+    {
+      "let": {
+        "counter": {
+          "literal": {
+            "type": "int64",
+            "value": "0"
+          }
+        }
+      }
+    },
+    {
+      "expr": {
+        "SetUpdateHandler": [
+          { "pkg": "workflow" },
+          { "var": "ctx" },
+          { "literal": { "type": "string", "value": "add" } },
+          {
+            "fn": {
+              "do": [
+                {
+                  "set": {
+                    "counter": {
+                      "+": [
+                        { "var": "counter" },
+                        {
+                          "type.assert": [
+                            {
+                              "map.value": [
+                                { "var": "in" },
+                                { "literal": { "type": "string", "value": "n" } }
+                              ]
+                            },
+                            { "literal": { "type": "string", "value": "int64" } }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "return": {
+                    "map": {
+                      "entries": [
+                        [
+                          { "literal": { "type": "string", "value": "total" } },
+                          { "var": "counter" }
+                        ]
+                      ],
+                      "type": ["string", "any"]
+                    }
+                  }
+                }
+              ],
+              "params": [
+                ["ctx", "workflow.Context"],
+                ["in", "map\u003cstring,any\u003e"]
+              ],
+              "returns": ["map\u003cstring,any\u003e"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "return": {
+        "literal": { "type": "null", "value": null }
+      }
+    }
+  ]
+}

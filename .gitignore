@@ -1,0 +1,34 @@
+/bin/
+/.run/
+.idea/
+.vscode/
+.DS_Store
+*.test
+*.out
+coverage*
+.env*
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+console/node_modules
+console/.next
+.claude
+
+# WASM 构建产物：由 `make wasm` 生成（replay.wasm 约 32MB，wasm_exec.js 从 GOROOT 复制），不进版本库。
+# 此前追踪的是一个 0 字节占位符，跑过构建后极易把真实二进制误提交进去。
+# 新 clone 后 `make dev` 会自动先构建它（Makefile 的 dev 依赖 wasm）。
+console/public/replay.wasm
+console/public/wasm_exec.js
+
+# agent tooling kept local
+.agents/
+
+# internal design notes kept local
+docs/internal/
+
+# CLI 测试在仓库内创建的临时 fixture 副本（进程被杀时可能残留）
+compiler/sdkgen/testdata/tmp-cli-*/
+sdk/worker/testdata/tmp-rename-*/
+
+# engineering log kept local
+CHANGELOG.md

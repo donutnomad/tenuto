@@ -1,0 +1,495 @@
+{
+  "schema": "wlang/program/v2",
+  "lang": "wflang/v1",
+  "program": [
+    {
+      "let": {
+        "version": {
+          "GetVersion": [
+            {
+              "pkg": "workflow"
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "literal": {
+                "type": "string",
+                "value": "charge-policy"
+              }
+            },
+            {
+              "literal": {
+                "type": "int64",
+                "value": "3"
+              }
+            },
+            {
+              "literal": {
+                "type": "int64",
+                "value": "4"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "note": {
+          "literal": {
+            "type": "string",
+            "value": "legacy"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "\u003e=": [
+            {
+              "var": "version"
+            },
+            {
+              "literal": {
+                "type": "int64",
+                "value": "4"
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "set": {
+              "note": {
+                "literal": {
+                  "type": "string",
+                  "value": "legacy"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "reserved": {
+          "zero": "activities.ReserveOutput"
+        }
+      }
+    },
+    {
+      "let": {
+        "err": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "activities.Reserve"
+                },
+                {
+                  "struct": [
+                    "activities.ReserveInput",
+                    {
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "reserved"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "activities.NotifyOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "bridgeOut1": {
+          "zero": "activities.ChargeOutput"
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "literal": {
+            "type": "boolean",
+            "value": "true"
+          }
+        },
+        "then": [
+          {
+            "let": {
+              "err": {
+                "Get": [
+                  {
+                    "ExecuteActivity": [
+                      {
+                        "pkg": "workflow"
+                      },
+                      {
+                        "var": "ctx"
+                      },
+                      {
+                        "symbol": "activities.Charge"
+                      },
+                      {
+                        "struct": [
+                          "activities.ChargeInput",
+                          {
+                            "OrderID": {
+                              "var": "in.OrderID"
+                            },
+                            "ReservationID": {
+                              "var": "reserved.ReservationID"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "struct": [
+                          "workflow.ActivityOptions",
+                          {
+                            "StartToCloseTimeout": {
+                              "literal": {
+                                "type": "int64",
+                                "value": "60000000000"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "var": "ctx"
+                  },
+                  {
+                    "out": "bridgeOut1"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "cond": {
+                "!=": [
+                  {
+                    "var": "err"
+                  },
+                  {
+                    "literal": {
+                      "type": "null",
+                      "value": null
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "return": {
+                    "tuple": [
+                      {
+                        "struct": [
+                          "activities.NotifyOutput",
+                          {}
+                        ]
+                      },
+                      {
+                        "var": "err"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "bridgeOut2": {
+          "zero": "activities.NotifyOutput"
+        }
+      }
+    },
+    {
+      "let": {
+        "bridgeErr1": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "activities.Notify"
+                },
+                {
+                  "struct": [
+                    "activities.NotifyInput",
+                    {
+                      "Note": {
+                        "var": "note"
+                      },
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "bridgeOut2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "return": {
+        "tuple": [
+          {
+            "var": "bridgeOut2"
+          },
+          {
+            "var": "bridgeErr1"
+          }
+        ]
+      }
+    }
+  ],
+  "imports": {
+    "activities": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities",
+    "workflow": "github.com/donutnomad/tenuto/sdk/workflow"
+  },
+  "types": {
+    "*github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ChargeOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ChargeOutput",
+      "language_name": "*activities.ChargeOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ChargeOutput",
+      "fingerprint": "4255d145c4fa2f75760b6bb928290772cba4e7f2c26476d6821ea718392b8626"
+    },
+    "*github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.NotifyOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.NotifyOutput",
+      "language_name": "*activities.NotifyOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.NotifyOutput",
+      "fingerprint": "eb3ac13caf6b77c4766c6a43931260842881eded91e01f3ef49afa85ee82ded5"
+    },
+    "*github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ReserveOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ReserveOutput",
+      "language_name": "*activities.ReserveOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ReserveOutput",
+      "fingerprint": "df19435fb70720791cd95e89669f8a5c52dea59421083c125d42b0b8c29b3aba"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ChargeInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ChargeInput",
+      "language_name": "activities.ChargeInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "ReservationID",
+          "json_name": "reservation_id",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "52cf4b903e96d8121fbf518f5933d2c17bbf9b0ed83b5f437d7ce4568385b3a8"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ChargeOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ChargeOutput",
+      "language_name": "activities.ChargeOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "ChargeID",
+          "json_name": "charge_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Policy",
+          "json_name": "policy",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "7fb222c09e7cfbeb043386c9e92f8bb992fdd1264aa2cdc6047fbcc0e58425e9"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.NotifyInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.NotifyInput",
+      "language_name": "activities.NotifyInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Note",
+          "json_name": "note",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "312d7f41c09cd2fc2afc37f52c4878995aa6294650ef90f92da790f9aaa4fec2"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.NotifyOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.NotifyOutput",
+      "language_name": "activities.NotifyOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Note",
+          "json_name": "note",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Delivered",
+          "json_name": "delivered",
+          "type_id": "boolean"
+        }
+      ],
+      "fingerprint": "8f28f17ab55805f3f961126cc33d4497466ea06004287fd0cacad89cbc9fa334"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ReserveInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ReserveInput",
+      "language_name": "activities.ReserveInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "be1c7fdb2db8c070c2a5751da11ed7d6ee499ae62abcf8ad5722f53c456379b8"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ReserveOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.ReserveOutput",
+      "language_name": "activities.ReserveOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "ReservationID",
+          "json_name": "reservation_id",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "85749f1533bdb931143182b39c07b69a49471f22b0292dbdd6cdde673a8033f5"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/v1.Input": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/v1.Input",
+      "language_name": "v1.Input",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "a0b9d450c27f6dd80658161706e11fb2b76f2504002ff871fb3baea172d7f0ae"
+    }
+  },
+  "entry": {
+    "input_var": "in",
+    "input": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/v1.Input",
+    "output": "github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities.NotifyOutput"
+  },
+  "handler_abi_schema": "workflow/update-handler-abi/v1"
+}

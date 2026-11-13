@@ -1,0 +1,450 @@
+{
+  "id": "cluster-steps",
+  "name": "Cluster Steps",
+  "policy": "auto_upgrade",
+  "version": "v1",
+  "program": {
+    "schema": "wlang/program/v2",
+    "lang": "wflang/v1",
+    "program": [
+      {
+        "let": {
+          "total": {
+            "literal": {
+              "type": "int64",
+              "value": "0"
+            }
+          }
+        }
+      },
+      {
+        "fori": {
+          "cond": {
+            "\u003c": [
+              {
+                "var": "i"
+              },
+              {
+                "var": "in.Steps"
+              }
+            ]
+          },
+          "do": [
+            {
+              "let": {
+                "out": {
+                  "zero": "steps.StepOutput"
+                }
+              }
+            },
+            {
+              "let": {
+                "err": {
+                  "Get": [
+                    {
+                      "ExecuteActivity": [
+                        {
+                          "pkg": "workflow"
+                        },
+                        {
+                          "var": "ctx"
+                        },
+                        {
+                          "symbol": "steps.Step"
+                        },
+                        {
+                          "struct": [
+                            "steps.StepInput",
+                            {
+                              "Key": {
+                                "var": "in.Key"
+                              },
+                              "Pad": {
+                                "var": "in.Pad"
+                              },
+                              "SleepMs": {
+                                "var": "in.ActivityMs"
+                              },
+                              "Step": {
+                                "Sprintf": [
+                                  {
+                                    "pkg": "fmt"
+                                  },
+                                  {
+                                    "literal": {
+                                      "type": "string",
+                                      "value": "step-%d"
+                                    }
+                                  },
+                                  {
+                                    "var": "i"
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "struct": [
+                            "workflow.ActivityOptions",
+                            {
+                              "RetryPolicy": {
+                                "struct": [
+                                  "workflow.RetryPolicy",
+                                  {
+                                    "BackoffCoefficient": {
+                                      "literal": {
+                                        "type": "float64",
+                                        "value": "2"
+                                      }
+                                    },
+                                    "InitialInterval": {
+                                      "literal": {
+                                        "type": "int64",
+                                        "value": "1000000000"
+                                      }
+                                    },
+                                    "MaxInterval": {
+                                      "literal": {
+                                        "type": "int64",
+                                        "value": "5000000000"
+                                      }
+                                    }
+                                  }
+                                ]
+                              },
+                              "StartToCloseTimeout": {
+                                "literal": {
+                                  "type": "int64",
+                                  "value": "10000000000"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "var": "ctx"
+                    },
+                    {
+                      "out": "out"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "cond": {
+                  "!=": [
+                    {
+                      "var": "err"
+                    },
+                    {
+                      "literal": {
+                        "type": "null",
+                        "value": null
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "return": {
+                      "tuple": [
+                        {
+                          "struct": [
+                            "steps.Output",
+                            {}
+                          ]
+                        },
+                        {
+                          "var": "err"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "set": {
+                "total": {
+                  "+": [
+                    {
+                      "var": "total"
+                    },
+                    {
+                      "var": "out.Value"
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "from": {
+            "literal": {
+              "type": "int64",
+              "value": "0"
+            }
+          },
+          "post": [
+            {
+              "set": {
+                "i": {
+                  "+": [
+                    {
+                      "var": "i"
+                    },
+                    {
+                      "literal": {
+                        "type": "int64",
+                        "value": "1"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "var": "i"
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "\u003e": [
+              {
+                "var": "in.TimerMs"
+              },
+              {
+                "literal": {
+                  "type": "int64",
+                  "value": "0"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "let": {
+                "err": {
+                  "Sleep": [
+                    {
+                      "pkg": "workflow"
+                    },
+                    {
+                      "var": "ctx"
+                    },
+                    {
+                      "*": [
+                        {
+                          "var": "in.TimerMs"
+                        },
+                        {
+                          "literal": {
+                            "type": "int64",
+                            "value": "1000000"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "cond": {
+                  "!=": [
+                    {
+                      "var": "err"
+                    },
+                    {
+                      "literal": {
+                        "type": "null",
+                        "value": null
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "return": {
+                      "tuple": [
+                        {
+                          "struct": [
+                            "steps.Output",
+                            {}
+                          ]
+                        },
+                        {
+                          "var": "err"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "return": {
+          "tuple": [
+            {
+              "struct": [
+                "steps.Output",
+                {
+                  "Steps": {
+                    "var": "in.Steps"
+                  },
+                  "Total": {
+                    "var": "total"
+                  }
+                }
+              ]
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "imports": {
+      "fmt": "fmt",
+      "workflow": "github.com/donutnomad/tenuto/sdk/workflow"
+    },
+    "types": {
+      "*github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.StepOutput": {
+        "id": "*github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.StepOutput",
+        "language_name": "*steps.StepOutput",
+        "kind": "pointer",
+        "elem": "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.StepOutput",
+        "fingerprint": "c426cd1654b234b5e2cb5c47bff5b71052e6ad996c01c12b4e523efb1f9c7fdf"
+      },
+      "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.Input": {
+        "id": "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.Input",
+        "language_name": "steps.Input",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Key",
+            "json_name": "key",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Steps",
+            "json_name": "steps",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "TimerMs",
+            "json_name": "timer_ms",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "ActivityMs",
+            "json_name": "activity_ms",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "Pad",
+            "json_name": "pad",
+            "type_id": "string",
+            "omitempty": true
+          }
+        ],
+        "fingerprint": "41a8635f08d9f872490ec53e64755896771667d880ef86e95f956dc4e7d8dcb5"
+      },
+      "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.Output": {
+        "id": "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.Output",
+        "language_name": "steps.Output",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Total",
+            "json_name": "total",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "Steps",
+            "json_name": "steps",
+            "type_id": "int64"
+          }
+        ],
+        "fingerprint": "fc454fc686d0bc211e98a76c1570ae3c958895137f91d57e4fd7d46240aaa011"
+      },
+      "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.StepInput": {
+        "id": "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.StepInput",
+        "language_name": "steps.StepInput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Key",
+            "json_name": "key",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Step",
+            "json_name": "step",
+            "type_id": "string"
+          },
+          {
+            "go_name": "SleepMs",
+            "json_name": "sleep_ms",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "Pad",
+            "json_name": "pad",
+            "type_id": "string",
+            "omitempty": true
+          }
+        ],
+        "fingerprint": "d9e1e0d67f9e30ad25355d3f769834595fb40f98cb19d2d7cb75c5602daab50a"
+      },
+      "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.StepOutput": {
+        "id": "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.StepOutput",
+        "language_name": "steps.StepOutput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Value",
+            "json_name": "value",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "Pad",
+            "json_name": "pad",
+            "type_id": "string",
+            "omitempty": true
+          }
+        ],
+        "fingerprint": "53548fb9666aba04f6f3e42bf48c590e68c464f9f9094f15dbedff45db144cba"
+      }
+    },
+    "entry": {
+      "input_var": "in",
+      "input": "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.Input",
+      "output": "github.com/donutnomad/tenuto/cmd/tenuto-cluster/workload/steps.Output"
+    },
+    "handler_abi_schema": "workflow/update-handler-abi/v1"
+  },
+  "activities": {
+    "steps.Step": {
+      "symbol": "steps.Step",
+      "type": "cluster.step",
+      "task_queue": "cluster",
+      "version": "v1",
+      "input": "wire:d1c8d4f763c1b5bd43068d43e6d7e15d",
+      "output": "wire:fc720f587f71e7bbcac40b86cca3f41e"
+    }
+  }
+}

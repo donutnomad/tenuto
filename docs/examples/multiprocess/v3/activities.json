@@ -1,0 +1,34 @@
+[
+  {
+    "type": "ledger.charge",
+    "version": "v1",
+    "input": "wire:9d410d1ffac558d341b2cc6e680934b5",
+    "output": "wire:a180799b1b6746827ebee43225041d9b",
+    "queue": "ledger",
+    "symbol": "contracts.ChargeRemoteActivity"
+  },
+  {
+    "type": "inventory.check",
+    "version": "v1",
+    "input": "wire:9d410d1ffac558d341b2cc6e680934b5",
+    "output": "wire:d6810d94b3b65b85bd3ce3bb3f3b6cc6",
+    "queue": "inventory",
+    "symbol": "contracts.CheckStockRemoteActivity"
+  },
+  {
+    "type": "inventory.hold",
+    "version": "v1",
+    "input": "wire:a5250fbc278bc7b2781ff4d2a74e06ce",
+    "output": "wire:9ec8d0a74e30a4a55f51d2738407b21b",
+    "queue": "inventory",
+    "symbol": "contracts.HoldStockRemoteActivity"
+  },
+  {
+    "type": "orders.finalize",
+    "version": "v1",
+    "input": "wire:4f4a1446fee502bfdc79c9911a854c71",
+    "output": "wire:73ed221888bf75928ffc6c6187927581",
+    "queue": "orders",
+    "symbol": "v3.Finalize"
+  }
+]

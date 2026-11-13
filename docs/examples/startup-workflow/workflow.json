@@ -1,0 +1,205 @@
+{
+  "id": "startup-greeting",
+  "name": "Startup Greeting",
+  "policy": "auto_upgrade",
+  "version": "v1",
+  "program": {
+    "schema": "wlang/program/v2",
+    "lang": "wflang/v1",
+    "program": [
+      {
+        "let": {
+          "out": {
+            "zero": "startupflow.SayHelloOutput"
+          }
+        }
+      },
+      {
+        "let": {
+          "err": {
+            "Get": [
+              {
+                "ExecuteActivity": [
+                  {
+                    "pkg": "workflow"
+                  },
+                  {
+                    "var": "ctx"
+                  },
+                  {
+                    "symbol": "startupflow.SayHello"
+                  },
+                  {
+                    "struct": [
+                      "startupflow.SayHelloInput",
+                      {
+                        "Name": {
+                          "var": "in.Name"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "struct": [
+                      "workflow.ActivityOptions",
+                      {
+                        "StartToCloseTimeout": {
+                          "literal": {
+                            "type": "int64",
+                            "value": "60000000000"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "var": "ctx"
+              },
+              {
+                "out": "out"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "!=": [
+              {
+                "var": "err"
+              },
+              {
+                "literal": {
+                  "type": "null",
+                  "value": null
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "return": {
+                "tuple": [
+                  {
+                    "struct": [
+                      "startupflow.GreetOutput",
+                      {}
+                    ]
+                  },
+                  {
+                    "var": "err"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "return": {
+          "tuple": [
+            {
+              "struct": [
+                "startupflow.GreetOutput",
+                {
+                  "Message": {
+                    "var": "out.Message"
+                  }
+                }
+              ]
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "imports": {
+      "workflow": "github.com/donutnomad/tenuto/sdk/workflow"
+    },
+    "types": {
+      "*github.com/donutnomad/tenuto/docs/examples/startup-workflow.SayHelloOutput": {
+        "id": "*github.com/donutnomad/tenuto/docs/examples/startup-workflow.SayHelloOutput",
+        "language_name": "*startupflow.SayHelloOutput",
+        "kind": "pointer",
+        "elem": "github.com/donutnomad/tenuto/docs/examples/startup-workflow.SayHelloOutput",
+        "fingerprint": "b80ac95e5c069d8734e7cc64e85847bb8d558ef21c329005966f5f1f06117d5c"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/startup-workflow.GreetInput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/startup-workflow.GreetInput",
+        "language_name": "startupflow.GreetInput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Name",
+            "json_name": "name",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "b07fe797b94857bca96d4f06b47202b9ebf26824bf79a2e5842a8a602e036ef8"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/startup-workflow.GreetOutput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/startup-workflow.GreetOutput",
+        "language_name": "startupflow.GreetOutput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Message",
+            "json_name": "message",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "17b2bb4c7e9985c3037bc124ad925a5b14177de3edea258c9c8490b5b62ab0f6"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/startup-workflow.SayHelloInput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/startup-workflow.SayHelloInput",
+        "language_name": "startupflow.SayHelloInput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Name",
+            "json_name": "name",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "795c01fac055725d518bd69db7e727513d05d4ff6bb44883c12fedea57c60621"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/startup-workflow.SayHelloOutput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/startup-workflow.SayHelloOutput",
+        "language_name": "startupflow.SayHelloOutput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Message",
+            "json_name": "message",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "383f8aa7d57733fc8350b3c69d56c640b13a1acf3350a83266e8edaf8747f82a"
+      }
+    },
+    "entry": {
+      "input_var": "in",
+      "input": "github.com/donutnomad/tenuto/docs/examples/startup-workflow.GreetInput",
+      "output": "github.com/donutnomad/tenuto/docs/examples/startup-workflow.GreetOutput"
+    },
+    "handler_abi_schema": "workflow/update-handler-abi/v1"
+  },
+  "activities": {
+    "startupflow.SayHello": {
+      "symbol": "startupflow.SayHello",
+      "type": "startup.say-hello",
+      "task_queue": "startup",
+      "version": "v1",
+      "input": "wire:8d283fefce40adb532c9d96f3710ba87",
+      "output": "wire:d45d4f71479edbbd527a9e44b9a68829"
+    }
+  }
+}

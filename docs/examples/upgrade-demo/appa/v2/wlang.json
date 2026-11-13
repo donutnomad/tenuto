@@ -1,0 +1,1025 @@
+{
+  "schema": "wlang/program/v2",
+  "lang": "wflang/v1",
+  "program": [
+    {
+      "let": {
+        "ticket": {
+          "RandomUUID": [
+            {
+              "pkg": "workflow"
+            },
+            {
+              "var": "ctx"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "stage": {
+          "literal": {
+            "type": "string",
+            "value": "inspecting"
+          }
+        }
+      }
+    },
+    {
+      "let": {
+        "err": {
+          "SetUpdateHandler": [
+            {
+              "pkg": "workflow"
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "literal": {
+                "type": "string",
+                "value": "open"
+              }
+            },
+            {
+              "fn": {
+                "do": [
+                  {
+                    "return": {
+                      "tuple": [
+                        {
+                          "struct": [
+                            "v2.OpenResult",
+                            {
+                              "Ticket": {
+                                "var": "ticket"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "literal": {
+                            "type": "null",
+                            "value": null
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": [
+                  [
+                    "ctx",
+                    "workflow.Context"
+                  ]
+                ],
+                "returns": [
+                  "v2.OpenResult",
+                  "error"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v2.ReturnOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "err": {
+          "SetQueryHandler": [
+            {
+              "pkg": "workflow"
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "literal": {
+                "type": "string",
+                "value": "status"
+              }
+            },
+            {
+              "fn": {
+                "do": [
+                  {
+                    "return": {
+                      "map": {
+                        "entries": [
+                          [
+                            {
+                              "literal": {
+                                "type": "string",
+                                "value": "stage"
+                              }
+                            },
+                            {
+                              "var": "stage"
+                            }
+                          ],
+                          [
+                            {
+                              "literal": {
+                                "type": "string",
+                                "value": "ticket"
+                              }
+                            },
+                            {
+                              "var": "ticket"
+                            }
+                          ]
+                        ],
+                        "type": [
+                          "string",
+                          "any"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "params": [
+                  [
+                    "ctx",
+                    "workflow.Context"
+                  ],
+                  [
+                    "_",
+                    "map\u003cstring,any\u003e"
+                  ]
+                ],
+                "returns": [
+                  "map\u003cstring,any\u003e"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v2.ReturnOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "inspected": {
+          "zero": "v2.InspectOutput"
+        }
+      }
+    },
+    {
+      "let": {
+        "err": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "v2.Inspect"
+                },
+                {
+                  "struct": [
+                    "v2.InspectInput",
+                    {
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "inspected"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v2.ReturnOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "notified": {
+          "literal": {
+            "type": "boolean",
+            "value": "false"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "GetVersion": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "literal": {
+                    "type": "string",
+                    "value": "notify-after-inspect"
+                  }
+                },
+                {
+                  "literal": {
+                    "type": "int64",
+                    "value": "-1"
+                  }
+                },
+                {
+                  "literal": {
+                    "type": "int64",
+                    "value": "1"
+                  }
+                }
+              ]
+            },
+            {
+              "literal": {
+                "type": "int64",
+                "value": "-1"
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "let": {
+              "sent": {
+                "zero": "v2.NotifyOutput"
+              }
+            }
+          },
+          {
+            "let": {
+              "err": {
+                "Get": [
+                  {
+                    "ExecuteActivity": [
+                      {
+                        "pkg": "workflow"
+                      },
+                      {
+                        "var": "ctx"
+                      },
+                      {
+                        "symbol": "v2.Notify"
+                      },
+                      {
+                        "struct": [
+                          "v2.NotifyInput",
+                          {
+                            "Condition": {
+                              "var": "inspected.Condition"
+                            },
+                            "OrderID": {
+                              "var": "in.OrderID"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "struct": [
+                          "workflow.ActivityOptions",
+                          {
+                            "StartToCloseTimeout": {
+                              "literal": {
+                                "type": "int64",
+                                "value": "60000000000"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "var": "ctx"
+                  },
+                  {
+                    "out": "sent"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "cond": {
+                "!=": [
+                  {
+                    "var": "err"
+                  },
+                  {
+                    "literal": {
+                      "type": "null",
+                      "value": null
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "return": {
+                    "tuple": [
+                      {
+                        "struct": [
+                          "v2.ReturnOutput",
+                          {}
+                        ]
+                      },
+                      {
+                        "var": "err"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "set": {
+              "notified": {
+                "var": "sent.Sent"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "set": {
+        "stage": {
+          "literal": {
+            "type": "string",
+            "value": "awaiting-parcel"
+          }
+        }
+      }
+    },
+    {
+      "let": {
+        "received": {
+          "zero": "map\u003cstring,any\u003e"
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "literal": {
+            "type": "boolean",
+            "value": "true"
+          }
+        },
+        "then": [
+          {
+            "let": {
+              "err": {
+                "Get": [
+                  {
+                    "WaitSignal": [
+                      {
+                        "pkg": "workflow"
+                      },
+                      {
+                        "var": "ctx"
+                      },
+                      {
+                        "literal": {
+                          "type": "string",
+                          "value": "received"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "var": "ctx"
+                  },
+                  {
+                    "out": "received"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "cond": {
+                "!=": [
+                  {
+                    "var": "err"
+                  },
+                  {
+                    "literal": {
+                      "type": "null",
+                      "value": null
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "return": {
+                    "tuple": [
+                      {
+                        "struct": [
+                          "v2.ReturnOutput",
+                          {}
+                        ]
+                      },
+                      {
+                        "var": "err"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "label": {
+          "zero": "v2.QuoteOutput"
+        }
+      }
+    },
+    {
+      "set": {
+        "err": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "v2.Quote"
+                },
+                {
+                  "struct": [
+                    "v2.QuoteInput",
+                    {
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      },
+                      "Qty": {
+                        "var": "in.Qty"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "label"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v2.ReturnOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "restocked": {
+          "zero": "v2.RestockOutput"
+        }
+      }
+    },
+    {
+      "set": {
+        "err": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "v2.Restock"
+                },
+                {
+                  "struct": [
+                    "v2.RestockInput",
+                    {
+                      "Condition": {
+                        "var": "inspected.Condition"
+                      },
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "restocked"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v2.ReturnOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "return": {
+        "tuple": [
+          {
+            "struct": [
+              "v2.ReturnOutput",
+              {
+                "Condition": {
+                  "var": "inspected.Condition"
+                },
+                "LabelFee": {
+                  "var": "label.Fee"
+                },
+                "Notified": {
+                  "var": "notified"
+                },
+                "QuotedBy": {
+                  "var": "label.ServedBy"
+                },
+                "Restocked": {
+                  "var": "restocked.Restocked"
+                },
+                "Ticket": {
+                  "var": "ticket"
+                }
+              }
+            ]
+          },
+          {
+            "literal": {
+              "type": "null",
+              "value": null
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "imports": {
+    "workflow": "github.com/donutnomad/tenuto/sdk/workflow"
+  },
+  "types": {
+    "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.InspectOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.InspectOutput",
+      "language_name": "*v2.InspectOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.InspectOutput",
+      "fingerprint": "777d46279c36243b2a0946e03d6fbd58d52f4197d6dc66181a3e215651fbabf9"
+    },
+    "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.NotifyOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.NotifyOutput",
+      "language_name": "*v2.NotifyOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.NotifyOutput",
+      "fingerprint": "5b42693bd236f11de821a2b6f758293cbaf4d3b2779d5a556a4bb7537479c5d2"
+    },
+    "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.QuoteOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.QuoteOutput",
+      "language_name": "*v2.QuoteOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.QuoteOutput",
+      "fingerprint": "3dcacef12a9baa27a227c5bfe25def7d5ec334dcbf6af79361b799659ebffaf0"
+    },
+    "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.RestockOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.RestockOutput",
+      "language_name": "*v2.RestockOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.RestockOutput",
+      "fingerprint": "0a5b1a4a466c633e71b0ec0ff956074fed6dc2846f7e0c6245b951d5656111cf"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.InspectInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.InspectInput",
+      "language_name": "v2.InspectInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "fa08da7d65678fa5cdbff449f2fe13907f0edcd6245c96322abfc55943538932"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.InspectOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.InspectOutput",
+      "language_name": "v2.InspectOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "Condition",
+          "json_name": "condition",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "4a806bb90e6e8aaee7c3aa2c08142921ba29ec3b6557d53b44a2d4b6f0bd202e"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.NotifyInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.NotifyInput",
+      "language_name": "v2.NotifyInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Condition",
+          "json_name": "condition",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "92fc9e8d90cb7336672544c2464c2a6454484d4abf7238c52f39f96b163dd00a"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.NotifyOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.NotifyOutput",
+      "language_name": "v2.NotifyOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "Sent",
+          "json_name": "sent",
+          "type_id": "boolean"
+        }
+      ],
+      "fingerprint": "4beec3b38d4a52ca0f4958ef429a42aac5dcd207f0c397c5a5a685ac4ac8e30e"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.OpenResult": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.OpenResult",
+      "language_name": "v2.OpenResult",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "Ticket",
+          "json_name": "ticket",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "69d72994f376ef3ebbfdba2583f788d58a021ed669a429ac701faddead4bd439"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.QuoteInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.QuoteInput",
+      "language_name": "v2.QuoteInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Qty",
+          "json_name": "qty",
+          "type_id": "int64"
+        }
+      ],
+      "fingerprint": "9cdabe6e20b19ea95f723e58062c10c0360499eaca8bc72ef9eff60d7b3c4ce1"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.QuoteOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.QuoteOutput",
+      "language_name": "v2.QuoteOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "Fee",
+          "json_name": "fee",
+          "type_id": "int64"
+        },
+        {
+          "go_name": "ServedBy",
+          "json_name": "served_by",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "ce291b97d4cb2278c72a330f751f9bf6ce577ca1e306249170e18f13056e43e6"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.RestockInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.RestockInput",
+      "language_name": "v2.RestockInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Condition",
+          "json_name": "condition",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "d6c77cd62d8cc9712b53f4d3aebf237724b3286d83f06748d5bdc8c36b4b0ec4"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.RestockOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.RestockOutput",
+      "language_name": "v2.RestockOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "Restocked",
+          "json_name": "restocked",
+          "type_id": "boolean"
+        }
+      ],
+      "fingerprint": "5dbd92b04a89b2b2f07bd8022c3a05bec9b7685ec569e3e00cbe23942ebadeb5"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.ReturnInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.ReturnInput",
+      "language_name": "v2.ReturnInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Qty",
+          "json_name": "qty",
+          "type_id": "int64"
+        }
+      ],
+      "fingerprint": "f4fc60e31900ab798bc3ad14a5be7786a639fda327be26d613b7e25bddda9168"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.ReturnOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.ReturnOutput",
+      "language_name": "v2.ReturnOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "Ticket",
+          "json_name": "ticket",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Condition",
+          "json_name": "condition",
+          "type_id": "string"
+        },
+        {
+          "go_name": "LabelFee",
+          "json_name": "label_fee",
+          "type_id": "int64"
+        },
+        {
+          "go_name": "QuotedBy",
+          "json_name": "quoted_by",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Restocked",
+          "json_name": "restocked",
+          "type_id": "boolean"
+        },
+        {
+          "go_name": "Notified",
+          "json_name": "notified",
+          "type_id": "boolean"
+        }
+      ],
+      "fingerprint": "b873c4622d73ad8d46900457d4373fd2b185299718345d21e74623931a8b7d42"
+    }
+  },
+  "entry": {
+    "input_var": "in",
+    "input": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.ReturnInput",
+    "output": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appa/v2.ReturnOutput"
+  },
+  "handler_abi_schema": "workflow/update-handler-abi/v1"
+}

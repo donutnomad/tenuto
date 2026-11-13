@@ -1,0 +1,42 @@
+[
+  {
+    "type": "orders.price",
+    "version": "v1",
+    "input": "wire:75ec047172ce4a09eb9843e95c665094",
+    "output": "wire:0898cc8107ff28c7966e8689d55decbc",
+    "queue": "orders",
+    "symbol": "v2.Price"
+  },
+  {
+    "type": "fulfillment.quote",
+    "version": "v2",
+    "input": "wire:aa89548036d83cd03cda421878c4dd91",
+    "output": "wire:9ee1ccfb36f5fc9cc84a49436179a128",
+    "queue": "fulfillment",
+    "symbol": "v2.QuoteRemoteActivity"
+  },
+  {
+    "type": "fulfillment.reserve",
+    "version": "v1",
+    "input": "wire:ca79189195eccac12b159552f2a291cf",
+    "output": "wire:4d95f174e258133e1ba8be02e1b3027f",
+    "queue": "fulfillment",
+    "symbol": "v2.ReserveRemoteActivity"
+  },
+  {
+    "type": "fulfillment.ship",
+    "version": "v1",
+    "input": "wire:c70fc6b00b17478e7e0abf9664cb0949",
+    "output": "wire:53ce38a4f6a517afd63a7d66213e07c9",
+    "queue": "fulfillment",
+    "symbol": "v2.ShipRemoteActivity"
+  },
+  {
+    "type": "fulfillment.ship-v2",
+    "version": "v1",
+    "input": "wire:f64e2c79052aa39da8c7e5af343a961c",
+    "output": "wire:75390e33802bf02cc618b54bd7043a7e",
+    "queue": "fulfillment",
+    "symbol": "v2.ShipV2RemoteActivity"
+  }
+]

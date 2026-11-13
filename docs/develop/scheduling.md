@@ -1,0 +1,163 @@
+---
+title: Schedule 与定时启动
+description: 用 cron 表达式周期启动 Workflow：创建、暂停、手动触发与错过触发的处理
+status: Preview
+---
+
+# Schedule 与定时启动
+
+<FeatureStatus status="Preview" />
+
+Schedule 按 cron 表达式周期启动 Workflow Run，适合对账、数据同步和定期清理。Schedule 保存在 Server，调度器重启后从持久化状态恢复。
+
+## 创建 Schedule
+
+```go
+import "github.com/donutnomad/tenuto/sdk/client"
+
+c, err := client.Dial(client.Options{HostPort: serverURL, Namespace: "orders"})
+if err != nil {
+    return err
+}
+defer c.Close()
+
+handle, err := c.ScheduleClient().Create(ctx, client.ScheduleOptions{
+    WorkflowType:   "daily-reconcile",
+    Description:    "每日对账",
+    CronExpression: "30 2 * * *",
+    TimeZone:       "Asia/Shanghai",
+    Args:           []any{map[string]any{"scope": "all"}},
+    OverlapPolicy:  client.ScheduleOverlapPolicySkip,
+})
+scheduleID := handle.GetID() // 由 Server 生成
+```
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `WorkflowType` | 是 | 要启动的 Workflow Type，即 `@Workflow` 的 `id`（HTTP 字段 `workflow_type`） |
+| `CronExpression` | 是 | 5 段 cron 表达式 |
+| `TimeZone` | 否 | IANA 时区名，例如 `Asia/Shanghai`；空值为 UTC |
+| `Args` | 否 | 至多一个，编码成 JSON 对象作为每次启动的 Workflow 输入 |
+| `OverlapPolicy` | 否 | `ScheduleOverlapPolicySkip`（`SKIP`，缺省）或 `ScheduleOverlapPolicyAllowAll`（`ALLOW_ALL`）；其他值创建失败 |
+| `Paused` | 否 | 创建后处于暂停状态 |
+| `Description` | 否 | 说明文字 |
+
+Schedule 与它启动的 Run 在 Client 的 Namespace 里。
+
+## cron 表达式
+
+表达式固定 5 段，以空白分隔：
+
+```text
+分钟(0-59) 小时(0-23) 日(1-31) 月(1-12) 星期(0-6，0 为周日)
+```
+
+每段支持 `*`、`*/N`、单个数值 `N`、范围 `N-M` 和逗号分隔的组合。最小粒度是分钟。日与星期两段都以 `*` 开头之外的写法限定时，满足其中任意一段的日期即触发（`0 0 13 * 5` 是每月 13 日和每个周五）；只限定其中一段时按该段匹配。段数不是 5 或数值越界时创建失败并返回 `invalid cron_expression`。
+
+| 表达式 | 含义 |
+| --- | --- |
+| `*/5 * * * *` | 每 5 分钟 |
+| `0 * * * *` | 每小时整点 |
+| `30 2 * * *` | 每天 02:30 |
+| `0 9 * * 1-5` | 周一到周五 09:00 |
+
+## Overlap Policy
+
+Overlap Policy 决定上一次触发的 Run 仍在运行时这次触发怎么处理，语义与 Temporal Schedule 的同名策略一致。
+
+| 取值 | 行为 |
+| --- | --- |
+| `SKIP`（缺省） | 上一次触发的 Run 仍在运行时跳过本次触发 |
+| `ALLOW_ALL` | 每次触发都启动新 Run，与仍在运行的 Run 并行 |
+
+- 取值区分大小写。创建或更新时给出其他值（包括小写的 `skip`、Temporal 的 `BUFFER_ONE`、`CANCEL_OTHER`、`TERMINATE_OTHER`）返回 `invalid overlap_policy`（HTTP 400），Schedule 保持原值。
+- 「仍在运行」按上一次触发的 Run 所在 Workflow ID 的 current Run 判定：那个 Run 经 [Continue-As-New](/develop/continue-as-new)、失败重试或 Reset 接续时，看的是接续的那一代。整条链结束之后下一个到期点才启动新 Run。
+- 读取上一次 Run 的状态失败时跳过本次触发；上一次的 Run 已被清理（不存在）时视为已结束。
+- 一次触发从不接替仍在运行的 Run：每次触发都有自己的 Workflow ID（见下一节）。
+
+执行时间可能超过周期的任务使用 `SKIP`，保证同一 Schedule 同一时刻只有一条执行链。
+
+## Schedule 的 Run 如何命名
+
+每次触发启动的 Run 有自己的 Workflow ID：`schedule-<Schedule ID>-<触发时刻>`，触发时刻是 UTC、精确到秒的 RFC 3339 时间，例如 `schedule-6f1c...-2026-11-10T02:30:00Z`。到期触发取 cron 到期点，`Trigger` 取调用时刻。Workflow Type 是创建时给出的 `WorkflowType`。
+
+- Signal、Query、Update、Cancel 按这个 Workflow ID 寻址到这次触发（及它 Continue-As-New 的后续 Run）。最近一次触发的 Run ID 在 Schedule 的 `LastRunID`。
+- 一个 Schedule 的全部 Run 的 Workflow ID 都以 `schedule-<Schedule ID>-` 开头；Run 列表按 Workflow ID 过滤时给出完整的 Workflow ID（某一次触发）。按 Schedule 列出全部 Run 用下一节的搜索属性。
+- 同一个到期点重复启动（例如上一次启动已提交、应答丢失后的重试）落在同一个 Workflow ID 上：那个 Run 仍在运行时不会再启动第二个。
+- 两个 Schedule 指向同一个 Workflow Type 时 Workflow ID 互不相同；手动 `ExecuteWorkflow` 同一个类型也不受 Schedule 的 Run 影响。
+
+## 找到一个 Schedule 的全部 Run
+
+Schedule 启动的 Run 带两个由 Server 写入的搜索属性，键与 Temporal 相同：
+
+| 键 | 值 |
+| --- | --- |
+| `TemporalScheduledById` | Schedule ID |
+| `TemporalScheduledStartTime` | 名义触发时间：到期触发是 cron 到期点，`Trigger` 是调用时刻；UTC、精确到秒的 RFC 3339 文本，与 Workflow ID 里的时间相同 |
+
+两个键写在 `WorkflowStarted` 的启动搜索属性里，Continue-As-New 与重试产生的 Run 照常继承，所以按 `TemporalScheduledById` 过滤得到这个 Schedule 启动的全部执行链。调用端写入这两个键返回 `ErrInvalidArgument`。
+
+```go
+runs, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
+    SearchAttributes: map[string]string{"TemporalScheduledById": scheduleID},
+    NewestFirst:      true,
+})
+
+// 批量操作用同一个过滤条件，例如删除 Schedule 后终止它仍在运行的 Run
+op, err := c.StartBatchOperation(ctx, client.StartBatchOperationOptions{
+    Type:   client.BatchOperationTypeTerminate,
+    Filter: client.ListWorkflowOptions{SearchAttributes: map[string]string{"TemporalScheduledById": scheduleID}},
+    Reason: "schedule retired",
+})
+```
+
+Console 的 Schedules 页面上，Run Count 链接到按这个 Schedule 过滤的 Runs 列表（`/<namespace>/runs?schedule_id=<Schedule ID>`）。
+
+## 管理 Schedule
+
+```go
+handle := c.ScheduleClient().GetHandle(ctx, scheduleID)
+description, err := handle.Describe(ctx)
+
+cron := "0 3 * * *"
+err = handle.Update(ctx, client.ScheduleUpdateOptions{CronExpression: &cron})
+
+err = handle.Pause(ctx)
+err = handle.Unpause(ctx)
+
+run, err := handle.Trigger(ctx) // 返回这次启动的 WorkflowRun
+
+list, err := c.ScheduleClient().List(ctx, client.ScheduleListOptions{})
+
+err = handle.Delete(ctx)
+```
+
+| 操作 | 行为 |
+| --- | --- |
+| `Update` | 只修改非 nil 字段；cron 或时区变化且未暂停时重算下一次执行时间 |
+| `Pause` | 停止触发并清空下一次执行时间；已启动的 Run 继续执行 |
+| `Unpause` | 从当前时间起重算下一次执行时间 |
+| `Trigger` | 立即启动一次并返回它的 `WorkflowRun`，同样遵守 Overlap Policy：`SKIP` 下上一次触发的 Run 仍在运行时返回 `ErrConflict`（`previous scheduled run is still running`，HTTP 409）；启动失败时返回错误，下一次执行时间保持原值 |
+| `Delete` | 删除 Schedule |
+
+`Describe` 返回的 `ScheduleDescription` 包含 `NextRunAt`、`LastRunAt`、`LastRunID` 和 `RunCount`，用于观察执行情况。
+
+## 触发流程与错过触发
+
+调度器处理到期的 Schedule：
+
+1. 到期点落后当前时间超过 1 小时：跳过触发，只把下一次执行时间推进到未来。
+2. 用 CAS 推进下一次执行时间；多个 Server 副本中只有一个推进成功并继续。
+3. `SKIP` 策略下检查上一次触发的执行链是否仍在运行，仍在运行就跳过这个到期点。
+4. 启动 Workflow，记录 `LastRunAt`、`LastRunID`、`RunCount`。启动失败时把下一次执行时间恢复为本次到期点，调度器在下一轮扫描重试这一次触发；这个到期点的 Run 已经在运行时（上一次启动其实已提交）不再重试。
+
+Server 停机或数据库不可用期间错过的到期点，恢复后最多补触发一次（落在 1 小时窗口内的那一次），更早的到期点不补跑。需要补齐每个周期的业务在 Workflow 输入或业务数据库里记录处理进度，由 Workflow 自己计算要处理的区间。
+
+## 周期任务设计
+
+- Activity 写入使用幂等键，允许触发与网络重试。
+- Workflow 内的当前时间取 `workflow.Now(ctx)`，业务日期由 Activity 根据处理进度计算。
+- 长期运行的周期 Workflow 用 [Continue-As-New](/develop/continue-as-new) 控制 History 大小。
+- 用 Schedule 表达「周期启动」，用 Workflow 内的 `workflow.Sleep` 表达「一次 Run 内的等待」。
+
+运维侧内容见 [Schedule 运维](/operations/schedules)。

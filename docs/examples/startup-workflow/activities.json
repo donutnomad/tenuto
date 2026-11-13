@@ -1,0 +1,10 @@
+[
+  {
+    "type": "startup.say-hello",
+    "version": "v1",
+    "input": "wire:8d283fefce40adb532c9d96f3710ba87",
+    "output": "wire:d45d4f71479edbbd527a9e44b9a68829",
+    "queue": "startup",
+    "symbol": "startupflow.SayHello"
+  }
+]

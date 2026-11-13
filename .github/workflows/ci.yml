@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOWORK: "off"
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Generate
+        run: go generate ./...
+      - name: Check generated files are committed
+        run: git diff --exit-code
+      - name: Vet
+        run: go vet ./...
+      # Runs on the in-memory backend; tests gated by TENUTO_TEST_MYSQL skip here
+      # and run in the mysql job.
+      - name: Test
+        run: go test ./...
+
+  mysql:
+    name: Go (MySQL)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      TENUTO_TEST_MYSQL: "1"
+      # Each test creates its own database and builds it with the migrations in
+      # server/infra/sql/migrations (TaskQ tests: server/infra/sql/taskq_migrations).
+      TENUTO_TEST_MYSQL_DSN: root@tcp(127.0.0.1:3306)/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test ./server/... -count=1
+
+  console:
+    name: Console
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: console/pnpm-lock.yaml
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Unit tests
+        run: pnpm test
+      - name: Build replay WASM
+        working-directory: .
+        run: make wasm
+      # next build also writes next-env.d.ts, which the standalone type check needs.
+      - name: Build
+        run: pnpm build
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: docs/pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Check pages and links
+        run: pnpm check
+      - name: Build
+        run: pnpm build

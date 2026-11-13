@@ -1,0 +1,15 @@
+# pnpm 11 读 allowBuilds，pnpm 10 读 ignoredBuiltDependencies：这几个包的安装脚本都不需要运行（预编译二进制随可选依赖安装）。
+allowBuilds:
+  esbuild: false
+  sharp: false
+  unrs-resolver: false
+ignoredBuiltDependencies:
+  - esbuild
+  - sharp
+  - unrs-resolver
+# next 的构建期传递依赖有已公开的漏洞（browserslist GHSA-c83g-rgw3-j3cx / GHSA-73wf-gq98-2v4g、source-map-js
+# GHSA-68fv-2mgg-jv7q、baseline-browser-mapping GHSA-w5vr-8v7q-w6rv），钉到修复版本；next 升级带上修复版本后删除。
+overrides:
+  browserslist: 4.29.5
+  source-map-js: 1.2.2
+  baseline-browser-mapping: 2.11.34

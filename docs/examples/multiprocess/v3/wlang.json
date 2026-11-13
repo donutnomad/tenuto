@@ -1,0 +1,690 @@
+{
+  "schema": "wlang/program/v2",
+  "lang": "wflang/v1",
+  "program": [
+    {
+      "expr": {
+        "GetVersion": [
+          {
+            "pkg": "workflow"
+          },
+          {
+            "var": "ctx"
+          },
+          {
+            "literal": {
+              "type": "string",
+              "value": "order-flow-changes"
+            }
+          },
+          {
+            "literal": {
+              "type": "int64",
+              "value": "7"
+            }
+          },
+          {
+            "literal": {
+              "type": "int64",
+              "value": "7"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "stock": {
+          "zero": "contracts.CheckStockOutput"
+        }
+      }
+    },
+    {
+      "let": {
+        "err": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "contracts.CheckStockRemoteActivity"
+                },
+                {
+                  "struct": [
+                    "contracts.CheckStockInput",
+                    {
+                      "Amount": {
+                        "var": "in.Amount"
+                      },
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "stock"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v3.OrderOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "hold": {
+          "zero": "contracts.HoldStockOutput"
+        }
+      }
+    },
+    {
+      "set": {
+        "err": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "contracts.HoldStockRemoteActivity"
+                },
+                {
+                  "struct": [
+                    "contracts.HoldStockInput",
+                    {
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      },
+                      "StockID": {
+                        "var": "stock.StockID"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "hold"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v3.OrderOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "charged": {
+          "zero": "contracts.ChargeOutput"
+        }
+      }
+    },
+    {
+      "set": {
+        "err": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "contracts.ChargeRemoteActivity"
+                },
+                {
+                  "struct": [
+                    "contracts.ChargeInput",
+                    {
+                      "Amount": {
+                        "var": "in.Amount"
+                      },
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "charged"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v3.OrderOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "let": {
+        "out": {
+          "zero": "v3.FinalizeOutput"
+        }
+      }
+    },
+    {
+      "set": {
+        "err": {
+          "Get": [
+            {
+              "ExecuteActivity": [
+                {
+                  "pkg": "workflow"
+                },
+                {
+                  "var": "ctx"
+                },
+                {
+                  "symbol": "v3.Finalize"
+                },
+                {
+                  "struct": [
+                    "v3.FinalizeInput",
+                    {
+                      "HoldID": {
+                        "var": "hold.HoldID"
+                      },
+                      "OrderID": {
+                        "var": "in.OrderID"
+                      },
+                      "Receipt": {
+                        "var": "charged.ChargeID"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "struct": [
+                    "workflow.ActivityOptions",
+                    {
+                      "StartToCloseTimeout": {
+                        "literal": {
+                          "type": "int64",
+                          "value": "60000000000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "out": "out"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "cond": {
+          "!=": [
+            {
+              "var": "err"
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        },
+        "then": [
+          {
+            "return": {
+              "tuple": [
+                {
+                  "struct": [
+                    "v3.OrderOutput",
+                    {}
+                  ]
+                },
+                {
+                  "var": "err"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "return": {
+        "tuple": [
+          {
+            "struct": [
+              "v3.OrderOutput",
+              {
+                "HoldID": {
+                  "var": "hold.HoldID"
+                },
+                "Note": {
+                  "literal": {
+                    "type": "string",
+                    "value": "strict-v3"
+                  }
+                },
+                "OrderID": {
+                  "var": "in.OrderID"
+                },
+                "Receipt": {
+                  "var": "charged.ChargeID"
+                },
+                "Status": {
+                  "var": "out.Status"
+                },
+                "StockID": {
+                  "var": "stock.StockID"
+                }
+              }
+            ]
+          },
+          {
+            "literal": {
+              "type": "null",
+              "value": null
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "imports": {
+    "contracts": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts",
+    "workflow": "github.com/donutnomad/tenuto/sdk/workflow"
+  },
+  "types": {
+    "*github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.ChargeOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.ChargeOutput",
+      "language_name": "*contracts.ChargeOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.ChargeOutput",
+      "fingerprint": "4540db3feb9c2e4fa70713914187094c0f68af7e78be3c659bce7fa01266cf1a"
+    },
+    "*github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.CheckStockOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.CheckStockOutput",
+      "language_name": "*contracts.CheckStockOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.CheckStockOutput",
+      "fingerprint": "4e73b8a044db2fecbf43c8ccdb53b7331b18e1ea1897f59ff98970fee0efad50"
+    },
+    "*github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.HoldStockOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.HoldStockOutput",
+      "language_name": "*contracts.HoldStockOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.HoldStockOutput",
+      "fingerprint": "70475b1f025e081fe13d8d73493b230005d75a86065abef46ccd2e37ae9563b2"
+    },
+    "*github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.FinalizeOutput": {
+      "id": "*github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.FinalizeOutput",
+      "language_name": "*v3.FinalizeOutput",
+      "kind": "pointer",
+      "elem": "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.FinalizeOutput",
+      "fingerprint": "8fccb48f3976baa19db3be0a3147c87ceadb78d367820798c5333f6a0dd482b7"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.ChargeInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.ChargeInput",
+      "language_name": "contracts.ChargeInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Amount",
+          "json_name": "amount",
+          "type_id": "int64"
+        }
+      ],
+      "fingerprint": "efe91c0880aabff0a6b0263a7f44503180582acbc7a87f581c8f299d73353882"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.ChargeOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.ChargeOutput",
+      "language_name": "contracts.ChargeOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "ChargeID",
+          "json_name": "charge_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Remote",
+          "json_name": "remote",
+          "type_id": "boolean"
+        }
+      ],
+      "fingerprint": "a42ce29eb9da992776605110270ad90190165a5af829071efb928c17e6c6e7e2"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.CheckStockInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.CheckStockInput",
+      "language_name": "contracts.CheckStockInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Amount",
+          "json_name": "amount",
+          "type_id": "int64"
+        }
+      ],
+      "fingerprint": "254800c7421d0a04e41d446bcca45d4d38112ab3b8387446ac97857913a4a65c"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.CheckStockOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.CheckStockOutput",
+      "language_name": "contracts.CheckStockOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "StockID",
+          "json_name": "stock_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Location",
+          "json_name": "location",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "eb891bc88a1683dd9ec66174cbd67f090250a2bf5cbe24fa39c91eaa8c27989d"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.HoldStockInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.HoldStockInput",
+      "language_name": "contracts.HoldStockInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "StockID",
+          "json_name": "stock_id",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "95f86734b96027f22dd7484072fcc80ec274b8e59c9f0942b8956ef4dab4fe85"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.HoldStockOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/contracts.HoldStockOutput",
+      "language_name": "contracts.HoldStockOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "HoldID",
+          "json_name": "hold_id",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "937da5e93be8f91e3c5d3e38dca2cc2f0a7f8253fe70c4d8b66c58da96757f98"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.FinalizeInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.FinalizeInput",
+      "language_name": "v3.FinalizeInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "HoldID",
+          "json_name": "hold_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Receipt",
+          "json_name": "receipt",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "297c43bea4a658085b21f04d90255370b9235e57c7dede73319bf899001e7d4d"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.FinalizeOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.FinalizeOutput",
+      "language_name": "v3.FinalizeOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "Status",
+          "json_name": "status",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "c19b710a9963a88f9cf51b35a45eb99b21e67ec0582b3a7b3c855af829bdb4ba"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.OrderInput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.OrderInput",
+      "language_name": "v3.OrderInput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Amount",
+          "json_name": "amount",
+          "type_id": "int64"
+        }
+      ],
+      "fingerprint": "9298a19d0b408395b21fd15a78ca7c1a2a77c42db52ad08faec08d6b83fd3e46"
+    },
+    "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.OrderOutput": {
+      "id": "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.OrderOutput",
+      "language_name": "v3.OrderOutput",
+      "kind": "record",
+      "fields": [
+        {
+          "go_name": "OrderID",
+          "json_name": "order_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Status",
+          "json_name": "status",
+          "type_id": "string"
+        },
+        {
+          "go_name": "StockID",
+          "json_name": "stock_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "HoldID",
+          "json_name": "hold_id",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Receipt",
+          "json_name": "receipt",
+          "type_id": "string"
+        },
+        {
+          "go_name": "Note",
+          "json_name": "note",
+          "type_id": "string"
+        }
+      ],
+      "fingerprint": "7930bfcc72f958e6bc06e7baee1c79efa66a5c607bfcada46dd53244a4030bd8"
+    }
+  },
+  "entry": {
+    "input_var": "in",
+    "input": "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.OrderInput",
+    "output": "github.com/donutnomad/tenuto/docs/examples/multiprocess/v3.OrderOutput"
+  },
+  "handler_abi_schema": "workflow/update-handler-abi/v1"
+}

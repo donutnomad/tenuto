@@ -1,0 +1,1754 @@
+{
+  "id": "order-flow",
+  "name": "Order Flow",
+  "policy": "auto_upgrade",
+  "version": "v2",
+  "program": {
+    "schema": "wlang/program/v2",
+    "lang": "wflang/v1",
+    "program": [
+      {
+        "let": {
+          "orderRef": {
+            "RandomUUID": [
+              {
+                "pkg": "workflow"
+              },
+              {
+                "var": "ctx"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "let": {
+          "placedAt": {
+            "Now": [
+              {
+                "pkg": "workflow"
+              },
+              {
+                "var": "ctx"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "let": {
+          "stage": {
+            "literal": {
+              "type": "string",
+              "value": "pricing"
+            }
+          }
+        }
+      },
+      {
+        "let": {
+          "amount": {
+            "literal": {
+              "type": "int64",
+              "value": "0"
+            }
+          }
+        }
+      },
+      {
+        "let": {
+          "err": {
+            "SetUpdateHandler": [
+              {
+                "pkg": "workflow"
+              },
+              {
+                "var": "ctx"
+              },
+              {
+                "literal": {
+                  "type": "string",
+                  "value": "place"
+                }
+              },
+              {
+                "fn": {
+                  "do": [
+                    {
+                      "return": {
+                        "tuple": [
+                          {
+                            "struct": [
+                              "v2.PlaceResult",
+                              {
+                                "OrderRef": {
+                                  "var": "orderRef"
+                                },
+                                "PlacedAt": {
+                                  "Format": [
+                                    {
+                                      "var": "placedAt"
+                                    },
+                                    {
+                                      "literal": {
+                                        "type": "string",
+                                        "value": "2006-01-02T15:04:05Z07:00"
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "literal": {
+                              "type": "null",
+                              "value": null
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "params": [
+                    [
+                      "ctx",
+                      "workflow.Context"
+                    ]
+                  ],
+                  "returns": [
+                    "v2.PlaceResult",
+                    "error"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "!=": [
+              {
+                "var": "err"
+              },
+              {
+                "literal": {
+                  "type": "null",
+                  "value": null
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "return": {
+                "tuple": [
+                  {
+                    "struct": [
+                      "v2.OrderOutput",
+                      {}
+                    ]
+                  },
+                  {
+                    "var": "err"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "let": {
+          "err": {
+            "SetQueryHandler": [
+              {
+                "pkg": "workflow"
+              },
+              {
+                "var": "ctx"
+              },
+              {
+                "literal": {
+                  "type": "string",
+                  "value": "status"
+                }
+              },
+              {
+                "fn": {
+                  "do": [
+                    {
+                      "return": {
+                        "map": {
+                          "entries": [
+                            [
+                              {
+                                "literal": {
+                                  "type": "string",
+                                  "value": "stage"
+                                }
+                              },
+                              {
+                                "var": "stage"
+                              }
+                            ],
+                            [
+                              {
+                                "literal": {
+                                  "type": "string",
+                                  "value": "order_ref"
+                                }
+                              },
+                              {
+                                "var": "orderRef"
+                              }
+                            ],
+                            [
+                              {
+                                "literal": {
+                                  "type": "string",
+                                  "value": "amount"
+                                }
+                              },
+                              {
+                                "var": "amount"
+                              }
+                            ]
+                          ],
+                          "type": [
+                            "string",
+                            "any"
+                          ]
+                        }
+                      }
+                    }
+                  ],
+                  "params": [
+                    [
+                      "ctx",
+                      "workflow.Context"
+                    ],
+                    [
+                      "_",
+                      "map\u003cstring,any\u003e"
+                    ]
+                  ],
+                  "returns": [
+                    "map\u003cstring,any\u003e"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "!=": [
+              {
+                "var": "err"
+              },
+              {
+                "literal": {
+                  "type": "null",
+                  "value": null
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "return": {
+                "tuple": [
+                  {
+                    "struct": [
+                      "v2.OrderOutput",
+                      {}
+                    ]
+                  },
+                  {
+                    "var": "err"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "let": {
+          "shipVersion": {
+            "GetVersion": [
+              {
+                "pkg": "workflow"
+              },
+              {
+                "var": "ctx"
+              },
+              {
+                "literal": {
+                  "type": "string",
+                  "value": "ship-address-split"
+                }
+              },
+              {
+                "literal": {
+                  "type": "int64",
+                  "value": "-1"
+                }
+              },
+              {
+                "literal": {
+                  "type": "int64",
+                  "value": "1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "let": {
+          "priced": {
+            "zero": "v2.PriceOutput"
+          }
+        }
+      },
+      {
+        "let": {
+          "err": {
+            "Get": [
+              {
+                "ExecuteActivity": [
+                  {
+                    "pkg": "workflow"
+                  },
+                  {
+                    "var": "ctx"
+                  },
+                  {
+                    "symbol": "v2.Price"
+                  },
+                  {
+                    "struct": [
+                      "v2.PriceInput",
+                      {
+                        "Qty": {
+                          "var": "in.Qty"
+                        },
+                        "SKU": {
+                          "var": "in.SKU"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "struct": [
+                      "workflow.ActivityOptions",
+                      {
+                        "RetryPolicy": {
+                          "struct": [
+                            "workflow.RetryPolicy",
+                            {
+                              "BackoffCoefficient": {
+                                "literal": {
+                                  "type": "float64",
+                                  "value": "2"
+                                }
+                              },
+                              "InitialInterval": {
+                                "literal": {
+                                  "type": "int64",
+                                  "value": "200000000"
+                                }
+                              },
+                              "MaxAttempts": {
+                                "literal": {
+                                  "type": "int64",
+                                  "value": "3"
+                                }
+                              },
+                              "MaxInterval": {
+                                "literal": {
+                                  "type": "int64",
+                                  "value": "2000000000"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        "StartToCloseTimeout": {
+                          "literal": {
+                            "type": "int64",
+                            "value": "10000000000"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "var": "ctx"
+              },
+              {
+                "out": "priced"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "!=": [
+              {
+                "var": "err"
+              },
+              {
+                "literal": {
+                  "type": "null",
+                  "value": null
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "return": {
+                "tuple": [
+                  {
+                    "struct": [
+                      "v2.OrderOutput",
+                      {}
+                    ]
+                  },
+                  {
+                    "var": "err"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "set": {
+          "amount": {
+            "var": "priced.Amount"
+          }
+        }
+      },
+      {
+        "set": {
+          "stage": {
+            "literal": {
+              "type": "string",
+              "value": "awaiting-confirm"
+            }
+          }
+        }
+      },
+      {
+        "let": {
+          "confirmed": {
+            "literal": {
+              "type": "boolean",
+              "value": "false"
+            }
+          }
+        }
+      },
+      {
+        "let": {
+          "expired": {
+            "literal": {
+              "type": "boolean",
+              "value": "false"
+            }
+          }
+        }
+      },
+      {
+        "expr": {
+          "Go": [
+            {
+              "pkg": "workflow"
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "fn": {
+                "do": [
+                  {
+                    "let": {
+                      "payload": {
+                        "zero": "map\u003cstring,any\u003e"
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "cond": {
+                        "literal": {
+                          "type": "boolean",
+                          "value": "true"
+                        }
+                      },
+                      "then": [
+                        {
+                          "let": {
+                            "err": {
+                              "Get": [
+                                {
+                                  "WaitSignal": [
+                                    {
+                                      "pkg": "workflow"
+                                    },
+                                    {
+                                      "var": "ctx"
+                                    },
+                                    {
+                                      "literal": {
+                                        "type": "string",
+                                        "value": "confirm"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "var": "ctx"
+                                },
+                                {
+                                  "out": "payload"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "if": {
+                            "cond": {
+                              "==": [
+                                {
+                                  "var": "err"
+                                },
+                                {
+                                  "literal": {
+                                    "type": "null",
+                                    "value": null
+                                  }
+                                }
+                              ]
+                            },
+                            "then": [
+                              {
+                                "set": {
+                                  "confirmed": {
+                                    "literal": {
+                                      "type": "boolean",
+                                      "value": "true"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": [
+                  [
+                    "ctx",
+                    "workflow.Context"
+                  ]
+                ],
+                "returns": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "expr": {
+          "Go": [
+            {
+              "pkg": "workflow"
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "fn": {
+                "do": [
+                  {
+                    "if": {
+                      "cond": {
+                        "literal": {
+                          "type": "boolean",
+                          "value": "true"
+                        }
+                      },
+                      "then": [
+                        {
+                          "let": {
+                            "err": {
+                              "Sleep": [
+                                {
+                                  "pkg": "workflow"
+                                },
+                                {
+                                  "var": "ctx"
+                                },
+                                {
+                                  "*": [
+                                    {
+                                      "var": "in.ConfirmWindowSeconds"
+                                    },
+                                    {
+                                      "literal": {
+                                        "type": "int64",
+                                        "value": "1000000000"
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "if": {
+                            "cond": {
+                              "==": [
+                                {
+                                  "var": "err"
+                                },
+                                {
+                                  "literal": {
+                                    "type": "null",
+                                    "value": null
+                                  }
+                                }
+                              ]
+                            },
+                            "then": [
+                              {
+                                "set": {
+                                  "expired": {
+                                    "literal": {
+                                      "type": "boolean",
+                                      "value": "true"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": [
+                  [
+                    "ctx",
+                    "workflow.Context"
+                  ]
+                ],
+                "returns": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "expr": {
+          "Await": [
+            {
+              "pkg": "workflow"
+            },
+            {
+              "var": "ctx"
+            },
+            {
+              "fn": {
+                "do": [
+                  {
+                    "return": {
+                      "or": [
+                        {
+                          "var": "confirmed"
+                        },
+                        {
+                          "var": "expired"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": [],
+                "returns": [
+                  "boolean"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "!": [
+              {
+                "var": "confirmed"
+              }
+            ]
+          },
+          "then": [
+            {
+              "return": {
+                "tuple": [
+                  {
+                    "struct": [
+                      "v2.OrderOutput",
+                      {
+                        "Amount": {
+                          "var": "amount"
+                        },
+                        "OrderRef": {
+                          "var": "orderRef"
+                        },
+                        "Status": {
+                          "literal": {
+                            "type": "string",
+                            "value": "expired"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "literal": {
+                      "type": "null",
+                      "value": null
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "set": {
+          "stage": {
+            "literal": {
+              "type": "string",
+              "value": "fulfilling"
+            }
+          }
+        }
+      },
+      {
+        "let": {
+          "reserveFuture": {
+            "ExecuteActivity": [
+              {
+                "pkg": "workflow"
+              },
+              {
+                "var": "ctx"
+              },
+              {
+                "symbol": "v2.ReserveRemoteActivity"
+              },
+              {
+                "struct": [
+                  "v2.ReserveInput",
+                  {
+                    "OrderID": {
+                      "var": "in.OrderID"
+                    },
+                    "Qty": {
+                      "var": "in.Qty"
+                    },
+                    "SKU": {
+                      "var": "in.SKU"
+                    },
+                    "Warehouse": {
+                      "literal": {
+                        "type": "string",
+                        "value": "east"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "struct": [
+                  "workflow.ActivityOptions",
+                  {
+                    "StartToCloseTimeout": {
+                      "literal": {
+                        "type": "int64",
+                        "value": "60000000000"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "let": {
+          "quoteFuture": {
+            "ExecuteActivity": [
+              {
+                "pkg": "workflow"
+              },
+              {
+                "var": "ctx"
+              },
+              {
+                "symbol": "v2.QuoteRemoteActivity"
+              },
+              {
+                "struct": [
+                  "v2.QuoteInput",
+                  {
+                    "OrderID": {
+                      "var": "in.OrderID"
+                    },
+                    "Qty": {
+                      "var": "in.Qty"
+                    }
+                  }
+                ]
+              },
+              {
+                "struct": [
+                  "workflow.ActivityOptions",
+                  {
+                    "StartToCloseTimeout": {
+                      "literal": {
+                        "type": "int64",
+                        "value": "60000000000"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "let": {
+          "reserved": {
+            "zero": "v2.ReserveOutput"
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "literal": {
+              "type": "boolean",
+              "value": "true"
+            }
+          },
+          "then": [
+            {
+              "let": {
+                "err": {
+                  "Get": [
+                    {
+                      "var": "reserveFuture"
+                    },
+                    {
+                      "var": "ctx"
+                    },
+                    {
+                      "out": "reserved"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "cond": {
+                  "!=": [
+                    {
+                      "var": "err"
+                    },
+                    {
+                      "literal": {
+                        "type": "null",
+                        "value": null
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "return": {
+                      "tuple": [
+                        {
+                          "struct": [
+                            "v2.OrderOutput",
+                            {}
+                          ]
+                        },
+                        {
+                          "var": "err"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "let": {
+          "quoted": {
+            "zero": "v2.QuoteOutput"
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "literal": {
+              "type": "boolean",
+              "value": "true"
+            }
+          },
+          "then": [
+            {
+              "let": {
+                "err": {
+                  "Get": [
+                    {
+                      "var": "quoteFuture"
+                    },
+                    {
+                      "var": "ctx"
+                    },
+                    {
+                      "out": "quoted"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "cond": {
+                  "!=": [
+                    {
+                      "var": "err"
+                    },
+                    {
+                      "literal": {
+                        "type": "null",
+                        "value": null
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "return": {
+                      "tuple": [
+                        {
+                          "struct": [
+                            "v2.OrderOutput",
+                            {}
+                          ]
+                        },
+                        {
+                          "var": "err"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "let": {
+          "trackingNo": {
+            "literal": {
+              "type": "string",
+              "value": ""
+            }
+          }
+        }
+      },
+      {
+        "let": {
+          "shippedVia": {
+            "literal": {
+              "type": "string",
+              "value": ""
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "==": [
+              {
+                "var": "shipVersion"
+              },
+              {
+                "literal": {
+                  "type": "int64",
+                  "value": "-1"
+                }
+              }
+            ]
+          },
+          "else": [
+            {
+              "let": {
+                "shipped": {
+                  "zero": "v2.ShipV2Output"
+                }
+              }
+            },
+            {
+              "let": {
+                "err": {
+                  "Get": [
+                    {
+                      "ExecuteActivity": [
+                        {
+                          "pkg": "workflow"
+                        },
+                        {
+                          "var": "ctx"
+                        },
+                        {
+                          "symbol": "v2.ShipV2RemoteActivity"
+                        },
+                        {
+                          "struct": [
+                            "v2.ShipV2Input",
+                            {
+                              "City": {
+                                "var": "in.City"
+                              },
+                              "OrderID": {
+                                "var": "in.OrderID"
+                              },
+                              "ReservationID": {
+                                "var": "reserved.ReservationID"
+                              },
+                              "Street": {
+                                "var": "in.Street"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "struct": [
+                            "workflow.ActivityOptions",
+                            {
+                              "StartToCloseTimeout": {
+                                "literal": {
+                                  "type": "int64",
+                                  "value": "60000000000"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "var": "ctx"
+                    },
+                    {
+                      "out": "shipped"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "cond": {
+                  "!=": [
+                    {
+                      "var": "err"
+                    },
+                    {
+                      "literal": {
+                        "type": "null",
+                        "value": null
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "return": {
+                      "tuple": [
+                        {
+                          "struct": [
+                            "v2.OrderOutput",
+                            {}
+                          ]
+                        },
+                        {
+                          "var": "err"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "set": {
+                "trackingNo": {
+                  "var": "shipped.TrackingNo"
+                }
+              }
+            },
+            {
+              "set": {
+                "shippedVia": {
+                  "+": [
+                    {
+                      "literal": {
+                        "type": "string",
+                        "value": "fulfillment.ship-v2@"
+                      }
+                    },
+                    {
+                      "var": "shipped.ServedBy"
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "then": [
+            {
+              "let": {
+                "shipped": {
+                  "zero": "v2.ShipOutput"
+                }
+              }
+            },
+            {
+              "let": {
+                "err": {
+                  "Get": [
+                    {
+                      "ExecuteActivity": [
+                        {
+                          "pkg": "workflow"
+                        },
+                        {
+                          "var": "ctx"
+                        },
+                        {
+                          "symbol": "v2.ShipRemoteActivity"
+                        },
+                        {
+                          "struct": [
+                            "v2.ShipInput",
+                            {
+                              "Address": {
+                                "var": "in.Address"
+                              },
+                              "OrderID": {
+                                "var": "in.OrderID"
+                              },
+                              "ReservationID": {
+                                "var": "reserved.ReservationID"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "struct": [
+                            "workflow.ActivityOptions",
+                            {
+                              "StartToCloseTimeout": {
+                                "literal": {
+                                  "type": "int64",
+                                  "value": "60000000000"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "var": "ctx"
+                    },
+                    {
+                      "out": "shipped"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "cond": {
+                  "!=": [
+                    {
+                      "var": "err"
+                    },
+                    {
+                      "literal": {
+                        "type": "null",
+                        "value": null
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "return": {
+                      "tuple": [
+                        {
+                          "struct": [
+                            "v2.OrderOutput",
+                            {}
+                          ]
+                        },
+                        {
+                          "var": "err"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "set": {
+                "trackingNo": {
+                  "var": "shipped.TrackingNo"
+                }
+              }
+            },
+            {
+              "set": {
+                "shippedVia": {
+                  "+": [
+                    {
+                      "literal": {
+                        "type": "string",
+                        "value": "fulfillment.ship@"
+                      }
+                    },
+                    {
+                      "var": "shipped.ServedBy"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "set": {
+          "stage": {
+            "literal": {
+              "type": "string",
+              "value": "shipped"
+            }
+          }
+        }
+      },
+      {
+        "return": {
+          "tuple": [
+            {
+              "struct": [
+                "v2.OrderOutput",
+                {
+                  "Amount": {
+                    "var": "amount"
+                  },
+                  "OrderRef": {
+                    "var": "orderRef"
+                  },
+                  "QuotedBy": {
+                    "var": "quoted.ServedBy"
+                  },
+                  "ReservedBy": {
+                    "var": "reserved.ServedBy"
+                  },
+                  "ShipFee": {
+                    "var": "quoted.Fee"
+                  },
+                  "ShippedVia": {
+                    "var": "shippedVia"
+                  },
+                  "Status": {
+                    "literal": {
+                      "type": "string",
+                      "value": "shipped"
+                    }
+                  },
+                  "TrackingNo": {
+                    "var": "trackingNo"
+                  },
+                  "Warehouse": {
+                    "var": "reserved.Warehouse"
+                  }
+                }
+              ]
+            },
+            {
+              "literal": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "imports": {
+      "workflow": "github.com/donutnomad/tenuto/sdk/workflow"
+    },
+    "types": {
+      "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PriceOutput": {
+        "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PriceOutput",
+        "language_name": "*v2.PriceOutput",
+        "kind": "pointer",
+        "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PriceOutput",
+        "fingerprint": "78b57571ce18ecbea383803e83066d1fb8baad374cc1b92d14a5096e81fa21b8"
+      },
+      "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.QuoteOutput": {
+        "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.QuoteOutput",
+        "language_name": "*v2.QuoteOutput",
+        "kind": "pointer",
+        "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.QuoteOutput",
+        "fingerprint": "1ccfa9ff73110e79fe664bfed96c26cd6611d9e3a7933ff2621b4dcf4fccc1e9"
+      },
+      "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ReserveOutput": {
+        "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ReserveOutput",
+        "language_name": "*v2.ReserveOutput",
+        "kind": "pointer",
+        "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ReserveOutput",
+        "fingerprint": "2113cd24b4ece5da037cd7656fc81eb334298d64aefa3544a629d5b14f0be44c"
+      },
+      "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipOutput": {
+        "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipOutput",
+        "language_name": "*v2.ShipOutput",
+        "kind": "pointer",
+        "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipOutput",
+        "fingerprint": "f8f721e8b4b98bcccddb7a6b6d1a3779ba0d566d839f153020925c447b78a85c"
+      },
+      "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipV2Output": {
+        "id": "*github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipV2Output",
+        "language_name": "*v2.ShipV2Output",
+        "kind": "pointer",
+        "elem": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipV2Output",
+        "fingerprint": "d9b816ff76bd3d1dfe7e14e2ce90fe4e31c3adad063ebdc52f0244cc8b46eea9"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.OrderInput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.OrderInput",
+        "language_name": "v2.OrderInput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "OrderID",
+            "json_name": "order_id",
+            "type_id": "string"
+          },
+          {
+            "go_name": "SKU",
+            "json_name": "sku",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Qty",
+            "json_name": "qty",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "Address",
+            "json_name": "address",
+            "type_id": "string"
+          },
+          {
+            "go_name": "City",
+            "json_name": "city",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Street",
+            "json_name": "street",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ConfirmWindowSeconds",
+            "json_name": "confirm_window_seconds",
+            "type_id": "int64"
+          }
+        ],
+        "fingerprint": "82a2f7476148d856028a0f6581675653fcee2eb859607baccb3ca3d8ae10f6ce"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.OrderOutput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.OrderOutput",
+        "language_name": "v2.OrderOutput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "OrderRef",
+            "json_name": "order_ref",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Status",
+            "json_name": "status",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Amount",
+            "json_name": "amount",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "Warehouse",
+            "json_name": "warehouse",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ShipFee",
+            "json_name": "ship_fee",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "TrackingNo",
+            "json_name": "tracking_no",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ReservedBy",
+            "json_name": "reserved_by",
+            "type_id": "string"
+          },
+          {
+            "go_name": "QuotedBy",
+            "json_name": "quoted_by",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ShippedVia",
+            "json_name": "shipped_via",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "f866443e74040e54986d23ee8092fcd21e6876716dc18cf045818ecb8ba69811"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PlaceResult": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PlaceResult",
+        "language_name": "v2.PlaceResult",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "OrderRef",
+            "json_name": "order_ref",
+            "type_id": "string"
+          },
+          {
+            "go_name": "PlacedAt",
+            "json_name": "placed_at",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "1816845009f439f851c0856e90de6dac320137e1aa3187596db364d5225fc257"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PriceInput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PriceInput",
+        "language_name": "v2.PriceInput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "SKU",
+            "json_name": "sku",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Qty",
+            "json_name": "qty",
+            "type_id": "int64"
+          }
+        ],
+        "fingerprint": "a34d2b94898794fbfad3fffeea4baff707af3807740adbdeb7fa1f55b438e693"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PriceOutput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.PriceOutput",
+        "language_name": "v2.PriceOutput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Amount",
+            "json_name": "amount",
+            "type_id": "int64"
+          }
+        ],
+        "fingerprint": "3a9a115b01852d09ec588cab7c5c381a801296eb082333a3fe543534e8aa6fb6"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.QuoteInput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.QuoteInput",
+        "language_name": "v2.QuoteInput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "OrderID",
+            "json_name": "order_id",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Qty",
+            "json_name": "qty",
+            "type_id": "int64"
+          }
+        ],
+        "fingerprint": "4e6b7dc51eaaa7de334d5546bbea673196cf6cefe0aa3216fc06c17e4450037d"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.QuoteOutput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.QuoteOutput",
+        "language_name": "v2.QuoteOutput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "Fee",
+            "json_name": "fee",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "ServedBy",
+            "json_name": "served_by",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "8f73ce8d600f31803ce762db0449477c5b50fe413fc781fededea60ddfba33dc"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ReserveInput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ReserveInput",
+        "language_name": "v2.ReserveInput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "OrderID",
+            "json_name": "order_id",
+            "type_id": "string"
+          },
+          {
+            "go_name": "SKU",
+            "json_name": "sku",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Qty",
+            "json_name": "qty",
+            "type_id": "int64"
+          },
+          {
+            "go_name": "Warehouse",
+            "json_name": "warehouse",
+            "type_id": "string",
+            "omitempty": true
+          }
+        ],
+        "fingerprint": "20fa85ce53b29fc344159bbb405981a7bee61b30c0381bc0d4d280bc0728b3d4"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ReserveOutput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ReserveOutput",
+        "language_name": "v2.ReserveOutput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "ReservationID",
+            "json_name": "reservation_id",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Warehouse",
+            "json_name": "warehouse",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ServedBy",
+            "json_name": "served_by",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "bb62d8e1a774d8b848589f329d273c93ed0d63ad05e3ebbdd6c733a4234af812"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipInput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipInput",
+        "language_name": "v2.ShipInput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "OrderID",
+            "json_name": "order_id",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ReservationID",
+            "json_name": "reservation_id",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Address",
+            "json_name": "address",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "b2233543d2f56922fdb8a13f92258a6231cf3551d47a5b74f60672def92220ce"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipOutput": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipOutput",
+        "language_name": "v2.ShipOutput",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "TrackingNo",
+            "json_name": "tracking_no",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ServedBy",
+            "json_name": "served_by",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "c78af48dcc3284db6b3b30695427b8b7aa5465e4b8e322fa807c7dbeb5c4d379"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipV2Input": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipV2Input",
+        "language_name": "v2.ShipV2Input",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "OrderID",
+            "json_name": "order_id",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ReservationID",
+            "json_name": "reservation_id",
+            "type_id": "string"
+          },
+          {
+            "go_name": "City",
+            "json_name": "city",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Street",
+            "json_name": "street",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "26293164f86744d15d114ddb85b048795d5fb1e571cbacc2ff7796614ffc67e1"
+      },
+      "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipV2Output": {
+        "id": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.ShipV2Output",
+        "language_name": "v2.ShipV2Output",
+        "kind": "record",
+        "fields": [
+          {
+            "go_name": "TrackingNo",
+            "json_name": "tracking_no",
+            "type_id": "string"
+          },
+          {
+            "go_name": "Carrier",
+            "json_name": "carrier",
+            "type_id": "string"
+          },
+          {
+            "go_name": "ServedBy",
+            "json_name": "served_by",
+            "type_id": "string"
+          }
+        ],
+        "fingerprint": "9f77b60e7d21309a2ac8955cb60f68b9825c2e72a7c1bd05807bdb9b102db61a"
+      }
+    },
+    "entry": {
+      "input_var": "in",
+      "input": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.OrderInput",
+      "output": "github.com/donutnomad/tenuto/docs/examples/upgrade-demo/appb/v2.OrderOutput"
+    },
+    "handler_abi_schema": "workflow/update-handler-abi/v1"
+  },
+  "activities": {
+    "v2.Price": {
+      "symbol": "v2.Price",
+      "type": "orders.price",
+      "task_queue": "orders",
+      "version": "v1",
+      "input": "wire:75ec047172ce4a09eb9843e95c665094",
+      "output": "wire:0898cc8107ff28c7966e8689d55decbc"
+    },
+    "v2.QuoteRemoteActivity": {
+      "symbol": "v2.QuoteRemoteActivity",
+      "type": "fulfillment.quote",
+      "task_queue": "fulfillment",
+      "version": "v2",
+      "input": "wire:aa89548036d83cd03cda421878c4dd91",
+      "output": "wire:9ee1ccfb36f5fc9cc84a49436179a128"
+    },
+    "v2.ReserveRemoteActivity": {
+      "symbol": "v2.ReserveRemoteActivity",
+      "type": "fulfillment.reserve",
+      "task_queue": "fulfillment",
+      "version": "v1",
+      "input": "wire:ca79189195eccac12b159552f2a291cf",
+      "output": "wire:4d95f174e258133e1ba8be02e1b3027f"
+    },
+    "v2.ShipRemoteActivity": {
+      "symbol": "v2.ShipRemoteActivity",
+      "type": "fulfillment.ship",
+      "task_queue": "fulfillment",
+      "version": "v1",
+      "input": "wire:c70fc6b00b17478e7e0abf9664cb0949",
+      "output": "wire:53ce38a4f6a517afd63a7d66213e07c9"
+    },
+    "v2.ShipV2RemoteActivity": {
+      "symbol": "v2.ShipV2RemoteActivity",
+      "type": "fulfillment.ship-v2",
+      "task_queue": "fulfillment",
+      "version": "v1",
+      "input": "wire:f64e2c79052aa39da8c7e5af343a961c",
+      "output": "wire:75390e33802bf02cc618b54bd7043a7e"
+    }
+  }
+}
