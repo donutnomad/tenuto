@@ -43,7 +43,7 @@ pnpm --dir docs install
 | `make build-demo` | Builds `bin/tenuto-demo` |
 | `make build-example` | Generates and builds the startup-workflow example worker |
 | `make run-server` | Runs the server with configuration from the environment |
-| `make dev-docs` | Serves the docs site on port 7402 |
+| `make dev-docs` | Serves the docs site at http://localhost:7402/tenuto/ |
 | `make build-docs` | Builds the docs site |
 | `make check-docs` | Checks docs pages and links, tests `docs/examples`, builds the docs site |
 | `make preview-docs` | Serves the built docs site |

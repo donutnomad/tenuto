@@ -15,27 +15,27 @@ pageClass: tenuto-home-page
         Tenuto 是面向 Go 应用的持久化 Workflow 编排平台。Workflow 状态、Event History、重试、Timer、Child Workflow 与并发执行线均由平台管理，业务进程重启后可以从已提交的确定性状态继续运行。
       </p>
       <div class="tenuto-actions">
-        <a class="tenuto-action primary" href="/quickstart/">五分钟快速开始 →</a>
-        <a class="tenuto-action" href="/concepts/architecture">了解系统架构</a>
+        <a class="tenuto-action primary" href="./quickstart/">五分钟快速开始 →</a>
+        <a class="tenuto-action" href="./concepts/architecture">了解系统架构</a>
       </div>
     </div>
     <div class="tenuto-paths">
-      <a class="tenuto-path-card" href="/quickstart/">
+      <a class="tenuto-path-card" href="./quickstart/">
         <span class="tenuto-path-icon">⚡</span>
         <span><strong>运行第一个 Workflow</strong><small>启动 Server、Worker、Console 和完整 Demo。</small></span>
         <span class="tenuto-path-arrow">›</span>
       </a>
-      <a class="tenuto-path-card" href="/quickstart/integrate">
+      <a class="tenuto-path-card" href="./quickstart/integrate">
         <span class="tenuto-path-icon">⌘</span>
         <span><strong>接入已有项目</strong><small>go get、注解、生成代码、注册 Workflow 与 Activity。</small></span>
         <span class="tenuto-path-arrow">›</span>
       </a>
-      <a class="tenuto-path-card" href="/console/trace">
+      <a class="tenuto-path-card" href="./console/trace">
         <span class="tenuto-path-icon">◎</span>
         <span><strong>Trace 调试台</strong><small>断点、调用栈、变量树、Child Workflow Step Into。</small></span>
         <span class="tenuto-path-arrow">›</span>
       </a>
-      <a class="tenuto-path-card" href="/deploy/server">
+      <a class="tenuto-path-card" href="./deploy/server">
         <span class="tenuto-path-icon">△</span>
         <span><strong>部署到生产环境</strong><small>MySQL、TaskQ、Sticky Cache、健康检查与升级。</small></span>
         <span class="tenuto-path-arrow">›</span>
@@ -57,12 +57,12 @@ pageClass: tenuto-home-page
       <div class="tenuto-feature"><b>生产运行时</b><p>MySQL mutable state、TaskQ matching、Sticky Cache、恢复与幂等屏障。</p></div>
     </div>
     <div class="tenuto-scenario-grid">
-      <a href="/concepts/namespaces-task-queues"><b>我需要规划租户和队列</b><span>Namespace、Task Queue、Worker 匹配和容量隔离</span></a>
-      <a href="/develop/cancellation-timeouts"><b>我需要处理失败和停止</b><span>取消、超时、终止、重试、补偿和过期 Attempt</span></a>
-      <a href="/develop/testing"><b>我需要验证可靠性</b><span>Replay、故障注入、存储集成和端到端测试</span></a>
-      <a href="/operations/backup-recovery"><b>我需要做生产恢复</b><span>备份、恢复顺序、灾难演练和 RTO/RPO</span></a>
-      <a href="/reference/errors"><b>我遇到了一个错误</b><span>错误分类、Application Error、Update 失败和排查入口</span></a>
-      <a href="/quickstart/production-checklist"><b>我准备上线</b><span>代码、基础设施、安全、发布和回滚检查清单</span></a>
+      <a href="./concepts/namespaces-task-queues"><b>我需要规划租户和队列</b><span>Namespace、Task Queue、Worker 匹配和容量隔离</span></a>
+      <a href="./develop/cancellation-timeouts"><b>我需要处理失败和停止</b><span>取消、超时、终止、重试、补偿和过期 Attempt</span></a>
+      <a href="./develop/testing"><b>我需要验证可靠性</b><span>Replay、故障注入、存储集成和端到端测试</span></a>
+      <a href="./operations/backup-recovery"><b>我需要做生产恢复</b><span>备份、恢复顺序、灾难演练和 RTO/RPO</span></a>
+      <a href="./reference/errors"><b>我遇到了一个错误</b><span>错误分类、Application Error、Update 失败和排查入口</span></a>
+      <a href="./quickstart/production-checklist"><b>我准备上线</b><span>代码、基础设施、安全、发布和回滚检查清单</span></a>
     </div>
     <div class="tenuto-code-strip">
       <div><code>workflow.ExecuteActivity</code><span>把外部副作用交给 Activity Worker</span></div>

@@ -2,6 +2,8 @@
 
 Tenuto 是面向 Go 应用的持久化 Workflow 编排平台。Workflow 用普通 Go 编写，由生成器编译为确定性的 WLang Program；Tenuto Server 保存 Event History 与当前执行状态，负责 Activity、Timer、Signal、Update、Child Workflow 的调度、重试和超时；Worker 按历史确定性地重放 Program，业务进程或 Server 重启后，Run 从已提交的状态继续执行。仓库包含 Go SDK、Workflow 编译器、解释器 Worker、HTTP Server（内存与 MySQL 两种后端）、Next.js Console 和中文文档站。
 
+文档站：<https://donutnomad.github.io/tenuto/>
+
 ## 功能
 
 - **持久化执行**：Activity、Timer、Signal、Query、Update、Child Workflow 与 Continue-As-New，状态跨进程保存，崩溃后自动恢复。
@@ -202,7 +204,7 @@ Tenuto Server 用两层数据描述一个 Run，二者在同一个事务内一�
 
 ```bash
 pnpm --dir docs install
-make dev-docs        # http://localhost:7402
+make dev-docs        # http://localhost:7402/tenuto/
 ```
 
 ## 开发与测试

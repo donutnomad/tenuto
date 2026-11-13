@@ -5,6 +5,8 @@ export default defineConfig({
   title: "Tenuto",
   titleTemplate: ":title | Tenuto 文档",
   description: "Tenuto 持久化 Workflow 编排平台中文文档",
+  // GitHub Pages 项目站点：https://donutnomad.github.io/tenuto/
+  base: "/tenuto/",
   cleanUrls: true,
   lastUpdated: true,
   srcExclude: [
@@ -14,7 +16,7 @@ export default defineConfig({
     "**/RESULTS.md",
   ],
   head: [
-    ["link", { rel: "icon", href: "/tenuto-mark.svg" }],
+    ["link", { rel: "icon", href: "/tenuto/tenuto-mark.svg" }],
     ["meta", { name: "theme-color", content: "#5b5ce2" }],
   ],
   markdown: {
