@@ -71,19 +71,21 @@ Workflow 函数规则：
 
 ## 运行生成
 
+业务模块先登记 tool：`go get -tool github.com/donutnomad/tenuto/compiler/cmd/tenuto-workflow-gen@latest`（版本随 `require github.com/donutnomad/tenuto` 固定）。Workflow 包里写 `//go:generate go tool tenuto-workflow-gen generate .`，从模块根目录执行 `go generate ./...`；`go build` 不执行生成，产物与源码一起提交。
+
 ```bash
 # 只生成，不联网；可以一次传多个包目录
-go run github.com/donutnomad/tenuto/compiler/cmd/tenuto-workflow-gen generate ./path/to/pkg
+go tool tenuto-workflow-gen generate ./path/to/pkg
 
 # 保存后自动重新生成（监听手写源码的内容哈希；失败保留上次成功产物）
-go run github.com/donutnomad/tenuto/compiler/cmd/tenuto-workflow-gen generate -watch ./path/to/pkg
+go tool tenuto-workflow-gen generate -watch ./path/to/pkg
 
 # 生成后只登记，latest 不变（POST /runtime/workflow/artifacts）
-go run github.com/donutnomad/tenuto/compiler/cmd/tenuto-workflow-gen generate \
+go tool tenuto-workflow-gen generate \
   -url http://localhost:7400 -namespace orders ./path/to/pkg
 
 # 生成后注册并激活 latest（POST /runtime/workflow/register），用于显式发布与回滚
-go run github.com/donutnomad/tenuto/compiler/cmd/tenuto-workflow-gen generate \
+go tool tenuto-workflow-gen generate \
   -url http://localhost:7400 -namespace orders -publish ./path/to/pkg
 ```
 

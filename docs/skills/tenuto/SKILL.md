@@ -54,11 +54,18 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 
    `CallSayHello` 由生成器写出；桥名取自 Activity `type` 的最后一段（`startup.say-hello` → `CallSayHello`），第一次生成前编辑器会报未定义。每个 Activity 调用都要设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout`，缺少时生成器报出调用点，Server 也拒绝这条调度命令。
 
-2. **运行生成器**（从模块根目录，每次改动 Workflow、Activity 签名或注解之后）：
+2. **运行生成器**（每次改动 Workflow、Activity 签名或注解之后）。业务模块先引入 SDK 并把生成器登记为 tool，再在 Workflow 包里写一条 `//go:generate`：
 
    ```bash
-   go run github.com/donutnomad/tenuto/compiler/cmd/tenuto-workflow-gen generate ./path/to/pkg
+   go get github.com/donutnomad/tenuto@latest
+   go get -tool github.com/donutnomad/tenuto/compiler/cmd/tenuto-workflow-gen@latest
    ```
+
+   ```go
+   //go:generate go tool tenuto-workflow-gen generate .
+   ```
+
+   之后从模块根目录执行 `go generate ./...`；也可以直接调用 `go tool tenuto-workflow-gen generate ./path/to/pkg`。生成产物与源码一起提交。完整接入步骤见文档站「接入已有项目」（`docs/quickstart/integrate.md`）。
 
    在 Tenuto 仓库内使用统一入口 `go generate ./...`（唯一的 `//go:generate` 在 `server/cmd/tenuto-server/main.go`，新包目录加到那条指令的参数里）。`go build` 不执行生成。失败时不写任何 JSON 产物，按报错的 `file:line` 修改源码。
 

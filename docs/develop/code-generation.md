@@ -62,6 +62,23 @@ type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 
 ## 运行生成
 
+### 在业务模块中
+
+```bash
+go get github.com/donutnomad/tenuto@latest
+go get -tool github.com/donutnomad/tenuto/compiler/cmd/tenuto-workflow-gen@latest
+```
+
+在 Workflow 包里写一条指令，从模块根目录执行 `go generate ./...`：
+
+```go
+//go:generate go tool tenuto-workflow-gen generate .
+```
+
+生成器版本随 `require github.com/donutnomad/tenuto` 固定，与 SDK 一起升级。下文的命令在业务模块里把 `go run ./compiler/cmd/tenuto-workflow-gen` 换成 `go tool tenuto-workflow-gen`。完整流程见[接入已有项目](/quickstart/integrate)。
+
+### 在 Tenuto 仓库中
+
 仓库只有一处 `//go:generate` 入口，位于 `server/cmd/tenuto-server/main.go`。从仓库根目录执行：
 
 ```bash

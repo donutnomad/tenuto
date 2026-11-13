@@ -45,7 +45,7 @@ curl -sS http://localhost:7400/runtime/workflow/start \
   -d '{"namespace":"startup-demo","workflow_type":"startup-greeting","workflow_id":"greeting-1","input":{"name":"tenuto"}}'
 ```
 
-在 Console 的 `startup-demo` Namespace 中查看这次 Run 的 Event History 与 Trace。完整步骤见 [五分钟快速开始](docs/quickstart/index.md)。
+在 Console 的 `startup-demo` Namespace 中查看这次 Run 的 Event History 与 Trace。完整步骤见 [五分钟快速开始](docs/quickstart/index.md)。在自己的 Go 模块里接入（`go get`、注解、生成、注册 Workflow 与 Activity）见 [接入已有项目](docs/quickstart/integrate.md)。
 
 ## 最小示例
 

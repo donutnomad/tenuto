@@ -73,4 +73,4 @@ curl http://localhost:7400/health/ready
 make stop
 ```
 
-下一步阅读[编写 Workflow](/develop/workflows)，了解 Go 源码如何生成 WLang Program 并注册到 Tenuto Server。
+下一步按[接入已有项目](/quickstart/integrate)在自己的 Go 模块里引入 SDK、写注解并注册 Workflow 与 Activity；[编写 Workflow](/develop/workflows) 说明 Go 源码如何生成 WLang Program。

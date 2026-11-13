@@ -25,9 +25,9 @@ pageClass: tenuto-home-page
         <span><strong>运行第一个 Workflow</strong><small>启动 Server、Worker、Console 和完整 Demo。</small></span>
         <span class="tenuto-path-arrow">›</span>
       </a>
-      <a class="tenuto-path-card" href="/develop/workflows">
+      <a class="tenuto-path-card" href="/quickstart/integrate">
         <span class="tenuto-path-icon">⌘</span>
-        <span><strong>Go 开发指南</strong><small>编写 Workflow、Activity、并发 lane 与 Update。</small></span>
+        <span><strong>接入已有项目</strong><small>go get、注解、生成代码、注册 Workflow 与 Activity。</small></span>
         <span class="tenuto-path-arrow">›</span>
       </a>
       <a class="tenuto-path-card" href="/console/trace">
