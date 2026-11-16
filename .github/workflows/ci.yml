@@ -34,6 +34,13 @@ jobs:
       # and run in the mysql job.
       - name: Test
         run: go test ./...
+      # examples/shop is a separate module (replace => ../..), outside ./...
+      - name: Example module (examples/shop)
+        working-directory: examples/shop
+        run: |
+          go generate ./...
+          git diff --exit-code .
+          go vet ./...
 
   mysql:
     name: Go (MySQL)

@@ -49,6 +49,8 @@ curl -sS http://localhost:7400/runtime/workflow/start \
 
 在 Console 的 `startup-demo` Namespace 中查看这次 Run 的 Event History 与 Trace。完整步骤见 [五分钟快速开始](docs/quickstart/index.md)。在自己的 Go 模块里接入（`go get`、注解、生成、注册 Workflow 与 Activity）见 [接入已有项目](docs/quickstart/integrate.md)。
 
+多个服务进程协作的完整业务示例在 [`examples/shop`](examples/shop)：下单、支付、仓储三个服务加 Tenuto Server，`./examples/shop/run-demo.sh` 一键演示重试幂等、补偿、Signal 与服务宕机后恢复，不需要数据库。
+
 ## 最小示例
 
 Workflow 与 Activity 写在同一个包里（[`docs/examples/startup-workflow/workflow.go`](docs/examples/startup-workflow/workflow.go)）。生成器读取注解，产出 `CallSayHello` 调用桥、包级 `RegisterActivities` 和嵌入二进制的 `WorkflowDefinition()`：
@@ -165,6 +167,7 @@ tenuto/
 ├── cmd/tenuto-cluster/ # 多副本故障注入与压测工具（docs/operations/cluster-testing.md）
 ├── internal/       # 仓库内部共享实现：Worker 运行时（worker/）、WLang 解释器与增量激活（executor/）、JSON 数值
 ├── console/        # Next.js Console；console/wasm 是浏览器重放模块
+├── examples/shop/  # 多进程业务示例：独立 Go 模块，三个服务 + Tenuto Server
 └── docs/           # VitePress 中文文档站、可运行示例（docs/examples）与 Agent skill（docs/skills/tenuto）
 ```
 

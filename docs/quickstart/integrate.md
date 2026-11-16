@@ -266,6 +266,8 @@ go run ./cmd/worker   # 输出 workflow definition registered ... 与 worker rea
 go run ./cmd/start    # 输出 run <run-id>: {ChargeID:ch_1001 Status:paid}
 ```
 
+多个服务进程分工的完整模块见[多进程下单示例](/quickstart/shop)。
+
 要在 Console 里查看 Run 和 Event History，按[五分钟快速开始](/quickstart/)在 Tenuto 仓库里启动 Console，并把它指向这个 Server。
 
 ## 上生产前

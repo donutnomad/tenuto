@@ -43,6 +43,7 @@ export default defineConfig({
           { text: "Tenuto 文档", link: "/" },
           { text: "五分钟快速开始", link: "/quickstart/" },
           { text: "接入已有项目", link: "/quickstart/integrate" },
+          { text: "多进程下单示例", link: "/quickstart/shop" },
           { text: "运行示例环境", link: "/quickstart/demo" },
           { text: "Demo Public HTTP API", link: "/quickstart/public-http-api" },
         ],

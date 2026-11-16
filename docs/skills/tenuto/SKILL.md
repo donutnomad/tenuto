@@ -263,6 +263,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 
 | 目录 | 演示内容 |
 | --- | --- |
+| `examples/shop/` | 独立 Go 模块的业务 demo：order / payment / warehouse 三个服务进程 + Server，remote 契约包、Saga 补偿、幂等重试、Signal + 持久 Timer、Query、Blocked 恢复；`run-demo.sh` 用内存后端一键运行 |
 | `docs/examples/startup-workflow/` | 最短路径：一个 Workflow、一个 Activity、`worker/main.go` 双 Worker 启动与自动登记 |
 | `docs/examples/saga-workflow/` | 显式逆序补偿、`ActivityOptions` 重试、`IsApplicationError` 分支、`ApplicationErrorDetail`、Workflow / Activity / DTO 分文件 |
 | `docs/examples/versioned-workflow/` | `GetVersion` 分支（v1 → v2）、跨包 Activity、`remote=true` 契约、用旧 History 重放新 Program 的测试、`curl` 注册与启动流程 |
