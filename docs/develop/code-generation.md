@@ -128,7 +128,6 @@ Server 开启 `WORKFLOW_HTTP_AUTH_TOKEN` 时，用环境变量 `TENUTO_AUTH_TOKE
 | `zz_<pkg>_contract_gen.go` | 每个契约包的 `CallX` 桥、签名断言；有本地实现时包含 `RegisterActivities` |
 | `zz_<pkg>_artifacts_gen.go` | 把 `workflow.json` embed 进二进制，导出 `WorkflowDefinition()` |
 | `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（程序里的 Activity 符号 → 类型、队列、契约指纹）、`policy`、`version` |
-| `wlang.json` | `workflow.json` 里 `program` 的单独一份：指令、导入、类型描述符、入口边界，便于审阅 diff |
 | `activities.json` | Activity 清单：`type`、`version`、输入输出 wire 指纹、`queue`、`symbol` |
 
 只含 `@Activity` 的包目录只生成 `zz_<pkg>_contract_gen.go`。产物内容相同时不重写文件；产物不含源码目录的绝对路径，同一份源码在不同 checkout 得到相同的内容 hash。

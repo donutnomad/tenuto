@@ -145,7 +145,7 @@ func runWorkflow(t *testing.T, nodes *program.WorkflowConfig, input map[string]a
 					ID:        scheduledID,
 					Timestamp: time.Unix(0, scheduledID),
 					ActivityScheduled: &historypkg.ActivityScheduledEvent{
-						ActivityID:       command.ActivityID,
+						ActivityID:   command.ActivityID,
 						ActivityType: command.ActivityType,
 						TaskQueue:    command.TaskQueue,
 						Input:        command.Input,
@@ -165,7 +165,7 @@ func runWorkflow(t *testing.T, nodes *program.WorkflowConfig, input map[string]a
 					ID:        int64(len(history) + 1),
 					Timestamp: time.Unix(0, scheduledID),
 					ActivityCompleted: &historypkg.ActivityCompletedEvent{
-						ActivityID:           command.ActivityID,
+						ActivityID:       command.ActivityID,
 						ScheduledEventID: scheduledID,
 						ActivityType:     command.ActivityType,
 						Output:           output,
@@ -337,7 +337,7 @@ func TestGeneratedArtifactsAreStable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Generate（第二次）: %v", err)
 			}
-			for _, file := range []string{"workflow.json", "wlang.json", "activities.json"} {
+			for _, file := range []string{"workflow.json", "activities.json"} {
 				if string(artifactBytes(t, first, file)) != string(artifactBytes(t, second, file)) {
 					t.Fatalf("两次生成的 %s 不同", file)
 				}
@@ -368,8 +368,6 @@ func artifactBytes(t *testing.T, result sdkgen.PackageResult, name string) []byt
 	t.Helper()
 	var value any
 	switch name {
-	case "wlang.json":
-		value = result.Workflow.Program
 	case "workflow.json":
 		value = result.Workflow
 	case "activities.json":
@@ -406,7 +404,7 @@ func TestRemoteContractFreshGeneration(t *testing.T) {
 			if err != nil {
 				t.Fatalf("二次生成失败: %v", err)
 			}
-			for _, name := range []string{"workflow.json", "wlang.json", "activities.json"} {
+			for _, name := range []string{"workflow.json", "activities.json"} {
 				if string(artifactBytes(t, first, name)) != string(artifactBytes(t, second, name)) {
 					t.Fatalf("二次生成的 %s 不稳定", name)
 				}

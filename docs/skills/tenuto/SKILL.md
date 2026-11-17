@@ -155,7 +155,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - `SetUpdateHandler` / `SetQueryHandler` 在主函数第一次阻塞之前注册：主协程第一次阻塞（或返回）时还没有同名 Handler 的 Update 以 `UnknownUpdate` 失败完成。
 - Workflow 在主函数返回时结束：仍在等待的 `workflow.Go` 协程、未完成的 Activity / Timer 被放弃（Timer 状态置为 `run_closed`，不写事件、不再触发），执行中的 Update 以 `AcceptedUpdateCompletedWorkflow` 失败结束，仍在运行的子 Workflow 按父关闭策略处理（默认终止，`workflow.ChildWorkflowOptions{ParentClosePolicy: workflow.ParentClosePolicyAbandon}` 让它继续运行）。需要它们的结果就在返回前 `wg.Wait` / `Get` / `Receive`。
 - 传给 `workflow.Go`、`wg.Go`、`SetUpdateHandler`、`SetQueryHandler`、Selector 的函数写成内联闭包；协程内使用闭包参数 `ctx`：它携带协程路径，缺省 ActivityID 等原语 ID 由此派生。
-- `zz_*_gen.go`、`workflow.json`、`wlang.json`、`activities.json` 由生成器维护，改源码后重新生成：手改会让内容 hash、契约指纹与代码不一致。
+- `zz_*_gen.go`、`workflow.json`、`activities.json` 由生成器维护，改源码后重新生成：手改会让内容 hash、契约指纹与代码不一致。
 - 一个包目录一条 `@Workflow`；`@Workflow` / `@Activity` 写在包级函数的 `//` 行注释里：方法、块注释、未知 key 都被拒绝。
 - 每个 Activity 调用设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout`：attempt 开始后 Worker 立即确认队列租约，attempt 的存活只由这两个超时与 `HeartbeatTimeout` 判定，Worker 消失后靠 StartToClose（或 heartbeat）超时重试。缺少时生成器报出调用点；选项来自变量时由 Server 拒绝调度命令，Workflow Task 以 `bad_schedule_activity_attributes` 失败。
 - Activity 至少执行一次（at-least-once），不保证只执行一次：已开始的 attempt 不会因队列重投再执行，但超时重试、Worker 在上报结果前崩溃、Worker 停止时交还 attempt 都会让同一业务操作再执行。每个 Activity 都必须幂等。

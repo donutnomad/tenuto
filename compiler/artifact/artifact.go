@@ -1,6 +1,6 @@
 // Package artifact 加载 `tenuto-workflow-gen` 产出的 JSON 产物，并封装两个注册入口。
 //
-// 产物目录里 workflow.json 是必需项；wlang.json / activities.json 存在时必须能解析。校验失败的错误里带文件名，
+// 产物目录里 workflow.json 是必需项；activities.json 存在时必须能解析。校验失败的错误里带文件名，
 // 便于直接定位到出错的那份 JSON。
 package artifact
 
@@ -17,7 +17,6 @@ import (
 // 产物文件名。
 const (
 	WorkflowFile   = "workflow.json"
-	ArtifactFile   = "wlang.json"
 	ActivitiesFile = "activities.json"
 )
 
@@ -55,8 +54,7 @@ type Artifacts struct {
 	Dir string
 	// Workflow 是 runtime 接受的 WorkflowConfig bundle，必需。
 	Workflow *programpkg.WorkflowConfig
-	// Artifact/Activities 是可选产物，缺失时留零值。
-	Artifact   *programpkg.WLangProgram
+	// Activities 是可选产物，缺失时留零值。
 	Activities []Activity
 	// ContentVersion 是 workflow.json 的内容版本，与服务端登记后报告的版本相同
 	// （program.WorkflowConfigVersion）。
@@ -79,18 +77,6 @@ func LoadDir(dir string) (Artifacts, error) {
 	}
 	artifacts.Workflow = workflow
 
-	if data, ok, err := readOptional(dir, ArtifactFile); err != nil {
-		return Artifacts{}, err
-	} else if ok {
-		wlang := &programpkg.WLangProgram{}
-		if err := unmarshalFile(ArtifactFile, data, wlang); err != nil {
-			return Artifacts{}, err
-		}
-		if wlang.Schema != programpkg.WLangProgramSchemaV2 {
-			return Artifacts{}, fmt.Errorf("%s: schema %q 不是 WLang v2", filepath.Join(dir, ArtifactFile), wlang.Schema)
-		}
-		artifacts.Artifact = wlang
-	}
 	if data, ok, err := readOptional(dir, ActivitiesFile); err != nil {
 		return Artifacts{}, err
 	} else if ok {

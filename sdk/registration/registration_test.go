@@ -25,7 +25,7 @@ func TestDefinitionLoadBad(t *testing.T) {
 	cases := map[string]Definition{
 		"missing filesystem": {},
 		"missing workflow.json": {FS: fstest.MapFS{
-			"wlang.json": &fstest.MapFile{Data: []byte(`{}`)},
+			"activities.json": &fstest.MapFile{Data: []byte(`{}`)},
 		}},
 		"invalid json": {FS: fstest.MapFS{
 			ArtifactFile: &fstest.MapFile{Data: []byte(`{`)},

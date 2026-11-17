@@ -37,7 +37,6 @@ activity 使用所属 `@Workflow` 的 `queue`。
 | 文件 | 内容 |
 | --- | --- |
 | `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → 类型 / 队列 / 契约指纹）、`policy` / `version` |
-| `wlang.json` | `workflow.json` 里 `program` 的单独一份（指令、导入、类型描述符、入口边界），便于审阅 diff |
 | `activities.json` | activity 清单：`type` / `version` / `input` / `output`（wire 指纹）/ `queue` / `symbol` |
 | `zz_<pkg>_contract_gen.go` | 每个契约包的 typed 桥与稳定 marker，本包有本地实现时额外给出 `RegisterActivities`（Code generated） |
 | `zz_<pkg>_artifacts_gen.go` | 把同目录 `workflow.json` embed 进二进制，并导出 `WorkflowDefinition()`（Code generated） |

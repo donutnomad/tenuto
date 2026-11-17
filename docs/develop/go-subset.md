@@ -161,7 +161,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 
 ## 数据类型
 
-Workflow 代码接触到的每个数据类型都登记进 Program 的类型表（`wlang.json` 的 `types`），嵌套深度不限：入口签名、局部变量、复合字面量（包括只出现在 `ExecuteChildWorkflow`、`ExecuteActivity`、`ContinueAsNew` 实参或 Query 结果里的字面量）、闭包与同包函数的参数和结果、Signal 与 Activity 结果的接收变量、Update Handler 的参数和结果，以及从这些类型经字段、指针、slice、array、map 元素和具名类型的底层类型能到达的全部类型。
+Workflow 代码接触到的每个数据类型都登记进 Program 的类型表（`workflow.json` 里 `program.types`），嵌套深度不限：入口签名、局部变量、复合字面量（包括只出现在 `ExecuteChildWorkflow`、`ExecuteActivity`、`ContinueAsNew` 实参或 Query 结果里的字面量）、闭包与同包函数的参数和结果、Signal 与 Activity 结果的接收变量、Update Handler 的参数和结果，以及从这些类型经字段、指针、slice、array、map 元素和具名类型的底层类型能到达的全部类型。
 
 - 当前包与其他非 SDK 包（契约包、DTO 包）声明的 struct、具名基础类型、具名 slice / map / array 都可以用。
 - 递归与互相递归的类型可以用，递归要经过指针、slice 或 map，与 Go 相同：

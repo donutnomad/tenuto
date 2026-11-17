@@ -11,7 +11,7 @@
 | `types.go` | 手写源码：入参、输出与各 Activity 的 DTO |
 | `zz_sagaflow_contract_gen.go` | 生成：`CallReserveInventory` 等调用桥、`RegisterActivities` |
 | `zz_sagaflow_artifacts_gen.go` | 生成：`WorkflowDefinition()`（embed `workflow.json`） |
-| `workflow.json` / `wlang.json` / `activities.json` | 生成：可注册的配置、程序与 Activity 清单 |
+| `workflow.json` / `activities.json` | 生成：可注册的配置（含程序）与 Activity 清单 |
 | `sagaflow_test.go` | 真实 WLang 解释器的行为矩阵测试 |
 | `worker/main.go` | 真实双 Worker 启动顺序（Activity 先，Workflow 后） |
 

@@ -21,11 +21,6 @@ func writeArtifacts(t *testing.T) string {
 	dir := t.TempDir()
 	workflow := &program.WorkflowConfig{ID: "demo", Name: "Demo", Policy: "auto_upgrade", Version: "v2", Program: programtest.Noop()}
 	writeJSON(t, dir, WorkflowFile, workflow)
-	writeJSON(t, dir, ArtifactFile, &program.WLangProgram{
-		Schema:  program.WLangProgramSchemaV2,
-		Lang:    program.WLangLanguageV1,
-		Program: []any{},
-	})
 	writeJSON(t, dir, ActivitiesFile, []Activity{{
 		Type: "demo.charge", Version: "v1", Input: "demo.In", Output: "demo.Out", Queue: "demo", Symbol: "demo.Charge",
 	}})
@@ -52,9 +47,6 @@ func TestLoadDirReadsAndHashesArtifacts(t *testing.T) {
 	}
 	if loaded.Workflow.ID != "demo" || loaded.Workflow.Version != "v2" {
 		t.Fatalf("workflow 内容异常: %+v", loaded.Workflow)
-	}
-	if loaded.Artifact == nil {
-		t.Fatal("可选产物没有被解析")
 	}
 	if len(loaded.Activities) != 1 || loaded.Activities[0].Symbol != "demo.Charge" {
 		t.Fatalf("activities 内容异常: %+v", loaded.Activities)
@@ -96,18 +88,11 @@ func TestLoadDirRequiresWorkflowFile(t *testing.T) {
 	}
 }
 
-// TestLoadDirRejectsInvalidArtifacts 覆盖非法 schema 与空 type。
+// TestLoadDirRejectsInvalidArtifacts 覆盖 activities.json 里的空 type。
 func TestLoadDirRejectsInvalidArtifacts(t *testing.T) {
 	dir := writeArtifacts(t)
-	writeJSON(t, dir, ArtifactFile, &program.WLangProgram{Schema: "wlang/program/v1"})
-	_, err := LoadDir(dir)
-	if err == nil || !strings.Contains(err.Error(), "不是 WLang v2") {
-		t.Fatalf("旧 schema 应报错: %v", err)
-	}
-
-	dir = writeArtifacts(t)
 	writeJSON(t, dir, ActivitiesFile, []Activity{{Type: "", Symbol: "demo.Charge"}})
-	_, err = LoadDir(dir)
+	_, err := LoadDir(dir)
 	if err == nil || !strings.Contains(err.Error(), "type 为空") {
 		t.Fatalf("空 type 应报错: %v", err)
 	}

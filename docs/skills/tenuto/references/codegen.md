@@ -119,7 +119,6 @@ make build-example    # 先生成再构建示例二进制
 | `zz_<pkg>_contract_gen.go` | 每个契约包的 `CallX` 桥、签名断言；有本地实现时含 `RegisterActivities(registry *activity.Registry) error` |
 | `zz_<pkg>_artifacts_gen.go` | embed `workflow.json`，导出 `WorkflowDefinition() registration.Definition` |
 | `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → 类型、队列、契约指纹）、`policy`、`version` |
-| `wlang.json` | `workflow.json` 里 `program` 的单独一份，便于审阅 diff |
 | `activities.json` | Activity 清单：`type`、`version`、输入输出 wire 指纹、`queue`、`symbol` |
 
 只含 `@Activity` 的包目录只生成 `zz_<pkg>_contract_gen.go`。内容相同时不重写文件；同一份源码在不同 checkout 得到相同的内容 hash。全部产物提交进版本库，全部由生成器维护。

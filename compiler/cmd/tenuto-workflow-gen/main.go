@@ -21,8 +21,8 @@ func main() {
 
 const usage = `usage: tenuto-workflow-gen generate [flags] <pkgdir>...
 
-从 <pkgdir> 里的 @Workflow/@Activity 注解生成 workflow.json / wlang.json /
-activities.json，并写出契约桥文件 zz_<pkg>_contract_gen.go。
+从 <pkgdir> 里的 @Workflow/@Activity 注解生成 workflow.json / activities.json，
+并写出契约桥文件 zz_<pkg>_contract_gen.go。
 
 flags:
   -watch          监听依赖源码的内容哈希，保存后重新生成；失败保留上次成功产物
@@ -139,14 +139,13 @@ func generatePackage(ctx context.Context, dir string, options generateOptions) (
 	return result, nil
 }
 
-// writeArtifacts 写出三份 JSON 产物与打包文件；内容相同时不重写。
+// writeArtifacts 写出两份 JSON 产物与打包文件；内容相同时不重写。
 func writeArtifacts(result sdkgen.PackageResult, stdout io.Writer) error {
 	files := []struct {
 		name  string
 		value any
 	}{
 		{artifact.WorkflowFile, result.Workflow},
-		{artifact.ArtifactFile, result.Workflow.Program},
 		{artifact.ActivitiesFile, artifact.Manifest(result.Activities)},
 	}
 	for _, file := range files {

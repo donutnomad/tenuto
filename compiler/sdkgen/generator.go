@@ -29,7 +29,7 @@ type Options struct {
 	Dir        string
 }
 
-// Result 是一次翻译的产物：登记用的 WorkflowConfig 与格式化后的 WLang 程序 JSON（wlang.json）。
+// Result 是一次翻译的产物：登记用的 WorkflowConfig 与格式化后的 WLang 程序 JSON。
 type Result struct {
 	Workflow    *programpkg.WorkflowConfig
 	ProgramJSON []byte

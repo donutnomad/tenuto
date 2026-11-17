@@ -54,7 +54,6 @@ Go 版本要求见 `go.mod`。编译链为 Go 源码 → WLang
 | 文件/请求 | 形状 | 用途 |
 | --- | --- | --- |
 | `workflow.json` | `id/name/policy/version/program/activities`：`program` 是 WLang 程序，`activities` 把程序里的 Activity 符号映射到类型、队列与契约指纹 | Runtime 接受的 WorkflowConfig |
-| `wlang.json` | `workflow.json` 里 `program` 的单独一份：`schema/lang/program/imports/types/entry/handler_abi_schema` | 审阅指令、导入和类型边界的 diff |
 | 注册 HTTP body | `{"namespace":"...","workflow":<workflow.json>}` | 向服务注册配置 |
 
 `workflow.json` 规范化内容的 hash 就是服务端登记后的配置版本，生成器打印的 `content version` 与注册响应里的版本相同。
@@ -191,7 +190,6 @@ go test -v ./docs/examples/versioned-workflow/... ./compiler/cmd/tenuto-workflow
 go test ./compiler/...
 go vet ./...
 diff -u docs/examples/versioned-workflow/v1/workflow.go docs/examples/versioned-workflow/v2/workflow.go
-diff -u docs/examples/versioned-workflow/v1/wlang.json docs/examples/versioned-workflow/v2/wlang.json
 diff -u docs/examples/versioned-workflow/v1/workflow.json docs/examples/versioned-workflow/v2/workflow.json
 ```
 
