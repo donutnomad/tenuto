@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/donutnomad/tenuto/internal/executor"
@@ -61,7 +62,10 @@ type Options struct {
 	// Identity 标识这个 Worker 进程，Activity 路由与粘性执行按它寻址；缺省取 client.Options.Identity。
 	// 进程重启后保持不变的 Identity 能让 Server 把它当作同一个 Worker。
 	Identity string
-	// BuildID 是这个二进制的构建标识，随 Activity 路由上报。
+	// BuildID 是这个二进制的构建标识（代码版本），随 Activity 路由上报：同一份代码的所有进程用同一个值，
+	// 代码变了就换值，新旧契约才能在 Server 上并存。为空时取编译时写入二进制的 Git revision（前 12 位，
+	// 工作区有未提交改动时加 "-dirty"）；二进制里没有 revision（go run、go test、-buildvcs=false、
+	// 在 Git 仓库外构建）时 New panic。
 	BuildID string
 	// ActivityWorkerVersionDefault 与 ActivityWorkerVersionWeight 只在 Activity 没有指定队列、多个队列都承接它的类型时
 	// 参与选择队列：Default 的登记优先，其余按 Weight 加权。它们不决定由哪个 build 执行，任务投到队列后由领取它的 Worker 执行。
@@ -122,6 +126,10 @@ func newWorker(c client.Client, options Options, cache *executor.ExecutionCache)
 		return nil, errors.New("worker: client must be created by client.Dial")
 	}
 	conn := provider.RuntimeConn()
+	buildID, err := resolveBuildID(options.BuildID, debug.ReadBuildInfo)
+	if err != nil {
+		panic(err)
+	}
 	queues, err := activityTaskQueues(options.ActivityTaskQueues, options.Activities)
 	if err != nil {
 		return nil, err
@@ -134,7 +142,7 @@ func newWorker(c client.Client, options Options, cache *executor.ExecutionCache)
 		ActivityTaskQueues:                     queues,
 		WorkflowTaskTimeout:                    options.WorkflowTaskTimeout,
 		Identity:                               options.Identity,
-		BuildID:                                options.BuildID,
+		BuildID:                                buildID,
 		ActivityWorkerVersionDefault:           options.ActivityWorkerVersionDefault,
 		ActivityWorkerVersionWeight:            options.ActivityWorkerVersionWeight,
 		ActivityWorkerVersionRegistry:          conn.Workflow,
@@ -244,4 +252,34 @@ func activityTaskQueues(explicit []string, registry *activity.Registry) ([]strin
 		}
 	}
 	return explicit, nil
+}
+
+// resolveBuildID 返回 Worker 上报的 BuildID：explicit 非空时原样使用，否则取二进制里的 vcs.revision。
+func resolveBuildID(explicit string, readBuildInfo func() (*debug.BuildInfo, bool)) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	revision, modified := "", false
+	if info, ok := readBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				revision = setting.Value
+			case "vcs.modified":
+				modified = setting.Value == "true"
+			}
+		}
+	}
+	if revision == "" {
+		return "", errors.New("worker: Options.BuildID is empty and the binary carries no VCS revision " +
+			"(built with go run, go test, -buildvcs=false, or outside a git checkout); " +
+			"set Options.BuildID or build the binary with go build inside the repository")
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if modified {
+		revision += "-dirty"
+	}
+	return revision, nil
 }

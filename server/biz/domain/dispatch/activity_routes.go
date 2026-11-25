@@ -198,7 +198,15 @@ func (c *ActivityRouteCatalog) ResolveActivityRoute(ref ActivityRouteRef) (Activ
 	}
 	candidates = contractCompatibleRoutes(candidates, ref)
 	sortActivityRoutes(candidates)
-	if pools := ambiguousRoutePools(candidates); pools != nil {
+	// 候选按契约收窄过时，实例的路由也按同一契约过滤；没有兼容候选时 contractCompatibleRoutes 保留全部，实例同样不过滤。
+	declared := ref.declaredContract()
+	narrowed := declared.HasDeclaration() && CheckActivityContract(declared, candidates[0]).Compatible()
+	instances := func() [][]ActivityRoute {
+		return c.instanceRoutes(ref.Namespace, ref.Type, func(route ActivityRoute) bool {
+			return !narrowed || CheckActivityContract(declared, route).Compatible()
+		})
+	}
+	if pools := ambiguousRoutePools(candidates, instances); pools != nil {
 		return ActivityRoute{}, protocol.InvalidRequestf("%w: activity %s type %s declares no task queue and workers serve it on unrelated task queues %q; "+
 			"declare the task queue in @Activity(queue=...) or ActivityOptions.TaskQueue, or stop one of them",
 			ErrActivityRouteUnavailable, ref.ActivityID, ref.Type, pools)
@@ -209,11 +217,16 @@ func (c *ActivityRouteCatalog) ResolveActivityRoute(ref ActivityRouteRef) (Activ
 // ambiguousRoutePools 判断没有声明队列的 Activity 在候选路由里有没有明确的去处，没有时返回互不相关的各组队列。
 //
 // chooseActivityRoute 在默认路由之间、或既没有默认也没有权重的路由之间按排序取第一个；这些路由分布在
-// 互不相关的队列上时（例如两个服务各自的队列），取第一个就是在两个服务之间静默二选一。同一个 build 拉取的
-// 几个队列算一组（滚动发布与一个进程拉多个队列都在组内）。配置了权重而没有默认路由时，按权重分流是显式意图，不算歧义。
-func ambiguousRoutePools(candidates []ActivityRoute) [][]string {
+// 互不相关的队列上时（例如两个服务各自的队列），取第一个就是在两个服务之间静默二选一。
+//
+// 队列按进程分组：同一个队列上的路由算一组（同一服务的多个实例、滚动发布都在组内）；同一个 Worker 实例
+// （Identity）拉取的几个队列算一组，这个进程确实同时服务它们。instances 按实例给出在线路由，只在 pool
+// 跨多个队列时才读取，按与候选相同的默认规则筛选；没有 Identity 的路由只通过共享队列相连。BuildID 只标识
+// 代码版本，可以为空或被不同服务共用，不参与分组。配置了权重而没有默认路由时，按权重分流是显式意图，不算歧义。
+func ambiguousRoutePools(candidates []ActivityRoute, instances func() [][]ActivityRoute) [][]string {
 	pool := filterActivityRoutes(append([]ActivityRoute(nil), candidates...), func(route ActivityRoute) bool { return route.Default })
-	if len(pool) == 0 {
+	defaultsOnly := len(pool) > 0
+	if !defaultsOnly {
 		for _, route := range candidates {
 			if route.Weight > 0 {
 				return nil
@@ -221,33 +234,40 @@ func ambiguousRoutePools(candidates []ActivityRoute) [][]string {
 		}
 		pool = candidates
 	}
-	// 并查集：同一个队列、同一个 build 的路由相连。
+	// 并查集：节点是 pool 里的队列；同一个实例拉取的 pool 内队列相连。
 	parent := map[string]string{}
-	var find func(string) string
-	find = func(node string) string {
-		if parent[node] == node {
-			return node
-		}
-		parent[node] = find(parent[node])
-		return parent[node]
-	}
-	union := func(a, b string) {
-		for _, node := range []string{a, b} {
-			if _, ok := parent[node]; !ok {
-				parent[node] = node
-			}
-		}
-		parent[find(a)] = find(b)
-	}
 	for _, route := range pool {
-		union("queue:"+route.TaskQueue, "build:"+route.BuildID)
+		parent[route.TaskQueue] = route.TaskQueue
+	}
+	if len(parent) < 2 {
+		return nil
+	}
+	var find func(string) string
+	find = func(queue string) string {
+		if parent[queue] == queue {
+			return queue
+		}
+		parent[queue] = find(parent[queue])
+		return parent[queue]
+	}
+	for _, routes := range instances() {
+		first := ""
+		for _, route := range routes {
+			queue := route.TaskQueue
+			if _, ok := parent[queue]; !ok || (defaultsOnly && !route.Default) {
+				continue
+			}
+			if first == "" {
+				first = queue
+				continue
+			}
+			parent[find(queue)] = find(first)
+		}
 	}
 	groups := map[string][]string{}
-	for _, route := range pool {
-		root := find("queue:" + route.TaskQueue)
-		if !slices.Contains(groups[root], route.TaskQueue) {
-			groups[root] = append(groups[root], route.TaskQueue)
-		}
+	for queue := range parent {
+		root := find(queue)
+		groups[root] = append(groups[root], queue)
 	}
 	if len(groups) < 2 {
 		return nil
@@ -259,6 +279,25 @@ func ambiguousRoutePools(candidates []ActivityRoute) [][]string {
 	}
 	slices.SortFunc(pools, func(a, b []string) int { return strings.Compare(a[0], b[0]) })
 	return pools
+}
+
+// instanceRoutes 按 Worker 实例（Identity）分组返回该 Activity 的在线路由，只保留 keep 接受的路由。
+// c.routes 按 (队列, build) 合并、只留最后一个注册者的 Identity，实例信息取自按 Identity 保存的 c.workers。
+func (c *ActivityRouteCatalog) instanceRoutes(namespace, activityType string, keep func(ActivityRoute) bool) [][]ActivityRoute {
+	prefix := activityRouteKey(namespace, activityType) + "\x00"
+	now := c.now()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var instances [][]ActivityRoute
+	for key, routes := range c.workers {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		if routes = filterActivityRoutes(activeActivityRoutes(routes, now), keep); len(routes) > 1 {
+			instances = append(instances, routes)
+		}
+	}
+	return instances
 }
 
 // resolveExplicitActivityRoute 处理调用方指定了 TaskQueue 的引用。

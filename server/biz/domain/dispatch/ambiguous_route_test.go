@@ -60,11 +60,44 @@ func TestResolveActivityRouteUndeclaredQueueAmbiguity(t *testing.T) {
 			ref: undeclared, wantQueue: "orders",
 		},
 		{
-			name: "Happy Path: one build polling two queues is one pool",
+			name: "Happy Path: one process polling two queues is one pool",
 			workers: []worker{
 				{"order-1", "order-v1", []string{"orders", "orders-bulk"}, true, 0},
 			},
 			ref: undeclared, wantQueue: "orders",
+		},
+		{
+			name: "Happy Path: instances that each poll both queues keep them in one pool",
+			workers: []worker{
+				{"order-1", "", []string{"orders", "orders-bulk"}, true, 0},
+				{"order-2", "", []string{"orders", "orders-bulk"}, true, 0},
+			},
+			ref: undeclared, wantQueue: "orders",
+		},
+		{
+			name: "Error Case: two services without BuildID serve the type as default on unrelated queues",
+			workers: []worker{
+				{"order-1", "", []string{"orders"}, true, 0},
+				{"billing-1", "", []string{"billing"}, true, 0},
+			},
+			ref: undeclared, ambiguous: true,
+		},
+		{
+			name: "Error Case: two services sharing BuildID v1 serve the type on unrelated queues",
+			workers: []worker{
+				{"order-1", "v1", []string{"orders"}, true, 0},
+				{"billing-1", "v1", []string{"billing"}, true, 0},
+			},
+			ref: undeclared, ambiguous: true,
+		},
+		{
+			// 同一个 build 的两个实例各拉一个队列：是两个进程在互不相关的队列上，没有哪个进程同时服务两个队列。
+			name: "Error Case: two instances of one build each polling a different queue are separate processes",
+			workers: []worker{
+				{"order-1", "order-v1", []string{"orders"}, true, 0},
+				{"order-2", "order-v1", []string{"billing"}, true, 0},
+			},
+			ref: undeclared, ambiguous: true,
 		},
 		{
 			name: "Error Case: two services serve the type as default on unrelated queues",

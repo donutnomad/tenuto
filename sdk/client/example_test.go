@@ -92,7 +92,7 @@ func startExampleServer() (string, func()) {
 		}
 		definitions = append(definitions, definition)
 	}
-	w, err := worker.New(c, worker.Options{Workflows: definitions})
+	w, err := worker.New(c, worker.Options{Workflows: definitions, BuildID: "example"})
 	if err != nil {
 		log.Fatal(err)
 	}

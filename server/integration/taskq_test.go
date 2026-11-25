@@ -269,7 +269,7 @@ func TestTaskQAppWorkerReportsActivityResultThroughRuntimeHTTPAPI(t *testing.T) 
 	})
 	// Activity Worker 经 runtime HTTP API 领取 taskq 里的 Activity Task 并上报结果。
 	appWorker, err := sdkworker.New(c, sdkworker.Options{
-		Role: sdkworker.RoleActivity, Activities: registry, ActivityTaskQueues: []string{"custodian"}, Identity: "taskq-http-activity-worker",
+		Role: sdkworker.RoleActivity, Activities: registry, ActivityTaskQueues: []string{"custodian"}, Identity: "taskq-http-activity-worker", BuildID: "taskq-test",
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -82,7 +82,7 @@ func run(ctx context.Context, url, namespace string) error {
 | `WorkflowTaskTimeout` | `10s` | 单个 Workflow Task 的执行超时；领取时报给 Server，Server 按它计时 |
 | `GracefulStopTimeout` | `10s` | `Stop` 等待在途 Activity 与 Workflow Task 结束的上限 |
 | `Identity` | `client.Options.Identity` | Worker 实例标识（pod name、instance ID） |
-| `BuildID` | 空 | Worker 代码版本（镜像版本、Git commit） |
+| `BuildID` | 编译时的 Git revision | Worker 代码版本（镜像版本、Git commit）。为空时取编译时写入二进制的 Git revision（前 12 位，工作区有未提交改动时加 `-dirty`）；二进制里没有 revision（`go run`、`go test`、`-buildvcs=false`、在 Git 仓库外构建）时 `worker.New` panic |
 | `ActivityWorkerVersionDefault` | `false` | Activity 没有指定队列、多个队列承接它时优先选这个登记的队列 |
 | `ActivityWorkerVersionWeight` | `0` | 同上情况下选择队列的权重；不决定由哪个 build 执行 |
 | `ActivityWorkerVersionHeartbeatInterval` | TTL 的一半 | 路由心跳间隔 |
@@ -150,5 +150,6 @@ WORKFLOW_BACKEND=memory WORKFLOW_HTTP_ADDR=127.0.0.1:7400 go run ./server/cmd/te
 | `WaitReady` 报定义登记失败 | 产物是否由当前源码生成；Server 地址与 Namespace |
 | Activity 长时间 Scheduled | Worker 拉取的队列（registry 登记的队列或 `ActivityTaskQueues`）是否包含该队列；`Activities` 是否登记了这个 type；`POST /runtime/workflow/list-workers` 里是否有该 Worker |
 | Run Blocked：`activity route unavailable` | 该 Namespace 是否有注册了这个 `type` 的在线 Worker |
+| `worker.New` panic：`Options.BuildID is empty and the binary carries no VCS revision` | 用 `go build` 在 Git 仓库里构建，或显式设置 `BuildID`（`go run` 与 `go test` 不写入 revision） |
 | Run 暂停：`contract mismatch` | Worker 与 Program 是否来自同一次生成；新旧 build 是否用了不同 BuildID（见 `versioning.md`） |
 | Workflow Task 反复超时 | 函数体里的纯计算是否过重；调大 `WorkflowTaskTimeout` 或把计算放进 Activity |

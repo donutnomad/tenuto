@@ -1,12 +1,47 @@
 ---
 title: 问答
-description: 按提问顺序记录的引擎行为问答：Activity 契约与升级、Workflow 版本标签、GetVersion、Reset、幂等 Key 与取消
+description: 按提问顺序记录的引擎行为问答：Activity 契约与升级、Workflow 版本标签、GetVersion、Reset、幂等 Key 与取消、生成产物、Activity 队列与路由、remote 契约、BuildID
 status: Stable
 ---
 
 # Tenuto QA
 
-按提问顺序记录对引擎行为的问答。每条答案以代码为准，文中给出核对过的位置。
+按提问顺序记录对引擎行为的问答。每条答案以代码为准，文中给出核对过的位置。第一次读先看问题 0，再按主题找。
+
+## 按主题索引
+
+| 主题 | 问题 |
+| --- | --- |
+| 整体结构 | [0](#问题-0-tenuto-由哪几部分组成-一个-run-是怎么跑完的) |
+| 生成与部署 | [12 生成产物](#问题-12-生成器产出哪些-json-为什么先用-go-定义-再生成-json-最后用-json-注册到-server)、[13 独立 Server](#问题-13-要单独运行一个-tenuto-server-吗)、[21 谁执行 Workflow Task](#问题-21-workflow-task-由谁执行-server-内嵌的-worker-还是业务进程) |
+| 版本与升级 | [1](#问题-1-activity-注解里的-type-和-version-有什么作用-同一个-type-把-version-从-v1-改到-v2-有什么影响)–[9](#问题-9-workflow-version-只是给人看的吗-可以不改-version、只改内部编排并用-getversion-做兼容吗) |
+| 队列与路由 | [14](#问题-14-activity-的-queue-由谁决定-activity-不写-queue-会报错吗)–[19](#问题-19-activity-remote-true-的作用是什么) |
+| BuildID | [20](#问题-20-buildid-是什么-在哪里起作用、填在哪里、不填会怎样) |
+| 可靠性与排障 | [10 幂等 Key](#问题-10-activity-因故障被重复调用-内部用什么构造幂等-key-同一个订单上有很多操作-key-不能只按订单-id)、[11 取消](#问题-11-取消一个-workflow-时-workflow-代码能收到通知并做补偿吗-正在执行的-activity-会怎样)、[22 Run 卡住怎么查](#问题-22-run-卡住了-blocked、暂停、一直不结束-按什么顺序排查)、[23 Activity 会不会重复执行](#问题-23-worker-崩溃或-server-重启时-activity-会不会重复执行) |
+
+## 问题 0：Tenuto 由哪几部分组成？一个 Run 是怎么跑完的？
+
+**Server 保存状态并调度，Workflow Worker 按定义重放 Workflow 代码、产生命令，Activity Worker 执行业务代码。Workflow 用 Go 写，生成器把它编译成定义（`workflow.json`）嵌进二进制，Worker 启动时登记给 Server。**
+
+| 部分 | 职责 |
+| --- | --- |
+| tenuto-server | 保存 Event History 与执行状态，调度 Activity、Timer、Signal、Update，负责重试和超时（问题 13） |
+| Workflow 定义 | `workflow.json`：编译后的 WLang 程序与它调用的 Activity 契约，按内容 hash 区分版本（问题 12） |
+| Workflow Worker | 领取 Workflow Task，按 History 确定性地重放程序，产生下一批命令；Server 默认内嵌一个（问题 21） |
+| Activity Worker | 领取 Activity Task，执行业务 Go 函数，上报结果；启动时上报自己拉取的队列、登记的 Activity 与契约（问题 14、20） |
+| Client | 启动 Run，发送 Signal、Query、Update，读取结果 |
+| Run | 一次执行：Workflow ID 是业务单号，绑定一份定义（`pinned` 固定、`auto_upgrade` 跟随最新，问题 6–9） |
+| Namespace | 隔离 Run、定义、队列与 Worker 路由 |
+
+一个 Run 的过程：
+
+1. Client 用 Workflow Type（`@Workflow` 的 `id`）和 Workflow ID 启动 Run，Server 写入 History，产生第一个 Workflow Task。
+2. Workflow Worker 领取它，按 History 重放程序；程序走到 `CallX` 时产生「调度 Activity」命令。
+3. Server 为命令确定队列（问题 14），确认有在线 Worker 的契约满足定义的声明，把 Activity Task 投到队列，写 `ActivityScheduled`。
+4. Activity Worker 领取任务，Server 再按领取者的契约核对一次，执行业务函数，结果写进 History。
+5. 结果到达后产生下一个 Workflow Task，Workflow Worker 从头重放到新位置，继续产生命令，直到函数返回，Run 结束。
+
+Workflow 代码会被反复重放，所以必须确定（问题 7）；Activity 不重放，执行语义是至少一次，所以必须幂等（问题 10、23）。
 
 ## 问题 1：`@Activity` 注解里的 `type` 和 `version` 有什么作用？同一个 `type` 把 `version` 从 v1 改到 v2 有什么影响？
 
@@ -564,3 +599,270 @@ Workflow 的取消请求本身不取消 Activity，Activity 照常开始，清�
 | 已开始，不 Heartbeat | 收不到取消，运行到自己返回或超时 |
 
 Terminate 仍然立即关闭 Run，不运行 Workflow 代码。完整说明见 [取消、超时与终止](/develop/cancellation-timeouts)。
+
+## 问题 12：生成器产出哪些 JSON？为什么先用 Go 定义，再生成 JSON，最后用 JSON 注册到 Server？
+
+**每个 Workflow 包只产出一个 JSON：`workflow.json`。它是 Server 接受的 Workflow 定义，包含编译后的 WLang 程序 `program`、调用的 Activity 契约 `activities`，以及 `id`、`name`、`policy`、`version`。生成的 `zz_<pkg>_artifacts_gen.go` 用 `//go:embed` 把它打进二进制，`WorkflowDefinition()` 在 Worker 启动时把它登记到 Server。**
+
+| 产物 | 内容 | 运行时 |
+| --- | --- | --- |
+| `workflow.json` | WorkflowConfig：`program`、`activities`（符号 → `type`、`task_queue`、`version`、入参出参 wire 指纹）、`policy`、`version` | 嵌入二进制，Worker 启动时登记 |
+| `zz_<pkg>_artifacts_gen.go` | embed `workflow.json`，导出 `WorkflowDefinition()` | 编译进二进制 |
+| `zz_<pkg>_contract_gen.go` | `CallX` 调用桥、签名断言、`RegisterActivities` | 编译进二进制 |
+
+先生成 JSON 的原因：
+
+- **Server 执行 Workflow 时手里没有业务 Go 代码。** Workflow Task 可以由 Server 内嵌的 Worker 执行，Console 用浏览器里的 WASM 重放 Trace，它们都需要一份可解释的程序描述。
+- **版本有据可查。** 定义按 `workflow.json` 的内容算 hash（`program.WorkflowConfigVersion`），Run 绑定的是一份具体的内容，`pinned` 和 `auto_upgrade` 都以它为依据。
+- **部署单元是一个二进制。** JSON 嵌在二进制里，运行时不读外部文件，产物与二进制不会错配。
+- **产物与源码一致由 CI 保证。** CI 执行 `go generate ./...` 后用 `git diff --exit-code` 检查产物已提交。
+
+审阅时看 Go 源码；`workflow.json` 的 `activities` 一段可以用来确认契约变化。
+
+## 问题 13：要单独运行一个 tenuto-server 吗？
+
+**要。tenuto-server 是独立进程，保存 Event History 和执行状态，负责调度 Activity、Timer、重试和超时。业务进程是它的客户端，经 HTTP 连接；Server 里没有业务代码，Workflow 定义由各个 Worker 启动时登记上去。**
+
+```bash
+# 本地开发：内存后端，不需要数据库，重启后数据清空
+WORKFLOW_BACKEND=memory WORKFLOW_HTTP_ADDR=127.0.0.1:7400 go run ./server/cmd/tenuto-server
+
+# 生产：MySQL 后端，首次部署与每次升级先 migrate
+tenuto-server migrate && tenuto-server
+```
+
+只有测试会用 `server/app/assembly` 把 Server 组装进同一个进程，例如 `docs/examples/upgrade-demo/scenario/scenario_test.go`。
+
+## 问题 14：Activity 的 queue 由谁决定？Activity 不写 queue 会报错吗？
+
+**queue 是 Activity 自己的属性，和调用它的 Workflow、和放在同一个包里的 Workflow 都无关。不写 queue 不报错：这时由执行它的 Worker 决定，Server 调度时按在线 Worker 的登记选队列。**
+
+Server 调度一个 Activity 时按顺序取队列，取到的队列写进 History 的 `ActivityScheduled.taskQueue`（`server/biz/service/engine/server_definition.go` 的 `resolveActivityCommand`）：
+
+1. 调用处的 `ActivityOptions.TaskQueue`，只作用于这一次调用。
+2. `@Activity(queue=...)`：写进 `workflow.json`，生成的 `RegisterActivities` 用 `activity.RegisterActivityOnQueue` 连同队列一起登记。
+3. 都没写：定义不声明队列，Server 在路由目录里选。目录是在线 Worker 上报的「拉取的队列 × 登记的 Activity 类型」；先排除契约与定义不一致的路由，再优先默认路由（`ActivityWorkerVersionDefault`），再按权重（`server/biz/domain/dispatch/activity_routes.go` 的 `ResolveActivityRoute`）。
+
+`@Workflow` 没有 `queue` 参数，写了会在生成时报 `file:line`（`compiler/sdkgen/annotation.go` 的 `toWorkflowAnnotation`）。Workflow Task 不分队列，由 Server 派给任意 Workflow Worker。
+
+Worker 一侧（`sdk/worker/worker.go` 的 `activityTaskQueues`）：
+
+| `ActivityTaskQueues` | Worker 拉取的队列 |
+| --- | --- |
+| 不写 | registry 登记的队列（`reg.Queues()`）；有不带队列的 Activity 时再加上 `default` |
+| 写了 | 原样使用；必须包含 registry 登记的每个队列，否则 `worker.New` 返回错误；可以额外列别的队列 |
+
+不写 queue 时，只在调度时有两种情况让 Run 显示 Blocked（`activity_route_unavailable`），都不是写法错误：没有任何在线 Worker 登记这个 Activity；几个服务在互不相关的队列上提供它（见问题 17）。Worker 上线或声明队列后，Run 按退避继续，History 不变。
+
+### 追问：Temporal 的 Workflow queue 会被所有 Activity 继承吗？
+
+会。Temporal 的 Workflow 跑在一个必填的 task queue 上，Activity 的 `ActivityOptions.TaskQueue` 不写时投到 Workflow 所在的队列。Temporal Server 没有「哪个 Worker 登记了哪个 Activity」的目录：调用其他服务的 Activity 时，调用处必须写对方的队列名，写错时任务投到没有实现的队列，Worker 报 activity type not registered 后按重试策略重试。Temporal 为跨服务调用另外提供了 Nexus：endpoint 在 Registry 里登记，指向一个 namespace 和 task queue，调用方只需要 endpoint 名。
+
+Tenuto 的对应做法：
+
+| | Temporal | Tenuto |
+| --- | --- | --- |
+| Activity 不写 queue | 投到 Workflow 的队列 | 由执行它的 Worker 决定，Server 按登记选路 |
+| 调用处覆盖 | `ActivityOptions.TaskQueue` | 同左 |
+| 跨服务调用 | 调用处写对方队列名，或用 Nexus | `remote=true` 契约写在共享契约包里（问题 19），调用方用生成的 `CallX` |
+| 队列上没有能执行的 Worker | 投递后反复重试 | 调度前检查，不投递，Run Blocked 并说明原因 |
+
+## 问题 15：Worker 的 `ActivityTaskQueues` 写了 `queue1`、`queue2`，没写 queue 的 Activity 投到哪个？两个 Worker 分别写 `queue1, queue2` 和 `queue2, queue1` 呢？
+
+**`ActivityTaskQueues` 是 Worker 拉取的队列列表，Worker 把 registry 里的每个 Activity 上报到每个队列上。没写 queue 的 Activity 进入名字排在最前面的队列，即 `queue1`；数组里写的顺序不影响结果。两个 Worker 顺序相反时结果相同，都投到 `queue1`，两个 Worker 都拉它，谁先领到谁执行。**
+
+- 两条候选路由（`queue1`、`queue2`）由同一个进程拉取，属于同一组，不触发歧义检查（问题 17）。
+- 选路在 `chooseActivityRoute`：有默认路由时在默认路由里选，没有默认、有权重时按调用的 hash 按权重分流，都没有时取第一个；排序按 BuildID、再按队列名（`sortActivityRoutes`）。
+- 没写 queue 表示任何能执行它的 Worker 都可以，Server 只会选有 Worker 拉取并登记了这个 Activity 的队列，选哪个都能执行，影响的只是负载落在哪个队列。
+- 一个 Worker 拉多个队列，用途是承接写明队列的任务：`@Activity(queue="queue2")`、调用处改派、迁移队列的过渡期。需要固定队列时在 `@Activity` 上声明。
+
+## 问题 16：Activity 注解写了 `queue1`，调用处指定了 `queue2`，会发生什么？
+
+**这一次调用投到 `queue2`：调用处的 `ActivityOptions.TaskQueue` 优先于注解，只作用于这一次调用（`internal/executor/interpreter/host_api.go` 先取 Program 的队列，再被调用选项覆盖）。其他调用仍投到 `queue1`。**
+
+能否执行取决于 `queue2` 上有没有提供这个 Activity 的 Worker（`resolveExplicitActivityRoute`）：
+
+| Worker | 结果 |
+| --- | --- |
+| 不写 `ActivityTaskQueues`，只拉 `queue1` | `queue2` 上没有路由；定义声明了契约时调度不派发，Run Blocked（`declares a contract and no online worker on task queue queue2 reported one`），不改投 `queue1`，有 Worker 拉 `queue2` 后按退避继续 |
+| `ActivityTaskQueues: []string{"queue1", "queue2"}` | Activity 也在 `queue2` 上可执行，投到 `queue2` 并执行 |
+| 另一个 Worker 拉 `queue2` 并登记了它 | 投到 `queue2`，由那个 Worker 执行；这是把部分调用交给专门 Worker 池的用法 |
+
+注解上的 queue 是默认值，不限制 Worker 在别的队列上提供它。调用处的队列可能来自变量，生成期检查不到；Console 的 Run 详情里这次调度的 `Queue Source` 显示 `overridden at call site`。
+
+## 问题 17：两个服务提供同名同契约的 Activity（例如误拷贝），会怎样？同一个服务部署 10 个实例算这种情况吗？
+
+**10 个实例不算：它们拉同一个队列，任务投到这个队列，谁领到谁执行。两个服务同名时，结果取决于它们拉的队列和调用方有没有声明队列。**
+
+Server 不判断「是不是同一份代码」：type、version、入参指纹、出参指纹都相同的 Worker 被视为可以互相替代。
+
+| 情况 | 结果 |
+| --- | --- |
+| 调用方声明了队列（`@Activity(queue)` 或调用处） | 只在那个队列里选，另一个服务不影响 |
+| 没声明队列，两个服务拉同一个队列 | 不报错，谁领到谁执行；与多实例部署无法区分 |
+| 没声明队列，两个服务在互不相关的队列上，都是默认路由，或都既没有默认也没有权重 | 调度不派发，Run Blocked（`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues`），声明队列或停掉一边后按退避继续 |
+| 没声明队列，只有一边是默认路由 | 投给默认路由那一边 |
+| 没声明队列，没有默认路由、配置了权重 | 按权重分流，视为显式配置 |
+| 两边契约不同（version 或指纹不同） | 调度与领取时按 Run 声明的契约区分，契约不符的 Worker 领取时被拒绝 |
+
+「互不相关」按进程判断（`ambiguousRoutePools`）：同一个队列上的路由是一组；同一个 Worker 进程（Identity）拉取的几个队列是一组。BuildID 不参与，它可以为空，也可能被不同服务共用。Worker 登记本身不做这项检查：两个服务提供同名 Activity、调用方都声明了队列是正常用法。
+
+避免误拷贝：Activity 的 `type` 加服务前缀（`payments.charge`）；Console Workers 页的 Activity Routing 表列出每个类型在哪些队列、由几个 Worker 提供。
+
+## 问题 18：把一个 Activity 的队列从 `queue01` 改到 `queue02`，`queue01` 上的任务是不是没人处理了？
+
+**是。改完后没有 Worker 拉 `queue01` 时，投在 `queue01` 的任务没人领取；不会丢失或重复执行，有 Worker 重新拉 `queue01` 后继续。受影响的范围取决于队列写在哪里。**
+
+队列写在 `@Activity(queue)` 时，它是 `workflow.json` 的一部分，改队列就是发布一份新定义（内容 hash 变了）：
+
+| Run | 之后调度这个 Activity 投到 | 新 build 只拉 `queue02` 时 |
+| --- | --- | --- |
+| 新启动的 | `queue02` | 正常 |
+| `auto_upgrade` 在途 | 下一个 Workflow Task 边界切到新定义，投 `queue02` | 正常 |
+| `pinned` 在途 | 旧定义，投 `queue01` | Blocked（`activity_route_unavailable`），按退避重试 |
+| 改动前已投进 `queue01`、还没领取的任务 | 留在 `queue01` | 停在 Scheduled，直到有 Worker 拉 `queue01` 或 `ScheduleToStartTimeout` |
+
+队列只在 Worker 的 `ActivityTaskQueues` 上配置时，定义里没有它，改队列不产生新定义，之后的调度（包括 `pinned` 的 Run）跟随 Worker 的登记；只有已投进 `queue01` 的任务留在原处。
+
+过渡期让新 build 同时拉两个队列，等 `queue01` 清空后再去掉：
+
+```go
+worker.Options{
+	Activities:         registry,                       // 注解登记的是 queue02
+	ActivityTaskQueues: []string{"queue02", "queue01"}, // 显式列表可以多于 registry 登记的队列
+}
+```
+
+## 问题 19：`@Activity(..., remote=true)` 的作用是什么？
+
+**声明一个实现不在本进程的 Activity，通常由另一个服务实现。它写在命名函数类型上，只描述契约。**
+
+```go
+// examples/shop/contracts/contracts.go
+// @Activity(type="payments.charge",queue="payments",version=v1,remote=true)
+type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)
+```
+
+| | 普通 `@Activity` | `remote=true` |
+| --- | --- | --- |
+| 标注在 | 有函数体的实现函数 | 函数类型 |
+| `CallX` 调用桥 | 生成 | 生成，Workflow 里写 `contracts.CallCharge(ctx, in)` |
+| 标记符号 | 实现函数本身（`orders.Notify`） | 生成的 `ChargeRemoteActivity`，函数体只有 panic，Server 只按符号绑定到 `payments.charge` |
+| `RegisterActivities` | 登记 | 不登记；只有 remote 契约的包不生成 `RegisterActivities`（`compiler/sdkgen/contracts.go` 的 `renderRegisterActivities`） |
+| `workflow.json` 的契约 | type、queue、version、入参出参指纹 | 同左，指纹从函数类型的 `In`、`Out` 算出 |
+
+实现方用同一组 queue、type、version 登记：
+
+```go
+activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", "v1", g.Charge)
+```
+
+两边的 DTO 可以各自定义，JSON 字段名、类型与可选性一致时指纹相同；Server 在调度和领取时对照两边的契约。调用方的代码里不出现队列名和类型名字符串。
+
+## 问题 20：BuildID 是什么？在哪里起作用、填在哪里、不填会怎样？
+
+**BuildID（`worker.Options.BuildID`）标识进程跑的是哪个版本的代码，作用是让同一个 Activity 的不同契约版本同时保存在 Server 上、互不覆盖。它不决定任务投给谁。**
+
+| | 标识 | 例子 |
+| --- | --- | --- |
+| Identity | 一个进程实例 | 不填时为 `<pid>@<hostname>`（`sdk/client/client.go`） |
+| BuildID | 进程跑的代码版本 | Git commit、镜像 tag |
+
+起作用的地方：
+
+1. **路由目录按「队列 + 类型 + BuildID」保存契约**（`sameActivityRouteVersion`）。BuildID 不同时分开保存；相同时合并成一条，后登记的契约覆盖先登记的。调度时 Server 确认至少一条路由的契约满足 Run 的声明。
+2. **领取时按领取者的 BuildID 找它上报的契约**（`activity_contract.go` 的 `CheckClaimingWorkerContract`），与 Run 的声明不一致时拒绝，任务约 1s 后重新投递。
+3. **记录与展示**：`ActivityStarted` 的 `workerBuildId`，Console 的 Worker 列表。
+
+它不决定任务投到哪个队列，不把 Run 绑定到某个版本（`ActivityState` 不保存 build），不参与 Workflow Task 的分派，也不参与问题 17 的歧义分组。
+
+### 填在哪里
+
+`worker.New` 的 `Options.BuildID`。不填时取编译时写入二进制的 Git revision：前 12 位，工作区有未提交改动时加 `-dirty`（`sdk/worker/worker.go` 的 `resolveBuildID`）。二进制里没有 revision 时 `worker.New` panic：
+
+```text
+worker: Options.BuildID is empty and the binary carries no VCS revision (built with go run, go test, -buildvcs=false, or outside a git checkout); set Options.BuildID or build the binary with go build inside the repository
+```
+
+`go run`、`go test`、`-buildvcs=false`、构建时没有 `.git` 目录（例如 Docker 构建没复制它）都不写入 revision，这些场景显式设置，例如从部署注入的环境变量读取。规则是同一份代码的所有进程用同一个值，代码变了就换值。
+
+### 追问：两个进程都没写 BuildID、契约一致，会被当成同一份代码的多个副本吗？
+
+Server 不判断是不是同一份代码，契约一致就视为可以互相替代，BuildID 填不填都一样。BuildID 只在新旧代码的契约不同、又同时在线时起作用：滚动发布时 v2 给 `reserve` 的入参加了字段，两批进程用不同 BuildID，路由目录保留两份契约，声明旧指纹的 `pinned` Run 仍能派给 v1 进程；用相同 BuildID 时两份契约合并成一份，`pinned` Run 可能被判为契约不符而暂停，即使 v1 进程在线。
+
+### 追问：第二个进程改了 Activity 内部的代码顺序，会出问题吗？
+
+不会出现确定性问题。需要确定性的是 Workflow 代码：它按 History 重放，命令顺序必须与 History 一致，改动要用 `GetVersion` 保护。Activity 不重放，History 只记它的入参和结果，内部实现可以随意重构。
+
+发布期间新旧进程同时在线，一次调用的重试也可能分别跑在新旧代码上。结果含义没变时直接发布；结果含义变了而结构没变（例如运费从不含税改成含税），Server 看到的指纹不变，要手动升 `version`。
+
+### 追问：BuildID 按 Git commit 填，Activity 的 `version` 是不是不用再改了？
+
+还要改。领取时 Server 对照的是 Run 声明的 `version` 和领取者上报的 `version`，不看 BuildID；`workflow.json` 也不记录 BuildID。
+
+| | BuildID | `version` |
+| --- | --- | --- |
+| 描述 | 进程的构建 | Activity 结果的含义 |
+| 变化时机 | 每次提交，包括无关改动 | 只在语义变了、结构没变时手动升级；结构变了指纹自动变 |
+| 调度与领取时对照 | 不对照 | 对照 |
+
+只改 BuildID、不升 `version` 时，`pinned` 在旧定义上的 Run 调用 `quote`，新进程的契约与声明一致，可以领取，旧 Run 拿到含税运费，没有报错。升到 `v2` 后旧 Run 声明 `v1`，新进程上报 `v2`，领取被拒绝，任务只交给仍提供 `v1` 的进程。不按 BuildID 分配任务，是为了让契约兼容的新旧进程互相替代，不必让旧 Run 一直绑在旧二进制上。
+
+## 问题 21：Workflow Task 由谁执行？Server 内嵌的 Worker 还是业务进程？
+
+**两者都可以，默认由 Server 内嵌的 Workflow Worker 执行。Workflow Task 不分队列、不按应用划分，任何在线的 Workflow Worker 都能执行任何 Namespace、任何定义的 Workflow Task；它们执行的是定义里的 WLang 程序，不需要业务 Go 代码。**
+
+| 方式 | 配置 | 示例 |
+| --- | --- | --- |
+| Server 内嵌（默认） | `WORKFLOW_WORKER_ENABLED=true`，并发 `WORKFLOW_WORKER_CONCURRENCY`（缺省 8） | `examples/shop`：三个服务都只跑 `worker.RoleActivity`，Workflow Task 全部由 tenuto-server 执行 |
+| 独立 Workflow Worker | `WORKFLOW_WORKER_ENABLED=false`，部署方运行 `Role: worker.RoleWorkflow`（或 `RoleBoth`）的 Worker | `docs/examples/upgrade-demo`：app-a、app-b 用 `RoleBoth`，同时执行两类任务 |
+| 两者同时 | 内嵌与独立 Worker 共同消费同一个 Workflow Task 队列 | — |
+
+配置见 [部署 Tenuto Server](/deploy/server#内嵌-workflow-worker)。选择：
+
+- 用内嵌：部署最简单，业务进程只跑 Activity Worker。
+- 用独立 Workflow Worker：要把重放占用的 CPU 和 Sticky Execution Cache 的内存与 Server 分开、单独扩容。升级时先升级全部 Server，再升级独立 Worker。
+- 关闭内嵌又没有启动独立 Worker 时，Run 停在等待 Workflow Task 的状态。
+
+定义的登记与谁执行 Workflow Task 无关：任何 `Role` 的 Worker 都可以携带 `worker.Options.Workflows`，在启动时登记定义。shop 的 order-service 是 Activity Worker，它登记了 `place-order`。
+
+## 问题 22：Run 卡住了（Blocked、暂停、一直不结束），按什么顺序排查？
+
+**先看 Run 详情页顶部的提示属于哪一类：Blocked 和 AutoUpgrade 重试会按退避自动继续，修好原因即可；Configuration paused 不会自己恢复，要在页面上选择策略；什么提示都没有、Activity 停在 Scheduled，说明任务已经投递但没有 Worker 领取成功。**
+
+| Console 上的提示 | 含义 | 会自动继续吗 | 处理 |
+| --- | --- | --- | --- |
+| Workflow Blocked 卡片（cause、reason、连续失败次数） | Workflow Task 连续失败，History 不变 | 会：退避从 1s 开始，最长 1 分钟（`server/biz/domain/execution/workflow_task.go`） | 按 cause 修复，见下表 |
+| 红色横幅 `Configuration paused`（Run 的 `config_error`） | 确定性的配置或契约冲突，例如 `contract mismatch`，或 `auto_upgrade` 换版前发现 History 里的载荷在新类型下读不回 | 不会 | 横幅上的 `Resume with latest (AutoUpgrade)` 或 `Pin current content` 调用 set-policy 恢复（问题 4） |
+| `AutoUpgrade retrying`（Run 的 `upgrade_error`） | `auto_upgrade` 的 Run 用最新定义重放旧 History 失败，仍留在上一份成功的内容上 | 会 | 发布兼容的定义（补 `GetVersion` 分支），或 set-policy `pinned` 留在旧内容（问题 7） |
+| 无提示，Activity 长时间 Scheduled | 任务在队列里：没有 Worker 拉这个队列，或在线 Worker 的契约与声明不符、领取被拒（Server 日志 `activity claim refused`） | Worker 就绪后会 | Workers 页核对 Activity Routing 与 Build；契约不符时让契约一致的 build 上线 |
+| Run 已 `failed` | Workflow 返回错误、执行预算超限等 | 不会 | 看 Failure 卡片，必要时 Reset（[Reset](/operations/reset)） |
+
+Blocked 常见的 cause：
+
+| cause | 原因 | 处理 |
+| --- | --- | --- |
+| `activity_route_unavailable` | 没有在线 Worker 提供这个 Activity；指定的队列上没有 Worker；没声明队列且几个服务在互不相关的队列上提供它（问题 14–17） | 启动对应 Worker，或声明队列 |
+| `non_deterministic_error` | 代码产生的命令与 History 不同 | 恢复旧命令序列或补 `GetVersion` 分支后重新发布 |
+| `bad_schedule_activity_attributes` | 调度 Activity 时没有关闭超时（选项来自变量，生成期检查不到） | 设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout` |
+| `schedule_activity_duplicate_id` | `ActivityOptions.ActivityID` 与同一 Run 里仍未关闭的 Activity 重复 | 让并发调用用不同的 ID |
+
+报错原文与处理的完整清单在 skill 的故障排查表（`docs/skills/tenuto/SKILL.md`）。Activity 一直重试、Run 不结束，通常是缺省 RetryPolicy 不限次数且没有设置 `ScheduleToCloseTimeout`（[RetryPolicy](/develop/activity-execution#retrypolicy)）。
+
+## 问题 23：Worker 崩溃或 Server 重启时，Activity 会不会重复执行？
+
+**会。Activity 的执行语义是至少一次：超时重试、执行完但结果没能上报都会让同一个业务操作再执行。每个 Activity 都要幂等（问题 10）。**
+
+| 情况 | 结果 |
+| --- | --- |
+| Activity 返回错误 | 按 RetryPolicy 产生下一次 Attempt；缺省不限次数，间隔从 1s 起、倍数 2、上限 100s |
+| Worker 在 Attempt 开始后崩溃，或执行完但结果没上报 | Attempt 停在 started，Start-To-Close（或 Heartbeat）超时到期后按 RetryPolicy 产生下一次 Attempt，**业务操作可能已经做过一次** |
+| Worker 优雅停止 | 因停止而结束的 Attempt 交还 Server，以同一个 Attempt 序号立即重新派发，不消耗重试次数 |
+| 已开始的 Attempt 在队列里多出一份副本 | 被领到时 Server 答复不执行，Worker 确认丢弃 |
+| Server 重启（MySQL 后端） | 持久队列里的任务不会再入队一次；退避中的下一次 Attempt 仍按保存的 `nextAttemptAt` 派发 |
+| Server 重启（内存后端） | 数据随进程清空，只用于开发 |
+
+依据：[Activity 执行生命周期](/develop/activity-execution#投递与执行次数)。shop 示例演示了「扣款成功后响应丢失」：Tenuto 重试，payment-service 用订单号查到已有的 `pay_1001` 直接返回，只扣一次款（`examples/shop/payment/payment.go`）。
+
+Workflow 代码不会因为重放而重复执行副作用：重放只重算命令，已经完成的 Activity 结果从 History 读回，不再调用。
+

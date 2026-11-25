@@ -157,7 +157,7 @@ if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settl
 - 一个服务一个队列：`@Activity` 不写 `queue`，Worker 设 `ActivityTaskQueues`（不写时是 `default`）。
 - 跨服务：`remote=true` 契约写 `queue`，放在共享契约包。
 - 固定队列：`@Activity(queue=...)`，Worker 不写 `ActivityTaskQueues`，从 registry 推导。
-- 没有声明队列的歧义：几个 Worker 提供同一类型时，队列有交集（多实例、滚动发布）照常投递；只有一组默认路由时选它；没有默认、有权重时按权重；默认路由（或无默认无权重的路由）落在互不相关的队列上时调度不派发，Run Blocked（`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues`），声明队列或停掉一边后按退避继续。Worker 登记不做这项检查。
+- 没有声明队列的歧义：几个 Worker 提供同一类型时，队列有交集（多实例、滚动发布、一个进程拉多个队列）照常投递，分组按进程（Worker Identity），`BuildID` 相同或为空不算同组；只有一组默认路由时选它；没有默认、有权重时按权重；默认路由（或无默认无权重的路由）落在互不相关的队列上时调度不派发，Run Blocked（`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues`），声明队列或停掉一边后按退避继续。Worker 登记不做这项检查。
 - Console：Workers 页 Activity Routing 表看每个类型在哪些队列；Run 详情 Activity 步骤的 `Queue Source` 看队列来源。
 
 ## 执行上下文、心跳与取消

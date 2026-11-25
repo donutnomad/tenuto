@@ -115,7 +115,7 @@ w, err := worker.New(c, worker.Options{...})
 | `WorkflowTaskTimeout` | `10s` | 单个 Workflow Task 的执行超时；领取时报给 Server，Server 按它为这个 Workflow Task 计时 |
 | `GracefulStopTimeout` | `10s` | `Stop` 等待在途 Activity 与 Workflow Task 结束的上限，见[优雅退出](#优雅退出) |
 | `Identity` | `client.Options.Identity` | Worker 实例标识，适合 pod name 或 instance ID |
-| `BuildID` | 空 | Worker 代码版本，适合镜像版本或 Git commit |
+| `BuildID` | 编译时的 Git revision | Worker 代码版本：同一份代码的所有进程用同一个值，代码变了就换值。为空时取编译时写入二进制的 Git revision（前 12 位，工作区有未提交改动时加 `-dirty`）；二进制里没有 revision（`go run`、`go test`、`-buildvcs=false`、在 Git 仓库外构建）时 `worker.New` panic，此时显式设置（例如从部署注入的环境变量读取） |
 | `ActivityWorkerVersionDefault` | `false` | Activity 没有指定队列、多个队列都承接它的类型时，优先选这个 Worker 登记的队列 |
 | `ActivityWorkerVersionWeight` | `0` | 同上情况下各登记之间选择队列的权重；不决定由哪个 build 执行 |
 | `ActivityWorkerVersionHeartbeatInterval` | TTL 的一半 | 路由心跳间隔 |

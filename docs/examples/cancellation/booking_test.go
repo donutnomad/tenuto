@@ -62,7 +62,7 @@ func TestBookTripReleasesSeatWhenCancelled(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	w, err := worker.New(c, worker.Options{Activities: registry, WorkflowConcurrency: 1, ActivityConcurrency: 4, Identity: "booking-worker"})
+	w, err := worker.New(c, worker.Options{Activities: registry, WorkflowConcurrency: 1, ActivityConcurrency: 4, Identity: "booking-worker", BuildID: "booking-test"})
 	if err != nil {
 		t.Fatal(err)
 	}

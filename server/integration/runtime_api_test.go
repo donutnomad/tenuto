@@ -64,6 +64,7 @@ func TestAppWorkerReportsActivityResultThroughRuntimeHTTPAPI(t *testing.T) {
 		Role:                worker.RoleWorkflow,
 		WorkflowConcurrency: 1,
 		Identity:            "runtime-workflow-worker",
+		BuildID:             "runtime-test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +74,7 @@ func TestAppWorkerReportsActivityResultThroughRuntimeHTTPAPI(t *testing.T) {
 		Activities:         registry,
 		ActivityTaskQueues: []string{"custodian"},
 		Identity:           "runtime-activity-worker",
+		BuildID:            "runtime-test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -137,12 +139,12 @@ func TestAppWorkerReportsActivityFailureThroughRuntimeHTTPAPI(t *testing.T) {
 		return nil, fmt.Errorf("declined")
 	})
 
-	workflowWorker, err := worker.New(c, worker.Options{Role: worker.RoleWorkflow, WorkflowConcurrency: 1, Identity: "failure-workflow-worker"})
+	workflowWorker, err := worker.New(c, worker.Options{Role: worker.RoleWorkflow, WorkflowConcurrency: 1, Identity: "failure-workflow-worker", BuildID: "runtime-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	appWorker, err := worker.New(c, worker.Options{
-		Role: worker.RoleActivity, Activities: registry, ActivityTaskQueues: []string{"custodian"}, Identity: "failure-activity-worker",
+		Role: worker.RoleActivity, Activities: registry, ActivityTaskQueues: []string{"custodian"}, Identity: "failure-activity-worker", BuildID: "runtime-test",
 	})
 	if err != nil {
 		t.Fatal(err)
