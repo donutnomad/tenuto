@@ -50,7 +50,7 @@ upgrade-demo/
 
 每个发布版本是一个独立的 Go 包，一个应用二进制把自己的全部发布版本编译进去，用 `-version` 选择启动哪一个。真实项目里它们是同一个包在不同时间点的提交；示例把它们并排放置，`diff -u appa/v1 appa/v2` 就是一次发布的全部改动。
 
-每个版本包里手写的文件只有 `activities.go`、`workflow.go`（app-b 多一个 `remote.go`）。`zz_*_gen.go` 与五个 `.json` 由 `go generate ./...` 生成。
+每个版本包里手写的文件只有 `activities.go`、`workflow.go`（app-b 多一个 `remote.go`）。`zz_*_gen.go` 与 `workflow.json` 由 `go generate ./...` 生成。
 
 ## SDK 接入
 
