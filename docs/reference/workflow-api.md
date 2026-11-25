@@ -99,6 +99,6 @@ Activity 作者用到的 API 在 `sdk/activity` 包：
 | `activity.RecordHeartbeat(ctx, details)` | 上报心跳与进度；Workflow 请求取消这个 Activity 后，响应让 Worker 取消 `ctx` |
 | `activity.GetLastHeartbeatDetails(ctx)` | 读取上一次 Attempt 最后记录的进度 |
 | `activity.ErrPending` | 返回它表示结果由外部异步提交 |
-| `activity.NewRegistry()`、`activity.RegisterActivity(reg, type, version, fn)` | 登记实现与契约 |
+| `activity.NewRegistry()`、`activity.RegisterActivity(reg, type, fn)` | 登记实现与契约 |
 
 Activity 使用标准 `context.Context`，Workflow 使用 `workflow.Context`。

@@ -37,10 +37,10 @@ func resolveChargeRoute(t *testing.T, worker protocol.ActivityWorkerVersion) Act
 
 func TestCheckActivityContractMatchesReportedWorker(t *testing.T) {
 	route := resolveChargeRoute(t, reportedWorker(protocol.ActivityContract{
-		Type: "payments.charge", Version: "v2", Input: "ChargeInput.v2", Output: "Receipt.v2",
+		Type: "payments.charge", Input: "ChargeInput.v2", Output: "Receipt.v2",
 	}))
 	report := CheckActivityContract(protocol.ActivityContract{
-		Type: "payments.charge", Version: "v2", Input: "ChargeInput.v2", Output: "Receipt.v2",
+		Type: "payments.charge", Input: "ChargeInput.v2", Output: "Receipt.v2",
 	}, route)
 
 	if !report.Compatible() {
@@ -51,12 +51,12 @@ func TestCheckActivityContractMatchesReportedWorker(t *testing.T) {
 // Worker 没有为该类型上报契约时，Workflow 声明的每个维度都不匹配。
 func TestCheckActivityContractRejectsWorkerWithoutContract(t *testing.T) {
 	route := resolveChargeRoute(t, reportedWorker())
-	report := CheckActivityContract(protocol.ActivityContract{Type: "payments.charge", Version: "v2"}, route)
+	report := CheckActivityContract(protocol.ActivityContract{Type: "payments.charge", Input: "ChargeInput.v2"}, route)
 
 	if report.Compatible() {
 		t.Fatalf("a worker without a contract must not match a declared one: %+v", report)
 	}
-	if err := report.MismatchError(); !strings.Contains(err.Error(), `version expected "v2" actual ""`) {
+	if err := report.MismatchError(); !strings.Contains(err.Error(), `input expected "ChargeInput.v2" actual ""`) {
 		t.Fatalf("unexpected mismatch error: %v", err)
 	}
 }
@@ -72,10 +72,10 @@ func TestCheckActivityContractSkipsUndeclaredWorkflow(t *testing.T) {
 
 func TestCheckActivityContractReportsMismatch(t *testing.T) {
 	route := resolveChargeRoute(t, reportedWorker(protocol.ActivityContract{
-		Type: "payments.charge", Version: "v1", Input: "ChargeInput.v1", Output: "Receipt.v1",
+		Type: "payments.charge", Input: "ChargeInput.v1", Output: "Receipt.v1",
 	}))
 	report := CheckActivityContract(protocol.ActivityContract{
-		Type: "payments.charge", Version: "v2", Input: "ChargeInput.v2",
+		Type: "payments.charge", Input: "ChargeInput.v2",
 	}, route)
 
 	if report.Compatible() {
@@ -88,7 +88,6 @@ func TestCheckActivityContractReportsMismatch(t *testing.T) {
 	for _, want := range []string{
 		`"payments.charge"`,
 		`"pay-worker-1"`,
-		`version expected "v2" actual "v1"`,
 		`input expected "ChargeInput.v2" actual "ChargeInput.v1"`,
 	} {
 		if !strings.Contains(err.Error(), want) {
@@ -112,24 +111,24 @@ func TestDeclaredActivityContractsCollectsAllSymbols(t *testing.T) {
 		Program: program,
 		Activities: map[string]programpkg.ActivityRef{
 			// 未选中的 GetVersion 分支同样参与声明。
-			"charge.v2": {Type: "payments.charge", TaskQueue: "payments", Version: "v2", Input: "ChargeInput.v2", Output: "Receipt.v2"},
-			"reserve":   {Type: "inventory.reserve", TaskQueue: "inventory", Version: "v1"},
-			"refund":    {Type: "payments.refund", TaskQueue: "payments", Version: "v3"},
+			"charge.v2": {Type: "payments.charge", TaskQueue: "payments", Input: "ChargeInput.v2", Output: "Receipt.v2"},
+			"reserve":   {Type: "inventory.reserve", TaskQueue: "inventory", Input: "ReserveInput"},
+			"refund":    {Type: "payments.refund", TaskQueue: "payments", Output: "RefundOutput"},
 		},
 	}
 
 	declared := DeclaredActivityContracts(wf)
-	for activityType, want := range map[string]string{
-		"payments.charge":   "v2",
-		"inventory.reserve": "v1",
-		"payments.refund":   "v3",
+	for activityType, want := range map[string]protocol.ActivityContract{
+		"payments.charge":   {Type: "payments.charge", Input: "ChargeInput.v2", Output: "Receipt.v2"},
+		"inventory.reserve": {Type: "inventory.reserve", Input: "ReserveInput"},
+		"payments.refund":   {Type: "payments.refund", Output: "RefundOutput"},
 	} {
 		contract, ok := declared[activityType]
 		if !ok {
 			t.Fatalf("missing declared contract for %s: %+v", activityType, declared)
 		}
-		if contract.Version != want {
-			t.Fatalf("%s version=%q want %q", activityType, contract.Version, want)
+		if contract != want {
+			t.Fatalf("%s contract=%+v want %+v", activityType, contract, want)
 		}
 	}
 }
@@ -150,13 +149,13 @@ func TestDeclaredActivityContractsSkipsUndeclaredRefs(t *testing.T) {
 
 // 领取时按领取 Worker 自己这个 build 的上报对照声明；同一 Identity 的其他 build 的上报不算数。
 func TestCheckClaimingWorkerContract(t *testing.T) {
-	declaring := func(version string) *programpkg.WorkflowConfig {
+	declaring := func(input string) *programpkg.WorkflowConfig {
 		return &programpkg.WorkflowConfig{Type: "claim", Program: programtest.Noop(), Activities: map[string]programpkg.ActivityRef{
-			"charge": {Type: "payments.charge", TaskQueue: "payments", Version: version},
+			"charge": {Type: "payments.charge", TaskQueue: "payments", Input: input},
 		}}
 	}
-	v1 := reportedWorker(protocol.ActivityContract{Type: "payments.charge", Version: "v1"})
-	v2 := reportedWorker(protocol.ActivityContract{Type: "payments.charge", Version: "v2"})
+	v1 := reportedWorker(protocol.ActivityContract{Type: "payments.charge", Input: "ChargeInput.v1"})
+	v2 := reportedWorker(protocol.ActivityContract{Type: "payments.charge", Input: "ChargeInput.v2"})
 	v2.BuildID = "pay@v2"
 	for _, test := range []struct {
 		name          string
@@ -165,9 +164,9 @@ func TestCheckClaimingWorkerContract(t *testing.T) {
 		build         string
 		compatible    bool
 	}{
-		{name: "matching build", workflow: declaring("v1"), registrations: []protocol.ActivityWorkerVersion{v1, v2}, build: "pay@v1", compatible: true},
-		{name: "other build of the same worker", workflow: declaring("v1"), registrations: []protocol.ActivityWorkerVersion{v1, v2}, build: "pay@v2"},
-		{name: "unregistered build", workflow: declaring("v1"), registrations: []protocol.ActivityWorkerVersion{v1}, build: "pay@v3"},
+		{name: "matching build", workflow: declaring("ChargeInput.v1"), registrations: []protocol.ActivityWorkerVersion{v1, v2}, build: "pay@v1", compatible: true},
+		{name: "other build of the same worker", workflow: declaring("ChargeInput.v1"), registrations: []protocol.ActivityWorkerVersion{v1, v2}, build: "pay@v2"},
+		{name: "unregistered build", workflow: declaring("ChargeInput.v1"), registrations: []protocol.ActivityWorkerVersion{v1}, build: "pay@v3"},
 		{name: "no declaration", workflow: declaring(""), build: "pay@v3", compatible: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -13,7 +13,7 @@ type ReserveOutput struct {
     ReservationID string `json:"reservation_id"`
 }
 
-// @Activity(type="lifecycle.reserve",queue="lifecycle",version=v1)
+// @Activity(type="lifecycle.reserve",queue="lifecycle")
 func Reserve(ctx context.Context, in ReserveInput) (ReserveOutput, error) {
     return ReserveOutput{ReservationID: "reservation-" + in.OrderID}, nil
 }
@@ -78,7 +78,7 @@ if err := f2.Get(ctx, &r2); err != nil {
 | 带 `@Activity` 的函数，或 remote 标记函数 `XRemoteActivity` | 注解的 `type` | 注解的 `queue` | 注解声明，调度时对照 | struct 或 `map[string]any` |
 | 没有注解的函数 | 符号文本 `pkg.Func`（如 `activities.CheckBalance`） | 这次调用的 `ActivityOptions.TaskQueue`；省略时由 Server 按 Worker 的登记选路 | 无声明，不对照 | struct 或 `map[string]any` |
 
-没有注解的实现用符号文本登记：`activity.RegisterActivity(registry, "activities.CheckBalance", "", CheckBalance)`。新代码一律加 `@Activity`。
+没有注解的实现用符号文本登记：`activity.RegisterActivity(registry, "activities.CheckBalance", CheckBalance)`。新代码一律加 `@Activity`。
 
 ## ActivityOptions
 
@@ -131,8 +131,8 @@ registry := activity.NewRegistry()
 if err := sagaflow.RegisterActivities(registry); err != nil { // 生成的批量登记，一个参数
     return err
 }
-// remote 契约的实现由拥有它的进程手写登记，queue、type 与 version 和注解逐字一致
-if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settle", "v1", Settle); err != nil {
+// remote 契约的实现由拥有它的进程手写登记，queue、type 与注解逐字一致
+if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settle", Settle); err != nil {
     return err
 }
 ```
@@ -141,12 +141,12 @@ if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settl
 | --- | --- |
 | `activity.NewRegistry() *Registry` | 一个 Worker 进程一个注册表 |
 | `<pkg>.RegisterActivities(registry) error` | 生成：登记本包全部本地 `@Activity` 实现、契约与 `queue` |
-| `activity.RegisterActivityOnQueue[I, O](reg, queue, type, version, fn) error` | 登记强类型实现及其 Task Queue；指纹从 `I`、`O` 算出 |
-| `activity.RegisterActivity[I, O](reg, type, version, fn) error` | 同上，不指定 Task Queue |
-| `reg.Register(type, fn) error` | 登记 `func(context.Context, map[string]any) (map[string]any, error)`；版本为空 |
+| `activity.RegisterActivityOnQueue[I, O](reg, queue, type, fn) error` | 登记强类型实现及其 Task Queue；指纹从 `I`、`O` 算出 |
+| `activity.RegisterActivity[I, O](reg, type, fn) error` | 同上，不指定 Task Queue |
+| `reg.Register(type, fn) error` | 登记 `func(context.Context, map[string]any) (map[string]any, error)`；输入输出指纹取自 `map[string]any` |
 | `reg.Contracts()`、`reg.Types()` | 按类型名排序的契约 / 类型 |
 | `reg.Queues()` | 登记时指定的 Task Queue；`worker.Options.ActivityTaskQueues` 为空时 Worker 拉取这些队列 |
-| `activity.ContractOf[I, O](type, version)` | 从 DTO 计算契约 |
+| `activity.ContractOf[I, O](type)` | 从 DTO 计算契约 |
 
 同一个注册表里每个 `type` 只能登记一次（`activity type "..." is already registered`）。Worker 在 `Start` 时把全部契约随路由上报。`ActivityTaskQueues` 为空时 Worker 拉取 `reg.Queues()`，有不带队列的 Activity 时加上 `default`；显式设置时必须包含 `reg.Queues()`，否则 `worker.New` 报错。
 

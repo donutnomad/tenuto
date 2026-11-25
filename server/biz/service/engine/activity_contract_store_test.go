@@ -21,7 +21,7 @@ func TestGormStoreRouteRebuildKeepsContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contracts := []activity.Contract{{Type: "payments.charge.v1", Version: "v1", Input: "wire:in", Output: "wire:out"}}
+	contracts := []activity.Contract{{Type: "payments.charge.v1", Input: "wire:in", Output: "wire:out"}}
 	first := assemblePersistentServer(store, memory.NewTaskQueue(8), memory.NewActivityQueueRouter(8))
 	if err := first.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
 		Namespace: "default", Identity: "pay-worker", BuildID: "build-1",

@@ -345,7 +345,7 @@ func TestTypedActivityUint64SurvivesSDKHistoryAndOutArg(t *testing.T) {
 	type activityResult struct {
 		Count uint64 `json:"count"`
 	}
-	activitysdk.RegisterActivity(registry, "activities.Fetch", "", func(context.Context, map[string]any) (activityResult, error) {
+	activitysdk.RegisterActivity(registry, "activities.Fetch", func(context.Context, map[string]any) (activityResult, error) {
 		return activityResult{Count: maximum}, nil
 	})
 	activity, err := registry.Get("activities.Fetch")

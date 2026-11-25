@@ -46,7 +46,7 @@ type Detail struct {
 
 const approveSignal = "approve"
 
-// @Activity(type="forms.charge",queue="forms",version=v1)
+// @Activity(type="forms.charge",queue="forms")
 func Charge(ctx context.Context, in Approval) (Out, error) { return Out{}, nil }
 
 func makeApproval() Approval { return Approval{} }

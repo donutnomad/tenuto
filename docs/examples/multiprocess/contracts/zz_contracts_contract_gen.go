@@ -9,7 +9,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// CallCharge 调度 activity ledger.charge（queue ledger, version v1）。
+// CallCharge 调度 activity ledger.charge（queue ledger）。
 // 稳定 marker：ChargeRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 ledger.charge，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -25,7 +25,7 @@ func CallCharge(ctx workflow.Context, in ChargeInput, opts ...workflow.ActivityO
 
 var _ activity.Caller[ChargeInput, ChargeOutput] = CallCharge
 
-// CallCheck 调度 activity inventory.check（queue inventory, version v1）。
+// CallCheck 调度 activity inventory.check（queue inventory）。
 // 稳定 marker：CheckStockRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 inventory.check，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -41,7 +41,7 @@ func CallCheck(ctx workflow.Context, in CheckStockInput, opts ...workflow.Activi
 
 var _ activity.Caller[CheckStockInput, CheckStockOutput] = CallCheck
 
-// CallHold 调度 activity inventory.hold（queue inventory, version v1）。
+// CallHold 调度 activity inventory.hold（queue inventory）。
 // 稳定 marker：HoldStockRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 inventory.hold，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -57,7 +57,7 @@ func CallHold(ctx workflow.Context, in HoldStockInput, opts ...workflow.Activity
 
 var _ activity.Caller[HoldStockInput, HoldStockOutput] = CallHold
 
-// CallRelease 调度 activity inventory.release（queue inventory, version v1）。
+// CallRelease 调度 activity inventory.release（queue inventory）。
 // 稳定 marker：ReleaseHoldRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 inventory.release，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -73,7 +73,7 @@ func CallRelease(ctx workflow.Context, in ReleaseHoldInput, opts ...workflow.Act
 
 var _ activity.Caller[ReleaseHoldInput, ReleaseHoldOutput] = CallRelease
 
-// CallReview 调度 activity risk.review（queue ledger, version v1）。
+// CallReview 调度 activity risk.review（queue ledger）。
 // 稳定 marker：RiskReviewRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 risk.review，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -89,7 +89,7 @@ func CallReview(ctx workflow.Context, in RiskReviewInput, opts ...workflow.Activ
 
 var _ activity.Caller[RiskReviewInput, RiskReviewOutput] = CallReview
 
-// CallSettle 调度 activity ledger.settle（queue ledger, version v1）。
+// CallSettle 调度 activity ledger.settle（queue ledger）。
 // 稳定 marker：SettleRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 ledger.settle，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。

@@ -33,8 +33,6 @@ type ActivityRef struct {
 	Symbol    string `json:"symbol"`
 	Type      string `json:"type"`
 	TaskQueue string `json:"task_queue,omitempty"`
-	// Version 是 Activity 协议的发布标签；内容 hash 由程序产物单独计算。
-	Version string `json:"version,omitempty"`
 	// Input/Output 是 wire 结构指纹（忽略 Go 包名/类型名），用于与 worker 上报对照。
 	Input  string `json:"input,omitempty"`
 	Output string `json:"output,omitempty"`

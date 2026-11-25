@@ -14,7 +14,7 @@ status: Stable
 | --- | --- |
 | 整体结构 | [0](#问题-0-tenuto-由哪几部分组成-一个-run-是怎么跑完的) |
 | 生成与部署 | [12 生成产物](#问题-12-生成器产出哪些-json-为什么先用-go-定义-再生成-json-最后用-json-注册到-server)、[13 独立 Server](#问题-13-要单独运行一个-tenuto-server-吗)、[21 谁执行 Workflow Task](#问题-21-workflow-task-由谁执行-server-内嵌的-worker-还是业务进程) |
-| 版本与升级 | [1](#问题-1-activity-注解里的-type-和-version-有什么作用-同一个-type-把-version-从-v1-改到-v2-有什么影响)–[9](#问题-9-workflow-version-只是给人看的吗-可以不改-version、只改内部编排并用-getversion-做兼容吗) |
+| 版本与升级 | [1](#问题-1-activity-注解里的-type-有什么作用-activity-的含义变了、结构没变-怎么发布)–[9](#问题-9-workflow-version-只是给人看的吗-可以不改-version、只改内部编排并用-getversion-做兼容吗) |
 | 队列与路由 | [14](#问题-14-activity-的-queue-由谁决定-activity-不写-queue-会报错吗)–[19](#问题-19-remoteactivity-的作用是什么) |
 | BuildID | [20](#问题-20-buildid-是什么-在哪里起作用、填在哪里、不填会怎样) |
 | 可靠性与排障 | [10 幂等 Key](#问题-10-activity-因故障被重复调用-内部用什么构造幂等-key-同一个订单上有很多操作-key-不能只按订单-id)、[11 取消](#问题-11-取消一个-workflow-时-workflow-代码能收到通知并做补偿吗-正在执行的-activity-会怎样)、[22 Run 卡住怎么查](#问题-22-run-卡住了-blocked、暂停、一直不结束-按什么顺序排查)、[23 Activity 会不会重复执行](#问题-23-worker-崩溃或-server-重启时-activity-会不会重复执行) |
@@ -43,15 +43,15 @@ status: Stable
 
 Workflow 代码会被反复重放，所以必须确定（问题 7）；Activity 不重放，执行语义是至少一次，所以必须幂等（问题 10、23）。
 
-## 问题 1：`@Activity` 注解里的 `type` 和 `version` 有什么作用？同一个 `type` 把 `version` 从 v1 改到 v2 有什么影响？
+## 问题 1：`@Activity` 注解里的 `type` 有什么作用？Activity 的含义变了、结构没变，怎么发布？
 
 注解形如：
 
 ```go
-// @Activity(type="startup.say-hello",queue="startup",version=v1)
+// @Activity(type="startup.say-hello",queue="startup")
 ```
 
-**`type` 是 Activity 的身份，决定任务派给谁、由哪个函数执行。`version` 是契约版本标签，服务端只拿它做相等对照：版本不一致的 worker 领取任务时被拒绝，不开始执行。`version` 不参与查找实现函数，服务端也不推断新旧版本是否兼容。**
+**`type` 是 Activity 的身份，决定任务派给谁、由哪个函数执行。Activity 的契约是 `type`、入参指纹、出参指纹三项；含义或结构变了就用一个新的 `type`，旧 `type` 保留到没有 Run 再调用它。**
 
 ### `type`
 
@@ -59,9 +59,9 @@ Workflow 代码会被反复重放，所以必须确定（问题 7）；Activity 
 - **服务端**：调度时路由目录按 `namespace + type` 找在线 worker，确定任务投到哪个 queue，并确认至少一个在线 worker 的契约与声明一致（`server/biz/domain/dispatch/activity_routes.go`）。这个 `type` 没有任何在线 worker 时返回 `ErrActivityRouteUnavailable`。任务只按 queue 投递，不带 build；worker 开始执行前，服务端按这个 worker 自己的上报再对照一次契约（`server/biz/domain/dispatch/activity_contract.go` 的 `CheckClaimingWorkerContract`）。
 - **Workflow 侧**：编译产物里每个 Activity 调用都带着 `type`，调度命令靠它寻址。
 
-### `version`
+### 契约
 
-注解生成的契约有四个维度：`type`、`version`、`input`、`output`，后两个是入参和出参结构的 wire 指纹（`protocol/activity_contract.go`）。
+注解生成的契约有三个维度：`type`、`input`、`output`，后两个是入参和出参结构的 wire 指纹（`protocol/activity_contract.go`）。
 
 同一条注解一次生成两份产物：
 
@@ -77,37 +77,45 @@ Workflow 代码会被反复重放，所以必须确定（问题 7）；Activity 
 | 同一 `type` 有多个在线 build | 任务投到 queue，任一 build 都可能领到；契约不一致的领取被拒绝，任务约 1s 后重新投递 |
 | 所有候选 worker 的上报都与声明不同 | 任务不派发，Run 记下 `ConfigError` 并暂停，等人工修复 |
 
-### 把 `version` 从 v1 改到 v2
+### 含义变了、结构没变：新 `type`
 
-注解改成 v2 后重新生成并发布，新 Program 声明 v2，新 worker 上报 v2，两边一致。受影响的只有一类 Run：仍在用旧 Program（声明 v1）、且之后还要调度这个 Activity 的 Run。
+指纹只描述结构。运费从不含税改成含税时入参出参都没变，指纹相同，服务端分不出新旧含义，所以新含义用新的 `type`，旧 `type` 原样保留：
 
-v1 worker 下线后各类 Run 的结果：
+```go
+// 旧含义：fee 不含税。保留给仍在调用它的 Run。
+// @Activity(type="fulfillment.quote",queue="fulfillment")
+func Quote(_ context.Context, in QuoteInput) (QuoteOutput, error)
+
+// 新含义：fee 含 10% 税。
+// @Activity(type="fulfillment.quote-taxed",queue="fulfillment")
+func QuoteTaxed(_ context.Context, in QuoteInput) (QuoteOutput, error)
+```
+
+两个实现注册在同一个 worker 进程里。Workflow 改调 `CallQuoteTaxed`，重新生成并发布后：
 
 | Run | 结果 |
 |---|---|
-| 新启动的 Run | 用最新 Program，声明 v2，正常派发 |
-| 运行中、策略 `auto_upgrade` | 下一个 Workflow Task 边界切到最新 Program，声明变成 v2，正常派发 |
-| 运行中、策略 `pinned`，后面还要调度这个 Activity | 声明仍是 v1，只有 v2 worker 在线，Run 暂停 |
-| 运行中，这个 Activity 已经调度过 | 不受影响，对照只发生在调度那一刻 |
+| 新启动的 Run | 用最新 Program，调度 `fulfillment.quote-taxed` |
+| 运行中、策略 `auto_upgrade`，还没走到这一步 | 下一个 Workflow Task 边界切到最新 Program，调度 `fulfillment.quote-taxed` |
+| 运行中、策略 `pinned` | 留在旧 Program，调度 `fulfillment.quote`；新旧 build 都提供它，契约相同，谁领到谁执行，结果是旧含义 |
+| 运行中，这一步已经调度过 | 已调度的这次不受影响，对照只发生在调度那一刻；`auto_upgrade` 的 Run 之后切到新 Program 重放到这一步时，代码必须用 `GetVersion` 保留旧 `type` 的分支，否则命令与 History 不一致 |
 
-暂停时的报错是 `contract mismatch ... version expected "v1" actual "v2"`，写在 Run 的 `ConfigError` 上。"找不到 worker"是另一种情况：这个 `type` 完全没有在线 worker。
+这一步在已有 Run 的 History 里已经记过旧 `type`、之后还会被重放到时，换 `type` 改变了命令序列，用 `GetVersion` 分支保护（问题 2、7）。
 
-### 暂停后的恢复
+旧 `type` 的实现在所有 Program 都不再调用它、旧 Program 上的 Run 都结束后删除。提前删除时，旧 Program 上还要调度它的 Run 找不到在线 worker，Workflow Task 以 `activity_route_unavailable` 退避重试，重新部署提供旧 `type` 的 worker 后继续。
+
+### 契约不一致时的暂停与恢复
+
+同一个 `type` 的结构变了（问题 2、3）、旧 build 又已下线时，旧 Program 上还要调度它的 Run 暂停，报错是 `contract mismatch ... input expected "wire:..." actual "wire:..."`，写在 Run 的 `ConfigError` 上。"找不到 worker"是另一种情况：这个 `type` 完全没有在线 worker。
 
 暂停保留 history，可以恢复：
 
-- 把 v1 build 的 worker 重新上线，然后对该 Run 执行 set-policy。set-policy 清除 `ConfigError`（`server/biz/domain/execution/upgrade_state.go` 的 `Run.OverridePolicy`），Run 继续推进。
-- 把该 Run 的策略改成 `auto_upgrade`，它在下一个 Workflow Task 边界切到声明 v2 的 Program。前提是新 Program 能重放这条 Run 的已有 history。
-
-### 升级做法
-
-1. **兼容的改动保持 `version` 不变。** 入参出参结构变了有 `input` / `output` 指纹自动拦截，`version` 留给"结构没变但语义变了"的情况手动升。
-2. **升 `version` 时新旧 build 并存一段时间**，等 `pinned` 的旧 Run 跑完再下线 v1 worker。一个 worker 进程里同一个 `type` 只有一个实现，v1 和 v2 并存靠两个 build 的进程同时在线。任务投到同一个 queue，两个 build 都可能领到；声明 v1 的任务被 v2 worker 领到时被拒绝，约 1s 后重新投递，最终由 v1 worker 执行，声明 v2 的反之。
-3. **有长期运行的 `pinned` Run、又想只留一个 worker 进程**：新语义用新的 `type`（例如 `startup.say-hello-v2`），两个实现注册在同一个进程里。
+- 把旧 build 的 worker 重新上线，然后对该 Run 执行 set-policy。set-policy 清除 `ConfigError`（`server/biz/domain/execution/upgrade_state.go` 的 `Run.OverridePolicy`），Run 继续推进。
+- 把该 Run 的策略改成 `auto_upgrade`，它在下一个 Workflow Task 边界切到声明新契约的 Program。前提是新 Program 能重放这条 Run 的已有 history。
 
 ### 核对范围
 
-`auto_upgrade` 一行核对的是选版规则（`server/biz/domain/execution/upgrade_state.go` 的 `(*Run).ChooseProgramVersion`）。声明版本变化后的 history 重放是否通过，没有用测试用例验证。
+`docs/examples/upgrade-demo` 的场景 2 与场景 4 跑过上面两张表：`auto_upgrade` 的在途 Run 切到新 Program 后调度新 `type`，`pinned` 的 Run 在旧 build 下线后由新 build 执行旧 `type`，契约不一致的 Run 暂停后用两种方式恢复。
 
 ## 问题 2：Activity 的输入和输出结构都变了，是不是只能新建一个 Activity、换一个新的 `type`？
 
@@ -116,7 +124,7 @@ v1 worker 下线后各类 Run 的结果：
 ### 结构变化在引擎里的表现
 
 - `input` / `output` 指纹按 wire 结构计算：JSON 字段名、字段类型、可选性、嵌套结构（`program/wire.go`）。增加一个可选字段也会让指纹变化。
-- 服务端只做相等对照，没有"向后兼容"这一档。结构变化的效果与问题 1 里手动升 `version` 相同，区别是它自动发生。
+- 服务端只做相等对照，没有"向后兼容"这一档：指纹不同就是不同的契约。
 - 重放只对照 ActivityID 和 ActivityType（`internal/executor/replay_match.go` 的 `commandMatchesEvent`），输入输出的内容和结构不参与重放对照。
 
 ### 沿用原 `type` 时各类 Run 的结果
@@ -162,9 +170,9 @@ v1 worker 下线后各类 Run 的结果：
 
 所以确定性检查是兜底，拦得住"走了不同的路"，拦不住"走同一条路但数据错了"。跨版本的数据兼容由发布方保证，做法是问题 2 的选择 2：新 `type` 加 `GetVersion` 分支。
 
-## 问题 3：同一个 `type` 的 Activity，input 只新增了一个字段（对旧调用方无影响），能正常兼容运行吗？有必要改 `version` 吗？
+## 问题 3：同一个 `type` 的 Activity，input 只新增了一个字段（对旧调用方无影响），能正常兼容运行吗？需要换 `type` 吗？
 
-**数据层面兼容，引擎层面按不兼容处理。`version` 保持不变。**
+**数据层面兼容，引擎层面按不兼容处理。`type` 保持不变。**
 
 ### 数据层面
 
@@ -176,9 +184,9 @@ v1 worker 下线后各类 Run 的结果：
 - 对照是逐维度相等（`protocol/activity_contract.go` 的 `CompareActivityContracts`），引擎没有"新增可选字段算兼容"的规则。
 - 结果与问题 2 的表格一致：新 Run 和 `auto_upgrade` 的 Run 正常运行；`pinned` 在旧 Program 上、且之后还要调度这个 Activity 的 Run，在只剩新 worker 时暂停并报 `contract mismatch ... input expected "wire:..." actual "wire:..."`。
 
-### `version`
+### `type`
 
-`version` 保持不变。`input` 指纹已经变化，起到了区分新旧契约的作用，再升 `version` 得到的是同一个结果。`version` 留给指纹覆盖不到的情况：结构相同、语义变了。
+`type` 保持不变。`input` 指纹已经区分了新旧契约，新旧 build 并存期间各自承接与自己一致的声明。新 `type` 用在指纹区分不了的情况（结构相同、含义变了，问题 1），以及有长时间运行的 Run 会跨越这次改动的情况（问题 2 的选择 2）。
 
 ### 做法
 
@@ -202,7 +210,7 @@ v1 worker 下线后各类 Run 的结果：
 |---|---|---|
 | 新增可选字段 | 直接运行 | 指纹变化，旧 Program 上的 `pinned` Run 需要旧 worker 并存 |
 | 字段改名、改类型 | 服务端不拦，下游拿到零值或解码失败，Activity 运行时才暴露 | 调度前拦住，Run 暂停并给出明确的 mismatch 报错 |
-| 结构没变、语义变了 | 靠发布方自己控制 | 手动升 `version` 拦住 |
+| 结构没变、含义变了 | 靠发布方自己控制 | 发布方用新 `type` 表达新含义，旧 `type` 保留给旧 Run |
 | 新旧代码并存 | Worker Versioning（按 build 或 deployment version 把 Run 固定到某一版 worker） | build 并存，领取时按契约拒绝不一致的 worker |
 
 Temporal 选的是宽松：兼容的改动零成本，不兼容的改动到运行时才发现。Tenuto 选的是严格：不兼容的改动在调度前被挡住，代价是兼容的改动也要走一次并存发布。
@@ -606,7 +614,7 @@ Terminate 仍然立即关闭 Run，不运行 Workflow 代码。完整说明见 [
 
 | 产物 | 内容 | 运行时 |
 | --- | --- | --- |
-| `workflow.json` | WorkflowConfig：`program`、`activities`（符号 → `type`、`task_queue`、`version`、入参出参 wire 指纹）、`policy`、`version` | 嵌入二进制，Worker 启动时登记 |
+| `workflow.json` | WorkflowConfig：`program`、`activities`（符号 → `type`、`task_queue`、入参出参 wire 指纹）、`policy`、`version` | 嵌入二进制，Worker 启动时登记 |
 | `zz_<pkg>_artifacts_gen.go` | embed `workflow.json`，导出 `WorkflowDefinition()` | 编译进二进制 |
 | `zz_<pkg>_contract_gen.go` | `CallX` 调用桥、签名断言、`RegisterActivities` | 编译进二进制 |
 
@@ -694,7 +702,7 @@ Tenuto 的对应做法：
 
 **10 个实例不算：它们拉同一个队列，任务投到这个队列，谁领到谁执行。两个服务同名时，结果取决于它们拉的队列和调用方有没有声明队列。**
 
-Server 不判断「是不是同一份代码」：type、version、入参指纹、出参指纹都相同的 Worker 被视为可以互相替代。
+Server 不判断「是不是同一份代码」：type、入参指纹、出参指纹都相同的 Worker 被视为可以互相替代。
 
 | 情况 | 结果 |
 | --- | --- |
@@ -703,7 +711,7 @@ Server 不判断「是不是同一份代码」：type、version、入参指纹�
 | 没声明队列，两个服务在互不相关的队列上，都是默认路由，或都既没有默认也没有权重 | 调度不派发，Run Blocked（`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues`），声明队列或停掉一边后按退避继续 |
 | 没声明队列，只有一边是默认路由 | 投给默认路由那一边 |
 | 没声明队列，没有默认路由、配置了权重 | 按权重分流，视为显式配置 |
-| 两边契约不同（version 或指纹不同） | 调度与领取时按 Run 声明的契约区分，契约不符的 Worker 领取时被拒绝 |
+| 两边契约不同（入参或出参指纹不同） | 调度与领取时按 Run 声明的契约区分，契约不符的 Worker 领取时被拒绝 |
 
 「互不相关」按进程判断（`ambiguousRoutePools`）：同一个队列上的路由是一组；同一个 Worker 进程（Identity）拉取的几个队列是一组。BuildID 不参与，它可以为空，也可能被不同服务共用。Worker 登记本身不做这项检查：两个服务提供同名 Activity、调用方都声明了队列是正常用法。
 
@@ -739,7 +747,7 @@ worker.Options{
 
 ```go
 // examples/shop/contracts/contracts.go
-// @RemoteActivity(type="payments.charge",queue="payments",version=v1)
+// @RemoteActivity(type="payments.charge",queue="payments")
 type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)
 ```
 
@@ -749,19 +757,19 @@ type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)
 | `CallX` 调用桥 | 生成 | 生成，Workflow 里写 `contracts.CallCharge(ctx, in)` |
 | 标记符号 | 实现函数本身（`orders.Notify`） | 生成的 `ChargeRemoteActivity`，函数体只有 panic，Server 只按符号绑定到 `payments.charge` |
 | `RegisterActivities` | 登记 | 不登记；只有 remote 契约的包不生成 `RegisterActivities`（`compiler/sdkgen/contracts.go` 的 `renderRegisterActivities`） |
-| `workflow.json` 的契约 | type、queue、version、入参出参指纹 | 同左，指纹从函数类型的 `In`、`Out` 算出 |
+| `workflow.json` 的契约 | type、queue、入参出参指纹 | 同左，指纹从函数类型的 `In`、`Out` 算出 |
 
-实现方用同一组 queue、type、version 登记：
+实现方用同一组 queue、type 登记：
 
 ```go
-activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", "v1", g.Charge)
+activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", g.Charge)
 ```
 
 两边的 DTO 可以各自定义，JSON 字段名、类型与可选性一致时指纹相同；Server 在调度和领取时对照两边的契约。调用方的代码里不出现队列名和类型名字符串。
 
 ## 问题 20：BuildID 是什么？在哪里起作用、填在哪里、不填会怎样？
 
-**BuildID（`worker.Options.BuildID`）标识进程跑的是哪个版本的代码，作用是让同一个 Activity 的不同契约版本同时保存在 Server 上、互不覆盖。它不决定任务投给谁。**
+**BuildID（`worker.Options.BuildID`）标识进程跑的是哪个版本的代码，作用是让同一个 Activity 的新旧契约同时保存在 Server 上、互不覆盖。它不决定任务投给谁。**
 
 | | 标识 | 例子 |
 | --- | --- | --- |
@@ -794,19 +802,19 @@ Server 不判断是不是同一份代码，契约一致就视为可以互相替�
 
 不会出现确定性问题。需要确定性的是 Workflow 代码：它按 History 重放，命令顺序必须与 History 一致，改动要用 `GetVersion` 保护。Activity 不重放，History 只记它的入参和结果，内部实现可以随意重构。
 
-发布期间新旧进程同时在线，一次调用的重试也可能分别跑在新旧代码上。结果含义没变时直接发布；结果含义变了而结构没变（例如运费从不含税改成含税），Server 看到的指纹不变，要手动升 `version`。
+发布期间新旧进程同时在线，一次调用的重试也可能分别跑在新旧代码上。结果含义没变时直接发布；结果含义变了而结构没变（例如运费从不含税改成含税），Server 看到的指纹不变，新含义用新的 `type`（问题 1）。
 
-### 追问：BuildID 按 Git commit 填，Activity 的 `version` 是不是不用再改了？
+### 追问：BuildID 按 Git commit 填，能用它区分 Activity 结果的新旧含义吗？
 
-还要改。领取时 Server 对照的是 Run 声明的 `version` 和领取者上报的 `version`，不看 BuildID；`workflow.json` 也不记录 BuildID。
+不能。领取时 Server 对照的是 Run 声明的契约（`type`、入参指纹、出参指纹）和领取者上报的契约，不看 BuildID；`workflow.json` 也不记录 BuildID。
 
-| | BuildID | `version` |
+| | BuildID | `type` |
 | --- | --- | --- |
-| 描述 | 进程的构建 | Activity 结果的含义 |
-| 变化时机 | 每次提交，包括无关改动 | 只在语义变了、结构没变时手动升级；结构变了指纹自动变 |
+| 描述 | 进程的构建 | Activity 的身份与结果的含义 |
+| 变化时机 | 每次提交，包括无关改动 | 含义变了时换新 `type`；结构变了指纹自动变 |
 | 调度与领取时对照 | 不对照 | 对照 |
 
-只改 BuildID、不升 `version` 时，`pinned` 在旧定义上的 Run 调用 `quote`，新进程的契约与声明一致，可以领取，旧 Run 拿到含税运费，没有报错。升到 `v2` 后旧 Run 声明 `v1`，新进程上报 `v2`，领取被拒绝，任务只交给仍提供 `v1` 的进程。不按 BuildID 分配任务，是为了让契约兼容的新旧进程互相替代，不必让旧 Run 一直绑在旧二进制上。
+`quote` 改成返回含税运费、`type` 不变时，`pinned` 在旧定义上的 Run 调用 `quote`，新进程的契约与声明一致，可以领取，旧 Run 拿到含税运费，没有报错。含税运费用新 `type` `quote-taxed` 时，旧 Run 仍调度 `quote`，新旧进程都提供旧实现，拿到的是不含税运费；新 Program 调度 `quote-taxed`。不按 BuildID 分配任务，是为了让契约兼容的新旧进程互相替代，不必让旧 Run 一直绑在旧二进制上。
 
 ## 问题 21：Workflow Task 由谁执行？Server 内嵌的 Worker 还是业务进程？
 

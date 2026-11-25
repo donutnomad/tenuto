@@ -442,7 +442,6 @@
       "symbol": "steps.Step",
       "type": "cluster.step",
       "task_queue": "cluster",
-      "version": "v1",
       "input": "wire:d1c8d4f763c1b5bd43068d43e6d7e15d",
       "output": "wire:fc720f587f71e7bbcac40b86cca3f41e"
     }

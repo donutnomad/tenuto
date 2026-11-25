@@ -1,6 +1,6 @@
 // Package activities 是 lifecycle 示例的本地 activity 实现。
 //
-// 每个实现用 `@Activity(type=...,queue=...,version=...)` 声明协议身份；生成器据此产出
+// 每个实现用 `@Activity(type=...,queue=...)` 声明协议身份；生成器据此产出
 // 同包 typed 调用桥（zz_activities_contract_gen.go 里的 CallReserve/CallCharge/...）和
 // 稳定 marker（实现函数本身）。
 package activities
@@ -17,7 +17,7 @@ type ReserveOutput struct {
 	ReservationID string `json:"reservation_id"`
 }
 
-// @Activity(type="lifecycle.reserve",queue="lifecycle",version=v1)
+// @Activity(type="lifecycle.reserve",queue="lifecycle")
 func Reserve(ctx context.Context, in ReserveInput) (ReserveOutput, error) {
 	return ReserveOutput{ReservationID: "reservation-" + in.OrderID}, nil
 }
@@ -34,12 +34,12 @@ type ChargeOutput struct {
 	Policy   string `json:"policy"`
 }
 
-// @Activity(type="lifecycle.charge",queue="lifecycle",version=v1)
+// @Activity(type="lifecycle.charge",queue="lifecycle")
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: "charge-" + in.OrderID, Policy: "legacy"}, nil
 }
 
-// @Activity(type="lifecycle.charge-v2",queue="lifecycle",version=v2)
+// @Activity(type="lifecycle.charge-v2",queue="lifecycle")
 func ChargeV2(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: "charge-v2-" + in.OrderID, Policy: "v2"}, nil
 }
@@ -57,7 +57,7 @@ type NotifyOutput struct {
 	Delivered bool   `json:"delivered"`
 }
 
-// @Activity(type="lifecycle.notify",queue="lifecycle",version=v1)
+// @Activity(type="lifecycle.notify",queue="lifecycle")
 func Notify(ctx context.Context, in NotifyInput) (NotifyOutput, error) {
 	return NotifyOutput{OrderID: in.OrderID, Note: in.Note, Delivered: true}, nil
 }

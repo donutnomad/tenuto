@@ -23,8 +23,8 @@ func newResolveActivityFixture(t testing.TB) (*Server, *runReadCounter, string) 
 	mgr := &runReadCounter{ExecutionManager: memory.NewExecutionManager()}
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	t.Cleanup(server.Stop)
-	registerChargeWorkerVersion(t, server, "pay-worker-v1", "pay@v1", "v1", "ChargeInput.v1", "Receipt.v1")
-	runID, _ := startContractRunWithTarget(t, mgr, server, chargeWorkflowDeclaring("resolve-activity", "v1", "ChargeInput.v1", "Receipt.v1"), "pay-worker-v1")
+	registerChargeWorkerVersion(t, server, "pay-worker-v1", "pay@v1", "ChargeInput.v1", "Receipt.v1")
+	runID, _ := startContractRunWithTarget(t, mgr, server, chargeWorkflowDeclaring("resolve-activity", "ChargeInput.v1", "Receipt.v1"), "pay-worker-v1")
 	return server, mgr, runID
 }
 

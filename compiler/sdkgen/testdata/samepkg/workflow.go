@@ -20,7 +20,7 @@ type ChargeOutput struct {
 	Policy   string `json:"policy"`
 }
 
-// @RemoteActivity(type="payments.charge.v1",queue="payments",version=v1)
+// @RemoteActivity(type="payments.charge.v1",queue="payments")
 type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)
 
 // @Workflow(type="samepkg-flow",name="Same Package Flow",policy=auto_upgrade,version=v1)

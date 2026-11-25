@@ -44,12 +44,12 @@ type ChargeOutput struct {
 	Policy   string `json:"policy"`
 }
 
-// @Activity(type="orders.charge",queue="orders",version=v1)
+// @Activity(type="orders.charge",queue="orders")
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: "charge-" + in.OrderID, Policy: "legacy"}, nil
 }
 
-// @Activity(type="orders.charge-v2",queue="orders",version=v2)
+// @Activity(type="orders.charge-v2",queue="orders")
 func ChargeV2(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: "charge-v2-" + in.OrderID, Policy: "v2"}, nil
 }
@@ -65,7 +65,7 @@ type NotifyOutput struct {
 	Note string `json:"note"`
 }
 
-// @Activity(type="orders.notify",queue="orders",version=v1)
+// @Activity(type="orders.notify",queue="orders")
 func Notify(ctx context.Context, in NotifyInput) (NotifyOutput, error) {
 	return NotifyOutput{Note: in.Note}, nil
 }
@@ -120,7 +120,7 @@ func Orders(ctx workflow.Context, in Input) (Output, error) {
 
 // Cash 是只用于覆盖 `_` 输出位的本地 activity。
 //
-// @Activity(type="orders.cash",queue="orders",version=v1)
+// @Activity(type="orders.cash",queue="orders")
 func Cash(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: "cash-" + in.OrderID, Policy: "cash"}, nil
 }

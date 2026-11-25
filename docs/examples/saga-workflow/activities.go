@@ -18,7 +18,7 @@ func businessKey(operation, businessID string) string {
 	return operation + ":" + businessID
 }
 
-// @Activity(type="saga.reserve-inventory",queue="saga",version=v1)
+// @Activity(type="saga.reserve-inventory",queue="saga")
 func ReserveInventory(_ context.Context, in ReserveInventoryInput) (ReserveInventoryOutput, error) {
 	// 真实实现用 IdempotencyKey 写去重表，或作为下游的幂等请求头。
 	return ReserveInventoryOutput{
@@ -27,7 +27,7 @@ func ReserveInventory(_ context.Context, in ReserveInventoryInput) (ReserveInven
 	}, nil
 }
 
-// @Activity(type="saga.charge-payment",queue="saga",version=v1)
+// @Activity(type="saga.charge-payment",queue="saga")
 func ChargePayment(_ context.Context, in ChargePaymentInput) (ChargePaymentOutput, error) {
 	switch in.Scenario {
 	case "payment_declined_error":
@@ -61,7 +61,7 @@ func ChargePayment(_ context.Context, in ChargePaymentInput) (ChargePaymentOutpu
 	}, nil
 }
 
-// @Activity(type="saga.create-shipment",queue="saga",version=v1)
+// @Activity(type="saga.create-shipment",queue="saga")
 func CreateShipment(_ context.Context, in CreateShipmentInput) (CreateShipmentOutput, error) {
 	switch in.Scenario {
 	case "shipment_unknown":
@@ -72,7 +72,7 @@ func CreateShipment(_ context.Context, in CreateShipmentInput) (CreateShipmentOu
 	return CreateShipmentOutput{Status: "created", ShipmentID: "shipment-" + in.OrderID}, nil
 }
 
-// @Activity(type="saga.refund-payment",queue="saga",version=v1)
+// @Activity(type="saga.refund-payment",queue="saga")
 func RefundPayment(_ context.Context, in RefundPaymentInput) (RefundPaymentOutput, error) {
 	if in.Scenario == "shipment_rejected_refund_failed" {
 		return RefundPaymentOutput{}, errors.New("refund provider timeout: outcome unknown")
@@ -85,7 +85,7 @@ func RefundPayment(_ context.Context, in RefundPaymentInput) (RefundPaymentOutpu
 	}, nil
 }
 
-// @Activity(type="saga.release-inventory",queue="saga",version=v1)
+// @Activity(type="saga.release-inventory",queue="saga")
 func ReleaseInventory(_ context.Context, in ReleaseInventoryInput) (ReleaseInventoryOutput, error) {
 	// 幂等：已释放的 ReservationID 再释放一次返回同样结果。
 	return ReleaseInventoryOutput{

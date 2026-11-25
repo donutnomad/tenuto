@@ -10,10 +10,10 @@
 // @Workflow(type="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error)
 
-// @Activity(type="lifecycle.charge",queue="lifecycle",version=v1)
+// @Activity(type="lifecycle.charge",queue="lifecycle")
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error)
 
-// @RemoteActivity(type="payments.settle",queue="payments",version=v1)
+// @RemoteActivity(type="payments.settle",queue="payments")
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 ```
 
@@ -39,9 +39,8 @@ Workflow 函数规则：
 | --- | --- | --- |
 | `type` | 是 | Activity Type：路由、注册、重放对照共用的身份 |
 | `queue` | 否 | Activity Task Queue；写了时 `workflow.json` 声明它，生成的 `RegisterActivities` 连同它一起登记；省略时由 Server 按 Worker 的登记选路（Worker 的 `ActivityTaskQueues`，不写时是 `default`） |
-| `version` | 否 | 契约版本标签，Server 只做逐字相等对照 |
 
-两种形态，key 相同（`type`、`queue`、`version`）：
+两种形态，key 相同（`type`、`queue`）：
 
 | 形态 | 写法 | 生成内容 |
 | --- | --- | --- |
@@ -116,7 +115,7 @@ make build-example    # 先生成再构建示例二进制
 | --- | --- |
 | `zz_<pkg>_contract_gen.go` | 每个契约包的 `CallX` 桥、签名断言；有本地实现时含 `RegisterActivities(registry *activity.Registry) error` |
 | `zz_<pkg>_artifacts_gen.go` | embed `workflow.json`，导出 `WorkflowDefinition() registration.Definition` |
-| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → `type`、`task_queue`、`version`、输入输出 wire 指纹）、`policy`、`version` |
+| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → `type`、`task_queue`、输入输出 wire 指纹）、`policy`、`version` |
 
 只含 `@Activity` 的包目录只生成 `zz_<pkg>_contract_gen.go`。内容相同时不重写文件；同一份源码在不同 checkout 得到相同的内容 hash。全部产物提交进版本库，全部由生成器维护。
 
@@ -133,7 +132,7 @@ var _ activity.Caller[SayHelloInput, SayHelloOutput] = CallSayHello
 var _ activity.Handler[SayHelloInput, SayHelloOutput] = SayHello
 
 func RegisterActivities(registry *activity.Registry) error {
-    if err := activity.RegisterActivityOnQueue(registry, "startup", "startup.say-hello", "v1", SayHello); err != nil {
+    if err := activity.RegisterActivityOnQueue(registry, "startup", "startup.say-hello", SayHello); err != nil {
         return err
     }
     return nil
@@ -158,7 +157,7 @@ paid, err := CallCharge(ctx, in, workflow.ActivityOptions{StartToCloseTimeout: 3
 
 ## 契约与 wire 指纹
 
-`workflow.json` 的 `activities` 里 `input` / `output` 是 `wire:<hash>`，由 JSON 字段名、字段类型、`omitempty`、嵌套结构计算，与 Go 包名和类型名无关。Worker 侧 `activity.ContractOf[In, Out](type, version)` 用同一算法。两侧 DTO 可以各自定义，wire 结构相同则指纹相同。增加一个字段（即使 `omitempty`）指纹就变。
+`workflow.json` 的 `activities` 里 `input` / `output` 是 `wire:<hash>`，由 JSON 字段名、字段类型、`omitempty`、嵌套结构计算，与 Go 包名和类型名无关。Worker 侧 `activity.ContractOf[In, Out](type)` 用同一算法。两侧 DTO 可以各自定义，wire 结构相同则指纹相同。增加一个字段（即使 `omitempty`）指纹就变。
 
 wire 支持的类型：字符串、布尔、定宽整数与 `int`、浮点、指针、slice、定长数组、字符串 key 的 map、struct、空接口，以及由它们组成的具名类型与递归类型。
 

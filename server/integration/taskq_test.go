@@ -117,7 +117,7 @@ func TestSeparateWorkerRegistersActivitiesAndRunsThroughRealTaskQ(t *testing.T) 
 	registry := wfsdk.NewRegistry()
 	var callsMu sync.Mutex
 	var calls []string
-	wfsdk.RegisterActivity[captureInput, captureOutput](registry, "capture", "", func(ctx context.Context, input captureInput) (captureOutput, error) {
+	wfsdk.RegisterActivity[captureInput, captureOutput](registry, "capture", func(ctx context.Context, input captureInput) (captureOutput, error) {
 		callsMu.Lock()
 		calls = append(calls, input.Value)
 		callsMu.Unlock()

@@ -557,7 +557,7 @@ func TestRegisterActivitiesMatchesManifest(t *testing.T) {
 		if !ok {
 			t.Fatalf("上报的 %s 不在 workflow.json 的 activities 里（%v）", contract.Type, declared)
 		}
-		if contract.Version != want.Version || contract.Input != want.Input || contract.Output != want.Output {
+		if contract.Input != want.Input || contract.Output != want.Output {
 			t.Fatalf("%s 契约与 workflow.json 不一致：上报 %+v，声明 %+v", contract.Type, contract, want)
 		}
 	}

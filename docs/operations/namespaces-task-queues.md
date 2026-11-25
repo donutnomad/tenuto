@@ -28,7 +28,7 @@ Server 在调度一个 Activity 时按下面的顺序确定队列，确定的队
 
 1. 调用处的 `ActivityOptions.TaskQueue`，只作用于这一次调用。
 2. Run 的 Workflow 定义（`workflow.json` 的 `activities[].task_queue`）声明的队列，来自 `@Activity(queue=...)`。队列是 Activity 自己的属性，与调用它的 Workflow、与放在同一个包里的 Workflow 都无关。
-3. 前两者都没有时，Server 在路由目录里选：目录是在线 Worker 上报的「拉取的队列 × 登记的 Activity 类型」。先排除契约（version、入参出参指纹）与定义不一致的路由，再优先默认路由（`ActivityWorkerVersionDefault`），最后按权重选择。没有任何 Worker 登记这个类型时，Run 显示 Blocked（`activity_route_unavailable`），Worker 上线后按退避继续。
+3. 前两者都没有时，Server 在路由目录里选：目录是在线 Worker 上报的「拉取的队列 × 登记的 Activity 类型」。先排除契约（入参出参指纹）与定义不一致的路由，再优先默认路由（`ActivityWorkerVersionDefault`），最后按权重选择。没有任何 Worker 登记这个类型时，Run 显示 Blocked（`activity_route_unavailable`），Worker 上线后按退避继续。
 
 两种写法：
 

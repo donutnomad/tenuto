@@ -818,7 +818,6 @@
       "symbol": "activities.Charge",
       "type": "lifecycle.charge",
       "task_queue": "lifecycle",
-      "version": "v1",
       "input": "wire:7c3dc0d92c0eea462bf28016baf5be2a",
       "output": "wire:85ec75f4f0d2fcc3dace577ff0c334ca"
     },
@@ -826,7 +825,6 @@
       "symbol": "activities.ChargeV2",
       "type": "lifecycle.charge-v2",
       "task_queue": "lifecycle",
-      "version": "v2",
       "input": "wire:7c3dc0d92c0eea462bf28016baf5be2a",
       "output": "wire:85ec75f4f0d2fcc3dace577ff0c334ca"
     },
@@ -834,7 +832,6 @@
       "symbol": "activities.Notify",
       "type": "lifecycle.notify",
       "task_queue": "lifecycle",
-      "version": "v1",
       "input": "wire:5cd42e4976edc7402505a791f57d780c",
       "output": "wire:fa2fe9db3c0e6f757b0182094d830b0f"
     },
@@ -842,7 +839,6 @@
       "symbol": "activities.Reserve",
       "type": "lifecycle.reserve",
       "task_queue": "lifecycle",
-      "version": "v1",
       "input": "wire:2f1b25b0aaa6f23dd68df3c87a002b0a",
       "output": "wire:3d8746886137aa9ad12f9a8d4f7a1507"
     },
@@ -850,7 +846,6 @@
       "symbol": "remote.SettleRemoteActivity",
       "type": "payments.settle",
       "task_queue": "payments",
-      "version": "v1",
       "input": "wire:9d410d1ffac558d341b2cc6e680934b5",
       "output": "wire:2b863694cdf836a398a08032e44f6e75"
     }

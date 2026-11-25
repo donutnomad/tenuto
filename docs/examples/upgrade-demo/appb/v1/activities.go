@@ -19,7 +19,7 @@ type PriceOutput struct {
 
 // Price 是 app-b 自己的本地 Activity：给订单定价。
 //
-// @Activity(type="orders.price",queue="orders",version=v1)
+// @Activity(type="orders.price",queue="orders")
 func Price(_ context.Context, in PriceInput) (PriceOutput, error) {
 	return PriceOutput{Amount: unitPrice * int64(in.Qty)}, nil
 }

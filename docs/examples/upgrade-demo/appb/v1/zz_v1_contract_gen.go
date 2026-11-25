@@ -9,7 +9,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// CallPrice 调度 activity orders.price（queue orders, version v1）。
+// CallPrice 调度 activity orders.price（queue orders）。
 func CallPrice(ctx workflow.Context, in PriceInput, opts ...workflow.ActivityOptions) (PriceOutput, error) {
 	var out PriceOutput
 	err := workflow.ExecuteActivity(ctx, Price, in, opts...).Get(ctx, &out)
@@ -19,7 +19,7 @@ func CallPrice(ctx workflow.Context, in PriceInput, opts ...workflow.ActivityOpt
 var _ activity.Caller[PriceInput, PriceOutput] = CallPrice
 var _ activity.Handler[PriceInput, PriceOutput] = Price
 
-// CallQuote 调度 activity fulfillment.quote（queue fulfillment, version v1）。
+// CallQuote 调度 activity fulfillment.quote（queue fulfillment）。
 // 稳定 marker：QuoteRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 fulfillment.quote，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -35,7 +35,7 @@ func CallQuote(ctx workflow.Context, in QuoteInput, opts ...workflow.ActivityOpt
 
 var _ activity.Caller[QuoteInput, QuoteOutput] = CallQuote
 
-// CallReserve 调度 activity fulfillment.reserve（queue fulfillment, version v1）。
+// CallReserve 调度 activity fulfillment.reserve（queue fulfillment）。
 // 稳定 marker：ReserveRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 fulfillment.reserve，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -51,7 +51,7 @@ func CallReserve(ctx workflow.Context, in ReserveInput, opts ...workflow.Activit
 
 var _ activity.Caller[ReserveInput, ReserveOutput] = CallReserve
 
-// CallShip 调度 activity fulfillment.ship（queue fulfillment, version v1）。
+// CallShip 调度 activity fulfillment.ship（queue fulfillment）。
 // 稳定 marker：ShipRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 fulfillment.ship，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -68,11 +68,11 @@ func CallShip(ctx workflow.Context, in ShipInput, opts ...workflow.ActivityOptio
 var _ activity.Caller[ShipInput, ShipOutput] = CallShip
 
 // RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。
-// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
+// 每个实现的契约（type、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
 // worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。
 // remote 契约的实现在别的进程，由那个进程登记。
 func RegisterActivities(registry *activity.Registry) error {
-	if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.price", "v1", Price); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.price", Price); err != nil {
 		return err
 	}
 	return nil

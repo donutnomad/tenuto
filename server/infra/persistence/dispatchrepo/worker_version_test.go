@@ -26,7 +26,7 @@ func newTestRepository(t *testing.T) *Repository {
 func TestContractsRoundTrip(t *testing.T) {
 	repository := newTestRepository(t)
 	now := time.Now()
-	contracts := []protocol.ActivityContract{{Type: "payments.charge.v1", Version: "v1", Input: "input@fp1", Output: "output@fp2"}}
+	contracts := []protocol.ActivityContract{{Type: "payments.charge.v1", Input: "input@fp1", Output: "output@fp2"}}
 	if _, err := repository.UpsertActivityWorkerVersionInNamespace(protocol.DefaultNamespace, protocol.ActivityWorkerVersion{
 		Identity: "payments-worker", BuildID: "build-1", TaskQueues: []string{"payments"},
 		ActivityTypes: []string{"payments.charge.v1"}, Contracts: contracts, Default: true,

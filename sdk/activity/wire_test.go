@@ -86,11 +86,11 @@ func TestWireFingerprintNestedAndOptional(t *testing.T) {
 }
 
 func TestContractOfUsesWireFingerprints(t *testing.T) {
-	contract, err := ContractOf[localChargeInput, localChargeOutput]("payments.charge.v1", "v1")
+	contract, err := ContractOf[localChargeInput, localChargeOutput]("payments.charge.v1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contract.Type != "payments.charge.v1" || contract.Version != "v1" {
+	if contract.Type != "payments.charge.v1" {
 		t.Fatalf("contract = %+v", contract)
 	}
 	input, err := WireFingerprintOf[localChargeInput]()

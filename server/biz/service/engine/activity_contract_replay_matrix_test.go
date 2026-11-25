@@ -26,11 +26,10 @@ import (
 // B 修改“已完成 Activity c”的声明契约，然后继续用同一条老 Run 的 history replay。
 //
 // 夹具走推荐生成路径：@Activity/@Workflow 注解 → sdkgen.Scan → 写生成桥 → sdkgen.Generate。
-// 因此 ActivityRef 的 Version/Input/Output 来自注解与真实 wire 指纹，不是手工拼的字符串。
+// 因此 ActivityRef 的 Input/Output 来自注解与真实 wire 指纹，不是手工拼的字符串。
 // 解释器 replay、契约校验、路由、事件写入全部走生产代码。
 //
-// 三个子用例只改变 B 中 c 的声明：
-//   - version-label-only：同 wire，只改 version 标签
+// 两个子用例只改变 B 中 c 的声明：
 //   - input-change：c 的输入新增必填字段
 //   - output-change：c 的输出字段 int64 → string，History 里 c 的结果读不回：升级前的载荷检查拒绝换版，Run 留在 A
 //     以 ConfigError 暂停
@@ -45,6 +44,8 @@ const (
 	contractCOutInt       = "Amount int64 `json:\"amount\"`"
 	contractCOutString    = "Amount string `json:\"amount\"`"
 	contractCInWithNote   = "Amount int64 `json:\"amount\"`\n\tNote   string `json:\"note\"`"
+	contractDInDefault    = "Receipt any `json:\"receipt\"`"
+	contractDInWithNote   = "Receipt any `json:\"receipt\"`\n\tNote    string `json:\"note\"`"
 	contractDefaultSteps  = "b,c,d"
 	contractDefaultTimout = 10 * time.Second
 )
@@ -95,15 +96,15 @@ type EOut struct{}
 // @Activity(type=example.b,queue=contract-replay)
 func B(_ context.Context, _ BIn) (BOut, error) { return BOut{}, nil }
 
-// @Activity(type=example.c,queue=contract-replay,version=%s)
+// @Activity(type=example.c,queue=contract-replay)
 func C(_ context.Context, _ CIn) (COut, error) { return COut{}, nil }
 
-// @Activity(type=example.d,queue=contract-replay,version=%s)
+// @Activity(type=example.d,queue=contract-replay)
 func D(_ context.Context, _ DIn) (DOut, error) { return DOut{}, nil }
 
 // @Activity(type=example.e,queue=contract-replay)
 func E(_ context.Context, _ EIn) (EOut, error) { return EOut{}, nil }
-`, cIn, cOut, version, version)
+`, cIn, cOut)
 	if err := os.WriteFile(filepath.Join(root, "activities", "activities.go"), []byte(activitiesSrc), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -227,62 +228,38 @@ type contractWorkerEIn struct {
 }
 type contractWorkerEOut struct{}
 
-func registerContractWorker(t *testing.T, server *engine.Server) {
-	t.Helper()
-	b, err := activity.ContractOf[contractWorkerIn, contractWorkerOut]("example.b", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := activity.ContractOf[contractWorkerCIn, contractWorkerCOut]("example.c", contractDefaultVersion)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := activity.ContractOf[contractWorkerDIn, contractWorkerDOut]("example.d", "v1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	e, err := activity.ContractOf[contractWorkerEIn, contractWorkerEOut]("example.e", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
-		Identity: "contract-worker", BuildID: "contract-build",
-		TaskQueues:    []string{"contract-replay"},
-		ActivityTypes: []string{"example.b", "example.c", "example.d", "example.e"},
-		Contracts:     []activity.Contract{b, c, d, e},
-	}); err != nil {
-		t.Fatal(err)
-	}
+// contractWorkerCInWithNote 与 contractWorkerDInWithNote 是 c、d 的输入新增 note 字段之后的结构。
+type contractWorkerCInWithNote struct {
+	Amount int64  `json:"amount"`
+	Note   string `json:"note"`
+}
+type contractWorkerDInWithNote struct {
+	Receipt any    `json:"receipt"`
+	Note    string `json:"note"`
 }
 
-const contractDefaultVersion = "v1"
+// registerContractWorker 上报 A 的 b、c、d、e 契约。
+func registerContractWorker(t *testing.T, server *engine.Server) {
+	t.Helper()
+	registerContractWorkerReporting(t, server, false, false)
+}
 
 func TestCompletedActivityContractChangesOnReplay(t *testing.T) {
 	cases := []struct {
-		name string
-		// bVersion 是发布内容 B 中 c 的 version 标签。
-		bCVersion string
-		bCIn      string
-		bCOut     string
+		name  string
+		bCIn  string
+		bCOut string
 		// wantPayloadPause 表示 History 里 c 的结果读不回 B 的新 DTO：换版前的载荷检查拒绝升级，
 		// Run 留在 A 并以 ConfigError 暂停，不会在 B 上解码失败。
 		wantPayloadPause bool
 	}{
 		{
-			name:      "version-label-only",
-			bCVersion: "v2",
-			bCIn:      contractCInDefault,
-			bCOut:     contractCOutInt,
-		},
-		{
-			name:      "input-change",
-			bCVersion: "v2",
-			bCIn:      contractCInWithNote,
-			bCOut:     contractCOutInt,
+			name:  "input-change",
+			bCIn:  contractCInWithNote,
+			bCOut: contractCOutInt,
 		},
 		{
 			name:             "output-change",
-			bCVersion:        "v2",
 			bCIn:             contractCInDefault,
 			bCOut:            contractCOutString,
 			wantPayloadPause: true,
@@ -309,7 +286,7 @@ func TestCompletedActivityContractChangesOnReplay(t *testing.T) {
 			assertRunVersion(t, mgr, runID, refA.Version, refA.Version, "before publish")
 
 			// 发布 B：用同一夹具目录改写 activities 注解并重新生成。
-			writeContractActivities(t, fixtureA.root, tc.bCVersion, "v1", tc.bCIn, tc.bCOut)
+			writeContractActivities(t, fixtureA.root, tc.bCIn, tc.bCOut, contractDInDefault)
 			fixtureB := fixtureA
 			refB := fixtureB.register(t, server)
 			if refB.Version == refA.Version {
@@ -378,7 +355,7 @@ func TestCompletedActivityContractChangesOnReplay(t *testing.T) {
 	}
 }
 
-func writeContractActivities(t *testing.T, root, cVersion, dVersion, cIn, cOut string) {
+func writeContractActivities(t *testing.T, root, cIn, cOut, dIn string) {
 	t.Helper()
 	path := filepath.Join(root, "activities", "activities.go")
 	src := fmt.Sprintf(`package activities
@@ -391,7 +368,7 @@ type BOut struct{ Value int64 `+"`json:\"value\"`"+` }
 type CIn struct{ %s }
 type COut struct{ %s }
 
-type DIn struct{ Receipt any `+"`json:\"receipt\"`"+` }
+type DIn struct{ %s }
 type DOut struct{}
 
 type EIn struct{ Receipt any `+"`json:\"receipt\"`"+` }
@@ -400,15 +377,15 @@ type EOut struct{}
 // @Activity(type=example.b,queue=contract-replay)
 func B(_ context.Context, _ BIn) (BOut, error) { return BOut{}, nil }
 
-// @Activity(type=example.c,queue=contract-replay,version=%s)
+// @Activity(type=example.c,queue=contract-replay)
 func C(_ context.Context, _ CIn) (COut, error) { return COut{}, nil }
 
-// @Activity(type=example.d,queue=contract-replay,version=%s)
+// @Activity(type=example.d,queue=contract-replay)
 func D(_ context.Context, _ DIn) (DOut, error) { return DOut{}, nil }
 
 // @Activity(type=example.e,queue=contract-replay)
 func E(_ context.Context, _ EIn) (EOut, error) { return EOut{}, nil }
-`, cIn, cOut, cVersion, dVersion)
+`, cIn, cOut, dIn)
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +445,7 @@ func TestPendingActivityContractWindow(t *testing.T) {
 	prepare := func(t *testing.T, name string) (*replayServerControl, contractFixture, definition.WorkflowConfigRef, string) {
 		t.Helper()
 		controlled := newControlledReplayServer(t)
-		registerContractWorkerVersions(t, controlled.Server, contractDefaultVersion, "v1")
+		registerContractWorker(t, controlled.Server)
 		fixture := newContractFixture(t, name, "v1", contractCInDefault, contractCOutInt)
 		refA := fixture.register(t, controlled.Server)
 		controlled.StartWorker(t)
@@ -488,10 +465,11 @@ func TestPendingActivityContractWindow(t *testing.T) {
 	t.Run("promotion-wft-uses-candidate-declaration", func(t *testing.T) {
 		controlled, fixture, refA, runID := prepare(t, "pending-window-promotion")
 
-		writeContractActivities(t, fixture.root, "v2", "v1", contractCInDefault, contractCOutInt)
+		wfA := fixture.generate(t)
+		writeContractActivities(t, fixture.root, contractCInWithNote, contractCOutInt, contractDInDefault)
 		wfB := fixture.generate(t)
-		if got := declaredRefForTest(t, wfB, "example.c").Version; got != "v2" {
-			t.Fatalf("B declared c version = %q, want v2", got)
+		if declaredRefForTest(t, wfB, "example.c").Input == declaredRefForTest(t, wfA, "example.c").Input {
+			t.Fatal("B must declare a different input for c")
 		}
 		refB := fixture.register(t, controlled.Server)
 		if refB.Version == refA.Version {
@@ -499,20 +477,20 @@ func TestPendingActivityContractWindow(t *testing.T) {
 		}
 		controlled.StartWorker(t)
 
-		// 切换 WFT 按候选内容 B 的 v2 声明对照只上报 v1 的 worker：写 ConfigError，c 不派发。
+		// 切换 WFT 按候选内容 B 对 c 的新输入声明对照只上报旧输入的 worker：写 ConfigError，c 不派发。
 		waitForRunConfigErrorForTest(t, controlled.Mgr, runID)
 		if got := countScheduledType(mgrEvents(t, controlled.Mgr, runID), "example.c"); got != 0 {
-			t.Fatalf("promotion WFT scheduled c %d times against B's v2 declaration, want 0", got)
+			t.Fatalf("promotion WFT scheduled c %d times against B's new declaration, want 0", got)
 		}
 	})
 
 	t.Run("next-wft-enforces-new-declaration", func(t *testing.T) {
 		controlled, fixture, refA, runID := prepare(t, "pending-window-next")
-		writeContractActivities(t, fixture.root, "v1", "v2", contractCInDefault, contractCOutInt)
+		writeContractActivities(t, fixture.root, contractCInDefault, contractCOutInt, contractDInWithNote)
 		refB := fixture.register(t, controlled.Server)
 		controlled.StartWorker(t)
 
-		// c 在切换 WFT 内按旧声明调度；完成后下一个 WFT 用 B 的 d v2 对照 v1 worker。
+		// c 在切换 WFT 内按旧声明调度；完成后下一个 WFT 用 B 对 d 的新输入声明对照只上报旧输入的 worker。
 		waitForScheduledType(t, controlled.Mgr, runID, "example.c", 1)
 		completeContractActivity(t, controlled.Server, controlled.Activities, "example.c")
 		waitForRunConfigErrorForTest(t, controlled.Mgr, runID)
@@ -520,16 +498,16 @@ func TestPendingActivityContractWindow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(paused.ConfigError, "example.d") || !strings.Contains(paused.ConfigError, "v2") {
-			t.Fatalf("ConfigError = %q, want d/v2 contract mismatch", paused.ConfigError)
+		if !strings.Contains(paused.ConfigError, "example.d") || !strings.Contains(paused.ConfigError, "input expected") {
+			t.Fatalf("ConfigError = %q, want a d input contract mismatch", paused.ConfigError)
 		}
 		history := mgrEvents(t, controlled.Mgr, runID)
 		if got := countScheduledType(history, "example.d"); got != 0 {
 			t.Fatalf("d scheduled %d times while contract mismatch, want 0", got)
 		}
 
-		// 人工恢复：worker 上报 d v2，再走 set-policy 入口。
-		registerContractWorkerVersions(t, controlled.Server, "v1", "v2")
+		// 人工恢复：worker 上报 d 的新输入，再走 set-policy 入口。
+		registerContractWorkerReporting(t, controlled.Server, false, true)
 		if _, err := controlled.Server.SetRunPolicy(context.Background(), protocol.DefaultNamespace, runID, execution.RunPolicyAutoUpgrade); err != nil {
 			t.Fatal(err)
 		}
@@ -546,28 +524,35 @@ func declaredRefForTest(t *testing.T, wf *program.WorkflowConfig, activityType s
 	t.Helper()
 	for _, ref := range wf.Activities {
 		if ref.Type == activityType {
-			return program.ActivityRef{Type: ref.Type, Version: ref.Version, Input: ref.Input, Output: ref.Output}
+			return program.ActivityRef{Type: ref.Type, Input: ref.Input, Output: ref.Output}
 		}
 	}
 	t.Fatalf("activity %s not declared in workflow config", activityType)
 	return program.ActivityRef{}
 }
 
-func registerContractWorkerVersions(t *testing.T, server *engine.Server, cVersion, dVersion string) {
+// registerContractWorkerReporting 上报 b、c、d、e 的契约；cNote、dNote 为 true 时 c、d 的输入带 note 字段。
+func registerContractWorkerReporting(t *testing.T, server *engine.Server, cNote, dNote bool) {
 	t.Helper()
-	b, err := activity.ContractOf[contractWorkerIn, contractWorkerOut]("example.b", "")
+	b, err := activity.ContractOf[contractWorkerIn, contractWorkerOut]("example.b")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := activity.ContractOf[contractWorkerCIn, contractWorkerCOut]("example.c", cVersion)
+	c, err := activity.ContractOf[contractWorkerCIn, contractWorkerCOut]("example.c")
+	if cNote {
+		c, err = activity.ContractOf[contractWorkerCInWithNote, contractWorkerCOut]("example.c")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := activity.ContractOf[contractWorkerDIn, contractWorkerDOut]("example.d", dVersion)
+	d, err := activity.ContractOf[contractWorkerDIn, contractWorkerDOut]("example.d")
+	if dNote {
+		d, err = activity.ContractOf[contractWorkerDInWithNote, contractWorkerDOut]("example.d")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := activity.ContractOf[contractWorkerEIn, contractWorkerEOut]("example.e", "")
+	e, err := activity.ContractOf[contractWorkerEIn, contractWorkerEOut]("example.e")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +626,7 @@ func TestPublishAcceptsUnroutedActivityType(t *testing.T) {
 	}
 }
 
-// completeContractActivity 以 registerContractWorkerVersions 登记的 Worker 身份从 contract-replay 领取下一个
+// completeContractActivity 以 registerContractWorkerReporting 登记的 Worker 身份从 contract-replay 领取下一个
 // Activity Task，核对类型后完成它。
 func completeContractActivity(t *testing.T, server *engine.Server, router *memory.ActivityQueueRouter, activityType string) {
 	t.Helper()

@@ -42,7 +42,7 @@ func refByType(t *testing.T, result sdkgen.PackageResult, activityType string) p
 }
 
 // 第 4 项：workflow.ExecuteActivity(ctx, pkg.Func, ...) 的被调函数带 @Activity 注解时，
-// activity ref 的 type/queue/version/I/O 指纹与生成的 CallX 桥完全一致；没有注解的函数
+// activity ref 的 type/queue/I/O 指纹与生成的 CallX 桥完全一致；没有注解的函数
 // 以符号写法作 type、不声明队列（由 Server 按 Worker 登记选路）、不带契约。
 func TestDirectExecuteActivityUsesAnnotation(t *testing.T) {
 	direct := generateFixtureDir(t, copyFixture(t, "executeactivity"))
@@ -70,21 +70,21 @@ func TestDirectExecuteActivityUsesAnnotation(t *testing.T) {
 
 	for _, activityType := range []string{"payments.charge", "orders.notify"} {
 		got, want := refByType(t, direct, activityType), refByType(t, viaBridge, activityType)
-		if got.TaskQueue != want.TaskQueue || got.Version != want.Version || got.Input != want.Input || got.Output != want.Output {
+		if got.TaskQueue != want.TaskQueue || got.Input != want.Input || got.Output != want.Output {
 			t.Fatalf("%s: 直接调用的 ref %+v 与桥的 ref %+v 不一致", activityType, got, want)
 		}
-		if got.Version == "" || !strings.HasPrefix(got.Input, "wire:") || !strings.HasPrefix(got.Output, "wire:") {
-			t.Fatalf("%s: ref 缺少注解的版本或 I/O 指纹: %+v", activityType, got)
+		if !strings.HasPrefix(got.Input, "wire:") || !strings.HasPrefix(got.Output, "wire:") {
+			t.Fatalf("%s: ref 缺少注解的 I/O 指纹: %+v", activityType, got)
 		}
 	}
-	if ref := refByType(t, direct, "payments.charge"); ref.TaskQueue != "payments" || ref.Version != "v1" {
+	if ref := refByType(t, direct, "payments.charge"); ref.TaskQueue != "payments" {
 		t.Fatalf("payments.charge ref = %+v", ref)
 	}
-	if ref := refByType(t, direct, "orders.notify"); ref.TaskQueue != "notifications" || ref.Version != "v2" {
+	if ref := refByType(t, direct, "orders.notify"); ref.TaskQueue != "notifications" {
 		t.Fatalf("orders.notify ref = %+v", ref)
 	}
 	plain := refByType(t, direct, "activities.Audit")
-	if plain.TaskQueue != "" || plain.Version != "" || plain.Input != "" || plain.Output != "" {
+	if plain.TaskQueue != "" || plain.Input != "" || plain.Output != "" {
 		t.Fatalf("没有注解的函数不应带契约: %+v", plain)
 	}
 

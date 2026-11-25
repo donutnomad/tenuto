@@ -9,7 +9,7 @@ import (
 )
 
 // TestWorkerReportsActivityContracts 锁住 worker 侧的契约元数据上报：
-// 实现按 workflow.json 里 activities 的符号注册，registry 里每个 activity 都带 Type/Version/Input/Output。
+// 实现按 workflow.json 里 activities 的符号注册，registry 里每个 activity 都带 Type/Input/Output。
 func TestWorkerReportsActivityContracts(t *testing.T) {
 	artifacts, err := artifact.LoadDir("../v2")
 	if err != nil {
@@ -32,7 +32,7 @@ func TestWorkerReportsActivityContracts(t *testing.T) {
 		registered[activityType] = true
 	}
 	for _, contract := range reported {
-		if contract.Type == "" || contract.Version == "" || contract.Input == "" || contract.Output == "" {
+		if contract.Type == "" || contract.Input == "" || contract.Output == "" {
 			t.Fatalf("契约字段不完整: %+v", contract)
 		}
 		// worker 上报的是与 Go 类型身份无关的 wire 指纹，不是 descriptor ID。
@@ -53,7 +53,7 @@ func TestWorkerReportsActivityContracts(t *testing.T) {
 	if settle == nil {
 		t.Fatalf("remote 契约 payments.settle 没有上报: %+v", reported)
 	}
-	if settle.Version != "v1" || !strings.HasPrefix(settle.Input, "wire:") || !strings.HasPrefix(settle.Output, "wire:") {
+	if !strings.HasPrefix(settle.Input, "wire:") || !strings.HasPrefix(settle.Output, "wire:") {
 		t.Fatalf("remote 契约元数据异常: %+v", *settle)
 	}
 }

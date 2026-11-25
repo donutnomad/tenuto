@@ -736,7 +736,6 @@
       "symbol": "contracts.CheckStockRemoteActivity",
       "type": "inventory.check",
       "task_queue": "inventory",
-      "version": "v1",
       "input": "wire:9d410d1ffac558d341b2cc6e680934b5",
       "output": "wire:d6810d94b3b65b85bd3ce3bb3f3b6cc6"
     },
@@ -744,7 +743,6 @@
       "symbol": "contracts.HoldStockRemoteActivity",
       "type": "inventory.hold",
       "task_queue": "inventory",
-      "version": "v1",
       "input": "wire:a5250fbc278bc7b2781ff4d2a74e06ce",
       "output": "wire:9ec8d0a74e30a4a55f51d2738407b21b"
     },
@@ -752,7 +750,6 @@
       "symbol": "contracts.SettleRemoteActivity",
       "type": "ledger.settle",
       "task_queue": "ledger",
-      "version": "v1",
       "input": "wire:9d410d1ffac558d341b2cc6e680934b5",
       "output": "wire:2b863694cdf836a398a08032e44f6e75"
     },
@@ -760,7 +757,6 @@
       "symbol": "v1.Finalize",
       "type": "orders.finalize",
       "task_queue": "orders",
-      "version": "v1",
       "input": "wire:4f4a1446fee502bfdc79c9911a854c71",
       "output": "wire:73ed221888bf75928ffc6c6187927581"
     }

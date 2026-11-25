@@ -50,20 +50,20 @@ type ChargeOutput struct {
 	PaymentID string `json:"payment_id"`
 }
 
-// @RemoteActivity(type="payments.charge",queue="payments",version=v1)
+// @RemoteActivity(type="payments.charge",queue="payments")
 type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)
 ```
 
-payment-service 实现同一个 type 与 version，在 `payments` 队列上执行：
+payment-service 实现同一个 type，在 `payments` 队列上执行：
 
 ```go
 // examples/shop/payment/payment.go（节选）
 func (g *Gateway) Register(registry *activity.Registry) error {
-	return activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", "v1", g.Charge)
+	return activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", g.Charge)
 }
 ```
 
-Worker 上线时把契约（type、version、入参出参指纹）报给 Server；调度时 Server 核对 Workflow 声明的契约与在线 Worker 上报的一致。队列上没有在线 Worker 时 Run 以 `activity_route_unavailable` 退避等待，见[运行 Worker](/develop/workers)。
+Worker 上线时把契约（type、入参出参指纹）报给 Server；调度时 Server 核对 Workflow 声明的契约与在线 Worker 上报的一致。队列上没有在线 Worker 时 Run 以 `activity_route_unavailable` 退避等待，见[运行 Worker](/develop/workers)。
 
 ## Workflow
 

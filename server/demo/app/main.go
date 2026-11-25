@@ -110,7 +110,7 @@ type flakyOutput struct {
 
 // mustRegisterActivity 注册 activity；activity type 重复时 demo 启动失败。
 func mustRegisterActivity[I, O any](registry *wfsdk.Registry, activityType string, fn func(context.Context, I) (O, error)) {
-	if err := wfsdk.RegisterActivity(registry, activityType, "", fn); err != nil {
+	if err := wfsdk.RegisterActivity(registry, activityType, fn); err != nil {
 		log.Fatalf("register activity: %v", err)
 	}
 }

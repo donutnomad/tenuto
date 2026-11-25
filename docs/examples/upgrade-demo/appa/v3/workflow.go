@@ -66,9 +66,19 @@ func ReturnFlow(ctx workflow.Context, in ReturnInput) (ReturnOutput, error) {
 		return ReturnOutput{}, err
 	}
 
-	label, err := CallQuote(ctx, QuoteInput{OrderID: in.OrderID, Qty: in.Qty}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
-	if err != nil {
-		return ReturnOutput{}, err
+	// 退货运费改用含税报价：调用新的 type fulfillment.quote-taxed。换 type 改变了这一步的命令，
+	// 所以用 GetVersion 保护：已经调度过旧 quote 的 Run 重放到这里时 History 里没有这个版本点，
+	// 得到 DefaultVersion，继续走旧 type；还没走到这一步的 Run（包括停在 Signal 等待点后切过来的）
+	// 首次执行到这里得到 1，调度新 type。
+	var label QuoteOutput
+	var quoteErr error
+	if workflow.GetVersion(ctx, "quote-taxed", workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+		label, quoteErr = CallQuote(ctx, QuoteInput{OrderID: in.OrderID, Qty: in.Qty}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
+	} else {
+		label, quoteErr = CallQuoteTaxed(ctx, QuoteInput{OrderID: in.OrderID, Qty: in.Qty}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
+	}
+	if quoteErr != nil {
+		return ReturnOutput{}, quoteErr
 	}
 	restocked, err := CallRestock(ctx, RestockInput{OrderID: in.OrderID, Condition: inspected.Condition}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
 	if err != nil {

@@ -21,16 +21,16 @@ import (
 // stockLocation 是 app-2 的库存能力，v2 构建从 error 修正为 2 号仓。
 const stockLocation = "warehouse-2"
 
-// RegisterActivities 把 app-2 的全部实现登记到 registry；契约版本与 contracts 包里
-// @Activity(version=v1) 的声明一致，Worker 登记时随 registry 上报。
+// RegisterActivities 把 app-2 的全部实现登记到 registry；契约与 contracts 包里
+// @RemoteActivity 的声明一致，Worker 登记时随 registry 上报。
 func RegisterActivities(registry *wfsdk.Registry) error {
 	return errors.Join(
-		wfsdk.RegisterActivity(registry, "inventory.check", "v1", CheckStock),
-		wfsdk.RegisterActivity(registry, "inventory.hold", "v1", HoldStock),
-		wfsdk.RegisterActivity(registry, "inventory.release", "v1", ReleaseHold),
-		wfsdk.RegisterActivity(registry, "ledger.settle", "v1", Settle),
-		wfsdk.RegisterActivity(registry, "risk.review", "v1", RiskReview),
-		wfsdk.RegisterActivity(registry, "ledger.charge", "v1", Charge),
+		wfsdk.RegisterActivity(registry, "inventory.check", CheckStock),
+		wfsdk.RegisterActivity(registry, "inventory.hold", HoldStock),
+		wfsdk.RegisterActivity(registry, "inventory.release", ReleaseHold),
+		wfsdk.RegisterActivity(registry, "ledger.settle", Settle),
+		wfsdk.RegisterActivity(registry, "risk.review", RiskReview),
+		wfsdk.RegisterActivity(registry, "ledger.charge", Charge),
 	)
 }
 

@@ -11,9 +11,9 @@ import (
 // 本地实现全部注册且按 CallName 稳定排序，remote 契约只保留调用桥、绝不进入注册 helper。
 func TestRenderBridgeRegisterActivities(t *testing.T) {
 	contracts := []Contract{
-		{Type: "orders.alpha", Version: "v1", Input: "AlphaInput", Output: "AlphaOutput", MarkerName: "Alpha", CallName: "CallAlpha"},
-		{Type: "orders.beta", Queue: "orders", Version: "v2", Input: "BetaInput", Output: "BetaOutput", MarkerName: "Beta", CallName: "CallBeta"},
-		{Type: "payments.settle", Version: "v1", Remote: true, Input: "SettleInput", Output: "SettleOutput", MarkerName: "SettleRemoteActivity", CallName: "CallSettle"},
+		{Type: "orders.alpha", Input: "AlphaInput", Output: "AlphaOutput", MarkerName: "Alpha", CallName: "CallAlpha"},
+		{Type: "orders.beta", Queue: "orders", Input: "BetaInput", Output: "BetaOutput", MarkerName: "Beta", CallName: "CallBeta"},
+		{Type: "payments.settle", Remote: true, Input: "SettleInput", Output: "SettleOutput", MarkerName: "SettleRemoteActivity", CallName: "CallSettle"},
 	}
 	content := string(renderBridge("orders", contracts))
 	if content != string(renderBridge("orders", contracts)) {
@@ -21,15 +21,15 @@ func TestRenderBridgeRegisterActivities(t *testing.T) {
 	}
 	for _, want := range []string{
 		"func RegisterActivities(registry *activity.Registry) error {",
-		`if err := activity.RegisterActivity(registry, "orders.alpha", "v1", Alpha); err != nil {`,
+		`if err := activity.RegisterActivity(registry, "orders.alpha", Alpha); err != nil {`,
 		// 带 queue 的契约连同 queue 一起登记，Worker 据此推导拉取的队列。
-		`if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.beta", "v2", Beta); err != nil {`,
+		`if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.beta", Beta); err != nil {`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("注册 helper 缺少 %q\n%s", want, content)
 		}
 	}
-	if strings.Index(content, `"orders.alpha", "v1", Alpha`) > strings.Index(content, `"orders.beta", "v2", Beta`) {
+	if strings.Index(content, `"orders.alpha", Alpha`) > strings.Index(content, `"orders.beta", Beta`) {
 		t.Fatalf("注册顺序必须按 CallName 稳定排序\n%s", content)
 	}
 	helper := content[strings.Index(content, "func RegisterActivities"):]
@@ -50,9 +50,9 @@ func TestRenderBridgeRegisterActivities(t *testing.T) {
 // helper 把 activity.RegisterActivity 的错误（I/O 类型不受支持、activity type 重复登记）原样返回。
 func TestRenderBridgeRegisterActivitiesErrorHandling(t *testing.T) {
 	content := string(renderBridge("orders", []Contract{
-		{Type: "orders.alpha", Version: "", Input: "AlphaInput", Output: "AlphaOutput", MarkerName: "Alpha", CallName: "CallAlpha"},
+		{Type: "orders.alpha", Input: "AlphaInput", Output: "AlphaOutput", MarkerName: "Alpha", CallName: "CallAlpha"},
 	}))
-	want := "\tif err := activity.RegisterActivity(registry, \"orders.alpha\", \"\", Alpha); err != nil {\n\t\treturn err\n\t}\n"
+	want := "\tif err := activity.RegisterActivity(registry, \"orders.alpha\", Alpha); err != nil {\n\t\treturn err\n\t}\n"
 	if !strings.Contains(content, want) {
 		t.Fatalf("helper 必须返回 RegisterActivity 的错误\n%s", content)
 	}
@@ -78,10 +78,10 @@ type Out struct {
 	OK bool ` + "`json:\"ok\"`" + `
 }
 
-// @Activity(type="orders.notify",version=v1)
+// @Activity(type="orders.notify")
 func Notify(_ context.Context, in In) (Out, error) { return Out{OK: true}, nil }
 
-// @Activity(type="orders.audit",queue="audit",version=v1)
+// @Activity(type="orders.audit",queue="audit")
 func Audit(_ context.Context, in In) (Out, error) { return Out{OK: true}, nil }
 
 // @Workflow(type="place-order")
@@ -103,8 +103,8 @@ func Place(ctx workflow.Context, in In) (Out, error) { return CallNotify(ctx, in
 	}
 	content := string(renderBridge("orders", contracts))
 	for _, want := range []string{
-		`activity.RegisterActivity(registry, "orders.notify", "v1", Notify)`,
-		`activity.RegisterActivityOnQueue(registry, "audit", "orders.audit", "v1", Audit)`,
+		`activity.RegisterActivity(registry, "orders.notify", Notify)`,
+		`activity.RegisterActivityOnQueue(registry, "audit", "orders.audit", Audit)`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("注册 helper 缺少 %q\n%s", want, content)

@@ -21,7 +21,7 @@ func writeArtifacts(t *testing.T) string {
 	dir := t.TempDir()
 	workflow := &program.WorkflowConfig{Type: "demo", Name: "Demo", Policy: "auto_upgrade", Version: "v2", Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{"demo.Charge": {
-			Symbol: "demo.Charge", Type: "demo.charge", TaskQueue: "demo", Version: "v1", Input: "demo.In", Output: "demo.Out",
+			Symbol: "demo.Charge", Type: "demo.charge", TaskQueue: "demo", Input: "demo.In", Output: "demo.Out",
 		}}}
 	writeJSON(t, dir, WorkflowFile, workflow)
 	return dir

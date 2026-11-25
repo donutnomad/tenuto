@@ -70,7 +70,7 @@ type FinalizeOutput struct {
 
 // Finalize 是 app-1 本地执行在 orders 队列上的 activity。
 //
-// @Activity(type="orders.finalize",queue="orders",version=v1)
+// @Activity(type="orders.finalize",queue="orders")
 func Finalize(_ context.Context, in FinalizeInput) (FinalizeOutput, error) {
 	return FinalizeOutput{Status: "finalized:" + in.HoldID + ":" + in.Receipt}, nil
 }

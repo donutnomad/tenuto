@@ -35,11 +35,11 @@ func TestRemoteContractsMatchAppA(t *testing.T) {
 	}
 }
 
-// app-b v1 的声明对上 app-a v2 的实现，正好差在这次发布改动的两个 Activity 上：
-// reserve 的入参指纹、quote 的 version。fulfillment.ship 没有变化。
-func TestUpgradeChangesExactlyTwoContracts(t *testing.T) {
+// app-b v1 的声明对上 app-a v2 的实现，只差在 reserve 的入参指纹上：
+// 含税运费是新的 type fulfillment.quote-taxed，旧的 fulfillment.quote 与 fulfillment.ship 原样保留。
+func TestUpgradeChangesExactlyOneContract(t *testing.T) {
 	diff := mismatches(t, "v1/workflow.json", appav2.RegisterActivities)
-	want := []string{"fulfillment.quote: version", "fulfillment.reserve: input"}
+	want := []string{"fulfillment.reserve: input"}
 	if strings.Join(diff, "; ") != strings.Join(want, "; ") {
 		t.Fatalf("mismatches = %v, want %v", diff, want)
 	}
@@ -58,7 +58,7 @@ func mismatches(t *testing.T, declaredPath string, register func(*activity.Regis
 	}
 	declared := make([]protocol.ActivityContract, 0, len(workflow.Activities))
 	for _, ref := range workflow.Activities {
-		declared = append(declared, protocol.ActivityContract{Type: ref.Type, Version: ref.Version, Input: ref.Input, Output: ref.Output})
+		declared = append(declared, protocol.ActivityContract{Type: ref.Type, Input: ref.Input, Output: ref.Output})
 	}
 	sort.Slice(declared, func(i, j int) bool { return declared[i].Type < declared[j].Type })
 	registry := activity.NewRegistry()

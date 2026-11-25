@@ -227,7 +227,7 @@ func TestRegisterActivitiesReportsContracts(t *testing.T) {
 		if !registered[contract.Type] {
 			t.Fatalf("契约 %s 没有对应实现: %v", contract.Type, registered)
 		}
-		if contract.Version != "v1" || !strings.HasPrefix(contract.Input, "wire:") || !strings.HasPrefix(contract.Output, "wire:") {
+		if !strings.HasPrefix(contract.Input, "wire:") || !strings.HasPrefix(contract.Output, "wire:") {
 			t.Fatalf("契约元数据不完整: %+v", contract)
 		}
 	}

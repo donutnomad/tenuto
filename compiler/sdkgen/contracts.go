@@ -16,7 +16,7 @@ import (
 // Contract 是源码里一条 `@Activity` 注解解析出的 activity 契约。
 //
 // 本地实现用实现函数本身作稳定 marker（Symbol = pkg.Charge）；remote 契约用生成器
-// 产出的标记函数（Symbol = pkg.ChargeRemoteActivity）。两者的 Type/Queue/Version
+// 产出的标记函数（Symbol = pkg.ChargeRemoteActivity）。两者的 Type/Queue
 // 完全来自注解，不再从函数名猜测。
 type Contract struct {
 	PkgDir     string // 契约所在包目录（绝对路径）
@@ -24,7 +24,6 @@ type Contract struct {
 	ImportPath string // 模块内 import path
 	Type       string // 注解 type，如 payments.charge
 	Queue      string // 注解 queue；空表示定义不声明队列，由 Server 按 Worker 的登记选路
-	Version    string // 注解 version
 	Remote     bool   // @RemoteActivity：契约是命名函数类型，实现在别的进程
 	Input      string // 输入类型的源码文本（契约包内的写法，如 ChargeInput）
 	Output     string // 输出类型的源码文本
@@ -266,7 +265,6 @@ func fileContracts(fset *token.FileSet, file *ast.File, src []byte, pkgDir, pkgN
 				ImportPath: importPath,
 				Type:       annotation.Type,
 				Queue:      annotation.Queue,
-				Version:    annotation.Version,
 				Input:      sourceOf(fset, src, params[1]),
 				Output:     sourceOf(fset, src, results[0]),
 				InputExpr:  params[1],
@@ -326,7 +324,6 @@ func fileContracts(fset *token.FileSet, file *ast.File, src []byte, pkgDir, pkgN
 					ImportPath: importPath,
 					Type:       annotation.Type,
 					Queue:      annotation.Queue,
-					Version:    annotation.Version,
 					Remote:     true,
 					Input:      sourceOf(fset, src, params[1]),
 					Output:     sourceOf(fset, src, results[0]),
@@ -542,7 +539,7 @@ func renderBridge(pkgName string, contracts []Contract) []byte {
 			q = "未声明，由 Worker 登记决定"
 		}
 		builder.WriteString("\n// " + contract.CallName + " 调度 activity " + contract.Type +
-			"（queue " + q + ", version " + defaultVersionLabel(contract.Version) + "）。\n")
+			"（queue " + q + "）。\n")
 		if contract.Remote {
 			builder.WriteString("// 稳定 marker：" + contract.MarkerName + " 是 remote 契约的可导出标记函数。\n")
 			builder.WriteString("// runtime 只按该符号 BindSymbol 到 " + contract.Type + "，从不调用它；\n")
@@ -583,7 +580,7 @@ func renderRegisterActivities(contracts []Contract) string {
 	}
 	var builder strings.Builder
 	builder.WriteString("\n// RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。\n")
-	builder.WriteString("// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；\n")
+	builder.WriteString("// 每个实现的契约（type、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；\n")
 	builder.WriteString("// worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。\n")
 	builder.WriteString("// remote 契约的实现在别的进程，由那个进程登记。\n")
 	builder.WriteString("func RegisterActivities(registry *activity.Registry) error {\n")
@@ -593,15 +590,8 @@ func renderRegisterActivities(contracts []Contract) string {
 			call = "activity.RegisterActivityOnQueue(registry, " + strconv.Quote(contract.Queue) + ", "
 		}
 		builder.WriteString("\tif err := " + call + strconv.Quote(contract.Type) + ", " +
-			strconv.Quote(contract.Version) + ", " + contract.MarkerName + "); err != nil {\n\t\treturn err\n\t}\n")
+			contract.MarkerName + "); err != nil {\n\t\treturn err\n\t}\n")
 	}
 	builder.WriteString("\treturn nil\n}\n")
 	return builder.String()
-}
-
-func defaultVersionLabel(version string) string {
-	if version == "" {
-		return "未声明"
-	}
-	return version
 }

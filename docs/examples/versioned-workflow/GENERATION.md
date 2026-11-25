@@ -11,10 +11,10 @@
 // @Workflow(type="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error)
 
-// @Activity(type="payments.charge",queue="payments",version=v1)
+// @Activity(type="payments.charge",queue="payments")
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error)
 
-// @RemoteActivity(type="payments.settle",queue="payments",version=v1)
+// @RemoteActivity(type="payments.settle",queue="payments")
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 ```
 
@@ -26,7 +26,7 @@ type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 config JSON 的 sha256 内容版本。同一 `(namespace, workflow_id, 内容版本)` 只保留一份 JSON，
 重复登记幂等；Pinned Run 保存版本引用，多个 Run 共享同一份内容，不为每个 Run 复制 JSON。
 
-`@Activity` 与 `@RemoteActivity` 的 key：`type`（必填）、`queue`、`version`。`@RemoteActivity` 只能标注**命名函数类型**
+`@Activity` 与 `@RemoteActivity` 的 key：`type`（必填）、`queue`。`@RemoteActivity` 只能标注**命名函数类型**
 （`type X func(context.Context, In) (Out, error)`），有函数体的实现用 `@Activity`。`queue` 为空时定义不声明队列，
 由 Server 按 Worker 的登记选路。
 
@@ -36,7 +36,7 @@ config JSON 的 sha256 内容版本。同一 `(namespace, workflow_id, 内容版
 
 | 文件 | 内容 |
 | --- | --- |
-| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → `type` / `task_queue` / `version` / `input` / `output` wire 指纹）、`policy` / `version` |
+| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → `type` / `task_queue` / `input` / `output` wire 指纹）、`policy` / `version` |
 | `zz_<pkg>_contract_gen.go` | 每个契约包的 typed 桥与稳定 marker，本包有本地实现时额外给出 `RegisterActivities`（Code generated） |
 | `zz_<pkg>_artifacts_gen.go` | 把同目录 `workflow.json` embed 进二进制，并导出 `WorkflowDefinition()`（Code generated） |
 
@@ -71,7 +71,7 @@ worker 收不到派发”的静默错误。
 func RegisterActivities(registry *activity.Registry) error
 ```
 
-调用方一行把本包全部 `@Activity` 实现登记到 `registry`。每个实现的契约（`type`、`version`、输入输出 wire 指纹）
+调用方一行把本包全部 `@Activity` 实现登记到 `registry`。每个实现的契约（`type`、输入输出 wire 指纹）
 由 `activity.RegisterActivity` 从实现的参数与返回类型算出，保存在同一个 `registry` 里：
 
 ```go

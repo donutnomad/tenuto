@@ -14,7 +14,7 @@ Tenuto 有三层互相独立的版本机制：
 | --- | --- | --- |
 | Workflow 定义内容 | 内容 hash + latest 指针 + Run 的 `policy` | 一个 Run 用哪份 Program 执行 |
 | 源码兼容分支 | `workflow.GetVersion` | 同一份 Program 面对新旧 History 走哪条分支 |
-| Activity Worker | Task Queue、四维契约、Build ID | 哪些 Worker 进程可以执行 Activity |
+| Activity Worker | Task Queue、三维契约、Build ID | 哪些 Worker 进程可以执行 Activity |
 
 ## 定义版本与 latest
 
@@ -161,7 +161,9 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 | 新增、删除 SideEffect / RandomUUID / RandomInt 调用 | Marker 对应关系改变 |
 | 修改 Update / Query Handler 名称 | 调用端契约改变 |
 
-Activity 内部实现可以常规发布；它的输入输出结构和错误 Type 保持业务兼容。Activity 输入输出结构变化时，Server 在调度该 Activity 时对照 Program 声明的契约与在线 Worker 上报的契约（`version`、`input`、`output`），没有契约一致的在线 Worker 时 Run 记录 `ConfigError` 并暂停；Worker 领取时再按领取者自己的上报对照一次，不兼容的领取被拒绝后任务重新投递。新旧 build 同时在线且契约不同时，任务可能先被不兼容的 build 领到，每次拒绝让这次投递晚约 1s。
+Activity 内部实现可以常规发布；它的输入输出结构和错误 Type 保持业务兼容。Activity 的契约是 `type`、`input` 指纹、`output` 指纹三项。Activity 输入输出结构变化时，Server 在调度该 Activity 时对照 Program 声明的契约与在线 Worker 上报的契约，没有契约一致的在线 Worker 时 Run 记录 `ConfigError` 并暂停；Worker 领取时再按领取者自己的上报对照一次，不兼容的领取被拒绝后任务重新投递。新旧 build 同时在线且契约不同时，任务可能先被不兼容的 build 领到，每次拒绝让这次投递晚约 1s。
+
+结构不变、结果的含义变了（例如运费从不含税改成含税）时，指纹不变，Server 分不出新旧含义。新含义用一个新的 `type`，旧 `type` 的实现留在 Worker 里，直到所有 Program 都不再调用它、旧 Program 上的 Run 都已结束。在途 Run 的 History 里已经记过旧 `type` 的位置，换成新 `type` 时用 `GetVersion` 保护。
 
 ## 改包名、类型名与函数名
 

@@ -758,6 +758,48 @@
       },
       {
         "let": {
+          "quoteTaxed": {
+            "!=": [
+              {
+                "GetVersion": [
+                  {
+                    "pkg": "workflow"
+                  },
+                  {
+                    "var": "ctx"
+                  },
+                  {
+                    "literal": {
+                      "type": "string",
+                      "value": "quote-taxed"
+                    }
+                  },
+                  {
+                    "literal": {
+                      "type": "int64",
+                      "value": "-1"
+                    }
+                  },
+                  {
+                    "literal": {
+                      "type": "int64",
+                      "value": "1"
+                    }
+                  }
+                ]
+              },
+              {
+                "literal": {
+                  "type": "int64",
+                  "value": "-1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "let": {
           "reserveFuture": {
             "ExecuteActivity": [
               {
@@ -810,45 +852,218 @@
       },
       {
         "let": {
-          "quoteFuture": {
-            "ExecuteActivity": [
-              {
-                "pkg": "workflow"
-              },
-              {
-                "var": "ctx"
-              },
-              {
-                "symbol": "v2.QuoteRemoteActivity"
-              },
-              {
-                "struct": [
-                  "v2.QuoteInput",
-                  {
-                    "OrderID": {
-                      "var": "in.OrderID"
-                    },
-                    "Qty": {
-                      "var": "in.Qty"
-                    }
+          "quoted": {
+            "zero": "v2.QuoteOutput"
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "var": "quoteTaxed"
+          },
+          "else": [
+            {
+              "if": {
+                "cond": {
+                  "literal": {
+                    "type": "boolean",
+                    "value": "true"
                   }
-                ]
-              },
-              {
-                "struct": [
-                  "workflow.ActivityOptions",
+                },
+                "then": [
                   {
-                    "StartToCloseTimeout": {
-                      "literal": {
-                        "type": "int64",
-                        "value": "60000000000"
+                    "let": {
+                      "err": {
+                        "Get": [
+                          {
+                            "ExecuteActivity": [
+                              {
+                                "pkg": "workflow"
+                              },
+                              {
+                                "var": "ctx"
+                              },
+                              {
+                                "symbol": "v2.QuoteRemoteActivity"
+                              },
+                              {
+                                "struct": [
+                                  "v2.QuoteInput",
+                                  {
+                                    "OrderID": {
+                                      "var": "in.OrderID"
+                                    },
+                                    "Qty": {
+                                      "var": "in.Qty"
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "struct": [
+                                  "workflow.ActivityOptions",
+                                  {
+                                    "StartToCloseTimeout": {
+                                      "literal": {
+                                        "type": "int64",
+                                        "value": "60000000000"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "var": "ctx"
+                          },
+                          {
+                            "out": "quoted"
+                          }
+                        ]
                       }
+                    }
+                  },
+                  {
+                    "if": {
+                      "cond": {
+                        "!=": [
+                          {
+                            "var": "err"
+                          },
+                          {
+                            "literal": {
+                              "type": "null",
+                              "value": null
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "return": {
+                            "tuple": [
+                              {
+                                "struct": [
+                                  "v2.OrderOutput",
+                                  {}
+                                ]
+                              },
+                              {
+                                "var": "err"
+                              }
+                            ]
+                          }
+                        }
+                      ]
                     }
                   }
                 ]
               }
-            ]
-          }
+            }
+          ],
+          "then": [
+            {
+              "if": {
+                "cond": {
+                  "literal": {
+                    "type": "boolean",
+                    "value": "true"
+                  }
+                },
+                "then": [
+                  {
+                    "let": {
+                      "err": {
+                        "Get": [
+                          {
+                            "ExecuteActivity": [
+                              {
+                                "pkg": "workflow"
+                              },
+                              {
+                                "var": "ctx"
+                              },
+                              {
+                                "symbol": "v2.QuoteTaxedRemoteActivity"
+                              },
+                              {
+                                "struct": [
+                                  "v2.QuoteInput",
+                                  {
+                                    "OrderID": {
+                                      "var": "in.OrderID"
+                                    },
+                                    "Qty": {
+                                      "var": "in.Qty"
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "struct": [
+                                  "workflow.ActivityOptions",
+                                  {
+                                    "StartToCloseTimeout": {
+                                      "literal": {
+                                        "type": "int64",
+                                        "value": "60000000000"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "var": "ctx"
+                          },
+                          {
+                            "out": "quoted"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "cond": {
+                        "!=": [
+                          {
+                            "var": "err"
+                          },
+                          {
+                            "literal": {
+                              "type": "null",
+                              "value": null
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "return": {
+                            "tuple": [
+                              {
+                                "struct": [
+                                  "v2.OrderOutput",
+                                  {}
+                                ]
+                              },
+                              {
+                                "var": "err"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
         }
       },
       {
@@ -879,76 +1094,6 @@
                     },
                     {
                       "out": "reserved"
-                    }
-                  ]
-                }
-              }
-            },
-            {
-              "if": {
-                "cond": {
-                  "!=": [
-                    {
-                      "var": "err"
-                    },
-                    {
-                      "literal": {
-                        "type": "null",
-                        "value": null
-                      }
-                    }
-                  ]
-                },
-                "then": [
-                  {
-                    "return": {
-                      "tuple": [
-                        {
-                          "struct": [
-                            "v2.OrderOutput",
-                            {}
-                          ]
-                        },
-                        {
-                          "var": "err"
-                        }
-                      ]
-                    }
-                  }
-                ]
-              }
-            }
-          ]
-        }
-      },
-      {
-        "let": {
-          "quoted": {
-            "zero": "v2.QuoteOutput"
-          }
-        }
-      },
-      {
-        "if": {
-          "cond": {
-            "literal": {
-              "type": "boolean",
-              "value": "true"
-            }
-          },
-          "then": [
-            {
-              "let": {
-                "err": {
-                  "Get": [
-                    {
-                      "var": "quoteFuture"
-                    },
-                    {
-                      "var": "ctx"
-                    },
-                    {
-                      "out": "quoted"
                     }
                   ]
                 }
@@ -1714,7 +1859,6 @@
       "symbol": "v2.Price",
       "type": "orders.price",
       "task_queue": "orders",
-      "version": "v1",
       "input": "wire:75ec047172ce4a09eb9843e95c665094",
       "output": "wire:0898cc8107ff28c7966e8689d55decbc"
     },
@@ -1722,7 +1866,13 @@
       "symbol": "v2.QuoteRemoteActivity",
       "type": "fulfillment.quote",
       "task_queue": "fulfillment",
-      "version": "v2",
+      "input": "wire:aa89548036d83cd03cda421878c4dd91",
+      "output": "wire:9ee1ccfb36f5fc9cc84a49436179a128"
+    },
+    "v2.QuoteTaxedRemoteActivity": {
+      "symbol": "v2.QuoteTaxedRemoteActivity",
+      "type": "fulfillment.quote-taxed",
+      "task_queue": "fulfillment",
       "input": "wire:aa89548036d83cd03cda421878c4dd91",
       "output": "wire:9ee1ccfb36f5fc9cc84a49436179a128"
     },
@@ -1730,7 +1880,6 @@
       "symbol": "v2.ReserveRemoteActivity",
       "type": "fulfillment.reserve",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:ca79189195eccac12b159552f2a291cf",
       "output": "wire:4d95f174e258133e1ba8be02e1b3027f"
     },
@@ -1738,7 +1887,6 @@
       "symbol": "v2.ShipRemoteActivity",
       "type": "fulfillment.ship",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:c70fc6b00b17478e7e0abf9664cb0949",
       "output": "wire:53ce38a4f6a517afd63a7d66213e07c9"
     },
@@ -1746,7 +1894,6 @@
       "symbol": "v2.ShipV2RemoteActivity",
       "type": "fulfillment.ship-v2",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:f64e2c79052aa39da8c7e5af343a961c",
       "output": "wire:75390e33802bf02cc618b54bd7043a7e"
     }

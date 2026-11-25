@@ -338,19 +338,19 @@ type OrderOutput struct {
 	OK bool ` + "`json:\"ok\"`" + `
 }
 
-// @Activity(type="saga.reserve",queue="saga",version=v1)
+// @Activity(type="saga.reserve",queue="saga")
 func Reserve(_ context.Context, in OrderInput) (OrderOutput, error) { return OrderOutput{OK: true}, nil }
 
-// @Activity(type="saga.pay",queue="saga",version=v1)
+// @Activity(type="saga.pay",queue="saga")
 func Pay(_ context.Context, in OrderInput) (OrderOutput, error) { return OrderOutput{OK: true}, nil }
 
-// @Activity(type="saga.ship",queue="saga",version=v1)
+// @Activity(type="saga.ship",queue="saga")
 func Ship(_ context.Context, in OrderInput) (OrderOutput, error) { return OrderOutput{OK: true}, nil }
 
-// @Activity(type="saga.refund",queue="saga",version=v1)
+// @Activity(type="saga.refund",queue="saga")
 func Refund(_ context.Context, in OrderInput) (OrderOutput, error) { return OrderOutput{OK: true}, nil }
 
-// @Activity(type="saga.release",queue="saga",version=v1)
+// @Activity(type="saga.release",queue="saga")
 func Release(_ context.Context, in OrderInput) (OrderOutput, error) { return OrderOutput{OK: true}, nil }
 `
 

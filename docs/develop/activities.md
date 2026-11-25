@@ -21,7 +21,7 @@ type ReserveOutput struct {
     ReservationID string `json:"reservation_id"`
 }
 
-// @Activity(type="lifecycle.reserve",queue="lifecycle",version=v1)
+// @Activity(type="lifecycle.reserve",queue="lifecycle")
 func Reserve(ctx context.Context, in ReserveInput) (ReserveOutput, error) {
     return ReserveOutput{ReservationID: "reservation-" + in.OrderID}, nil
 }
@@ -47,7 +47,6 @@ type LengthOutput struct {
 | --- | --- | --- |
 | `type` | 是 | Activity Type，Workflow 调度和 Worker 注册共用的稳定名称 |
 | `queue` | 否 | Activity Task Queue；省略时定义不声明队列，由 Server 按 Worker 的登记选择（Worker 在 `ActivityTaskQueues` 上提供它，不写时是 `default`），见[Activity 的队列如何决定](/operations/namespaces-task-queues#activity-的队列如何决定) |
-| `version` | 否 | 契约版本标签；Worker 上报的版本与它逐字对照 |
 
 实现位于其他服务的 Activity 用 `@RemoteActivity` 标在命名函数类型上，key 与 `@Activity` 相同，见下文「远程 Activity 契约」。
 
@@ -117,7 +116,7 @@ if err := f2.Get(ctx, &b); err != nil {
 Worker 用符号文本作为名称登记这类实现：
 
 ```go
-activity.RegisterActivity(registry, "activities.CheckBalance", "", CheckBalance)
+activity.RegisterActivity(registry, "activities.CheckBalance", CheckBalance)
 ```
 
 返回的 Future 可以不调用 `Get`（只调度、不等待结果），可以放进切片后逐个 `Get`，也可以在 `for` 循环里创建。选项、超时与重试见 [Activity 执行生命周期](/develop/activity-execution)。
@@ -127,14 +126,14 @@ activity.RegisterActivity(registry, "activities.CheckBalance", "", CheckBalance)
 实现位于另一个进程或另一个团队的 Activity，用命名函数类型声明契约：
 
 ```go
-// @RemoteActivity(type="payments.settle",queue="payments",version=v1)
+// @RemoteActivity(type="payments.settle",queue="payments")
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 ```
 
-Workflow 侧调用生成的 `remote.CallSettle(ctx, in)`。拥有该 Activity 的 Worker 用同一个 `queue`、`type` 和 `version` 登记实现：
+Workflow 侧调用生成的 `remote.CallSettle(ctx, in)`。拥有该 Activity 的 Worker 用同一个 `queue` 和 `type` 登记实现：
 
 ```go
-err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settle", "v1", Settle)
+err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settle", Settle)
 ```
 
 两侧 DTO 可以各自定义，JSON 字段名、类型与可选性一致时 wire 指纹相同。
@@ -169,18 +168,20 @@ Worker 在 `Start` 时把 registry 里的全部契约随路由一起上报。`@R
 
 | 函数 | 用途 |
 | --- | --- |
-| `activity.RegisterActivityOnQueue(reg, queue, type, version, fn)` | 登记强类型实现及其 Task Queue；契约的输入输出指纹从 `fn` 的参数与返回类型算出 |
-| `activity.RegisterActivity(reg, type, version, fn)` | 同上，不指定 Task Queue |
-| `reg.Register(type, fn)` | 登记 `func(context.Context, map[string]any) (map[string]any, error)`；版本为空 |
+| `activity.RegisterActivityOnQueue(reg, queue, type, fn)` | 登记强类型实现及其 Task Queue；契约的输入输出指纹从 `fn` 的参数与返回类型算出 |
+| `activity.RegisterActivity(reg, type, fn)` | 同上，不指定 Task Queue |
+| `reg.Register(type, fn)` | 登记 `func(context.Context, map[string]any) (map[string]any, error)`；输入输出指纹取自 `map[string]any` |
 | `reg.Contracts()` | 按类型名排序的全部契约 |
 | `reg.Queues()` | 登记时指定的 Task Queue，去重排序 |
-| `activity.ContractOf[I, O](type, version)` | 从 DTO 计算契约，用于与生成产物核对 |
+| `activity.ContractOf[I, O](type)` | 从 DTO 计算契约，用于与生成产物核对 |
 
 同一个 registry 里每个 Activity Type 只能登记一次，重复登记返回错误。
 
 ### 契约对照
 
-Workflow 侧声明了契约的 Activity（桥调用、指向注解函数的直接调用），Server 在调度时把声明的 `version`、输入指纹、输出指纹逐项与目标 Worker 上报的值对照。值不同或 Worker 没有上报该项时任务不派发，Run 暂停并给出 `contract mismatch` 错误，错误里写出 Activity Type、Worker identity、期望值与实际值。Workflow 侧没有声明契约的 Activity 不对照。
+Workflow 侧声明了契约的 Activity（桥调用、指向注解函数的直接调用），Server 在调度时把声明的输入指纹、输出指纹逐项与目标 Worker 上报的值对照。值不同或 Worker 没有上报该项时任务不派发，Run 暂停并给出 `contract mismatch` 错误，错误里写出 Activity Type、Worker identity、期望值与实际值。Workflow 侧没有声明契约的 Activity 不对照。
+
+契约是 `type`、输入指纹、输出指纹三项。指纹只描述结构：结构不变、结果的含义变了时，新含义用一个新的 `type`，旧 `type` 的实现保留到没有 Run 再调用它，见 [需要版本保护的变化](/develop/versioning#需要版本保护的变化)。
 
 ## 读取执行上下文
 

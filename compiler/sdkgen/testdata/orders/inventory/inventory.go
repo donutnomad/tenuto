@@ -13,7 +13,7 @@ type ReserveOutput struct {
 	ReservationID string `json:"reservation_id"`
 }
 
-// @Activity(type="inventory.reserve",queue="inventory",version=v1)
+// @Activity(type="inventory.reserve",queue="inventory")
 func Reserve(ctx context.Context, in ReserveInput) (ReserveOutput, error) {
 	return ReserveOutput{ReservationID: "reservation-" + in.OrderID}, nil
 }

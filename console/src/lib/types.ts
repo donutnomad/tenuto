@@ -456,7 +456,6 @@ export interface ActivityRef {
   type: string
   task_queue?: string
   build_id?: string
-  version?: string
   input?: string
   output?: string
 }

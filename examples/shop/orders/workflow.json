@@ -1535,7 +1535,6 @@
       "symbol": "contracts.ChargeRemoteActivity",
       "type": "payments.charge",
       "task_queue": "payments",
-      "version": "v1",
       "input": "wire:9d410d1ffac558d341b2cc6e680934b5",
       "output": "wire:d08a75898f26c18c63ef5bc044d24aa8"
     },
@@ -1543,7 +1542,6 @@
       "symbol": "contracts.ReleaseRemoteActivity",
       "type": "warehouse.release",
       "task_queue": "warehouse",
-      "version": "v1",
       "input": "wire:b09519fbc339e65d926bd4ec17d15ecf",
       "output": "wire:58be9e59c578ecce2b56457d414288c6"
     },
@@ -1551,7 +1549,6 @@
       "symbol": "contracts.ReserveRemoteActivity",
       "type": "warehouse.reserve",
       "task_queue": "warehouse",
-      "version": "v1",
       "input": "wire:a3853d0050fc8a978880bdfc9dc776f4",
       "output": "wire:3d8746886137aa9ad12f9a8d4f7a1507"
     },
@@ -1559,14 +1556,12 @@
       "symbol": "contracts.ShipRemoteActivity",
       "type": "warehouse.ship",
       "task_queue": "warehouse",
-      "version": "v1",
       "input": "wire:c70fc6b00b17478e7e0abf9664cb0949",
       "output": "wire:b7eb32ef97bd6356e038cda6f497bac3"
     },
     "orders.Notify": {
       "symbol": "orders.Notify",
       "type": "orders.notify",
-      "version": "v1",
       "input": "wire:4c907cccae668619a3eb17b96c48d282",
       "output": "wire:86aded0f5989de4395eb479721dccc55"
     }

@@ -38,7 +38,7 @@ func Greet(ctx workflow.Context, in GreetInput) (GreetOutput, error) {
 	return GreetOutput{Message: out.Message}, nil
 }
 
-// @Activity(type="startup.say-hello",queue="startup",version=v1)
+// @Activity(type="startup.say-hello",queue="startup")
 func SayHello(_ context.Context, in SayHelloInput) (SayHelloOutput, error) {
 	return SayHelloOutput{Message: "hello " + in.Name}, nil
 }

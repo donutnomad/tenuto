@@ -42,15 +42,14 @@ type ActivityRouteRef struct {
 	Type       string
 	TaskQueue  string
 	RoutingKey string
-	// Version/Input/Output 是 Workflow 静态声明的契约，用于调度期与 worker 上报对照。
-	Version string
-	Input   string
-	Output  string
+	// Input/Output 是 Workflow 静态声明的契约，用于调度期与 worker 上报对照。
+	Input  string
+	Output string
 }
 
 // declaredContract 是引用声明的契约；没有声明任何维度时 HasDeclaration 为 false。
 func (ref ActivityRouteRef) declaredContract() protocol.ActivityContract {
-	return protocol.ActivityContract{Type: ref.Type, Version: ref.Version, Input: ref.Input, Output: ref.Output}
+	return protocol.ActivityContract{Type: ref.Type, Input: ref.Input, Output: ref.Output}
 }
 
 // unavailableForContract 是「没有在线 Worker 可以对照契约」的错误：Workflow Task 退避重试，Worker 上线后恢复。
@@ -437,7 +436,6 @@ func ActivityRouteRefsForWorkflow(wf *program.WorkflowConfig) []ActivityRouteRef
 			ActivityID: ref.Symbol,
 			Type:       ref.Type,
 			TaskQueue:  ref.TaskQueue,
-			Version:    ref.Version,
 			Input:      ref.Input,
 			Output:     ref.Output,
 		})

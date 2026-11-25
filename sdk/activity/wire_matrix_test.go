@@ -112,9 +112,9 @@ func TestContractComparisonDoesNotEncodeRequiredness(t *testing.T) {
 	if requiredFP == optionalFP {
 		t.Fatal("omitempty must change the wire fingerprint")
 	}
-	declared := Contract{Type: "payments.charge", Version: "v1", Input: requiredFP}
+	declared := Contract{Type: "payments.charge", Input: requiredFP}
 	mismatched := protocol.CompareActivityContracts(declared, []Contract{{
-		Type: "payments.charge", Version: "v1",
+		Type: "payments.charge",
 	}})
 	if len(mismatched) != 1 || mismatched[0].Field != "input" || mismatched[0].Actual != "" {
 		t.Fatalf("unreported input must be a mismatch with an empty actual value, got %+v", mismatched)

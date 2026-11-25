@@ -16,6 +16,6 @@ const (
 // DefaultPolicy 是注解省略 policy 时的缺省策略。
 const DefaultPolicy = PolicyAutoUpgrade
 
-// Version 是 `@Workflow(version=...)` / `@Activity(version=...)` 声明的发布标签。
+// Version 是 `@Workflow(version=...)` 声明的发布标签。
 // 它与内容 hash 分开维护：hash 描述产物内容，Version 描述作者声明的协议标签。
 type Version string

@@ -90,7 +90,7 @@ type Result struct {
 	FinalCharge string ` + "`json:\"final_charge\"`" + `
 }
 
-// @Activity(type="rename.charge",queue="rename",version=v1)
+// @Activity(type="rename.charge",queue="rename")
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{}, nil
 }
@@ -148,13 +148,13 @@ type renameChargeOut struct {
 }
 
 func renameCharge(reg *activity.Registry) error {
-	return activity.RegisterActivity(reg, "rename.charge", "v1", func(_ context.Context, in renameChargeIn) (renameChargeOut, error) {
+	return activity.RegisterActivity(reg, "rename.charge", func(_ context.Context, in renameChargeIn) (renameChargeOut, error) {
 		return renameChargeOut{ChargeID: fmt.Sprintf("charge-%s-%d", in.OrderID, in.Amount)}, nil
 	})
 }
 
 func renameChargeCamel(reg *activity.Registry) error {
-	return activity.RegisterActivity(reg, "rename.charge", "v1", func(_ context.Context, in renameChargeInCamel) (renameChargeOut, error) {
+	return activity.RegisterActivity(reg, "rename.charge", func(_ context.Context, in renameChargeInCamel) (renameChargeOut, error) {
 		return renameChargeOut{ChargeID: fmt.Sprintf("charge-%s-%d", in.OrderID, in.Amount)}, nil
 	})
 }
@@ -190,7 +190,7 @@ func TestPackageRenameUpgradeKeepsRunsWorking(t *testing.T) {
 	if v1Refs["rename.charge"] != v2Refs["rename.charge"] {
 		t.Fatalf("activity contract changed with the package name: v1 %+v, v2 %+v", v1Refs, v2Refs)
 	}
-	contract, err := activity.ContractOf[renameChargeIn, renameChargeOut]("rename.charge", "v1")
+	contract, err := activity.ContractOf[renameChargeIn, renameChargeOut]("rename.charge")
 	if err != nil {
 		t.Fatal(err)
 	}

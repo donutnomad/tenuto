@@ -137,44 +137,41 @@ func TestGenerateRewritesBridgeCalls(t *testing.T) {
 	}
 
 	byType := map[string]struct {
-		queue   string
-		version string
-		input   string
-		output  string
-		symbol  string
+		queue  string
+		input  string
+		output string
+		symbol string
 	}{}
 	for _, ref := range result.Workflow.Activities {
 		byType[ref.Type] = struct {
-			queue   string
-			version string
-			input   string
-			output  string
-			symbol  string
-		}{ref.TaskQueue, ref.Version, ref.Input, ref.Output, ref.Symbol}
+			queue  string
+			input  string
+			output string
+			symbol string
+		}{ref.TaskQueue, ref.Input, ref.Output, ref.Symbol}
 	}
 	cases := []struct {
 		activityType string
 		queue        string
-		version      string
 		symbol       string
 	}{
 		// queue 全部来自各自的 @Activity 注解。
-		{"inventory.reserve", "inventory", "v1", "inventory.Reserve"},
-		{"orders.charge", "orders", "v1", "orders.Charge"},
-		{"orders.charge-v2", "orders", "v2", "orders.ChargeV2"},
-		{"orders.cash", "orders", "v1", "orders.Cash"},
-		{"orders.notify", "orders", "v1", "orders.Notify"},
-		{"payments.settle", "payments", "v1", "payments.SettleRemoteActivity"},
+		{"inventory.reserve", "inventory", "inventory.Reserve"},
+		{"orders.charge", "orders", "orders.Charge"},
+		{"orders.charge-v2", "orders", "orders.ChargeV2"},
+		{"orders.cash", "orders", "orders.Cash"},
+		{"orders.notify", "orders", "orders.Notify"},
+		{"payments.settle", "payments", "payments.SettleRemoteActivity"},
 	}
 	for _, expected := range cases {
 		got, ok := byType[expected.activityType]
 		if !ok {
 			t.Fatalf("activities 缺少 %s: %+v", expected.activityType, result.Workflow.Activities)
 		}
-		if got.queue != expected.queue || got.version != expected.version || got.symbol != expected.symbol {
-			t.Fatalf("%s 的 queue/version/symbol = %s/%s/%s，期望 %s/%s/%s",
-				expected.activityType, got.queue, got.version, got.symbol,
-				expected.queue, expected.version, expected.symbol)
+		if got.queue != expected.queue || got.symbol != expected.symbol {
+			t.Fatalf("%s 的 queue/symbol = %s/%s，期望 %s/%s",
+				expected.activityType, got.queue, got.symbol,
+				expected.queue, expected.symbol)
 		}
 		// Input/Output 是与 Go 包名/类型名无关的 wire 指纹（服务端与 worker 用同一算法）。
 		for _, fingerprint := range []string{got.input, got.output} {
@@ -388,28 +385,6 @@ import (
 func A(ctx context.Context, in int64) (int64, error) { return in, nil }
 
 // @Activity(type="bad.act")
-func B(ctx context.Context, in int64) (int64, error) { return in, nil }
-
-// @Workflow(type="bad")
-func W(ctx workflow.Context) error { return nil }`,
-			wantErr: []string{`@Activity type="bad.act" 重复声明`},
-		},
-		{
-			// 同一个 registry key 只能有一个实现：同 type、不同 version 也必须拒绝，
-			// 否则批量注册会静默覆盖前一个实现。
-			name: "同 type 不同 version 重复声明",
-			source: `package bad
-
-import (
-	"context"
-
-	workflow "github.com/donutnomad/tenuto/sdk/workflow"
-)
-
-// @Activity(type="bad.act",version=v1)
-func A(ctx context.Context, in int64) (int64, error) { return in, nil }
-
-// @Activity(type="bad.act",version=v2)
 func B(ctx context.Context, in int64) (int64, error) { return in, nil }
 
 // @Workflow(type="bad")

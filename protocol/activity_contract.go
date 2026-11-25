@@ -1,22 +1,21 @@
 package protocol
 
-// ActivityContract 是一个 Activity 的 wire 契约：类型名、版本、输入与输出的结构指纹。
+// ActivityContract 是一个 Activity 的 wire 契约：类型名、输入与输出的结构指纹。
 //
 // Worker 为它登记的每个 Activity 上报完整契约。Workflow 侧声明的维度逐字段与上报值对照，
 // 值相同才算匹配；Workflow 侧留空的维度不参与对照。
 type ActivityContract struct {
-	Type    string `json:"type,omitempty"`
-	Version string `json:"version,omitempty"`
-	Input   string `json:"input,omitempty"`
-	Output  string `json:"output,omitempty"`
+	Type   string `json:"type,omitempty"`
+	Input  string `json:"input,omitempty"`
+	Output string `json:"output,omitempty"`
 }
 
 // HasDeclaration 报告契约是否声明了至少一个可对照的维度。
 func (c ActivityContract) HasDeclaration() bool {
-	return c.Version != "" || c.Input != "" || c.Output != ""
+	return c.Input != "" || c.Output != ""
 }
 
-// ActivityContractFieldReport 是一个维度对照结果：Field 为 version/input/output。
+// ActivityContractFieldReport 是一个维度对照结果：Field 为 input/output。
 type ActivityContractFieldReport struct {
 	Field    string
 	Expected string
@@ -33,7 +32,6 @@ func CompareActivityContracts(declared ActivityContract, reported []ActivityCont
 		expected string
 		actual   func(ActivityContract) string
 	}{
-		{"version", declared.Version, func(c ActivityContract) string { return c.Version }},
 		{"input", declared.Input, func(c ActivityContract) string { return c.Input }},
 		{"output", declared.Output, func(c ActivityContract) string { return c.Output }},
 	}

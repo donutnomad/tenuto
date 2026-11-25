@@ -34,7 +34,7 @@ type ChargeOutput struct {
 	ChargeID string `json:"charge_id"`
 }
 
-// @Activity(type="payments.charge",queue="payments",version=v1)
+// @Activity(type="payments.charge",queue="payments")
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: fmt.Sprintf("charge-%s-%d", in.OrderID, in.Cents)}, nil
 }

@@ -1783,7 +1783,6 @@
       "symbol": "sagaflow.ChargePayment",
       "type": "saga.charge-payment",
       "task_queue": "saga",
-      "version": "v1",
       "input": "wire:df0c3d0ad4e52b734dd316e482ee7780",
       "output": "wire:7ddb1fdffc6a178deb71e0e189dd7e74"
     },
@@ -1791,7 +1790,6 @@
       "symbol": "sagaflow.CreateShipment",
       "type": "saga.create-shipment",
       "task_queue": "saga",
-      "version": "v1",
       "input": "wire:04e0566dabcba2b8a9f6c1dbe8847330",
       "output": "wire:8f49af4374c4a0d59eadae16329580ff"
     },
@@ -1799,7 +1797,6 @@
       "symbol": "sagaflow.RefundPayment",
       "type": "saga.refund-payment",
       "task_queue": "saga",
-      "version": "v1",
       "input": "wire:f67faacf0143781cea01274265b7b08c",
       "output": "wire:c4879f217f0df609b5cfd4cab5c6bb47"
     },
@@ -1807,7 +1804,6 @@
       "symbol": "sagaflow.ReleaseInventory",
       "type": "saga.release-inventory",
       "task_queue": "saga",
-      "version": "v1",
       "input": "wire:b09519fbc339e65d926bd4ec17d15ecf",
       "output": "wire:19f87e0fdcbae4f6511adecf39b34c23"
     },
@@ -1815,7 +1811,6 @@
       "symbol": "sagaflow.ReserveInventory",
       "type": "saga.reserve-inventory",
       "task_queue": "saga",
-      "version": "v1",
       "input": "wire:2f1b25b0aaa6f23dd68df3c87a002b0a",
       "output": "wire:e05e1c1fc9f529fe8c8420d53c348a58"
     }

@@ -29,7 +29,7 @@ type ChargeOutput struct {
 	ChargeID string `json:"charge_id"`
 }
 
-// @Activity(type="shadowed.charge",queue="shadowed",version=v1)
+// @Activity(type="shadowed.charge",queue="shadowed")
 func Charge(_ context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: "charge-" + in.OrderID}, nil
 }

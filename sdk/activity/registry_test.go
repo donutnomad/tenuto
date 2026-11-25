@@ -35,7 +35,7 @@ func TestRegistryRejectsDuplicateType(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `"payments.charge"`) {
 		t.Fatalf("duplicate registration error = %v, want one naming payments.charge", err)
 	}
-	if err := RegisterActivity(registry, "payments.charge", "v2", charge); err == nil || !strings.Contains(err.Error(), `"payments.charge"`) {
+	if err := RegisterActivity(registry, "payments.charge", charge); err == nil || !strings.Contains(err.Error(), `"payments.charge"`) {
 		t.Fatalf("typed duplicate registration error = %v, want one naming payments.charge", err)
 	}
 
@@ -52,17 +52,17 @@ func TestRegistryRejectsDuplicateType(t *testing.T) {
 // 每次登记都带契约：强类型登记的指纹来自 I、O，map 登记的指纹来自 map[string]any。
 func TestRegistryReportsAContractForEveryActivity(t *testing.T) {
 	registry := NewRegistry()
-	if err := RegisterActivity(registry, "payments.charge", "v2", charge); err != nil {
+	if err := RegisterActivity(registry, "payments.charge", charge); err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.Register("audit.log", func(context.Context, map[string]any) (map[string]any, error) { return nil, nil }); err != nil {
 		t.Fatal(err)
 	}
-	typed, err := ContractOf[chargeInput, chargeOutput]("payments.charge", "v2")
+	typed, err := ContractOf[chargeInput, chargeOutput]("payments.charge")
 	if err != nil {
 		t.Fatal(err)
 	}
-	untyped, err := ContractOf[map[string]any, map[string]any]("audit.log", "")
+	untyped, err := ContractOf[map[string]any, map[string]any]("audit.log")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,15 +86,15 @@ func TestRegisterActivityRejectsNonObjectIO(t *testing.T) {
 		err  error
 		want string
 	}{
-		"scalar input": {RegisterActivity(registry, "text.length", "v1",
+		"scalar input": {RegisterActivity(registry, "text.length",
 			func(context.Context, string) (chargeOutput, error) { return chargeOutput{}, nil }), "input type string"},
-		"scalar output": {RegisterActivity(registry, "text.length", "v1",
+		"scalar output": {RegisterActivity(registry, "text.length",
 			func(context.Context, chargeInput) (int, error) { return 0, nil }), "output type int"},
-		"slice input": {RegisterActivity(registry, "text.length", "v1",
+		"slice input": {RegisterActivity(registry, "text.length",
 			func(context.Context, []chargeInput) (chargeOutput, error) { return chargeOutput{}, nil }), "input type []activity.chargeInput"},
-		"pointer output": {RegisterActivity(registry, "text.length", "v1",
+		"pointer output": {RegisterActivity(registry, "text.length",
 			func(context.Context, chargeInput) (*chargeOutput, error) { return nil, nil }), "output type *activity.chargeOutput"},
-		"typed map input": {RegisterActivity(registry, "text.length", "v1",
+		"typed map input": {RegisterActivity(registry, "text.length",
 			func(context.Context, map[string]string) (chargeOutput, error) { return chargeOutput{}, nil }), "input type map[string]string"},
 	}
 	for name, tc := range cases {
@@ -124,16 +124,16 @@ func TestRegistryRecordsQueues(t *testing.T) {
 	}
 	fn := func(context.Context, in) (out, error) { return out{OK: true}, nil }
 	registry := NewRegistry()
-	if err := RegisterActivityOnQueue(registry, "payments", "payments.charge", "v1", fn); err != nil {
+	if err := RegisterActivityOnQueue(registry, "payments", "payments.charge", fn); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterActivityOnQueue(registry, "payments", "payments.refund", "v1", fn); err != nil {
+	if err := RegisterActivityOnQueue(registry, "payments", "payments.refund", fn); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterActivityOnQueue(registry, "orders", "orders.notify", "v1", fn); err != nil {
+	if err := RegisterActivityOnQueue(registry, "orders", "orders.notify", fn); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterActivity(registry, "audit.log", "v1", fn); err != nil {
+	if err := RegisterActivity(registry, "audit.log", fn); err != nil {
 		t.Fatal(err)
 	}
 	if got := registry.Queues(); !reflect.DeepEqual(got, []string{"orders", "payments"}) {

@@ -143,7 +143,7 @@ func Order(ctx workflow.Context, in Input) (Output, error) {
 	return Output{Total: total, Children: children, Signal: signal}, nil
 }
 
-// @Activity(type="cluster.compute",queue="cluster",version=v1)
+// @Activity(type="cluster.compute",queue="cluster")
 func Compute(ctx context.Context, in ComputeInput) (ComputeOutput, error) {
 	value, err := workload.RunStep(ctx, in.Key, in.Step, in.SleepMs)
 	if err != nil {

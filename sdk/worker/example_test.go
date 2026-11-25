@@ -31,7 +31,7 @@ func Example() {
 
 	// 真实项目里这两行是生成代码：orders.RegisterActivities(registry) 与 orders.WorkflowDefinition()。
 	registry := activity.NewRegistry()
-	if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.Charge", "v1", charge); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.Charge", charge); err != nil {
 		log.Fatal(err)
 	}
 	w, err := worker.New(c, worker.Options{

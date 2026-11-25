@@ -34,7 +34,7 @@ type adapterInputOptional struct {
 func registerAdapter[I, O any](t *testing.T, fn func(context.Context, I) (O, error)) (*Registry, protocol.ActivityFunc) {
 	t.Helper()
 	reg := NewRegistry()
-	if err := RegisterActivity(reg, "test.activity", "v1", fn); err != nil {
+	if err := RegisterActivity(reg, "test.activity", fn); err != nil {
 		t.Fatalf("RegisterActivity: %v", err)
 	}
 	adapter, err := reg.Get("test.activity")

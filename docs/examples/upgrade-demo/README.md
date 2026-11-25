@@ -3,7 +3,7 @@
 三个独立进程通过 HTTP 协作，一个 driver 把 Activity 与 Workflow 的升级场景逐个跑一遍并逐项断言：
 
 - **Server**：`tenuto-server`，Workflow 引擎与 HTTP API，不执行 Workflow Task。
-- **app-a（履约）**：自己的 Workflow `return-flow` 与五到七个 Activity，三个发布版本 `appa/v1`、`appa/v2`、`appa/v3`。
+- **app-a（履约）**：自己的 Workflow `return-flow` 与五到八个 Activity，三个发布版本 `appa/v1`、`appa/v2`、`appa/v3`。
 - **app-b（订单）**：自己的 Workflow `order-flow` 与本地 Activity `orders.price`，用 `@RemoteActivity` 契约跨进程调用 app-a 的 Activity，两个发布版本 `appb/v1`、`appb/v2`。
 
 Workflow Task 由 app-a 与 app-b 的 Worker 执行。一次实际运行的输出记录在同目录的 `RESULTS.md`。
@@ -16,7 +16,7 @@ Workflow Task 由 app-a 与 app-b 的 Worker 执行。一次实际运行的输�
 ./docs/examples/upgrade-demo/run-demo.sh
 ```
 
-脚本生成 Workflow 产物、构建二进制、启动 `tenuto-server`，driver 再按场景启动和停止各个发布版本的 app-a / app-b 进程。全部断言通过时输出 `RESULT PASS`，退出码 0；任何一条断言失败时输出 `RESULT FAIL`，退出码 1；等待超时时附带该 Run 的 History。整个过程约 20 秒（不含构建）。
+脚本生成 Workflow 产物、构建二进制、启动 `tenuto-server`，driver 再按场景启动和停止各个发布版本的 app-a / app-b 进程。全部断言通过时输出 `RESULT PASS`，退出码 0；任何一条断言失败时输出 `RESULT FAIL`，退出码 1；等待超时时附带该 Run 的 History。整个过程约 14 秒（不含构建）。
 
 | 模式 | 命令 | Server |
 |---|---|---|
@@ -96,7 +96,7 @@ w.Stop()
 
 | 写法 | 位置 |
 |---|---|
-| `@Activity(type=...,queue=...,version=...)`，函数签名 `func(context.Context, In) (Out, error)` | `appa/v1/activities.go` |
+| `@Activity(type=...,queue=...)`，函数签名 `func(context.Context, In) (Out, error)` | `appa/v1/activities.go` |
 | `@RemoteActivity(...)` 声明在函数类型上，DTO 由调用方自己定义 | `appb/v1/remote.go` |
 | `@Workflow(type=...,policy=...,version=...)` | `appa/v1/workflow.go`（`pinned`）、`appb/v1/workflow.go`（`auto_upgrade`） |
 | 生成的类型化调用 `CallPrice(ctx, in, opts)` 与 `ActivityOptions` / `RetryPolicy` | `appb/v1/workflow.go` |
@@ -104,14 +104,14 @@ w.Stop()
 | Signal 等待 `workflow.WaitSignal`；Signal 与 Timer 竞争：`workflow.Go` + `workflow.Sleep` + `workflow.Await` | `appa/v1/workflow.go`、`appb/v1/workflow.go` |
 | `workflow.Now`、`workflow.RandomUUID` | `appb/v1/workflow.go` |
 | Query Handler 与 Update Handler | 两个 `workflow.go` 的开头 |
-| `workflow.GetVersion` | `appa/v2/workflow.go`、`appb/v2/workflow.go` |
+| `workflow.GetVersion` | `appa/v2/workflow.go`、`appa/v3/workflow.go`、`appb/v2/workflow.go` |
 
 ## 发布顺序
 
 driver 按下面的顺序发布，每一步之前都有停在 Signal 等待点的在途 Run：
 
-1. app-a v1 与 app-b v1 上线，跑一遍写法基础，再启动 8 个在途 Run。
-2. **app-a v2 上线，与 app-a v1 并存**（场景 5、7）。
+1. app-a v1 与 app-b v1 上线，跑一遍写法基础，再启动 9 个在途 Run。
+2. **app-a v2 上线，与 app-a v1 并存**（场景 2、5、7）。
 3. **app-b v2 上线，替换 app-b v1**（场景 1、2、3）。
 4. **app-a v1 下线**（场景 4），随后重新上线做恢复。
 5. **app-a v3 上线**（场景 6）。
@@ -120,11 +120,11 @@ driver 按下面的顺序发布，每一步之前都有停在 Signal 等待点�
 
 ## Activity 升级
 
-Activity 契约有四个维度：`type`、`version`、入参指纹、出参指纹。Server 在调度时确认至少一个在线 Worker 的上报与 Program 声明逐维度相等；任务投到队列，Worker 开始执行前再按领取者自己的上报对照一次，契约一致的 build 执行它。新旧 build 同时在线、契约不同时，任务可能先被不一致的 build 领到，被拒绝后约 1s 重新投递；一次完整运行里 Server 日志记录了 15 次这样的拒绝（`RESULTS.md`）。下文「派给」指实际执行它的 build（`ActivityStarted` 的 `workerBuildId`）。
+Activity 契约有三个维度：`type`、入参指纹、出参指纹。含义或结构要变时用新的 `type`，旧 `type` 保留到没有 Run 再调用它。Server 在调度时确认至少一个在线 Worker 的上报与 Program 声明逐维度相等；任务投到队列，Worker 开始执行前再按领取者自己的上报对照一次，契约一致的 build 执行它。新旧 build 同时在线、契约不同时，任务可能先被不一致的 build 领到，被拒绝后约 1s 重新投递；一次完整运行里 Server 日志记录了 9 次这样的拒绝（`RESULTS.md`）。下文「派给」指实际执行它的 build（`ActivityStarted` 的 `workerBuildId`）。
 
 ### 场景 1：新增可选入参
 
-`appa/v1/activities.go` → `appa/v2/activities.go`，`type` 与 `version` 不变：
+`appa/v1/activities.go` → `appa/v2/activities.go`，`type` 不变：
 
 ```go
 type ReserveInput struct {
@@ -137,21 +137,40 @@ type ReserveInput struct {
 
 调用方 `appb/v2/remote.go` 加上同一个字段，`appb/v2/workflow.go` 传 `Warehouse: "east"`。
 
-结果：入参指纹从 `wire:a3853d00…` 变成 `wire:ca791891…`。v2 Program 上的 Run 派给 app-a-v2，`warehouse = east`；`pinned` 在 v1 Program 上的 Run 声明旧指纹，派给 app-a-v1，`warehouse = west`。`appb/contract_test.go` 核对这次发布恰好改变两条契约：`fulfillment.reserve: input` 与 `fulfillment.quote: version`。
+结果：入参指纹从 `wire:a3853d00…` 变成 `wire:ca791891…`。v2 Program 上的 Run 派给 app-a-v2，`warehouse = east`；`pinned` 在 v1 Program 上的 Run 声明旧指纹，派给 app-a-v1，`warehouse = west`。`appb/contract_test.go` 核对 app-b v1 的声明对上 app-a v2 的实现时恰好差一条：`fulfillment.reserve: input`。
 
-### 场景 2：结构不变、语义变化，升 `version`
+### 场景 2：结构不变、含义变化，换新 `type`
+
+运费从不含税改成含 10% 税。入参出参结构不变，指纹相同，Server 分不出新旧含义，所以 app-a v2 新增 `fulfillment.quote-taxed`，旧的 `fulfillment.quote` 原样保留：
 
 ```go
-// v1：fee 是不含税的运费
-// @Activity(type="fulfillment.quote",queue="fulfillment",version=v1)
+// appa/v2/activities.go
+// 旧含义，与 v1 完全相同，保留给仍在调用旧 type 的 Run
+// @Activity(type="fulfillment.quote",queue="fulfillment")
 func Quote(...) { return QuoteOutput{Fee: 500 * int64(in.Qty), ...} }
 
-// v2：fee 含 10% 税。结构相同，指纹相同，手动升 version。
-// @Activity(type="fulfillment.quote",queue="fulfillment",version=v2)
-func Quote(...) { return QuoteOutput{Fee: 550 * int64(in.Qty), ...} }
+// 新含义：fee 含税
+// @Activity(type="fulfillment.quote-taxed",queue="fulfillment")
+func QuoteTaxed(...) { return QuoteOutput{Fee: 550 * int64(in.Qty), ...} }
 ```
 
-结果：声明 v2 的 Run 派给 app-a-v2，`ship_fee = 1100`；声明 v1 的 `pinned` Run 派给 app-a-v1，`ship_fee = 1000`。两个 build 同时在线，各自承接自己的版本。
+`appa/v2/workflow.go` 的退货运费改调 `CallQuoteTaxed`；`appb/v2/remote.go` 用 `@RemoteActivity(type="fulfillment.quote-taxed",...)` 声明新 type，旧的 `fulfillment.quote` 契约保留，`appb/v2/workflow.go` 改调新 type。换 type 改变了这一步的命令，所以用 `GetVersion` 保护：
+
+```go
+if workflow.GetVersion(ctx, "quote-taxed", workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+	label, quoteErr = CallQuote(ctx, QuoteInput{...}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
+} else {
+	label, quoteErr = CallQuoteTaxed(ctx, QuoteInput{...}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
+}
+```
+
+已经调度过旧 quote 的 Run 重放到这里时 History 里没有这个版本点，得到 `DefaultVersion`，继续走旧 type；还没走到这一步的 Run 首次执行到这里得到 1。本示例的在途 Run 都停在这一步之前的 Signal 等待点，所以切到 v2 后都走新 type。
+
+结果：
+
+- v2 Program 上的 Run（新 Run 与切到 v2 的 `auto_upgrade` Run）调度 `fulfillment.quote-taxed`，只有 app-a-v2 提供它，`ship_fee = 1100`、`label_fee = 550`。
+- `pinned` 在 v1 Program 上的 Run 调度 `fulfillment.quote`，`ship_fee = 1000`、`label_fee = 500`。两个 build 上报的旧 type 契约相同，谁领到谁执行。
+- 场景 4 里 app-a v1 下线之后，旧 Program 上的 Run 照常调度旧 type，由 app-a-v2 执行，不暂停。
 
 ### 场景 3：破坏性变更，换 `type` 加 `GetVersion`
 
@@ -167,23 +186,25 @@ if shipVersion == workflow.DefaultVersion {
 }
 ```
 
-结果：新 Run 得到 1，`shipped_via = fulfillment.ship-v2@app-a-v2`。升级前启动的 `auto_upgrade` Run 切到 v2 Program，重放到版本点时 History 里没有记录，得到 `DefaultVersion`，继续调旧 `type`。同一个 Run 里 reserve 与 quote 已经按新契约派给 app-a-v2。
+结果：新 Run 得到 1，`shipped_via = fulfillment.ship-v2@app-a-v2`。升级前启动的 `auto_upgrade` Run 切到 v2 Program，重放到版本点时 History 里没有记录，得到 `DefaultVersion`，继续调旧 `type`。同一个 Run 里 reserve 与 quote-taxed 已经按新契约派给 app-a-v2。
 
 ### 场景 4：旧 build 下线
 
-app-a v1 停止（`Worker.Stop` 注销路由）之后，对两个 `pinned` 在 v1 Program 上的 Run 发 Signal，让它们去调度旧契约：
+app-a v1 停止（`Worker.Stop` 注销路由）之后，对三个 `pinned` 在 v1 Program 上的 Run 发 Signal：
+
+- `return-old-type`（return-flow v1）调度旧 type `fulfillment.quote`。app-a v2 保留了它，契约与 v1 相同，Run 由 app-a-v2 执行并完成，`label_fee = 500`。
+- `order-paused` 与 `order-to-latest`（order-flow v1）调度 `fulfillment.reserve`。它的入参在 v2 加了字段，在线的 app-a-v2 与旧声明不一致：
 
 ```text
 ConfigError: activity "fulfillment.reserve" contract mismatch on worker "app-a-v2-1" (namespace "upgrade-demo" queue "fulfillment" build "app-a-v2"): input expected "wire:a3853d0050fc8a978880bdfc9dc776f4" actual "wire:ca79189195eccac12b159552f2a291cf"
-ConfigError: activity "fulfillment.quote" contract mismatch on worker "app-a-v2-1" (namespace "upgrade-demo" queue "fulfillment" build "app-a-v2"): version expected "v1" actual "v2"
 ```
 
 Run 的 status 保持 `running`，Activity 没有被调度，History 保留。
 
 两种恢复都由 set-policy 触发。set-policy 清除 `ConfigError`，关闭暂停时打开的那个 Workflow Task（History 里记一条 `WorkflowTaskFailed`，`cause=run_resumed`），再开启一个新的 Workflow Task；选版在新的 Workflow Task 上按新策略重新运行。
 
-- **旧 build 保持离线，把 Run 改成 `auto_upgrade`**（`return-paused`）：新的 Workflow Task 选中 latest 的 v2 Program，重放通过，Run 切到 v2。v2 声明 `fulfillment.quote` 的新契约，在线的 app-a-v2 承接，`label_fee = 550`，Run 完成。
-- **旧 build 重新上线，把 Run 设为 `pinned`**（`order-paused`）：Run 留在 v1 Program，reserve 与 quote 派给重新上线的 app-a-v1，`ship_fee = 1000`，Run 完成。旧 build 上线本身不恢复 Run，set-policy 是必需的一步；旧 build 仍然离线时设为 `pinned`，Run 会因为同一个不一致再次暂停。
+- **旧 build 保持离线，把 Run 改成 `auto_upgrade`**（`order-to-latest`）：新的 Workflow Task 选中 latest 的 v2 Program，重放通过，Run 切到 v2。v2 声明 reserve 的新入参与 `fulfillment.quote-taxed`，在线的 app-a-v2 承接，`warehouse = east`、`ship_fee = 1100`，Run 完成。
+- **旧 build 重新上线，把 Run 设为 `pinned`**（`order-paused`）：Run 留在 v1 Program，reserve 派给重新上线的 app-a-v1，`ship_fee = 1000`，Run 完成。旧 build 上线本身不恢复 Run，set-policy 是必需的一步；旧 build 仍然离线时设为 `pinned`，Run 会因为同一个不一致再次暂停。
 
 Console 里（`UD_CONSOLE=1 UD_STEP=1`，在检查点打开 Run 详情页）：暂停的 Run 顶部是红色横幅 `Configuration paused`，详情是上面的 ConfigError 原文，横幅上的 `Resume with latest (AutoUpgrade)` 与 `Pin current content` 两个按钮都调用 set-policy。Console 部分沿用 `docs/examples/multiprocess` 的启动方式，本示例交付时没有在浏览器里验证。
 
@@ -204,9 +225,9 @@ if workflow.GetVersion(ctx, "notify-after-inspect", workflow.DefaultVersion, 1) 
 
 | Run | 结果 |
 |---|---|
-| 新启动 | v2 Program，`notified = true`，调度 inspect → notify → quote → restock |
-| 在途、`pinned` | 留在 v1 Program，`label_fee = 500`，quote 派给 app-a-v1 |
-| 在途、`auto_upgrade` | 下一个 Workflow Task 边界切到 v2 Program，`GetVersion` 得到 `DefaultVersion`，`notified = false`，`label_fee = 550`，quote 派给 app-a-v2 |
+| 新启动 | v2 Program，`notified = true`，调度 inspect → notify → quote-taxed → restock |
+| 在途、`pinned` | 留在 v1 Program，`label_fee = 500`，调度旧 type quote，新旧 build 都可以执行 |
+| 在途、`auto_upgrade` | 下一个 Workflow Task 边界切到 v2 Program，`GetVersion` 得到 `DefaultVersion`，`notified = false`，`label_fee = 550`，调度 quote-taxed，派给 app-a-v2 |
 
 启动时的 Program 保留在 Run 的 original 字段，汇总表的「启动时」「结束时」两列来自它与 current。
 
@@ -228,7 +249,7 @@ Run 的 status 保持 `running`，Program 保持 v1，History 里有一条 `Work
 ### 场景 7：发布顺序
 
 - app-a v2 上线后 `return-flow` 的 latest 立即变成 v2：Program 随 Worker 的 `Start` 登记。
-- 此时 app-b 还在 v1：新启动的订单用 `order-flow` v1 Program，声明旧契约，reserve 与 quote 派给 app-a-v1。新 Worker 先在线不影响旧 Program 上的 Run。
+- 此时 app-b 还在 v1：新启动的订单用 `order-flow` v1 Program，声明旧契约：reserve 派给 app-a-v1，旧 type quote 两个 build 都可以执行。新 Worker 先在线不影响旧 Program 上的 Run。
 - 场景 4 里旧二进制 app-a v1 重新启动、重新登记 v1 的定义，latest 保持 v2：重复登记已有内容不改变 latest。
 
 ## 说明

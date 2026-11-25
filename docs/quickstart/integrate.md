@@ -87,13 +87,13 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	return OrderOutput{ChargeID: charge.ChargeID, Status: "paid"}, nil
 }
 
-// @Activity(type="orders.charge",version=v1)
+// @Activity(type="orders.charge")
 func Charge(_ context.Context, in ChargeInput) (ChargeOutput, error) {
 	// 真实实现调用支付网关，并以 OrderID 作为幂等键：Activity 至少执行一次。
 	return ChargeOutput{ChargeID: fmt.Sprintf("ch_%s", in.OrderID)}, nil
 }
 
-// @Activity(type="orders.notify",version=v1)
+// @Activity(type="orders.notify")
 func Notify(_ context.Context, in NotifyInput) (NotifyOutput, error) {
 	return NotifyOutput{Sent: true}, nil
 }
@@ -109,8 +109,7 @@ func Notify(_ context.Context, in NotifyInput) (NotifyOutput, error) {
 | | `version` | 业务版本标签 |
 | `@Activity` | `type`（必填） | Activity Type，同时决定生成的调用桥名：`orders.charge` → `CallCharge` |
 | | `queue` | Activity Task Queue；省略时由执行它的 Worker 决定（`ActivityTaskQueues`，不写时是 `default`） |
-| | `version` | 契约版本，Workflow 侧与 Worker 侧逐字对照 |
-| `@RemoteActivity` | `type`（必填）、`queue`、`version` | 声明由其他服务实现的 Activity，写在命名函数类型上 |
+| `@RemoteActivity` | `type`（必填）、`queue` | 声明由其他服务实现的 Activity，写在命名函数类型上 |
 
 签名规则：
 
@@ -135,7 +134,7 @@ go generate ./...
 | --- | --- |
 | `zz_orders_contract_gen.go` | 调用桥 `CallCharge`、`CallNotify`，签名断言，`RegisterActivities` |
 | `zz_orders_artifacts_gen.go` | 把 `workflow.json` 嵌入二进制，导出 `WorkflowDefinition()` |
-| `workflow.json` | Workflow 定义：注解里的 id、name、policy、version，翻译成 WLang 的程序 `program`，以及调用的 Activity 契约 `activities`（type、version、task_queue、入参出参的结构指纹；审阅时看这一段的 diff 发现契约变化）。嵌入二进制，Worker 启动时登记给 Server |
+| `workflow.json` | Workflow 定义：注解里的 id、name、policy、version，翻译成 WLang 的程序 `program`，以及调用的 Activity 契约 `activities`（type、task_queue、入参出参的结构指纹；审阅时看这一段的 diff 发现契约变化）。嵌入二进制，Worker 启动时登记给 Server |
 
 在 `CallCharge` 第一次生成之前，编辑器会报未定义，属于正常现象。`go build` 不执行 `go:generate`，所以生成产物要和源码一起提交；CI 里先执行 `go generate ./...`，再用 `git diff --exit-code` 检查产物是否与源码一致。每次修改 Workflow、Activity 签名或注解之后都要重新生成；开发时可以用 `go tool tenuto-workflow-gen generate -watch ./orders` 在保存时自动生成。
 
@@ -143,7 +142,7 @@ go generate ./...
 
 两类注册都在 Worker 启动时完成：
 
-- **Activity**：生成的 `RegisterActivities(registry)` 一次登记本包全部 `@Activity` 实现。也可以逐个登记：`activity.RegisterActivityOnQueue(registry, "orders", "orders.charge", "v1", Charge)`。Worker 启动时把每个 Activity 的契约（type、version、输入输出指纹）随路由上报给 Server。
+- **Activity**：生成的 `RegisterActivities(registry)` 一次登记本包全部 `@Activity` 实现。也可以逐个登记：`activity.RegisterActivityOnQueue(registry, "orders", "orders.charge", Charge)`。Worker 启动时把每个 Activity 的契约（type、输入输出指纹）随路由上报给 Server。
 - **Workflow**：把 `WorkflowDefinition()` 放进 `worker.Options.Workflows`，`Start` 时登记到 Client 的 Namespace。版本按 `workflow.json` 的内容 hash 区分：新内容首次登记时成为该 Workflow ID 的 latest，新 Run 使用 latest；同一内容重复登记幂等，latest 保持不变。
 
 ```go

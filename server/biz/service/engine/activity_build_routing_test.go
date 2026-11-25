@@ -39,9 +39,9 @@ func newBuildRoutingHarness(t *testing.T) *buildRoutingHarness {
 	return &buildRoutingHarness{t: t, mgr: mgr, server: server, clk: clk, tasks: activitytasks.NewUseCase(server)}
 }
 
-// chargeContract 是 payments.charge 在 version 这一版的契约。
-func chargeContract(version string) activity.Contract {
-	return activity.Contract{Type: "payments.charge", Version: version, Input: "ChargeInput." + version, Output: "Receipt." + version}
+// chargeContract 是 payments.charge 在 shape 这一版结构下的契约。
+func chargeContract(shape string) activity.Contract {
+	return activity.Contract{Type: "payments.charge", Input: "ChargeInput." + shape, Output: "Receipt." + shape}
 }
 
 func (h *buildRoutingHarness) register(identity, build, queue string, contract activity.Contract) {
@@ -61,11 +61,11 @@ func (h *buildRoutingHarness) deregister(identity, build string) {
 	}
 }
 
-// startRun 启动一个声明 version 契约的 Run，policy 是 Run 的版本策略，并让它调度 payments.charge。
-func (h *buildRoutingHarness) startRun(id, policy, queue, version string, cmd historypkg.Command) string {
+// startRun 启动一个声明 shape 结构契约的 Run，policy 是 Run 的版本策略，并让它调度 payments.charge。
+func (h *buildRoutingHarness) startRun(id, policy, queue, shape string, cmd historypkg.Command) string {
 	h.t.Helper()
 	wf := contractWorkflowConfig(id, map[string]program.ActivityRef{
-		"charge": {Type: "payments.charge", TaskQueue: queue, Version: version, Input: "ChargeInput." + version, Output: "Receipt." + version},
+		"charge": {Type: "payments.charge", TaskQueue: queue, Input: "ChargeInput." + shape, Output: "Receipt." + shape},
 	})
 	ref, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf)
 	if err != nil {

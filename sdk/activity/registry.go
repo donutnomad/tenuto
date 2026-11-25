@@ -11,7 +11,7 @@ import (
 	"github.com/donutnomad/tenuto/protocol"
 )
 
-// Contract 是一个 Activity 实现的 wire 契约：类型名、版本、输入与输出的结构指纹。
+// Contract 是一个 Activity 实现的 wire 契约：类型名、输入与输出的结构指纹。
 type Contract = protocol.ActivityContract
 
 // Registry 保存一个 Worker 进程能执行的 Activity：每个类型一个实现、一份契约和它所在的 Task Queue。
@@ -32,10 +32,10 @@ func NewRegistry() *Registry {
 	return &Registry{entries: make(map[string]registered)}
 }
 
-// Register 登记一个以 map[string]any 收发的 Activity。契约的输入输出指纹取自 map[string]any，
-// 版本为空；Workflow 侧声明了版本的 Activity 用 RegisterActivity 登记。
+// Register 登记一个以 map[string]any 收发的 Activity。契约的输入输出指纹取自 map[string]any；
+// 强类型的 Activity 用 RegisterActivity 登记。
 func (r *Registry) Register(activityType string, fn protocol.ActivityFunc) error {
-	contract, err := ContractOf[map[string]any, map[string]any](activityType, "")
+	contract, err := ContractOf[map[string]any, map[string]any](activityType)
 	if err != nil {
 		return err
 	}
@@ -119,22 +119,21 @@ func (r *Registry) Contracts() []Contract {
 // Worker 在 ActivityTaskQueues 列出的队列上执行它（为空时是 "default"）。知道队列时用 RegisterActivityOnQueue。
 //
 // Activity 的输入与输出在线上是 JSON object，所以 I 与 O 必须是 struct 或 map[string]any。
-// version 是实现的契约版本，与 Workflow 侧 @Activity(version=...) 的值逐字对照。
-func RegisterActivity[I, O any](reg *Registry, activityType, version string, fn func(context.Context, I) (O, error)) error {
-	return RegisterActivityOnQueue(reg, "", activityType, version, fn)
+func RegisterActivity[I, O any](reg *Registry, activityType string, fn func(context.Context, I) (O, error)) error {
+	return RegisterActivityOnQueue(reg, "", activityType, fn)
 }
 
 // RegisterActivityOnQueue 与 RegisterActivity 相同，并记录 Activity 所在的 Task Queue，
 // 与 Workflow 侧 @Activity(queue=...) 的值一致。生成的 RegisterActivities 用它登记。
 // worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些队列；显式设置时必须包含它们。
-func RegisterActivityOnQueue[I, O any](reg *Registry, queue, activityType, version string, fn func(context.Context, I) (O, error)) error {
+func RegisterActivityOnQueue[I, O any](reg *Registry, queue, activityType string, fn func(context.Context, I) (O, error)) error {
 	if err := requireObject[I](activityType, "input"); err != nil {
 		return err
 	}
 	if err := requireObject[O](activityType, "output"); err != nil {
 		return err
 	}
-	contract, err := ContractOf[I, O](activityType, version)
+	contract, err := ContractOf[I, O](activityType)
 	if err != nil {
 		return err
 	}

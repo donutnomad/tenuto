@@ -14,13 +14,13 @@ import (
 	"github.com/donutnomad/tenuto/server/infra/memory"
 )
 
-// pauseOnOldContract 复现「旧 build 下线」：Run 固定在声明 c@v1 的内容 A 上，路由目录里只有
-// 上报 c@v2 的新 Worker，内容 B（声明 c@v2）已经是 latest。b 完成后调度 c 时契约不一致，Run 暂停。
+// pauseOnOldContract 复现「旧 build 下线」：Run 固定在声明 c 旧输入的内容 A 上，路由目录里只有
+// 上报 c 新输入（多一个 note 字段）的新 Worker，内容 B（声明 c 新输入）已经是 latest。b 完成后调度 c 时契约不一致，Run 暂停。
 func pauseOnOldContract(t *testing.T, name string) (*engine.Server, *memory.ExecutionManager, *memory.TaskQueue, string, definition.WorkflowConfigRef, definition.WorkflowConfigRef) {
 	t.Helper()
 	server, mgr, activities := newUpgradeReplayServer(t)
 	fixture := newContractFixture(t, name, "v1", contractCInDefault, contractCOutInt)
-	registerContractWorkerVersions(t, server, "v2", "v1")
+	registerContractWorkerReporting(t, server, true, false)
 	refA := fixture.register(t, server)
 	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", fixture.workflowID, fixture.workflowID, "", nil))
 	if err != nil {
@@ -29,7 +29,7 @@ func pauseOnOldContract(t *testing.T, name string) (*engine.Server, *memory.Exec
 	if _, err := server.SetRunPolicy(context.Background(), protocol.DefaultNamespace, runID, execution.RunPolicyPinned); err != nil {
 		t.Fatal(err)
 	}
-	writeContractActivities(t, fixture.root, "v2", "v1", contractCInDefault, contractCOutInt)
+	writeContractActivities(t, fixture.root, contractCInWithNote, contractCOutInt, contractDInDefault)
 	refB := fixture.register(t, server)
 	if refB.Version == refA.Version {
 		t.Fatal("B content version must differ from A")
@@ -41,8 +41,8 @@ func pauseOnOldContract(t *testing.T, name string) (*engine.Server, *memory.Exec
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(paused.ConfigError, `version expected "v1" actual "v2"`) {
-		t.Fatalf("ConfigError = %q, want the c version mismatch", paused.ConfigError)
+	if !strings.Contains(paused.ConfigError, `activity "example.c" contract mismatch`) || !strings.Contains(paused.ConfigError, `input expected "wire:`) {
+		t.Fatalf("ConfigError = %q, want the c input mismatch", paused.ConfigError)
 	}
 	assertRunVersion(t, mgr, runID, refA.Version, refA.Version, "paused run")
 	return server, mgr, activities, runID, refA, refB

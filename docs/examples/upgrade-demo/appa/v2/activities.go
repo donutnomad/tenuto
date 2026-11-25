@@ -1,7 +1,8 @@
 // Package v2 是 app-a（履约）的第二个发布版本。相对 v1 的变化：
 //
-//   - fulfillment.reserve：入参新增可选字段 warehouse。type 与 version 不变，入参指纹变化。
-//   - fulfillment.quote：结构不变，fee 的语义从不含税改为含税，version 从 v1 升到 v2。
+//   - fulfillment.reserve：入参新增可选字段 warehouse。type 不变，入参指纹变化。
+//   - fulfillment.quote-taxed：fee 含 10% 税的运费。结构与 fulfillment.quote 相同、语义不同，
+//     所以用新的 type。旧的 fulfillment.quote 原样保留，给仍在调用它的 Run。
 //   - fulfillment.ship-v2：发货入参把一整行地址拆成 city + street，属于破坏性变更，用新的 type。
 //     旧的 fulfillment.ship 保留，两个实现注册在同一个进程里。
 //   - fulfillment.notify：退货 Workflow 新增步骤用到的新 Activity。
@@ -31,9 +32,8 @@ type ReserveOutput struct {
 }
 
 // Reserve 预留库存。新增字段把零值当作「未提供」，旧调用得到与 v1 相同的结果。
-// version 保持 v1：结构变化已经体现在入参指纹上，version 留给指纹覆盖不到的语义变化。
 //
-// @Activity(type="fulfillment.reserve",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.reserve",queue="fulfillment")
 func Reserve(_ context.Context, in ReserveInput) (ReserveOutput, error) {
 	warehouse := in.Warehouse
 	if warehouse == "" {
@@ -56,11 +56,18 @@ type QuoteOutput struct {
 	ServedBy string `json:"served_by"`
 }
 
-// Quote 计算运费。v2 的语义：fee 是含 10% 税的运费。
-// 入参出参的结构与 v1 完全相同，指纹不变；语义变了，所以手动把 version 升到 v2。
+// Quote 是旧的运费 Activity：fee 是不含税的运费，与 v1 完全相同，保留给仍在调用旧 type 的 Run。
 //
-// @Activity(type="fulfillment.quote",queue="fulfillment",version=v2)
+// @Activity(type="fulfillment.quote",queue="fulfillment")
 func Quote(_ context.Context, in QuoteInput) (QuoteOutput, error) {
+	return QuoteOutput{Fee: 500 * int64(in.Qty), ServedBy: Build}, nil
+}
+
+// QuoteTaxed 计算含 10% 税的运费。入参出参的结构与 Quote 相同，指纹也相同；
+// fee 的含义变了，所以用新的 type，调用方改调新 type 才得到新语义。
+//
+// @Activity(type="fulfillment.quote-taxed",queue="fulfillment")
+func QuoteTaxed(_ context.Context, in QuoteInput) (QuoteOutput, error) {
 	return QuoteOutput{Fee: 550 * int64(in.Qty), ServedBy: Build}, nil
 }
 
@@ -77,7 +84,7 @@ type ShipOutput struct {
 
 // Ship 是旧的发货 Activity，保留给仍在调用旧 type 的 Run。
 //
-// @Activity(type="fulfillment.ship",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.ship",queue="fulfillment")
 func Ship(_ context.Context, in ShipInput) (ShipOutput, error) {
 	return ShipOutput{TrackingNo: "trk-" + in.OrderID, ServedBy: Build}, nil
 }
@@ -98,7 +105,7 @@ type ShipV2Output struct {
 // ShipV2 是新的发货 Activity：地址拆成 city + street，出参多了承运商。
 // 入参出参都与旧结构不兼容，所以用新的 type，旧 type 原样保留。
 //
-// @Activity(type="fulfillment.ship-v2",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.ship-v2",queue="fulfillment")
 func ShipV2(_ context.Context, in ShipV2Input) (ShipV2Output, error) {
 	return ShipV2Output{TrackingNo: "trk2-" + in.OrderID, Carrier: "carrier-" + in.City, ServedBy: Build}, nil
 }
@@ -113,7 +120,7 @@ type InspectOutput struct {
 
 // Inspect 登记退货申请并给出初步判定。
 //
-// @Activity(type="fulfillment.inspect",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.inspect",queue="fulfillment")
 func Inspect(_ context.Context, _ InspectInput) (InspectOutput, error) {
 	return InspectOutput{Condition: "resellable"}, nil
 }
@@ -129,7 +136,7 @@ type NotifyOutput struct {
 
 // Notify 把初步判定通知给客户。v2 新增。
 //
-// @Activity(type="fulfillment.notify",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.notify",queue="fulfillment")
 func Notify(_ context.Context, _ NotifyInput) (NotifyOutput, error) {
 	return NotifyOutput{Sent: true}, nil
 }
@@ -145,7 +152,7 @@ type RestockOutput struct {
 
 // Restock 把退回的商品重新入库。
 //
-// @Activity(type="fulfillment.restock",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.restock",queue="fulfillment")
 func Restock(_ context.Context, in RestockInput) (RestockOutput, error) {
 	return RestockOutput{Restocked: in.Condition == "resellable"}, nil
 }

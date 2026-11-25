@@ -46,7 +46,7 @@ func Start(ctx context.Context, opts Options) (*worker.Worker, error) {
 		return nil, fmt.Errorf("app-a: unknown release %q (want v1, v2 or v3)", opts.Release)
 	}
 
-	// 1. Registry 同时持有 Activity 的实现与契约（type、version、入参出参指纹）。
+	// 1. Registry 同时持有 Activity 的实现与契约（type、入参出参指纹）。
 	//    生成的 RegisterActivities 把本包全部 @Activity 一次登记进去。
 	registry := activity.NewRegistry()
 	if err := rel.activities(registry); err != nil {

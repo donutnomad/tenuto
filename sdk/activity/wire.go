@@ -20,9 +20,9 @@ func WireFingerprintOf[T any]() (string, error) {
 	return protocol.WireFingerprint(schema), nil
 }
 
-// ContractOf 为独立部署的 Activity 生成契约元数据：Type/Version 显式声明，
+// ContractOf 为独立部署的 Activity 生成契约元数据：Type 显式声明，
 // Input/Output 使用与 Workflow 侧同算法计算的 wire 指纹。
-func ContractOf[I, O any](activityType, version string) (Contract, error) {
+func ContractOf[I, O any](activityType string) (Contract, error) {
 	input, err := WireFingerprintOf[I]()
 	if err != nil {
 		return Contract{}, fmt.Errorf("activity %s input: %w", activityType, err)
@@ -31,7 +31,7 @@ func ContractOf[I, O any](activityType, version string) (Contract, error) {
 	if err != nil {
 		return Contract{}, fmt.Errorf("activity %s output: %w", activityType, err)
 	}
-	return Contract{Type: activityType, Version: version, Input: input, Output: output}, nil
+	return Contract{Type: activityType, Input: input, Output: output}, nil
 }
 
 // wireTypeOfGo 把 Go 类型转换为 wire 结构。stack 是正在展开的具名类型；递归类型再次遇到其中一个时

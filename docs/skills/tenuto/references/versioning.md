@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Workflow 定义内容 | 内容 hash + latest 指针 + Run 的 `policy` | 一个 Run 用哪份 Program 执行 |
 | 源码兼容分支 | `workflow.GetVersion` | 同一份 Program 面对新旧 History 走哪条分支 |
-| Activity Worker | 队列 + 四维契约（按 BuildID 登记） | 哪些 Worker 进程可以执行 Activity：领取时契约与 Program 对得上的 build |
+| Activity Worker | 队列 + 三维契约（按 BuildID 登记） | 哪些 Worker 进程可以执行 Activity：领取时契约与 Program 对得上的 build |
 
 升级演练见 `docs/examples/upgrade-demo/`（以该目录自带的说明为准）；`GetVersion` 的最小示例在 `docs/examples/versioned-workflow/`；多进程发布在 `docs/examples/multiprocess/`。
 
@@ -178,7 +178,7 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 
 ## Activity 契约
 
-每个 `@Activity` 生成四维契约：`type`、`version`、`input` 指纹、`output` 指纹（指纹形如 `wire:<hash>`，由 JSON 字段名与类型算出，见 `codegen.md`）。
+每个 `@Activity` 生成三维契约：`type`、`input` 指纹、`output` 指纹（指纹形如 `wire:<hash>`，由 JSON 字段名与类型算出，见 `codegen.md`）。
 
 - Workflow 侧：契约随 Program 写进 `workflow.json`。
 - Worker 侧：`RegisterActivities` 把契约放进注册表，Worker `Start` 时随路由上报。
@@ -192,15 +192,15 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 activity "order.charge" contract mismatch on worker "pay-1" (namespace "orders" queue "payments" build "pay-v2"): input expected "wire:ab12…" actual "wire:cd34…"
 ```
 
-`expected` 是 Program 的声明，`actual` 是 Worker 的上报；字段是 `version`、`input`、`output` 之一。
+`expected` 是 Program 的声明，`actual` 是 Worker 的上报；字段是 `input`、`output` 之一。
 
 ### Activity 改动的分类
 
 | 改动 | 写法 | 契约变化 |
 | --- | --- | --- |
 | 内部实现，结构与语义不变 | 只改实现 | 无 |
-| 输入或输出加字段 | 加字段，`version` 保持不变；实现把零值当「未提供」 | 指纹改变 |
-| 语义改变，结构不变 | 升 `@Activity(version=...)` | `version` 改变 |
+| 输入或输出加字段 | 加字段，`type` 保持不变；实现把零值当「未提供」 | 指纹改变 |
+| 语义改变，结构不变 | 新 `type`（如 `fulfillment.quote-taxed`），旧 `type` 原样保留；Workflow 改调新 `type`，在途 Run 已记过旧 `type` 的位置用 `GetVersion` 分支 | 新 type 是一份新契约，旧 type 不变 |
 | 破坏性改动（字段改名、改类型、删除）且有 Run 跨越这次改动 | 新 `type`（如 `order.charge-v2`）+ Workflow 里 `GetVersion` 分支；新旧实现都注册 | 新 type 是一份新契约，旧 type 不变 |
 
 契约是相等对照：加字段也让新旧 Program 与新旧 Worker 互不匹配，所以新旧并存期间两个 build 都要在线。

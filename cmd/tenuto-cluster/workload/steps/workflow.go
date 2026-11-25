@@ -59,7 +59,7 @@ func Steps(ctx workflow.Context, in Input) (Output, error) {
 	return Output{Total: total, Steps: in.Steps}, nil
 }
 
-// @Activity(type="cluster.step",queue="cluster",version=v1)
+// @Activity(type="cluster.step",queue="cluster")
 func Step(ctx context.Context, in StepInput) (StepOutput, error) {
 	value, err := workload.RunStep(ctx, in.Key, in.Step, in.SleepMs)
 	if err != nil {

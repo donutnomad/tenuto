@@ -577,11 +577,21 @@
         }
       },
       {
-        "set": {
-          "err": {
-            "Get": [
+        "let": {
+          "quoteErr": {
+            "literal": {
+              "type": "null",
+              "value": null
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "cond": {
+            "==": [
               {
-                "ExecuteActivity": [
+                "GetVersion": [
                   {
                     "pkg": "workflow"
                   },
@@ -589,44 +599,143 @@
                     "var": "ctx"
                   },
                   {
-                    "symbol": "v2.Quote"
+                    "literal": {
+                      "type": "string",
+                      "value": "quote-taxed"
+                    }
                   },
                   {
-                    "struct": [
-                      "v2.QuoteInput",
-                      {
-                        "OrderID": {
-                          "var": "in.OrderID"
-                        },
-                        "Qty": {
-                          "var": "in.Qty"
-                        }
-                      }
-                    ]
+                    "literal": {
+                      "type": "int64",
+                      "value": "-1"
+                    }
                   },
                   {
-                    "struct": [
-                      "workflow.ActivityOptions",
-                      {
-                        "StartToCloseTimeout": {
-                          "literal": {
-                            "type": "int64",
-                            "value": "60000000000"
-                          }
-                        }
-                      }
-                    ]
+                    "literal": {
+                      "type": "int64",
+                      "value": "1"
+                    }
                   }
                 ]
               },
               {
-                "var": "ctx"
-              },
-              {
-                "out": "label"
+                "literal": {
+                  "type": "int64",
+                  "value": "-1"
+                }
               }
             ]
-          }
+          },
+          "else": [
+            {
+              "set": {
+                "quoteErr": {
+                  "Get": [
+                    {
+                      "ExecuteActivity": [
+                        {
+                          "pkg": "workflow"
+                        },
+                        {
+                          "var": "ctx"
+                        },
+                        {
+                          "symbol": "v2.QuoteTaxed"
+                        },
+                        {
+                          "struct": [
+                            "v2.QuoteInput",
+                            {
+                              "OrderID": {
+                                "var": "in.OrderID"
+                              },
+                              "Qty": {
+                                "var": "in.Qty"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "struct": [
+                            "workflow.ActivityOptions",
+                            {
+                              "StartToCloseTimeout": {
+                                "literal": {
+                                  "type": "int64",
+                                  "value": "60000000000"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "var": "ctx"
+                    },
+                    {
+                      "out": "label"
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "then": [
+            {
+              "set": {
+                "quoteErr": {
+                  "Get": [
+                    {
+                      "ExecuteActivity": [
+                        {
+                          "pkg": "workflow"
+                        },
+                        {
+                          "var": "ctx"
+                        },
+                        {
+                          "symbol": "v2.Quote"
+                        },
+                        {
+                          "struct": [
+                            "v2.QuoteInput",
+                            {
+                              "OrderID": {
+                                "var": "in.OrderID"
+                              },
+                              "Qty": {
+                                "var": "in.Qty"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "struct": [
+                            "workflow.ActivityOptions",
+                            {
+                              "StartToCloseTimeout": {
+                                "literal": {
+                                  "type": "int64",
+                                  "value": "60000000000"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "var": "ctx"
+                    },
+                    {
+                      "out": "label"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
         }
       },
       {
@@ -634,7 +743,7 @@
           "cond": {
             "!=": [
               {
-                "var": "err"
+                "var": "quoteErr"
               },
               {
                 "literal": {
@@ -655,7 +764,7 @@
                     ]
                   },
                   {
-                    "var": "err"
+                    "var": "quoteErr"
                   }
                 ]
               }
@@ -1033,7 +1142,6 @@
       "symbol": "v2.Inspect",
       "type": "fulfillment.inspect",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:2f1b25b0aaa6f23dd68df3c87a002b0a",
       "output": "wire:6bdd5a045a107d2addce8d5e29f5d3ae"
     },
@@ -1041,7 +1149,6 @@
       "symbol": "v2.Notify",
       "type": "fulfillment.notify",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:6ffc10670080940ea7d58340d7bc416e",
       "output": "wire:86aded0f5989de4395eb479721dccc55"
     },
@@ -1049,7 +1156,13 @@
       "symbol": "v2.Quote",
       "type": "fulfillment.quote",
       "task_queue": "fulfillment",
-      "version": "v2",
+      "input": "wire:aa89548036d83cd03cda421878c4dd91",
+      "output": "wire:9ee1ccfb36f5fc9cc84a49436179a128"
+    },
+    "v2.QuoteTaxed": {
+      "symbol": "v2.QuoteTaxed",
+      "type": "fulfillment.quote-taxed",
+      "task_queue": "fulfillment",
       "input": "wire:aa89548036d83cd03cda421878c4dd91",
       "output": "wire:9ee1ccfb36f5fc9cc84a49436179a128"
     },
@@ -1057,7 +1170,6 @@
       "symbol": "v2.Restock",
       "type": "fulfillment.restock",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:6ffc10670080940ea7d58340d7bc416e",
       "output": "wire:efe97f204c1e23b9d3a0a8b038e0ac6b"
     }

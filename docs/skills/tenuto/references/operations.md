@@ -28,7 +28,7 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 
 | 原文 | 成因 |
 | --- | --- |
-| `activity "T" contract mismatch on worker "W" (namespace "N" queue "Q" build "B"): <version\|input\|output> expected "X" actual "Y"` | Program 声明的契约（expected）与 Worker 上报（actual）不一致 |
+| `activity "T" contract mismatch on worker "W" (namespace "N" queue "Q" build "B"): <input\|output> expected "X" actual "Y"` | Program 声明的契约（expected）与 Worker 上报（actual）不一致 |
 | `auto upgrade to V failed at workflow task N: non_deterministic_error: ...; retrying with backoff` | `auto_upgrade` 的 Run 用新 Program 重放旧 History 失配 |
 | `auto upgrade to V refused: payloads recorded in history cannot be read by the candidate program: <位置>: <旧类型> -> <新类型>: <字段路径>: <原因>` | 换版前的载荷检查：History 里该位置的载荷在 latest 的类型下读不回（字段删除、改名、改类型） |
 | `auto upgrade to V refused: the payload check cannot prove that payloads recorded in history stay readable: <current\|candidate> program: <载荷> decoded into <类型> at <WLang 路径> (<原因>); <种类> types differ between the two versions` | 换版前的载荷检查：该解码处的名字或类型无法静态确定，而这种载荷的类型在两个版本间变了 |

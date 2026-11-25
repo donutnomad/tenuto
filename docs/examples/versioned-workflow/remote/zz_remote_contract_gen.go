@@ -9,7 +9,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// CallSettle 调度 activity payments.settle（queue payments, version v1）。
+// CallSettle 调度 activity payments.settle（queue payments）。
 // 稳定 marker：SettleRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 payments.settle，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。

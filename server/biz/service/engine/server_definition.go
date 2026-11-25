@@ -97,7 +97,7 @@ func (s *Server) resolveActivityCommand(runID, programVersion string, cmd histor
 	// 声明契约参与选路：同一 type/queue 下有多个活跃 build 时，用契约兼容的 Worker 的上报对照。
 	if wfErr == nil {
 		if declared := dispatch.DeclaredActivityContract(wf, cmd.ActivityType); declared != nil {
-			ref.Version, ref.Input, ref.Output = declared.Version, declared.Input, declared.Output
+			ref.Input, ref.Output = declared.Input, declared.Output
 		}
 	}
 	route, err := s.resolveActivityRoute(ref)

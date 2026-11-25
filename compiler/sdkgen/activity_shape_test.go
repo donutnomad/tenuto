@@ -44,7 +44,7 @@ type LengthOutput struct {
 
 var _ = context.Background
 
-// @Activity(type="text.length",queue="text",version=v1)
+// @Activity(type="text.length",queue="text")
 ` + tc.signature + ` {
 	panic("unused")
 }
@@ -84,12 +84,12 @@ type LengthOutput struct {
 	Length int
 }
 
-// @Activity(type="text.length",queue="text",version=v1)
+// @Activity(type="text.length",queue="text")
 func Length(ctx context.Context, in LengthInput) (LengthOutput, error) {
 	return LengthOutput{Length: len(in.Value)}, nil
 }
 
-// @Activity(type="text.echo",queue="text",version=v1)
+// @Activity(type="text.echo",queue="text")
 func Echo(ctx context.Context, in map[string]any) (map[string]any, error) {
 	return in, nil
 }

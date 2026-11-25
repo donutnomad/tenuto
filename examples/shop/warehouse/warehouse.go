@@ -35,9 +35,9 @@ func New(stock map[string]int) *Warehouse {
 // Register 把三个 Activity 登记到 registry，契约与 contracts 包里的 remote 声明一致。
 func (w *Warehouse) Register(registry *activity.Registry) error {
 	return errors.Join(
-		activity.RegisterActivityOnQueue(registry, "warehouse", "warehouse.reserve", "v1", w.Reserve),
-		activity.RegisterActivityOnQueue(registry, "warehouse", "warehouse.release", "v1", w.Release),
-		activity.RegisterActivityOnQueue(registry, "warehouse", "warehouse.ship", "v1", w.Ship),
+		activity.RegisterActivityOnQueue(registry, "warehouse", "warehouse.reserve", w.Reserve),
+		activity.RegisterActivityOnQueue(registry, "warehouse", "warehouse.release", w.Release),
+		activity.RegisterActivityOnQueue(registry, "warehouse", "warehouse.ship", w.Ship),
 	)
 }
 

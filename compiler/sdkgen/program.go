@@ -189,7 +189,7 @@ func Generate(plan Plan) (PackageResult, error) {
 		WatchFiles:   plan.WatchFiles,
 		Bridges:      plan.Bridges,
 	}
-	// Activities 以翻译产物里真实出现的符号为准：注解契约按注解写 Type/Queue/Version，
+	// Activities 以翻译产物里真实出现的符号为准：注解契约按注解写 Type/Queue，
 	// 未注解的直调（ExecuteActivity + pkg.Symbol）保留原有的 Type=Symbol 约定。
 	programSymbols := collectProgramSymbols(generated.Workflow.Program.Program)
 	existing := generated.Workflow.Activities
@@ -209,7 +209,6 @@ func Generate(plan Plan) (PackageResult, error) {
 			Symbol:    symbol,
 			Type:      contract.Type,
 			TaskQueue: contract.Queue,
-			Version:   contract.Version,
 			Input:     fingerprint.input,
 			Output:    fingerprint.output,
 		}

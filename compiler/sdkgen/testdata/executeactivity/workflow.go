@@ -21,7 +21,7 @@ type NotifyOutput struct {
 	Sent bool `json:"sent"`
 }
 
-// @Activity(type="orders.notify",queue="notifications",version=v2)
+// @Activity(type="orders.notify",queue="notifications")
 func Notify(ctx context.Context, in NotifyInput) (NotifyOutput, error) {
 	return NotifyOutput{Sent: true}, nil
 }

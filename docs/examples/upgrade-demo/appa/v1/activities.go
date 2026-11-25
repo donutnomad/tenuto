@@ -2,7 +2,7 @@
 //
 // 本文件是 Activity。Activity 是原生 Go 函数，签名固定为
 // func(context.Context, In) (Out, error)，In / Out 是带 json tag 的 struct。
-// 注解里的 type 是 Activity 的身份（调度与注册共用），version 是契约版本标签。
+// 注解里的 type 是 Activity 的身份（调度与注册共用），queue 是它所在的 Task Queue。
 package v1
 
 import "context"
@@ -28,7 +28,7 @@ type ReserveOutput struct {
 
 // Reserve 预留库存。
 //
-// @Activity(type="fulfillment.reserve",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.reserve",queue="fulfillment")
 func Reserve(_ context.Context, in ReserveInput) (ReserveOutput, error) {
 	return ReserveOutput{
 		ReservationID: "rsv-" + in.OrderID,
@@ -49,7 +49,7 @@ type QuoteOutput struct {
 
 // Quote 计算运费。v1 的语义：fee 是不含税的运费。
 //
-// @Activity(type="fulfillment.quote",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.quote",queue="fulfillment")
 func Quote(_ context.Context, in QuoteInput) (QuoteOutput, error) {
 	return QuoteOutput{Fee: 500 * int64(in.Qty), ServedBy: Build}, nil
 }
@@ -67,7 +67,7 @@ type ShipOutput struct {
 
 // Ship 发货。address 是一整行地址。
 //
-// @Activity(type="fulfillment.ship",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.ship",queue="fulfillment")
 func Ship(_ context.Context, in ShipInput) (ShipOutput, error) {
 	return ShipOutput{TrackingNo: "trk-" + in.OrderID, ServedBy: Build}, nil
 }
@@ -82,7 +82,7 @@ type InspectOutput struct {
 
 // Inspect 登记退货申请并给出初步判定。
 //
-// @Activity(type="fulfillment.inspect",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.inspect",queue="fulfillment")
 func Inspect(_ context.Context, _ InspectInput) (InspectOutput, error) {
 	return InspectOutput{Condition: "resellable"}, nil
 }
@@ -98,7 +98,7 @@ type RestockOutput struct {
 
 // Restock 把退回的商品重新入库。
 //
-// @Activity(type="fulfillment.restock",queue="fulfillment",version=v1)
+// @Activity(type="fulfillment.restock",queue="fulfillment")
 func Restock(_ context.Context, in RestockInput) (RestockOutput, error) {
 	return RestockOutput{Restocked: in.Condition == "resellable"}, nil
 }

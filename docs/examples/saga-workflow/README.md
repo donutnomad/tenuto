@@ -1,6 +1,6 @@
 # Saga 显式逆序补偿示例
 
-演示没有 Saga 框架时如何在 Workflow 函数体里写正向编排与逆序补偿。所有 Activity 都是同一包里的普通 Go 函数，使用结构体 I/O 与 `@Activity(type,queue,version)`；生成器产出 `CallX` 桥和包级 `RegisterActivities`。
+演示没有 Saga 框架时如何在 Workflow 函数体里写正向编排与逆序补偿。所有 Activity 都是同一包里的普通 Go 函数，使用结构体 I/O 与 `@Activity(type,queue)`；生成器产出 `CallX` 桥和包级 `RegisterActivities`。
 
 ## 文件
 

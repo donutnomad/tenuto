@@ -49,7 +49,7 @@ func TestWorkerBothRoleActivityBeforeEnroll(t *testing.T) {
 	server := newTestServer()
 
 	registry := activity.NewRegistry()
-	activity.RegisterActivity(registry, "startup.say-hello", "v1",
+	activity.RegisterActivity(registry, "startup.say-hello",
 		func(context.Context, startupflow.SayHelloInput) (startupflow.SayHelloOutput, error) {
 			return startupflow.SayHelloOutput{Message: "hi"}, nil
 		})

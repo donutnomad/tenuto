@@ -25,10 +25,10 @@ func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 // Registry 交给 worker.Options.Activities，契约随 Worker 启动上报。
 func ExampleRegisterActivity() {
 	registry := activity.NewRegistry()
-	if err := activity.RegisterActivity(registry, "payments.charge", "v1", Charge); err != nil {
+	if err := activity.RegisterActivity(registry, "payments.charge", Charge); err != nil {
 		log.Fatal(err)
 	}
 	contract := registry.Contracts()[0]
-	fmt.Println(registry.Types(), contract.Version)
-	// Output: [payments.charge] v1
+	fmt.Println(registry.Types(), contract.Type)
+	// Output: [payments.charge] payments.charge
 }

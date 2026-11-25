@@ -46,7 +46,7 @@ func TestSamePackageCrossFileMarkers(t *testing.T) {
 		t.Fatalf("marker 不应被翻译成变量引用，实际 %v", vars)
 	}
 
-	// 2) ActivityRef 按注解写 type/queue/version，并带 wire 指纹。
+	// 2) ActivityRef 按注解写 type/queue，并带 wire 指纹。
 	wantTypes := map[string]string{
 		"splitpkg.Charge":  "split.charge",
 		"splitpkg.Record":  "split.record",
@@ -57,8 +57,8 @@ func TestSamePackageCrossFileMarkers(t *testing.T) {
 		if !ok {
 			t.Fatalf("activities 缺少 %s: %+v", symbol, first.Workflow.Activities)
 		}
-		if ref.Type != wantType || ref.TaskQueue != "split" || ref.Version != "v1" {
-			t.Fatalf("%s 的注解字段 = %+v，期望 type=%s queue=split version=v1", symbol, ref, wantType)
+		if ref.Type != wantType || ref.TaskQueue != "split" {
+			t.Fatalf("%s 的注解字段 = %+v，期望 type=%s queue=split", symbol, ref, wantType)
 		}
 		if !strings.HasPrefix(ref.Input, "wire:") || !strings.HasPrefix(ref.Output, "wire:") {
 			t.Fatalf("%s 的 wire 指纹缺失: %+v", symbol, ref)

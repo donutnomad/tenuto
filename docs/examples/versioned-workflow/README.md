@@ -77,7 +77,7 @@ TENUTO_URL=http://localhost:7400 TENUTO_NAMESPACE=lifecycle-demo \
 
 第二个 Activity build 可用 `-build-id lifecycle-build-v2 -identity lifecycle-activity-v2 -default=false` 启动：两个 build 消费同一个 `lifecycle` 队列，任务不带 build，由任一 build 领取，契约不一致的领取被拒绝。启动日志包含 Activity BuildID，`ActivityStarted` 记录实际执行的 build。
 
-`worker/main.go` 同时启动 workflow worker 和 `lifecycle` 队列的 Activity worker。本地活动用生成的一行 `activities.RegisterActivities(registry)` 注册 `activities.Reserve`、`activities.Charge`、`activities.ChargeV2`、`activities.Notify`（含 type/version 与 wire 契约），实现直接来自 `activities/activities.go`；`payments.settle` 这个 remote 契约的实现由 worker 自己提供，是唯一一条手写注册。日志显示 `ready` 后，在另一终端运行以下命令（需要 `curl` 和 `jq`）：
+`worker/main.go` 同时启动 workflow worker 和 `lifecycle` 队列的 Activity worker。本地活动用生成的一行 `activities.RegisterActivities(registry)` 注册 `activities.Reserve`、`activities.Charge`、`activities.ChargeV2`、`activities.Notify`（含 type 与 wire 契约），实现直接来自 `activities/activities.go`；`payments.settle` 这个 remote 契约的实现由 worker 自己提供，是唯一一条手写注册。日志显示 `ready` 后，在另一终端运行以下命令（需要 `curl` 和 `jq`）：
 
 ```sh
 export TENUTO_URL=http://127.0.0.1:7400

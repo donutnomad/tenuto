@@ -362,7 +362,7 @@ func assertRouteNames(t *testing.T, routes []protocol.ActivityWorkerVersion, wan
 // 声明了契约的 Activity 不会派给它。
 func testContractsRoundTrip(t *testing.T, repo dispatch.WorkerVersionRepository) {
 	now := registrationTime()
-	contracts := []protocol.ActivityContract{{Type: "payments.charge.v1", Version: "v1", Input: "input@fp1", Output: "output@fp2"}}
+	contracts := []protocol.ActivityContract{{Type: "payments.charge.v1", Input: "input@fp1", Output: "output@fp2"}}
 	mustUpsert(t, repo, protocol.DefaultNamespace, protocol.ActivityWorkerVersion{
 		Identity: "payments-worker", BuildID: "build-1", TaskQueues: []string{"payments"},
 		ActivityTypes: []string{"payments.charge.v1"}, Contracts: contracts, Default: true, Weight: 3,

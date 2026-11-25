@@ -14,7 +14,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - **Workflow Task 与 Activity Task**：Workflow Task 推进编排（解释器执行 Workflow 函数直到全部协程阻塞，提交命令）；Activity Task 执行原生 Go 的副作用函数。Workflow 函数的 Go 代码本身不在运行期被调用，`sdk/workflow` 的函数全是定义期标记。
 - **Program 版本**：每份生成的 `workflow.json` 有内容 hash；每个 Workflow ID 有一个 latest 指针。新 Run 用 latest；运行中的 Run 按自己的 `policy`（`auto_upgrade` 缺省 / `pinned`）决定是否在下一个 Workflow Task 边界换到 latest。
 - **Worker BuildID**：Activity Worker 的代码版本，Server 按它分开保存每个 build 的契约，新旧 build 并存靠不同 BuildID。Activity 任务只按队列投递、不带 build，队列上任一 build 都能领取；开始执行前按领取者这个 build 的契约对照 Run 当前 Program 的声明，不一致时拒绝（`worker_contract_mismatch`），任务约 1s 后重新投递。单个 Activity 调用不能指定 build。
-- **契约**：每个 `@Activity` 生成四维契约 `type`、`version`、`input` 指纹、`output` 指纹。Workflow 侧随 Program 声明，Worker 侧随注册表上报，Server 在调度 Activity 时逐维度做相等对照；全部候选 Worker 都不一致时 Run 记 `ConfigError` 并暂停。
+- **契约**：每个 `@Activity` 生成三维契约 `type`、`input` 指纹、`output` 指纹。Workflow 侧随 Program 声明，Worker 侧随注册表上报，Server 在调度 Activity 时逐维度做相等对照；全部候选 Worker 都不一致时 Run 记 `ConfigError` 并暂停。Activity 的含义或结构要变时用新 `type`，旧 `type` 保留到没有 Run 再调用它。
 
 ## 编写流程
 
@@ -46,7 +46,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
        return GreetOutput{Message: out.Message}, nil
    }
 
-   // @Activity(type="startup.say-hello",queue="startup",version=v1)
+   // @Activity(type="startup.say-hello",queue="startup")
    func SayHello(_ context.Context, in SayHelloInput) (SayHelloOutput, error) {
        return SayHelloOutput{Message: "hello " + in.Name}, nil
    }
@@ -208,8 +208,8 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | 改动 | 写什么 | 发布顺序 | `pinned` Run | `auto_upgrade` Run |
 | --- | --- | --- | --- | --- |
 | Activity 内部实现（结构、语义不变） | 只改实现 | 滚动发布 Worker | 无影响 | 无影响 |
-| Activity 输入或输出加字段 | 加字段，`version` 不变（指纹已变）；实现把零值当「未提供」 | 新 build 与旧 build 并存 → 新 Program → 旧 Program 上的 `pinned` Run 跑完后下线旧 build | 留在旧 Program，任务由旧 build 执行（新 build 领到时被拒绝）；调度时只剩新 build 则暂停并记 `ConfigError`，改成 `auto_upgrade` 可恢复 | 下一个 Workflow Task 边界切到新 Program，由新 build 执行 |
-| Activity 语义变了、结构没变 | 升 `@Activity(version=...)` | 同上 | 同上 | 同上 |
+| Activity 输入或输出加字段 | 加字段，`type` 不变（指纹已变）；实现把零值当「未提供」 | 新 build 与旧 build 并存 → 新 Program → 旧 Program 上的 `pinned` Run 跑完后下线旧 build | 留在旧 Program，任务由旧 build 执行（新 build 领到时被拒绝）；调度时只剩新 build 则暂停并记 `ConfigError`，改成 `auto_upgrade` 可恢复 | 下一个 Workflow Task 边界切到新 Program，由新 build 执行 |
+| Activity 语义变了、结构没变 | 新 `type`（如 `fulfillment.quote-taxed`），旧 `type` 的实现原样保留，两个实现注册在同一个 Worker；Workflow 改调新 `type`，在途 Run 的 History 里已记过旧 `type` 的位置用 `GetVersion` 分支 | Worker（含两个 type）→ 新 Program → 不再有 Run 调用旧 `type` 后删除旧实现 | 继续调旧 `type`，新旧 build 都能执行 | 下一个 Workflow Task 边界切到新 Program，之后调度新 `type` |
 | Activity 破坏性变更（字段改名、改类型、删除），有 Run 会跨越这次改动 | 新 `type`（如 `order.charge-v2`）+ Workflow 里 `GetVersion` 分支；新旧实现注册在同一个 Worker | Worker（含两个 type）→ 新 Program | 继续调旧 `type` | 重放时 `GetVersion` 读回旧版本走旧 `type`；新执行走新 `type` |
 | 改包名、Go 类型名、函数名（Workflow id、Activity type、JSON 字段名与类型不变） | 直接改，重新生成 | 发布新 Program；Activity 契约不变，新旧 build 互相承接 | 留在启动时的 Program | 下一个 Workflow Task 边界切换，新类型表解码旧 JSON 载荷，重放通过 |
 | 改 JSON 字段名、删字段、改字段类型（Signal、Update、Workflow 输入、Activity / 子 Workflow 结果、SideEffect 的类型） | 分三步：新版本保留旧字段并新增新字段、代码两边都读 → 发送方改写新字段 → 记录过旧载荷的 Run 结束后删旧字段（`references/versioning.md`「换版前的载荷检查」） | Activity 类型改动同时按契约顺序发布 | 留在启动时的 Program | 换版前检查 History 里已有的载荷（含 Selector 回调里 `Get` 的 future、常量折叠出的名字）：新类型读不回（字段缺失、类型不兼容）时不换版，Run 以 `ConfigError`（`auto upgrade to ... refused: payloads recorded in history ...`）暂停；名字或类型无法静态确定的解码处在这类载荷的类型变了时同样暂停（`... the payload check cannot prove ...`）；只加字段照常换版 |
@@ -220,7 +220,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| Run 仍是 `running`，`config_error` 为 `activity "..." contract mismatch on worker "..." ...: version expected "v1" actual "v2"`（或 `input` / `output expected "wire:..." actual "wire:..."`），Console 顶部红色横幅 | 该 Run 的 Program 声明的契约与全部在线 Worker 的上报不一致，Server 停止为它派发 Workflow Task | 让契约一致的旧 build 重新上线后 set-policy `pinned`；或 set-policy `auto_upgrade` 切到最新 Program（前提是新 Program 能重放已有 History）。set-policy 清除 `ConfigError` 并立即重新调度 |
+| Run 仍是 `running`，`config_error` 为 `activity "..." contract mismatch on worker "..." ...: input expected "wire:..." actual "wire:..."`（或 `output expected ...`），Console 顶部红色横幅 | 该 Run 的 Program 声明的契约与全部在线 Worker 的上报不一致，Server 停止为它派发 Workflow Task | 让契约一致的旧 build 重新上线后 set-policy `pinned`；或 set-policy `auto_upgrade` 切到最新 Program（前提是新 Program 能重放已有 History）。set-policy 清除 `ConfigError` 并立即重新调度 |
 | Run 仍是 `running`，`config_error` 以 `workflow task cannot be prepared: ` 开头（例如 `workflow config not found: ...`、`invalid branch token`） | Server 准备这个 Run 的 Workflow Task 时遇到每次都会重现的失败（Run 采用的 Program 版本或定义读不到、Run 数据损坏），暂停 Run 而不是反复重投 | 修复原因（重新登记那一版 Program，或修复数据）后 set-policy 恢复；`auto_upgrade` 恢复时换到 latest |
 | Run 仍是 `running`，`config_error` 为 `auto upgrade to <version> refused: payloads recorded in history cannot be read by the candidate program: signal "approve": order.Approval -> order2.Approval: order_id: field is missing in the new type (removed or renamed); ...` | `auto_upgrade` 的 Run 换版前发现 History 里已有的载荷在 latest 的类型下读不回（字段删除、改名、改类型），没有换版 | set-policy `pinned` 在当前内容上跑完；或发布保留旧字段的版本后 set-policy `auto_upgrade` |
 | `upgrade_error` 为 `auto upgrade to <version> failed at workflow task N: non_deterministic_error: ...; retrying with backoff`，Console 黄色横幅 | `auto_upgrade` 的 Run 用新 Program 重放旧 History 失配 | 发布兼容内容（补 `GetVersion` 分支），下一次重试自动接手；或 set-policy `pinned` 留在旧内容 |

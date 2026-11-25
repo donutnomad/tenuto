@@ -7,7 +7,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// CallChargePayment 调度 activity saga.charge-payment（queue saga, version v1）。
+// CallChargePayment 调度 activity saga.charge-payment（queue saga）。
 func CallChargePayment(ctx workflow.Context, in ChargePaymentInput, opts ...workflow.ActivityOptions) (ChargePaymentOutput, error) {
 	var out ChargePaymentOutput
 	err := workflow.ExecuteActivity(ctx, ChargePayment, in, opts...).Get(ctx, &out)
@@ -17,7 +17,7 @@ func CallChargePayment(ctx workflow.Context, in ChargePaymentInput, opts ...work
 var _ activity.Caller[ChargePaymentInput, ChargePaymentOutput] = CallChargePayment
 var _ activity.Handler[ChargePaymentInput, ChargePaymentOutput] = ChargePayment
 
-// CallCreateShipment 调度 activity saga.create-shipment（queue saga, version v1）。
+// CallCreateShipment 调度 activity saga.create-shipment（queue saga）。
 func CallCreateShipment(ctx workflow.Context, in CreateShipmentInput, opts ...workflow.ActivityOptions) (CreateShipmentOutput, error) {
 	var out CreateShipmentOutput
 	err := workflow.ExecuteActivity(ctx, CreateShipment, in, opts...).Get(ctx, &out)
@@ -27,7 +27,7 @@ func CallCreateShipment(ctx workflow.Context, in CreateShipmentInput, opts ...wo
 var _ activity.Caller[CreateShipmentInput, CreateShipmentOutput] = CallCreateShipment
 var _ activity.Handler[CreateShipmentInput, CreateShipmentOutput] = CreateShipment
 
-// CallRefundPayment 调度 activity saga.refund-payment（queue saga, version v1）。
+// CallRefundPayment 调度 activity saga.refund-payment（queue saga）。
 func CallRefundPayment(ctx workflow.Context, in RefundPaymentInput, opts ...workflow.ActivityOptions) (RefundPaymentOutput, error) {
 	var out RefundPaymentOutput
 	err := workflow.ExecuteActivity(ctx, RefundPayment, in, opts...).Get(ctx, &out)
@@ -37,7 +37,7 @@ func CallRefundPayment(ctx workflow.Context, in RefundPaymentInput, opts ...work
 var _ activity.Caller[RefundPaymentInput, RefundPaymentOutput] = CallRefundPayment
 var _ activity.Handler[RefundPaymentInput, RefundPaymentOutput] = RefundPayment
 
-// CallReleaseInventory 调度 activity saga.release-inventory（queue saga, version v1）。
+// CallReleaseInventory 调度 activity saga.release-inventory（queue saga）。
 func CallReleaseInventory(ctx workflow.Context, in ReleaseInventoryInput, opts ...workflow.ActivityOptions) (ReleaseInventoryOutput, error) {
 	var out ReleaseInventoryOutput
 	err := workflow.ExecuteActivity(ctx, ReleaseInventory, in, opts...).Get(ctx, &out)
@@ -47,7 +47,7 @@ func CallReleaseInventory(ctx workflow.Context, in ReleaseInventoryInput, opts .
 var _ activity.Caller[ReleaseInventoryInput, ReleaseInventoryOutput] = CallReleaseInventory
 var _ activity.Handler[ReleaseInventoryInput, ReleaseInventoryOutput] = ReleaseInventory
 
-// CallReserveInventory 调度 activity saga.reserve-inventory（queue saga, version v1）。
+// CallReserveInventory 调度 activity saga.reserve-inventory（queue saga）。
 func CallReserveInventory(ctx workflow.Context, in ReserveInventoryInput, opts ...workflow.ActivityOptions) (ReserveInventoryOutput, error) {
 	var out ReserveInventoryOutput
 	err := workflow.ExecuteActivity(ctx, ReserveInventory, in, opts...).Get(ctx, &out)
@@ -58,23 +58,23 @@ var _ activity.Caller[ReserveInventoryInput, ReserveInventoryOutput] = CallReser
 var _ activity.Handler[ReserveInventoryInput, ReserveInventoryOutput] = ReserveInventory
 
 // RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。
-// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
+// 每个实现的契约（type、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
 // worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。
 // remote 契约的实现在别的进程，由那个进程登记。
 func RegisterActivities(registry *activity.Registry) error {
-	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.charge-payment", "v1", ChargePayment); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.charge-payment", ChargePayment); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.create-shipment", "v1", CreateShipment); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.create-shipment", CreateShipment); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.refund-payment", "v1", RefundPayment); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.refund-payment", RefundPayment); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.release-inventory", "v1", ReleaseInventory); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.release-inventory", ReleaseInventory); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.reserve-inventory", "v1", ReserveInventory); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.reserve-inventory", ReserveInventory); err != nil {
 		return err
 	}
 	return nil

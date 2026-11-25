@@ -20,7 +20,7 @@ func TestUndeclaredQueueAmbiguityBlocksScheduling(t *testing.T) {
 	activityTasks := newTestTaskQueue()
 	server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
 	defer server.Stop()
-	contract := protocol.ActivityContract{Type: "payments.charge", Version: "v1", Input: "ChargeInput.v1", Output: "Receipt.v1"}
+	contract := protocol.ActivityContract{Type: "payments.charge", Input: "ChargeInput.v1", Output: "Receipt.v1"}
 	for _, w := range []struct{ identity, queue string }{{"payment-1", "payments"}, {"billing-1", "billing"}} {
 		if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
 			Identity: w.identity, BuildID: w.identity + "@v1", TaskQueues: []string{w.queue},
@@ -30,7 +30,7 @@ func TestUndeclaredQueueAmbiguityBlocksScheduling(t *testing.T) {
 		}
 	}
 	wf := contractWorkflowConfig("undeclared-queue", map[string]program.ActivityRef{
-		"charge": {Type: contract.Type, Version: contract.Version, Input: contract.Input, Output: contract.Output},
+		"charge": {Type: contract.Type, Input: contract.Input, Output: contract.Output},
 	})
 	runID, wftID := startContractRun(t, mgr, server, wf)
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeCommand(), ""); err != nil {
@@ -62,7 +62,7 @@ func TestUndeclaredQueueAmbiguityBlocksScheduling(t *testing.T) {
 	}
 	route, err := server.resolveActivityRoute(dispatch.ActivityRouteRef{
 		Namespace: protocol.DefaultNamespace, ActivityID: "charge", Type: contract.Type,
-		Version: contract.Version, Input: contract.Input, Output: contract.Output,
+		Input: contract.Input, Output: contract.Output,
 	})
 	if err != nil || route.TaskQueue != "payments" {
 		t.Fatalf("route = %+v, err = %v; want payments once billing is gone", route, err)

@@ -103,15 +103,24 @@ func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	}
 	stage = "fulfilling"
 
-	// 跨进程调用 app-a：两个 Future 在同一个 Workflow Task 里调度，并行执行。
+	// 跨进程调用 app-a：reserve 与 quote 在同一个 Workflow Task 里调度，并行执行。
+	// 运费改用含税报价：调用新的 type fulfillment.quote-taxed。换 type 改变了这一步的命令，用 GetVersion
+	// 保护：已经调度过旧 quote 的 Run 重放时得到 DefaultVersion，继续走旧 type。
+	// 每个分支直接 ExecuteActivity(...).Get：结果能追溯到产生它的调用，auto_upgrade 换版前的载荷检查据此核对类型。
+	quoteTaxed := workflow.GetVersion(ctx, "quote-taxed", workflow.DefaultVersion, 1) != workflow.DefaultVersion
 	reserveFuture := workflow.ExecuteActivity(ctx, ReserveRemoteActivity, ReserveInput{OrderID: in.OrderID, SKU: in.SKU, Qty: in.Qty, Warehouse: "east"}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
-	quoteFuture := workflow.ExecuteActivity(ctx, QuoteRemoteActivity, QuoteInput{OrderID: in.OrderID, Qty: in.Qty}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
+	var quoted QuoteOutput
+	if quoteTaxed {
+		if err := workflow.ExecuteActivity(ctx, QuoteTaxedRemoteActivity, QuoteInput{OrderID: in.OrderID, Qty: in.Qty}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}).Get(ctx, &quoted); err != nil {
+			return OrderOutput{}, err
+		}
+	} else {
+		if err := workflow.ExecuteActivity(ctx, QuoteRemoteActivity, QuoteInput{OrderID: in.OrderID, Qty: in.Qty}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}).Get(ctx, &quoted); err != nil {
+			return OrderOutput{}, err
+		}
+	}
 	var reserved ReserveOutput
 	if err := reserveFuture.Get(ctx, &reserved); err != nil {
-		return OrderOutput{}, err
-	}
-	var quoted QuoteOutput
-	if err := quoteFuture.Get(ctx, &quoted); err != nil {
 		return OrderOutput{}, err
 	}
 

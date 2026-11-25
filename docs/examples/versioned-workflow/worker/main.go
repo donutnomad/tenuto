@@ -116,7 +116,7 @@ func registerActivities(registry *wfsdk.Registry, declared map[string]program.Ac
 	return nil
 }
 
-// register 按 workflow.json 里的 type 与 version 登记实现，并把实现的契约与生成产物对照。
+// register 按 workflow.json 里的 type 与 queue 登记实现，并把实现的契约与生成产物对照。
 //
 // 两边都是 wire 指纹（与 Go 类型身份无关）：generator 侧 config.WLangWireFingerprint，
 // worker 侧 activity.ContractOf。不一致说明 workflow.json 落后于实现，直接 fail fast，
@@ -126,7 +126,7 @@ func register[I, O any](registry *wfsdk.Registry, declared map[string]program.Ac
 	if !ok {
 		panic(fmt.Sprintf("workflow.json 缺少 Activity 符号 %s（先生成产物再启动 worker）", symbol))
 	}
-	expected, err := wfsdk.ContractOf[I, O](ref.Type, ref.Version)
+	expected, err := wfsdk.ContractOf[I, O](ref.Type)
 	if err != nil {
 		panic(fmt.Sprintf("计算 %s 的契约指纹失败: %v", ref.Type, err))
 	}
@@ -134,7 +134,7 @@ func register[I, O any](registry *wfsdk.Registry, declared map[string]program.Ac
 		panic(fmt.Sprintf("workflow.json 的 %s 契约与实现不一致（重新生成产物）：声明 input=%s output=%s，实现 input=%s output=%s",
 			ref.Type, ref.Input, ref.Output, expected.Input, expected.Output))
 	}
-	if err := wfsdk.RegisterActivityOnQueue(registry, ref.TaskQueue, ref.Type, ref.Version, fn); err != nil {
+	if err := wfsdk.RegisterActivityOnQueue(registry, ref.TaskQueue, ref.Type, fn); err != nil {
 		panic(fmt.Sprintf("注册 %s 失败: %v", ref.Type, err))
 	}
 }

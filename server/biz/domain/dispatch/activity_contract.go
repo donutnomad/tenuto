@@ -86,7 +86,7 @@ func DeclaredActivityContracts(wf *program.WorkflowConfig) map[string]protocol.A
 	}
 	contracts := make(map[string]protocol.ActivityContract, len(refs))
 	for _, ref := range refs {
-		contract := protocol.ActivityContract{Type: ref.Type, Version: ref.Version, Input: ref.Input, Output: ref.Output}
+		contract := protocol.ActivityContract{Type: ref.Type, Input: ref.Input, Output: ref.Output}
 		if !contract.HasDeclaration() {
 			continue
 		}

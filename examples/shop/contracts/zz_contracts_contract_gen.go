@@ -9,7 +9,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// CallCharge 调度 activity payments.charge（queue payments, version v1）。
+// CallCharge 调度 activity payments.charge（queue payments）。
 // 稳定 marker：ChargeRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 payments.charge，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -25,7 +25,7 @@ func CallCharge(ctx workflow.Context, in ChargeInput, opts ...workflow.ActivityO
 
 var _ activity.Caller[ChargeInput, ChargeOutput] = CallCharge
 
-// CallRelease 调度 activity warehouse.release（queue warehouse, version v1）。
+// CallRelease 调度 activity warehouse.release（queue warehouse）。
 // 稳定 marker：ReleaseRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 warehouse.release，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -41,7 +41,7 @@ func CallRelease(ctx workflow.Context, in ReleaseInput, opts ...workflow.Activit
 
 var _ activity.Caller[ReleaseInput, ReleaseOutput] = CallRelease
 
-// CallReserve 调度 activity warehouse.reserve（queue warehouse, version v1）。
+// CallReserve 调度 activity warehouse.reserve（queue warehouse）。
 // 稳定 marker：ReserveRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 warehouse.reserve，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。
@@ -57,7 +57,7 @@ func CallReserve(ctx workflow.Context, in ReserveInput, opts ...workflow.Activit
 
 var _ activity.Caller[ReserveInput, ReserveOutput] = CallReserve
 
-// CallShip 调度 activity warehouse.ship（queue warehouse, version v1）。
+// CallShip 调度 activity warehouse.ship（queue warehouse）。
 // 稳定 marker：ShipRemoteActivity 是 remote 契约的可导出标记函数。
 // runtime 只按该符号 BindSymbol 到 warehouse.ship，从不调用它；
 // 必须是函数而非变量：go2wlang 只把包级函数翻译成 symbol。

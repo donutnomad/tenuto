@@ -163,7 +163,7 @@ type NotifyOutput struct {
 
 // Notify 在 order-service 进程里执行。真实实现发邮件或短信，以 OrderID+Status 作为幂等键。
 //
-// @Activity(type="orders.notify",version=v1)
+// @Activity(type="orders.notify")
 func Notify(_ context.Context, in NotifyInput) (NotifyOutput, error) {
 	log.Printf("notify customer: order=%s status=%s %s", in.OrderID, in.Status, in.Reason)
 	return NotifyOutput{Sent: true}, nil

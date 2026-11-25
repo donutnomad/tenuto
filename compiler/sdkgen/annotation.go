@@ -24,11 +24,10 @@ type workflowAnnotation struct {
 
 // activityAnnotation 是 `@Activity(...)` 的解析结果。
 type activityAnnotation struct {
-	Type    string
-	Queue   string
-	Version string
-	Remote  bool
-	Pos     string // file:line
+	Type   string
+	Queue  string
+	Remote bool
+	Pos    string // file:line
 }
 
 // annotationEntry 是一条已解析的注解及其位置。
@@ -43,7 +42,7 @@ func (a annotationEntry) pos() string { return fmt.Sprintf("%s:%d", a.File, a.Li
 
 var (
 	workflowAnnotationKeys = map[string]bool{"type": true, "name": true, "policy": true, "version": true}
-	activityAnnotationKeys = map[string]bool{"type": true, "queue": true, "version": true}
+	activityAnnotationKeys = map[string]bool{"type": true, "queue": true}
 )
 
 // parseAnnotationLine 解析一条注解行。text 是去掉注释前缀并 trim 过的内容。
@@ -221,11 +220,10 @@ func toActivityAnnotation(entry annotationEntry) (activityAnnotation, error) {
 		return activityAnnotation{}, err
 	}
 	annotation := activityAnnotation{
-		Type:    entry.Values["type"],
-		Queue:   entry.Values["queue"],
-		Version: entry.Values["version"],
-		Remote:  entry.Kind == "RemoteActivity",
-		Pos:     entry.pos(),
+		Type:   entry.Values["type"],
+		Queue:  entry.Values["queue"],
+		Remote: entry.Kind == "RemoteActivity",
+		Pos:    entry.pos(),
 	}
 	if annotation.Type == "" {
 		return activityAnnotation{}, fmt.Errorf("%s: @%s 缺少 type", entry.pos(), entry.Kind)

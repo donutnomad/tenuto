@@ -73,29 +73,29 @@ func scheduleChargeTask() []historypkg.Command {
 
 func chargeContractWorkflow(id string) *program.WorkflowConfig {
 	return contractWorkflowConfig(id, map[string]program.ActivityRef{
-		"charge": {Type: "payments.charge", TaskQueue: "payments", Version: "v2", Input: "ChargeInput.v2", Output: "Receipt.v2"},
+		"charge": {Type: "payments.charge", TaskQueue: "payments", Input: "ChargeInput.v2", Output: "Receipt.v2"},
 	})
 }
 
 // 升级边界：auto_upgrade 的 Run 在选中 B 的 WFT 里，命令按 B 的声明选路。
 func TestUpgradeBoundaryRoutesByWorkflowTaskVersion(t *testing.T) {
 	const workflowID = "contract-upgrade-boundary"
-	register := func(t *testing.T, server *Server, build, version string) {
+	register := func(t *testing.T, server *Server, build, shape string) {
 		t.Helper()
 		if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
 			Identity: "pay-" + build, BuildID: build,
 			TaskQueues:    []string{"payments"},
 			ActivityTypes: []string{"payments.charge"},
 			Contracts: []activity.Contract{{
-				Type: "payments.charge", Version: version, Input: "ChargeInput." + version, Output: "Receipt." + version,
+				Type: "payments.charge", Input: "ChargeInput." + shape, Output: "Receipt." + shape,
 			}},
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	workflowFor := func(version string) *program.WorkflowConfig {
+	workflowFor := func(shape string) *program.WorkflowConfig {
 		return contractWorkflowConfig(workflowID, map[string]program.ActivityRef{
-			"charge": {Type: "payments.charge", TaskQueue: "payments", Version: version, Input: "ChargeInput." + version, Output: "Receipt." + version},
+			"charge": {Type: "payments.charge", TaskQueue: "payments", Input: "ChargeInput." + shape, Output: "Receipt." + shape},
 		})
 	}
 	for _, tc := range []struct {
@@ -143,7 +143,7 @@ func TestScheduleActivityContractMatchDispatches(t *testing.T) {
 		TaskQueues:    []string{"payments"},
 		ActivityTypes: []string{"payments.charge"},
 		Contracts: []activity.Contract{{
-			Type: "payments.charge", Version: "v2", Input: "ChargeInput.v2", Output: "Receipt.v2",
+			Type: "payments.charge", Input: "ChargeInput.v2", Output: "Receipt.v2",
 		}},
 	}); err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestScheduleActivityRejectsWorkerWithoutContract(t *testing.T) {
 	if err == nil {
 		t.Fatal("a worker without a contract must not receive a contract-declared activity")
 	}
-	for _, want := range []string{`"payments.charge"`, `"bare-worker"`, `version expected "v2" actual ""`} {
+	for _, want := range []string{`"payments.charge"`, `"bare-worker"`, `input expected "ChargeInput.v2" actual ""`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not contain %q", err.Error(), want)
 		}
@@ -197,20 +197,20 @@ func TestScheduleActivityContractMismatchBlocksDispatch(t *testing.T) {
 	activityTasks := newTestTaskQueue()
 	server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
 	defer server.Stop()
-	registerWorker := func(version, input, output string) {
+	registerWorker := func(input, output string) {
 		t.Helper()
 		if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
 			Identity: "pay-worker-1", BuildID: "pay@v1",
 			TaskQueues:    []string{"payments"},
 			ActivityTypes: []string{"payments.charge"},
 			Contracts: []activity.Contract{{
-				Type: "payments.charge", Version: version, Input: input, Output: output,
+				Type: "payments.charge", Input: input, Output: output,
 			}},
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	registerWorker("v1", "ChargeInput.v1", "Receipt.v1")
+	registerWorker("ChargeInput.v1", "Receipt.v1")
 	runID, wftID := startContractRun(t, mgr, server, chargeContractWorkflow("contract-mismatch"))
 
 	err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), "")
@@ -220,7 +220,6 @@ func TestScheduleActivityContractMismatchBlocksDispatch(t *testing.T) {
 	for _, want := range []string{
 		`"payments.charge"`,
 		`"pay-worker-1"`,
-		`version expected "v2" actual "v1"`,
 		`input expected "ChargeInput.v2" actual "ChargeInput.v1"`,
 		`output expected "Receipt.v2" actual "Receipt.v1"`,
 	} {
@@ -250,7 +249,7 @@ func TestScheduleActivityContractMismatchBlocksDispatch(t *testing.T) {
 	}
 
 	// 修复上报后用同一条命令重试：WFT 尚未提交，重新执行即可恢复。
-	registerWorker("v2", "ChargeInput.v2", "Receipt.v2")
+	registerWorker("ChargeInput.v2", "Receipt.v2")
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), ""); err != nil {
 		t.Fatalf("recovered contract must schedule: %v", err)
 	}
@@ -272,8 +271,8 @@ func TestSetWorkflowTargetRequiresAllStaticActivities(t *testing.T) {
 	}
 	wf := contractWorkflowConfig("target-coverage", map[string]program.ActivityRef{
 		// 两支都会写进 Program.Activities；未选中的分支同样要求 target 具备能力。
-		"charge.v1": {Type: "payments.charge", TaskQueue: "payments", Version: "v1"},
-		"charge.v2": {Type: "payments.charge", TaskQueue: "payments", Version: "v2"},
+		"charge.v1": {Type: "payments.charge", TaskQueue: "payments", Input: "ChargeInput.v1"},
+		"charge.v2": {Type: "payments.charge", TaskQueue: "payments", Input: "ChargeInput.v2"},
 		"reserve":   {Type: "inventory.reserve", TaskQueue: "inventory"},
 		"refund":    {Type: "payments.refund", TaskQueue: "payments"},
 	})
@@ -494,19 +493,18 @@ func TestActivityContractRoutingPrefersCompatibleWorker(t *testing.T) {
 	for _, worker := range []struct {
 		identity string
 		build    string
-		version  string
 		input    string
 		output   string
 	}{
-		{identity: "pay-worker-old", build: "pay@v1", version: "v1", input: "ChargeInput.v1", output: "Receipt.v1"},
-		{identity: "pay-worker-new", build: "pay@v2", version: "v2", input: "ChargeInput.v2", output: "Receipt.v2"},
+		{identity: "pay-worker-old", build: "pay@v1", input: "ChargeInput.v1", output: "Receipt.v1"},
+		{identity: "pay-worker-new", build: "pay@v2", input: "ChargeInput.v2", output: "Receipt.v2"},
 	} {
 		if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
 			Identity: worker.identity, BuildID: worker.build,
 			TaskQueues:    []string{"payments"},
 			ActivityTypes: []string{"payments.charge"},
 			Contracts: []activity.Contract{{
-				Type: "payments.charge", Version: worker.version, Input: worker.input, Output: worker.output,
+				Type: "payments.charge", Input: worker.input, Output: worker.output,
 			}},
 		}); err != nil {
 			t.Fatal(err)
@@ -542,17 +540,17 @@ func TestActivityContractRoutingRejectsAllIncompatibleWorkers(t *testing.T) {
 	for _, build := range []struct {
 		identity string
 		buildID  string
-		version  string
+		shape    string
 	}{
-		{identity: "pay-worker-a", buildID: "pay@a", version: "v1"},
-		{identity: "pay-worker-b", buildID: "pay@b", version: "v3"},
+		{identity: "pay-worker-a", buildID: "pay@a", shape: "v1"},
+		{identity: "pay-worker-b", buildID: "pay@b", shape: "v3"},
 	} {
 		if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
 			Identity: build.identity, BuildID: build.buildID,
 			TaskQueues:    []string{"payments"},
 			ActivityTypes: []string{"payments.charge"},
 			Contracts: []activity.Contract{{
-				Type: "payments.charge", Version: build.version, Input: "ChargeInput." + build.version, Output: "Receipt." + build.version,
+				Type: "payments.charge", Input: "ChargeInput." + build.shape, Output: "Receipt." + build.shape,
 			}},
 		}); err != nil {
 			t.Fatal(err)
@@ -564,7 +562,7 @@ func TestActivityContractRoutingRejectsAllIncompatibleWorkers(t *testing.T) {
 	if err == nil {
 		t.Fatal("all incompatible workers must fail explicitly")
 	}
-	if !strings.Contains(err.Error(), `version expected "v2"`) {
+	if !strings.Contains(err.Error(), `input expected "ChargeInput.v2"`) {
 		t.Fatalf("error must report expected/actual contract: %v", err)
 	}
 	if len(activityTasks.tasks) != 0 {
@@ -589,17 +587,17 @@ func TestActivityContractRoutingKeepsTargetIdentity(t *testing.T) {
 	for _, worker := range []struct {
 		identity string
 		build    string
-		version  string
+		shape    string
 	}{
-		{identity: "pay-worker-old", build: "pay@v1", version: "v1"},
-		{identity: "pay-worker-new", build: "pay@v2", version: "v2"},
+		{identity: "pay-worker-old", build: "pay@v1", shape: "v1"},
+		{identity: "pay-worker-new", build: "pay@v2", shape: "v2"},
 	} {
 		if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
 			Identity: worker.identity, BuildID: worker.build,
 			TaskQueues:    []string{"payments"},
 			ActivityTypes: []string{"payments.charge"},
 			Contracts: []activity.Contract{{
-				Type: "payments.charge", Version: worker.version, Input: "ChargeInput." + worker.version, Output: "Receipt." + worker.version,
+				Type: "payments.charge", Input: "ChargeInput." + worker.shape, Output: "Receipt." + worker.shape,
 			}},
 		}); err != nil {
 			t.Fatal(err)
@@ -626,22 +624,21 @@ func TestAppQueueTargetRouteKeepsBuildAndContracts(t *testing.T) {
 	activityTasks := newTestTaskQueue()
 	server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
 	defer server.Stop()
-	register := func(identity, build, version string, contractVersion string) {
+	register := func(identity, build, shape string) {
 		t.Helper()
 		if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
 			Identity: identity, BuildID: build, App: "payments",
 			ActivityTypes: []string{"payments.charge"},
 			Contracts: []activity.Contract{{
-				Type: "payments.charge", Version: contractVersion,
-				Input: "ChargeInput." + contractVersion, Output: "Receipt." + contractVersion,
+				Type: "payments.charge", Input: "ChargeInput." + shape, Output: "Receipt." + shape,
 			}},
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// target 的契约落后一个版本；另一个 worker 已经有兼容契约，选路不能漂移过去。
-	register("pay-worker", "pay@v1", "v1", "v1")
-	register("other-worker", "pay@v9", "v1", "v2")
+	register("pay-worker", "pay@v1", "v1")
+	register("other-worker", "pay@v9", "v2")
 	runID, wftID := startContractRunWithTarget(t, mgr, server, chargeContractWorkflow("contract-app-target"), "pay-worker")
 
 	err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, []historypkg.Command{{Type: historypkg.CmdScheduleActivity, StartToCloseTimeout: time.Minute, ActivityID: "charge", ActivityType: "payments.charge", TaskQueue: "payments"}}, "")
@@ -659,11 +656,11 @@ func TestAppQueueTargetRouteKeepsBuildAndContracts(t *testing.T) {
 	}
 
 	// target 升级契约后 route 解析必须保留 App 队列、target build 与上报契约，且不漂移到 other-worker。
-	register("pay-worker", "pay@v1", "v1", "v2")
+	register("pay-worker", "pay@v1", "v2")
 	route, routeErr := server.resolveActivityRoute(dispatch.ActivityRouteRef{
 		Namespace: protocol.DefaultNamespace, TargetWorkerIdentity: "pay-worker",
 		ActivityID: "charge", Type: "payments.charge", TaskQueue: "payments",
-		Version: "v2", Input: "ChargeInput.v2", Output: "Receipt.v2",
+		Input: "ChargeInput.v2", Output: "Receipt.v2",
 	})
 	if routeErr != nil {
 		t.Fatalf("resolve target route: %v", routeErr)
@@ -671,7 +668,7 @@ func TestAppQueueTargetRouteKeepsBuildAndContracts(t *testing.T) {
 	if route.TaskQueue != "payments" || route.BuildID != "pay@v1" || route.Identity != "pay-worker" {
 		t.Fatalf("route must stay on the pinned target with App queue/build, got %+v", route)
 	}
-	if len(route.Contracts) != 1 || route.Contracts[0].Version != "v2" {
+	if len(route.Contracts) != 1 || route.Contracts[0].Input != "ChargeInput.v2" {
 		t.Fatalf("target route must retain reported contracts, got %+v", route.Contracts)
 	}
 }
@@ -689,7 +686,7 @@ func TestExplicitQueueWithoutWorkerWaitsInsteadOfPausing(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	runID, wftID := startContractRun(t, mgr, server, chargeWorkflowDeclaring("explicit-queue-offline", "v1", "ChargeInput.v1", "Receipt.v1"))
+	runID, wftID := startContractRun(t, mgr, server, chargeWorkflowDeclaring("explicit-queue-offline", "ChargeInput.v1", "Receipt.v1"))
 	command := scheduleChargeCommand()
 	command[0].TaskQueue = "payments"
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, command, ""); err != nil {

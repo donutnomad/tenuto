@@ -141,7 +141,7 @@ func TestResolveTargetedActivityRoute(t *testing.T) {
 		{
 			name:          "Error Case: a declared contract needs a registration to compare with",
 			registrations: nil,
-			ref:           ActivityRouteRef{Namespace: "default", TargetWorkerIdentity: "pay-worker", ActivityID: "charge", Type: "payments.charge", Version: "v2"},
+			ref:           ActivityRouteRef{Namespace: "default", TargetWorkerIdentity: "pay-worker", ActivityID: "charge", Type: "payments.charge", Input: "ChargeInput.v2"},
 			wantErr:       ErrActivityRouteUnavailable,
 		},
 	} {
@@ -174,11 +174,11 @@ func TestCheckDeclaredActivityContract(t *testing.T) {
 			Program: []any{map[string]any{"return": nil}}, HandlerABISchema: programpkg.WLangHandlerABISchemaV1,
 		},
 		Activities: map[string]programpkg.ActivityRef{
-			"charge": {Type: "payments.charge", TaskQueue: "payments", Version: "v2"},
+			"charge": {Type: "payments.charge", TaskQueue: "payments", Input: "ChargeInput.v2"},
 		},
 	}
-	matching := ActivityRoute{Type: "payments.charge", Contracts: []protocol.ActivityContract{{Type: "payments.charge", Version: "v2"}}}
-	stale := ActivityRoute{Type: "payments.charge", Contracts: []protocol.ActivityContract{{Type: "payments.charge", Version: "v1"}}}
+	matching := ActivityRoute{Type: "payments.charge", Contracts: []protocol.ActivityContract{{Type: "payments.charge", Input: "ChargeInput.v2"}}}
+	stale := ActivityRoute{Type: "payments.charge", Contracts: []protocol.ActivityContract{{Type: "payments.charge", Input: "ChargeInput.v1"}}}
 	for _, test := range []struct {
 		name         string
 		workflow     *programpkg.WorkflowConfig

@@ -25,10 +25,10 @@ func TestActivityTaskQueues(t *testing.T) {
 	queued := func(t *testing.T) *activity.Registry {
 		t.Helper()
 		registry := activity.NewRegistry()
-		if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", "v1", queueActivity); err != nil {
+		if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", queueActivity); err != nil {
 			t.Fatal(err)
 		}
-		if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.notify", "v1", queueActivity); err != nil {
+		if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.notify", queueActivity); err != nil {
 			t.Fatal(err)
 		}
 		return registry
@@ -43,7 +43,7 @@ func TestActivityTaskQueues(t *testing.T) {
 
 	t.Run("unqueued activity adds default", func(t *testing.T) {
 		registry := queued(t)
-		if err := activity.RegisterActivity(registry, "audit.log", "v1", queueActivity); err != nil {
+		if err := activity.RegisterActivity(registry, "audit.log", queueActivity); err != nil {
 			t.Fatal(err)
 		}
 		got, err := activityTaskQueues(nil, registry)

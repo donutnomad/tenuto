@@ -1423,7 +1423,6 @@
       "symbol": "v1.Price",
       "type": "orders.price",
       "task_queue": "orders",
-      "version": "v1",
       "input": "wire:75ec047172ce4a09eb9843e95c665094",
       "output": "wire:0898cc8107ff28c7966e8689d55decbc"
     },
@@ -1431,7 +1430,6 @@
       "symbol": "v1.QuoteRemoteActivity",
       "type": "fulfillment.quote",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:aa89548036d83cd03cda421878c4dd91",
       "output": "wire:9ee1ccfb36f5fc9cc84a49436179a128"
     },
@@ -1439,7 +1437,6 @@
       "symbol": "v1.ReserveRemoteActivity",
       "type": "fulfillment.reserve",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:a3853d0050fc8a978880bdfc9dc776f4",
       "output": "wire:4d95f174e258133e1ba8be02e1b3027f"
     },
@@ -1447,7 +1444,6 @@
       "symbol": "v1.ShipRemoteActivity",
       "type": "fulfillment.ship",
       "task_queue": "fulfillment",
-      "version": "v1",
       "input": "wire:c70fc6b00b17478e7e0abf9664cb0949",
       "output": "wire:53ce38a4f6a517afd63a7d66213e07c9"
     }

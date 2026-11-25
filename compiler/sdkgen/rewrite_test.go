@@ -20,7 +20,7 @@ func rewriteFixture() (map[string][]Contract, string) {
 	return map[string][]Contract{
 		ownPath: {{
 			PkgDir: "/repo/app/orders", PkgName: "orders", ImportPath: ownPath,
-			Type: "orders.charge", Queue: "orders", Version: "v1",
+			Type: "orders.charge", Queue: "orders",
 			Input: "ChargeInput", Output: "ChargeOutput",
 			InputExpr: structType, OutputExpr: mustTypeExpr("ChargeOutput"),
 			CallName: "CallCharge", MarkerName: "Charge", Pos: "workflow.go:9",
@@ -28,14 +28,14 @@ func rewriteFixture() (map[string][]Contract, string) {
 		}},
 		inventoryPath: {{
 			PkgDir: "/repo/app/inventory", PkgName: "inventory", ImportPath: inventoryPath,
-			Type: "inventory.reserve", Queue: "inventory", Version: "v1",
+			Type: "inventory.reserve", Queue: "inventory",
 			Input: "ReserveInput", Output: "ReserveOutput",
 			InputExpr: mustTypeExpr("ReserveInput"), OutputExpr: mustTypeExpr("ReserveOutput"),
 			CallName: "CallReserve", MarkerName: "Reserve", Pos: "inventory.go:7",
 		}},
 		paymentsPath: {{
 			PkgDir: "/repo/app/payments", PkgName: "payments", ImportPath: paymentsPath,
-			Type: "payments.settle", Queue: "payments", Version: "v1", Remote: true,
+			Type: "payments.settle", Queue: "payments", Remote: true,
 			Input: "SettleInput", Output: "SettleOutput",
 			InputExpr: mustTypeExpr("SettleInput"), OutputExpr: mustTypeExpr("SettleOutput"),
 			CallName: "CallSettle", MarkerName: "SettleRemoteActivity",

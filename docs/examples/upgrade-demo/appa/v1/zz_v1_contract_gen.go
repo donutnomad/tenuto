@@ -7,7 +7,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// CallInspect 调度 activity fulfillment.inspect（queue fulfillment, version v1）。
+// CallInspect 调度 activity fulfillment.inspect（queue fulfillment）。
 func CallInspect(ctx workflow.Context, in InspectInput, opts ...workflow.ActivityOptions) (InspectOutput, error) {
 	var out InspectOutput
 	err := workflow.ExecuteActivity(ctx, Inspect, in, opts...).Get(ctx, &out)
@@ -17,7 +17,7 @@ func CallInspect(ctx workflow.Context, in InspectInput, opts ...workflow.Activit
 var _ activity.Caller[InspectInput, InspectOutput] = CallInspect
 var _ activity.Handler[InspectInput, InspectOutput] = Inspect
 
-// CallQuote 调度 activity fulfillment.quote（queue fulfillment, version v1）。
+// CallQuote 调度 activity fulfillment.quote（queue fulfillment）。
 func CallQuote(ctx workflow.Context, in QuoteInput, opts ...workflow.ActivityOptions) (QuoteOutput, error) {
 	var out QuoteOutput
 	err := workflow.ExecuteActivity(ctx, Quote, in, opts...).Get(ctx, &out)
@@ -27,7 +27,7 @@ func CallQuote(ctx workflow.Context, in QuoteInput, opts ...workflow.ActivityOpt
 var _ activity.Caller[QuoteInput, QuoteOutput] = CallQuote
 var _ activity.Handler[QuoteInput, QuoteOutput] = Quote
 
-// CallReserve 调度 activity fulfillment.reserve（queue fulfillment, version v1）。
+// CallReserve 调度 activity fulfillment.reserve（queue fulfillment）。
 func CallReserve(ctx workflow.Context, in ReserveInput, opts ...workflow.ActivityOptions) (ReserveOutput, error) {
 	var out ReserveOutput
 	err := workflow.ExecuteActivity(ctx, Reserve, in, opts...).Get(ctx, &out)
@@ -37,7 +37,7 @@ func CallReserve(ctx workflow.Context, in ReserveInput, opts ...workflow.Activit
 var _ activity.Caller[ReserveInput, ReserveOutput] = CallReserve
 var _ activity.Handler[ReserveInput, ReserveOutput] = Reserve
 
-// CallRestock 调度 activity fulfillment.restock（queue fulfillment, version v1）。
+// CallRestock 调度 activity fulfillment.restock（queue fulfillment）。
 func CallRestock(ctx workflow.Context, in RestockInput, opts ...workflow.ActivityOptions) (RestockOutput, error) {
 	var out RestockOutput
 	err := workflow.ExecuteActivity(ctx, Restock, in, opts...).Get(ctx, &out)
@@ -47,7 +47,7 @@ func CallRestock(ctx workflow.Context, in RestockInput, opts ...workflow.Activit
 var _ activity.Caller[RestockInput, RestockOutput] = CallRestock
 var _ activity.Handler[RestockInput, RestockOutput] = Restock
 
-// CallShip 调度 activity fulfillment.ship（queue fulfillment, version v1）。
+// CallShip 调度 activity fulfillment.ship（queue fulfillment）。
 func CallShip(ctx workflow.Context, in ShipInput, opts ...workflow.ActivityOptions) (ShipOutput, error) {
 	var out ShipOutput
 	err := workflow.ExecuteActivity(ctx, Ship, in, opts...).Get(ctx, &out)
@@ -58,23 +58,23 @@ var _ activity.Caller[ShipInput, ShipOutput] = CallShip
 var _ activity.Handler[ShipInput, ShipOutput] = Ship
 
 // RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。
-// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
+// 每个实现的契约（type、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
 // worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。
 // remote 契约的实现在别的进程，由那个进程登记。
 func RegisterActivities(registry *activity.Registry) error {
-	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.inspect", "v1", Inspect); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.inspect", Inspect); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.quote", "v1", Quote); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.quote", Quote); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.reserve", "v1", Reserve); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.reserve", Reserve); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.restock", "v1", Restock); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.restock", Restock); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.ship", "v1", Ship); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.ship", Ship); err != nil {
 		return err
 	}
 	return nil
