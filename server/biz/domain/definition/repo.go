@@ -22,10 +22,10 @@ type ConfigRepository interface {
 	GetWorkflowConfig(ref WorkflowConfigRef) (*programpkg.WorkflowConfig, error)
 	// LatestWorkflowConfigRefInNamespace 返回 active 引用；没有 active 时返回满足
 	// errors.Is(err, ErrWorkflowConfigNotFound) 的错误。
-	LatestWorkflowConfigRefInNamespace(namespace, workflowID string) (WorkflowConfigRef, error)
-	// ActiveWorkflowConfigRefsInNamespace 返回 namespace 内每个 workflow 的 active 引用，按 workflow ID 升序。
+	LatestWorkflowConfigRefInNamespace(namespace, workflowType string) (WorkflowConfigRef, error)
+	// ActiveWorkflowConfigRefsInNamespace 返回 namespace 内每个 workflow 的 active 引用，按 Workflow Type 升序。
 	ActiveWorkflowConfigRefsInNamespace(namespace string) ([]WorkflowConfigRef, error)
-	// ListWorkflowConfigRefsInNamespace 返回 namespace 内全部已存内容版本，按 workflow ID 升序，
+	// ListWorkflowConfigRefsInNamespace 返回 namespace 内全部已存内容版本，按 Workflow Type 升序，
 	// 同一 workflow 内按首次保存的先后排列。
 	ListWorkflowConfigRefsInNamespace(namespace string) ([]WorkflowConfigRef, error)
 }

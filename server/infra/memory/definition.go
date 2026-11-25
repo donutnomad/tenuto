@@ -44,8 +44,8 @@ func (s *DefinitionRepository) putConfigLocked(ref definition.WorkflowConfigRef,
 
 var _ definition.ConfigRepository = (*DefinitionRepository)(nil)
 
-func definitionKey(namespace, workflowID string) string {
-	return protocol.NormalizeNamespace(namespace) + "/" + workflowID
+func definitionKey(namespace, workflowType string) string {
+	return protocol.NormalizeNamespace(namespace) + "/" + workflowType
 }
 
 func (s *DefinitionRepository) SaveWorkflowConfigInNamespace(namespace string, wf *programpkg.WorkflowConfig) (definition.WorkflowConfigRef, error) {
@@ -58,7 +58,7 @@ func (s *DefinitionRepository) SaveWorkflowConfigInNamespace(namespace string, w
 		return definition.WorkflowConfigRef{}, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.Type, Version: version}
+	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowType: wf.Type, Version: version}
 	s.mu.Lock()
 	s.putConfigLocked(ref, cloned)
 	s.latest[definitionKey(namespace, wf.Type)] = ref
@@ -76,7 +76,7 @@ func (s *DefinitionRepository) SaveWorkflowConfigArtifactInNamespace(namespace s
 		return definition.WorkflowConfigRef{}, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.Type, Version: version}
+	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowType: wf.Type, Version: version}
 	s.mu.Lock()
 	s.putConfigLocked(ref, cloned)
 	s.mu.Unlock()
@@ -91,7 +91,7 @@ func (s *DefinitionRepository) WorkflowConfigEnrollStateInNamespace(namespace st
 	if _, exists := s.configs[ref]; !exists {
 		return true, nil
 	}
-	_, hasLatest := s.latest[definitionKey(ref.Namespace, ref.WorkflowID)]
+	_, hasLatest := s.latest[definitionKey(ref.Namespace, ref.WorkflowType)]
 	return !hasLatest, nil
 }
 
@@ -106,7 +106,7 @@ func (s *DefinitionRepository) EnrollWorkflowConfigInNamespace(namespace string,
 		return definition.WorkflowConfigRef{}, false, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.Type, Version: version}
+	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowType: wf.Type, Version: version}
 	key := definitionKey(namespace, wf.Type)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -126,24 +126,24 @@ func (s *DefinitionRepository) GetWorkflowConfig(ref definition.WorkflowConfigRe
 	wf := s.configs[ref].config
 	s.mu.RUnlock()
 	if wf == nil {
-		return nil, fmt.Errorf("%w: %s/%s@%s", definition.ErrWorkflowConfigNotFound, ref.Namespace, ref.WorkflowID, ref.Version)
+		return nil, fmt.Errorf("%w: %s/%s@%s", definition.ErrWorkflowConfigNotFound, ref.Namespace, ref.WorkflowType, ref.Version)
 	}
 	// 保存时已复制一份，内容版本不可变：调用方共享这一份只读配置。
 	return wf, nil
 }
 
-func (s *DefinitionRepository) LatestWorkflowConfigRefInNamespace(namespace, workflowID string) (definition.WorkflowConfigRef, error) {
+func (s *DefinitionRepository) LatestWorkflowConfigRefInNamespace(namespace, workflowType string) (definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
 	s.mu.RLock()
-	ref, ok := s.latest[definitionKey(namespace, workflowID)]
+	ref, ok := s.latest[definitionKey(namespace, workflowType)]
 	s.mu.RUnlock()
 	if !ok {
-		return definition.WorkflowConfigRef{}, fmt.Errorf("%w: %s/%s latest version", definition.ErrWorkflowConfigNotFound, namespace, workflowID)
+		return definition.WorkflowConfigRef{}, fmt.Errorf("%w: %s/%s latest version", definition.ErrWorkflowConfigNotFound, namespace, workflowType)
 	}
 	return ref, nil
 }
 
-// ActiveWorkflowConfigRefsInNamespace 按 workflow ID 升序返回 active 引用，与 gorm 实现一致。
+// ActiveWorkflowConfigRefsInNamespace 按 Workflow Type 升序返回 active 引用，与 gorm 实现一致。
 func (s *DefinitionRepository) ActiveWorkflowConfigRefsInNamespace(namespace string) ([]definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
 	s.mu.RLock()
@@ -154,11 +154,11 @@ func (s *DefinitionRepository) ActiveWorkflowConfigRefsInNamespace(namespace str
 			refs = append(refs, ref)
 		}
 	}
-	slices.SortFunc(refs, func(a, b definition.WorkflowConfigRef) int { return strings.Compare(a.WorkflowID, b.WorkflowID) })
+	slices.SortFunc(refs, func(a, b definition.WorkflowConfigRef) int { return strings.Compare(a.WorkflowType, b.WorkflowType) })
 	return refs, nil
 }
 
-// ListWorkflowConfigRefsInNamespace 按 (workflow ID, 首次保存时间, 版本) 排序，与 gorm 实现一致。
+// ListWorkflowConfigRefsInNamespace 按 (Workflow Type, 首次保存时间, 版本) 排序，与 gorm 实现一致。
 func (s *DefinitionRepository) ListWorkflowConfigRefsInNamespace(namespace string) ([]definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
 	s.mu.RLock()
@@ -171,7 +171,7 @@ func (s *DefinitionRepository) ListWorkflowConfigRefsInNamespace(namespace strin
 	}
 	slices.SortFunc(refs, func(a, b definition.WorkflowConfigRef) int {
 		return cmp.Or(
-			strings.Compare(a.WorkflowID, b.WorkflowID),
+			strings.Compare(a.WorkflowType, b.WorkflowType),
 			s.configs[a].createdAt.Compare(s.configs[b].createdAt),
 			strings.Compare(a.Version, b.Version),
 		)

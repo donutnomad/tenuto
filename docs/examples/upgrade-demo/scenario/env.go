@@ -290,7 +290,7 @@ func (e *Env) latest(workflowType string) string {
 	e.must(e.admin.post(e.ctx(), runtimeapi.WorkflowRuntimeListConfigsPath,
 		runtimeapi.WorkflowRuntimeListConfigsRequest{Namespace: e.Namespace}, &configs))
 	for _, item := range configs.Items {
-		if item.WorkflowID == workflowType {
+		if item.WorkflowType == workflowType {
 			return item.WorkflowVersion
 		}
 	}

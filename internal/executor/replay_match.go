@@ -78,7 +78,7 @@ func commandMatchesEvent(command history.Command, event history.Event) bool {
 	case history.CmdStartChildWorkflow:
 		return event.ChildWorkflowStarted != nil &&
 			event.ChildWorkflowStarted.ChildID == command.ChildID &&
-			event.ChildWorkflowStarted.Name == command.WorkflowID
+			event.ChildWorkflowStarted.Name == command.WorkflowType
 	case history.CmdRecordMarker:
 		return event.MarkerRecorded != nil && event.MarkerRecorded.MarkerName == command.MarkerName
 	case history.CmdCompleteWorkflowUpdate:
@@ -141,7 +141,7 @@ func describeCommand(command history.Command) string {
 	case history.CmdRequestCancelChildWorkflow:
 		return fmt.Sprintf("RequestCancelChildWorkflow(child=%s)", command.ChildID)
 	case history.CmdStartChildWorkflow:
-		return fmt.Sprintf("StartChildWorkflow(child=%s, workflow=%s)", command.ChildID, command.WorkflowID)
+		return fmt.Sprintf("StartChildWorkflow(child=%s, workflow=%s)", command.ChildID, command.WorkflowType)
 	case history.CmdRecordMarker:
 		return fmt.Sprintf("RecordMarker(name=%s, id=%s)", command.MarkerName, command.MarkerID)
 	case history.CmdCompleteWorkflowUpdate:

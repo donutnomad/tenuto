@@ -24,13 +24,13 @@ func (s *Server) startChildWorkflowRunWithRef(ctx context.Context, req parentChi
 	if req.childID == "" {
 		return protocol.InvalidRequestf("child workflow child id is empty")
 	}
-	if req.configRef.WorkflowID == "" || req.configRef.Version == "" {
+	if req.configRef.WorkflowType == "" || req.configRef.Version == "" {
 		return protocol.InvalidRequestf("child workflow config ref is incomplete")
 	}
 	child := execution.ChildStart{
 		ParentRunID: req.parentRunID, ChildID: req.childID,
 		ChildRunID: req.childRunID, ScheduledEventID: req.scheduledEventID,
-		Namespace: req.configRef.Namespace, WorkflowID: req.configRef.WorkflowID,
+		Namespace: req.configRef.Namespace, WorkflowType: req.configRef.WorkflowType,
 		ConfigVersion: req.configRef.Version, Input: req.input,
 	}
 	now := s.clock.Now()

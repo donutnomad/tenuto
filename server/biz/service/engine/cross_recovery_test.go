@@ -51,13 +51,13 @@ func seedRunWithPendingState(t *testing.T, srv *Server, mgr execution.ExecutionM
 	if err != nil {
 		t.Fatal(err)
 	}
-	child := &execution.Run{ID: childRunID, WorkflowID: childRef.WorkflowID, WorkflowType: childRef.WorkflowID, WorkflowConfigVersion: childRef.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
+	child := &execution.Run{ID: childRunID, WorkflowID: childRef.WorkflowType, WorkflowType: childRef.WorkflowType, WorkflowConfigVersion: childRef.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(child)) }); err != nil {
 		t.Fatal(err)
 	}
 	if err := mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 		RunID: runID, ScheduledEventID: 999, ChildID: "child_1", ChildRunID: childRunID,
-		WorkflowID: childRef.WorkflowID, WorkflowConfigVersion: childRef.Version,
+		WorkflowType: childRef.WorkflowType, WorkflowConfigVersion: childRef.Version,
 		Status: execution.ChildWorkflowStatusEnums.Started, Input: map[string]any{"x": 1},
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}); err != nil {

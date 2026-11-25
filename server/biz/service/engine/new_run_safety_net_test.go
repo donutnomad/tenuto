@@ -27,7 +27,7 @@ func TestCronRun_InitiatorAttemptFirstRunIDSearchAttributes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runID, err := server.StartWorkflowForCron(ctx, "", ref.WorkflowID, ref.WorkflowID, map[string]any{"key": "val"}, nil)
+	runID, err := server.StartWorkflowForCron(ctx, "", ref.WorkflowType, ref.WorkflowType, map[string]any{"key": "val"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestRetryRun_InheritsStartSearchAttributesOnly(t *testing.T) {
 	const run1ID = "run-retry-start-sa-1"
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error {
 		return tx.CreateRun(WithRootBranch(&execution.Run{
-			ID: run1ID, WorkflowID: ref.WorkflowID, WorkflowType: ref.WorkflowID, WorkflowConfigVersion: ref.Version,
+			ID: run1ID, WorkflowID: ref.WorkflowType, WorkflowType: ref.WorkflowType, WorkflowConfigVersion: ref.Version,
 			FirstRunID: run1ID, Status: history.StatusRunning, Attempt: 1, Initiator: execution.InitiatorEnums.Workflow,
 			SearchAttributes: map[string]string{"env": "prod", "biz": "x", "TemporalChangeVersion": `["foo-1"]`},
 			IsCurrent:        true, CreatedAt: time.Now(),
@@ -94,7 +94,7 @@ func TestRetryRun_InheritsStartSearchAttributesOnly(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	started := history.NewWorkflowStartedEvent(nil, run1ID, "", ref.WorkflowID, ref.WorkflowID, 0)
+	started := history.NewWorkflowStartedEvent(nil, run1ID, "", ref.WorkflowType, ref.WorkflowType, 0)
 	started.WorkflowStarted.SearchAttributes = map[string]string{"env": "prod"}
 	if _, err := mgr.Append(run1ID, run1ID, run1ID, started); err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestRetryRun_InheritsStartSearchAttributesOnly(t *testing.T) {
 	if err := server.failWorkflow(run1ID, protocol.Failure{Message: "transient error"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	newRun := waitRetryRun(t, mgr, ref.WorkflowID, run1ID)
+	newRun := waitRetryRun(t, mgr, ref.WorkflowType, run1ID)
 	if len(newRun.SearchAttributes) != 1 || newRun.SearchAttributes["env"] != "prod" {
 		t.Fatalf("retry run search attributes = %v, want only start-time env=prod", newRun.SearchAttributes)
 	}
@@ -137,8 +137,8 @@ func TestRetryRun_SearchAttributesInherited(t *testing.T) {
 	run1ID := "run-retry-sa-1"
 	run1 := &execution.Run{
 		ID:                    run1ID,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            run1ID,
 		Status:                history.StatusRunning,
@@ -154,7 +154,7 @@ func TestRetryRun_SearchAttributesInherited(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	newRun := waitRetryRun(t, mgr, ref.WorkflowID, run1ID)
+	newRun := waitRetryRun(t, mgr, ref.WorkflowType, run1ID)
 	if newRun.SearchAttributes["env"] != "prod" || newRun.SearchAttributes["tier"] != "gold" {
 		t.Errorf("SearchAttributes not inherited: got %v", newRun.SearchAttributes)
 	}
@@ -187,8 +187,8 @@ func TestRetryRun_ContinuedRunIDSet(t *testing.T) {
 	oldRunID := "run-retry-contid-1"
 	oldRun := &execution.Run{
 		ID:                    oldRunID,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            oldRunID,
 		Status:                history.StatusRunning,
@@ -208,7 +208,7 @@ func TestRetryRun_ContinuedRunIDSet(t *testing.T) {
 	for time.Now().Before(deadline) {
 		runs, _ := runsByStatus(mgr, history.StatusRunning)
 		for _, r := range runs {
-			if r.ID != oldRunID && r.WorkflowID == ref.WorkflowID {
+			if r.ID != oldRunID && r.WorkflowID == ref.WorkflowType {
 				newRun = r
 				break
 			}

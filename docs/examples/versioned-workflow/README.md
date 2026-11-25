@@ -173,7 +173,7 @@ v1/v2 都先等待 `release`，用于保留观察中的运行。同一 namespace
 ## 三层版本与旧分支生命周期
 
 1. **源码兼容分支**：v1 的 `GetVersion(ctx, "charge-policy", 3, 4)` 在新执行记录版本 4；v2 的 `GetVersion(ctx, "charge-policy", 3, 6)` 在新执行记录版本 6，重放 v1 历史时读回 4，选择原 Charge 分支。历史越过该调用却没有 marker 时得到 `workflow.DefaultVersion`（-1），落在 `[3, 6]` 之外，Workflow Task 以非确定性错误失败（`TestMarkerlessHistoryIsOutsideSupportedRange`）；要接住这类历史，把 `minSupported` 写成 `workflow.DefaultVersion`。保持 change ID 稳定，并保留旧历史需要的活动顺序和结果语义。
-2. **服务端配置版本与 active**：注册新版配置让后续按 workflow ID 启动的运行选中当前 active；已创建运行固定引用其配置。旧运行继续使用已注册旧 Program 的现象由版本固定实现。`example_test.go` 额外把 v1 历史直接交给 v2 Program，验证源码兼容分支本身，测试结果分别为 legacy / legacy / v2。
+2. **服务端配置版本与 active**：注册新版配置让后续按 Workflow Type 启动的运行选中当前 active；已创建运行固定引用其配置。旧运行继续使用已注册旧 Program 的现象由版本固定实现。`example_test.go` 额外把 v1 历史直接交给 v2 Program，验证源码兼容分支本身，测试结果分别为 legacy / legacy / v2。
 3. **Activity worker build**：活动类型与队列决定任务投到哪里，队列上契约一致的任一 build 执行它。worker 的 BuildID 在启动配置中管理，单个 Activity 调用不指定 build。
 
 清理旧分支前，应确认所有会交给当前 Program 重放的旧历史均已退出保留/重放范围，包含恢复、reset 和保留历史的运维路径；记录版本 1 或缺少 marker 的历史仍可能依赖旧 Charge 逻辑。运行通过服务端固定旧 Program 继续执行，与当前源码里是否保留分支是两项独立事实。

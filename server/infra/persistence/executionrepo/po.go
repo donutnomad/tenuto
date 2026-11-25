@@ -361,7 +361,7 @@ type ChildWorkflowStatePO struct {
 	ScheduledEventID      int64     `gorm:"column:scheduled_event_id"`
 	ChildID               string    `gorm:"column:child_id"`
 	ChildRunID            string    `gorm:"column:child_run_id"`
-	WorkflowID            string    `gorm:"column:workflow_id"`
+	WorkflowType          string    `gorm:"column:workflow_type"`
 	WorkflowConfigVersion string    `gorm:"column:workflow_config_version"`
 	Status                string    `gorm:"column:status"`
 	ParentClosePolicy     string    `gorm:"column:parent_close_policy"`
@@ -383,7 +383,7 @@ CREATE TABLE IF NOT EXISTS tenuto_child_workflow_states (
   scheduled_event_id      BIGINT       NOT NULL,
   child_id                VARCHAR(191) NOT NULL DEFAULT '',
   child_run_id            VARCHAR(191) NOT NULL DEFAULT '',
-  workflow_id             VARCHAR(191) NOT NULL DEFAULT '',
+  workflow_type           VARCHAR(191) NOT NULL DEFAULT '',
   workflow_config_version VARCHAR(191) NOT NULL DEFAULT '',
   status                  VARCHAR(32)  NOT NULL,
   parent_close_policy     VARCHAR(32)  NOT NULL DEFAULT '',

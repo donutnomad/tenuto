@@ -30,7 +30,7 @@ func TestRecoverFailedAutoUpgradeAttemptRetriesLatest(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := &execution.Run{
-		ID: "recover-upgrade-run", Namespace: "default", WorkflowID: refA.WorkflowID, WorkflowType: refA.WorkflowID,
+		ID: "recover-upgrade-run", Namespace: "default", WorkflowID: refA.WorkflowType, WorkflowType: refA.WorkflowType,
 		WorkflowConfigVersion: refA.Version, OriginalWorkflowConfigVersion: refA.Version,
 		Policy: execution.RunPolicyAutoUpgrade, Status: history.StatusRunning, CreatedAt: time.Now(),
 		UpgradeError: "auto upgrade to " + refB.Version + " failed; retrying with backoff",

@@ -43,7 +43,7 @@ describe("management request bodies", () => {
     const fetch = captureRequest()
     await api.setWorkerTarget("validation", "probe", "B")
     await api.setWorkerTarget("validation", "probe", "")
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ namespace: "validation", workflow_id: "probe", target_worker_identity: "B" })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ namespace: "validation", workflow_type: "probe", target_worker_identity: "B" })
     expect(JSON.parse(fetch.mock.calls[1][1].body).target_worker_identity).toBe("")
   })
 })

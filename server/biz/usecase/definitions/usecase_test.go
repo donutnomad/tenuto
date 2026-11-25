@@ -67,7 +67,7 @@ func newEnv() *testEnv {
 }
 
 func TestRegisterWorkflowVersionsPerNamespace(t *testing.T) {
-	// Happy Path: 同一 workflow ID 在两个 namespace 各有自己的内容版本
+	// Happy Path: 同一 Workflow Type 在两个 namespace 各有自己的内容版本
 	env := newEnv()
 	first, err := env.usecase.RegisterWorkflowInNamespace("tenant-a", &programpkg.WorkflowConfig{Type: "payments", Name: "Payments A", Program: programtest.Noop()})
 	if err != nil {
@@ -77,7 +77,7 @@ func TestRegisterWorkflowVersionsPerNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Namespace == second.Namespace || first.WorkflowID != second.WorkflowID {
+	if first.Namespace == second.Namespace || first.WorkflowType != second.WorkflowType {
 		t.Fatalf("refs do not represent separate tenant definitions: first=%+v second=%+v", first, second)
 	}
 	firstConfig, err := env.store.GetWorkflowConfig(first)

@@ -1052,7 +1052,7 @@ func TestTaskQWorkflowTaskTimeoutRequeuesAndCompletesWithNewWorker(t *testing.T)
 		t.Fatal(err)
 	}
 	run := execution.NewRun(execution.NewRunOptions{
-		ID: "run-taskq-workflow-task-timeout", WorkflowID: ref.WorkflowID, WorkflowType: ref.WorkflowID, WorkflowConfigVersion: ref.Version,
+		ID: "run-taskq-workflow-task-timeout", WorkflowID: ref.WorkflowType, WorkflowType: ref.WorkflowType, WorkflowConfigVersion: ref.Version,
 	})
 	if err := workflowStore.Executions.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(run) }); err != nil {
 		t.Fatal(err)

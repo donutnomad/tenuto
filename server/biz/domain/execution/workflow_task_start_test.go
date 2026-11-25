@@ -12,7 +12,7 @@ import (
 
 func TestStartWorkflowTaskBuildsHistorySnapshot(t *testing.T) {
 	store := memory.NewExecutionManager()
-	current := execution.NewRun(execution.NewRunOptions{ID: "run-started", WorkflowID: "flow", WorkflowConfigVersion: "v1", CreatedAt: time.Now()})
+	current := execution.NewRun(execution.NewRunOptions{ID: "run-started", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1", CreatedAt: time.Now()})
 	if err := store.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(current) }); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestStartWorkflowTaskBuildsHistorySnapshot(t *testing.T) {
 // startedWorkflowTask 建一个 Run，调度并领取一个 WFT（sticky 交给 worker-a），返回 WFT 的调度事件 ID。
 func startedWorkflowTask(t *testing.T, store *memory.ExecutionManager, runID string, startedAt time.Time, timeout time.Duration) int64 {
 	t.Helper()
-	run := execution.NewRun(execution.NewRunOptions{ID: runID, WorkflowID: "flow-" + runID, WorkflowConfigVersion: "v1", CreatedAt: startedAt})
+	run := execution.NewRun(execution.NewRunOptions{ID: runID, WorkflowID: "flow-" + runID, WorkflowType: "flow", WorkflowConfigVersion: "v1", CreatedAt: startedAt})
 	if err := store.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(run) }); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestStartWorkflowTaskLeavesNoActivationWhenStartedWriteFails(t *testing.T) 
 	// Error Case：激活已在事务内写入、Started 的写入失败：事务回滚，不留下没有截止时间的激活，
 	// 下一份投递照常开始这个 WFT。
 	store := memory.NewExecutionManager()
-	run := execution.NewRun(execution.NewRunOptions{ID: "run-start-fail", WorkflowID: "flow", WorkflowConfigVersion: "v1", CreatedAt: time.Now()})
+	run := execution.NewRun(execution.NewRunOptions{ID: "run-start-fail", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1", CreatedAt: time.Now()})
 	if err := store.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(run) }); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestStartWorkflowTaskSuggestsContinueAsNewByStoreLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := execution.NewRun(execution.NewRunOptions{ID: "run-limits", WorkflowID: "flow", WorkflowConfigVersion: "v1", CreatedAt: time.Now()})
+	run := execution.NewRun(execution.NewRunOptions{ID: "run-limits", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1", CreatedAt: time.Now()})
 	if err := store.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(run) }); err != nil {
 		t.Fatal(err)
 	}

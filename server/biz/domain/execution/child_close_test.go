@@ -11,7 +11,7 @@ import (
 
 func TestPropagateChildCloseRecoversMissingStateOnce(t *testing.T) {
 	store := memory.NewExecutionManager()
-	parent := execution.NewRun(execution.NewRunOptions{ID: "parent", WorkflowID: "flow", WorkflowConfigVersion: "v1"})
+	parent := execution.NewRun(execution.NewRunOptions{ID: "parent", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1"})
 	tree, branch, started, err := execution.PrepareStartedRun(parent, "Flow", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestPropagateChildCloseRecoversMissingStateOnce(t *testing.T) {
 // Edge Case: 父 Run 已结束时，子 Run 的终态只更新子关联状态，父 History 不再增长。
 func TestPropagateChildCloseLeavesTerminalParentHistoryUntouched(t *testing.T) {
 	store := memory.NewExecutionManager()
-	parent := execution.NewRun(execution.NewRunOptions{ID: "parent", WorkflowID: "flow", WorkflowConfigVersion: "v1"})
+	parent := execution.NewRun(execution.NewRunOptions{ID: "parent", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1"})
 	tree, branch, started, err := execution.PrepareStartedRun(parent, "Flow", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestPropagateChildCloseLeavesTerminalParentHistoryUntouched(t *testing.T) {
 		t.Fatalf("parent history = %+v, err = %v; want WorkflowStarted and WorkflowTerminated only", events, err)
 	}
 	state, found, err := store.GetChildWorkflowState(parent.ID, child.ParentScheduledEventID)
-	if err != nil || !found || state.Status != execution.ChildWorkflowStatusEnums.Completed || state.WorkflowID != "subflow" {
+	if err != nil || !found || state.Status != execution.ChildWorkflowStatusEnums.Completed || state.WorkflowType != "subflow" {
 		t.Fatalf("child state = %+v, found = %v, err = %v", state, found, err)
 	}
 }

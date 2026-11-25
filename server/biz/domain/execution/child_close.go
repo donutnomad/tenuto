@@ -70,11 +70,11 @@ func PropagateChildClose(tx ExecutionTx, request ChildClose) (propagated bool, e
 		}
 	}
 	if !found {
-		// ChildWorkflowState.WorkflowID 记子 Workflow 的类型；子 Run 的 WorkflowID 是它自己的实例 ID。
+		// ChildWorkflowState.WorkflowType 记子 Workflow 的类型；子 Run 的 WorkflowID 是它自己的实例 ID。
 		state = &ChildWorkflowState{
 			RunID: child.ParentRunID, ScheduledEventID: child.ParentScheduledEventID,
 			ChildID: child.ParentChildID, ChildRunID: child.ID,
-			WorkflowID: child.WorkflowType, WorkflowConfigVersion: child.WorkflowConfigVersion,
+			WorkflowType: child.WorkflowType, WorkflowConfigVersion: child.WorkflowConfigVersion,
 			CreatedAt: request.Now,
 		}
 	}

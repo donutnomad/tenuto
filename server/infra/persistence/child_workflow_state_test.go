@@ -16,7 +16,7 @@ func TestChildWorkflowStateGormRoundTrip(t *testing.T) {
 		ScheduledEventID:      10,
 		ChildID:               "child_1",
 		ChildRunID:            "child-run-1",
-		WorkflowID:            "child-flow",
+		WorkflowType:          "child-flow",
 		WorkflowConfigVersion: "v1",
 		Status:                execution.ChildWorkflowStatusEnums.Initiated,
 		Input:                 map[string]any{"order_id": "o-1"},
@@ -52,9 +52,9 @@ func TestChildWorkflowStateGormRoundTrip(t *testing.T) {
 func TestChildWorkflowStateGormListDelete(t *testing.T) {
 	store := newTestStore(t)
 	for _, id := range []int64{20, 10} {
-		_ = store.Executions.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-1", ScheduledEventID: id, ChildID: "c", WorkflowID: "wf", Status: execution.ChildWorkflowStatusEnums.Initiated})
+		_ = store.Executions.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-1", ScheduledEventID: id, ChildID: "c", WorkflowType: "wf", Status: execution.ChildWorkflowStatusEnums.Initiated})
 	}
-	_ = store.Executions.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-2", ScheduledEventID: 30, ChildID: "c", WorkflowID: "wf", Status: execution.ChildWorkflowStatusEnums.Initiated})
+	_ = store.Executions.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-2", ScheduledEventID: 30, ChildID: "c", WorkflowType: "wf", Status: execution.ChildWorkflowStatusEnums.Initiated})
 	list, err := store.Executions.ListChildWorkflowStates("parent-1")
 	if err != nil || len(list) != 2 {
 		t.Fatalf("list = %d err=%v", len(list), err)

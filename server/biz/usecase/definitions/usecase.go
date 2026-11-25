@@ -128,7 +128,7 @@ func (u *UseCase) EnrollWorkflowInNamespace(namespace string, workflow *programp
 		return definition.WorkflowConfigRef{}, err
 	}
 	activating, err := u.configs.WorkflowConfigEnrollStateInNamespace(namespace, definition.WorkflowConfigRef{
-		Namespace: namespace, WorkflowID: workflow.Type, Version: version,
+		Namespace: namespace, WorkflowType: workflow.Type, Version: version,
 	})
 	if err != nil {
 		return definition.WorkflowConfigRef{}, err
@@ -146,11 +146,11 @@ func (u *UseCase) EnrollWorkflowInNamespace(namespace string, workflow *programp
 }
 
 // SetWorkflowWorkerTarget 为新 Run 发布一个指向 identity 的不可变配置版本。
-func (u *UseCase) SetWorkflowWorkerTarget(namespace, workflowID, identity string) (definition.WorkflowConfigRef, error) {
-	if workflowID == "" {
-		return definition.WorkflowConfigRef{}, protocol.InvalidRequestf("workflow_id is required")
+func (u *UseCase) SetWorkflowWorkerTarget(namespace, workflowType, identity string) (definition.WorkflowConfigRef, error) {
+	if workflowType == "" {
+		return definition.WorkflowConfigRef{}, protocol.InvalidRequestf("workflow_type is required")
 	}
-	ref, err := definition.ActiveWorkflowRef(u.configs, namespace, workflowID)
+	ref, err := definition.ActiveWorkflowRef(u.configs, namespace, workflowType)
 	if err != nil {
 		return definition.WorkflowConfigRef{}, err
 	}

@@ -30,7 +30,7 @@ func TestActivityTaskCarriesWorkflowIdentityAndTimes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := &execution.Run{ID: "run-info", Namespace: "default", WorkflowID: "order-7", WorkflowType: ref.WorkflowID, WorkflowConfigVersion: ref.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
+	run := &execution.Run{ID: "run-info", Namespace: "default", WorkflowID: "order-7", WorkflowType: ref.WorkflowType, WorkflowConfigVersion: ref.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(run)) }); err != nil {
 		t.Fatal(err)
 	}

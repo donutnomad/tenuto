@@ -21,7 +21,7 @@ func TestExecutionManagerChildCommits(t *testing.T) {
 			return e
 		}
 		return tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{
-			RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowID: "child-flow",
+			RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowType: "child-flow",
 			Status: execution.ChildWorkflowStatusEnums.Initiated,
 		})
 	})
@@ -46,7 +46,7 @@ func TestExecutionManagerChildRollsBack(t *testing.T) {
 	err := mgr.RunInTx(func(tx execution.ExecutionTx) error {
 		_, _, _ = tx.AppendIdempotent("parent-1", "parent-1", "parent-1",
 			history.NewChildWorkflowStartedEvent("child-flow", "child_1", "child-run-1", "v1", nil))
-		_ = tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowID: "child-flow", Status: execution.ChildWorkflowStatusEnums.Initiated})
+		_ = tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowType: "child-flow", Status: execution.ChildWorkflowStatusEnums.Initiated})
 		return wantErr
 	})
 	if !errors.Is(err, wantErr) {
@@ -67,7 +67,7 @@ func TestChildStateForUpdateSeesPending(t *testing.T) {
 		return tx.CreateRun(&execution.Run{ID: "parent-1", BranchToken: executiontest.BranchToken("parent-1"), Status: history.StatusRunning})
 	})
 	err := mgr.RunInTx(func(tx execution.ExecutionTx) error {
-		if e := tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowID: "child-flow", Status: execution.ChildWorkflowStatusEnums.Completed}); e != nil {
+		if e := tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowType: "child-flow", Status: execution.ChildWorkflowStatusEnums.Completed}); e != nil {
 			return e
 		}
 		st, ok, e := tx.GetChildWorkflowStateForUpdate("parent-1", 1)

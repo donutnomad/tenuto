@@ -252,7 +252,7 @@ func (s *Server) recoverChildWorkflow(ctx context.Context, parentRunID string, s
 		return s.recoverClosedChildWorkflow(ctx, child, childStatus)
 	}
 	// Run selected restart; engine resolves the pinned definition and starts it.
-	configRef, err := s.workflowConfigRef(s.runNamespace(parentRunID), st.WorkflowID, st.WorkflowConfigVersion)
+	configRef, err := s.workflowConfigRef(s.runNamespace(parentRunID), st.WorkflowType, st.WorkflowConfigVersion)
 	if err != nil {
 		return err
 	}

@@ -140,8 +140,8 @@ export const api = {
   listWorkflowConfigs: (namespace: string) =>
     post<WorkflowConfigListResult>('/list-configs', { namespace }),
 
-  setWorkerTarget: (namespace: string, workflowID: string, identity: string) =>
-    post("/set-worker-target", { namespace, workflow_id: workflowID, target_worker_identity: identity }),
+  setWorkerTarget: (namespace: string, workflowType: string, identity: string) =>
+    post("/set-worker-target", { namespace, workflow_type: workflowType, target_worker_identity: identity }),
 
   listWorkers: (namespace: string) =>
     post<WorkerListResult>('/list-workers', { filter: { namespace } }),

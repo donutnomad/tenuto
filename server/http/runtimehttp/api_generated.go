@@ -401,7 +401,7 @@ func (a *WorkflowRuntimeHTTPAPIWrap) SetWorkerTarget(ctx *gin.Context) {
 }
 
 // Start
-// @Summary 按 workflow ID 启动 Run
+// @Summary 按 Workflow Type 启动 Run，Workflow ID 为这次执行的业务 ID
 // @Tags Runtime-Workflow
 // @Accept json
 // @Produce json
@@ -1145,7 +1145,7 @@ func (a *WorkflowRuntimeHTTPAPIWrap) BindSetWorkerTarget(router gin.IRoutes, pre
 func (a *WorkflowRuntimeHTTPAPIWrap) BindStart(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
 	var handlers = []gin.HandlerFunc{
 		func(c *gin.Context) {
-			c.Set("gormgen:methodcomment", "// Start 按 workflow ID 启动 Run\n// @POST(/start)")
+			c.Set("gormgen:methodcomment", "// Start 按 Workflow Type 启动 Run，Workflow ID 为这次执行的业务 ID\n// @POST(/start)")
 			c.Set("gormgen:interfacecomment", "// WorkflowRuntimeHTTPAPI 是面向外部调用方（SDK client、console、运维）的 workflow 端点。\n// @TAG(Runtime-Workflow)\n// @PREFIX(/runtime/workflow)")
 		},
 	}

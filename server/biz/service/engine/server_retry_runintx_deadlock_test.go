@@ -46,7 +46,7 @@ func TestServerStartRetryRunNoDeadlockUnderSingleConn(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowID, ref.WorkflowID, "", nil))
+	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowType, ref.WorkflowType, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestServerStartRetryRunNoDeadlockUnderSingleConn(t *testing.T) {
 		listed, _ := store.Executions.List(execution.StoreListFilter{Statuses: []historypkg.Status{historypkg.StatusRunning}})
 		runs := listed.Runs
 		for _, r := range runs {
-			if r.ID != run1ID && r.WorkflowID == ref.WorkflowID {
+			if r.ID != run1ID && r.WorkflowID == ref.WorkflowType {
 				run2 = r
 				break
 			}

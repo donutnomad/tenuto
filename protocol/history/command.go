@@ -62,8 +62,8 @@ type Command struct {
 	// UpdateOutcome 是 update 完成的唯一结果（成功=Success，失败=Failure）；缺失是协议错误。
 	UpdateOutcome *protocol.UpdateOutcome
 
-	WorkflowID string // StartChildWorkflow / ContinueAsNew 用：目标 workflow ID
-	ChildID    string // StartChildWorkflow / RequestCancelChildWorkflow 用：子工作流的稳定 ID
+	WorkflowType string // StartChildWorkflow / ContinueAsNew 用：目标 Workflow Type
+	ChildID      string // StartChildWorkflow / RequestCancelChildWorkflow 用：子工作流的稳定 ID
 	// ParentClosePolicy 是 StartChildWorkflow 的父关闭策略；空值表示 Terminate。
 	ParentClosePolicy protocol.ParentClosePolicy
 

@@ -56,11 +56,11 @@ func GeneratedWorkflow(ctx workflow.Context, input map[string]any) error {
 	if ref.Version != wantVersion {
 		t.Fatalf("config version = %q, want the content hash of the generated config %q", ref.Version, wantVersion)
 	}
-	if _, err := mgr.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: ref.Namespace, WorkflowID: ref.WorkflowID, Version: ref.Version}); err != nil {
+	if _, err := mgr.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: ref.Namespace, WorkflowType: ref.WorkflowType, Version: ref.Version}); err != nil {
 		t.Fatal(err)
 	}
 
-	runID, err := startedRunID(server.StartWorkflowVersion(ctx, ref, ref.WorkflowID, map[string]any{"order_id": "o-1"}))
+	runID, err := startedRunID(server.StartWorkflowVersion(ctx, ref, ref.WorkflowType, map[string]any{"order_id": "o-1"}))
 	if err != nil {
 		t.Fatal(err)
 	}

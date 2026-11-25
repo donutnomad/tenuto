@@ -11,7 +11,7 @@ export interface RunRelationship {
   kind: RunRelationshipKind
   runID: string
   label: string
-  workflowID?: string
+  workflowType?: string
   eventID?: number
 }
 
@@ -47,7 +47,7 @@ export function buildRunRelationships(run: Run | null | undefined, events: Event
       kind: "child",
       runID: child.childRunId,
       label: child.childId || child.name || "Child Workflow",
-      workflowID: child.name,
+      workflowType: child.name,
       eventID: event.id,
     })
   }
@@ -60,7 +60,7 @@ export function buildRunRelationships(run: Run | null | undefined, events: Event
       kind: "continue-as-new",
       runID: continuation.workflowContinuedAsNew.nextRunId,
       label: "Next Segment",
-      workflowID: continuation.workflowContinuedAsNew.name,
+      workflowType: continuation.workflowContinuedAsNew.name,
       eventID: continuation.id,
     })
   }

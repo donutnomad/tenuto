@@ -31,19 +31,19 @@ type traceStep struct {
 }
 
 type traceEffect struct {
-	Kind             string `json:"kind"`
-	Phase            string `json:"phase"`
-	InvocationID     string `json:"invocation_id"`
-	ActivityID       string `json:"activity_id"`
-	Status           string `json:"status"`
-	ActivityType     string `json:"activity_type,omitempty"`
-	ChildID          string `json:"child_id,omitempty"`
-	ChildRunID       string `json:"child_run_id,omitempty"`
-	ChildWorkflowID  string `json:"child_workflow_id,omitempty"`
-	ScheduledEventID int64  `json:"scheduled_event_id,omitempty"`
-	CallSeq          *int   `json:"call_seq,omitempty"`
-	WaitSeq          *int   `json:"wait_seq,omitempty"`
-	ResumeSeq        *int   `json:"resume_seq,omitempty"`
+	Kind              string `json:"kind"`
+	Phase             string `json:"phase"`
+	InvocationID      string `json:"invocation_id"`
+	ActivityID        string `json:"activity_id"`
+	Status            string `json:"status"`
+	ActivityType      string `json:"activity_type,omitempty"`
+	ChildID           string `json:"child_id,omitempty"`
+	ChildRunID        string `json:"child_run_id,omitempty"`
+	ChildWorkflowType string `json:"child_workflow_type,omitempty"`
+	ScheduledEventID  int64  `json:"scheduled_event_id,omitempty"`
+	CallSeq           *int   `json:"call_seq,omitempty"`
+	WaitSeq           *int   `json:"wait_seq,omitempty"`
+	ResumeSeq         *int   `json:"resume_seq,omitempty"`
 }
 
 type traceEffectRecord struct {
@@ -209,14 +209,14 @@ func (h *replayHandle) buildTrace() (traceResult, error) {
 		if invocation == nil {
 			invocation = &traceEffectInvocation{
 				Base: traceEffect{
-					Kind:             effect.Kind,
-					InvocationID:     invocationID,
-					ActivityID:       effect.ActivityID,
-					ActivityType:     effect.Type,
-					ChildID:          effect.ChildID,
-					ChildRunID:       effect.ChildRunID,
-					ChildWorkflowID:  effect.ChildWorkflowID,
-					ScheduledEventID: effect.ScheduledEventID,
+					Kind:              effect.Kind,
+					InvocationID:      invocationID,
+					ActivityID:        effect.ActivityID,
+					ActivityType:      effect.Type,
+					ChildID:           effect.ChildID,
+					ChildRunID:        effect.ChildRunID,
+					ChildWorkflowType: effect.ChildWorkflowType,
+					ScheduledEventID:  effect.ScheduledEventID,
 				},
 				Seen: make(map[string]bool),
 			}

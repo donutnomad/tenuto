@@ -43,7 +43,7 @@ type ChildWorkflowState struct {
 	ChildID          string `json:"childId"`          // 父侧稳定 ID（replay/去重 key，executor 用）
 	ChildRunID       string `json:"childRunId"`       // 实际子 Run ID（started 后非空）
 
-	WorkflowID            string `json:"workflowId"`            // 子 workflow 配置 ID
+	WorkflowType          string `json:"workflowType"`          // 子 Workflow Type
 	WorkflowConfigVersion string `json:"workflowConfigVersion"` // 子配置版本（recovery 重建子 Run 用）
 
 	Status ChildWorkflowStatus `json:"status"`

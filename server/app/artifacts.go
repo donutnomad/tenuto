@@ -54,7 +54,7 @@ func (a *application) registerWorkflowArtifacts(ctx context.Context) error {
 				published++
 				a.telemetry.Logger.Info("published workflow artifact",
 					slog.String("file", path),
-					slog.String("workflow_id", ref.WorkflowID),
+					slog.String("workflow_type", ref.WorkflowType),
 					slog.String("version", ref.Version),
 				)
 				continue
@@ -66,7 +66,7 @@ func (a *application) registerWorkflowArtifacts(ctx context.Context) error {
 			registered++
 			a.telemetry.Logger.Info("registered workflow artifact",
 				slog.String("file", path),
-				slog.String("workflow_id", ref.WorkflowID),
+				slog.String("workflow_type", ref.WorkflowType),
 				slog.String("version", ref.Version),
 			)
 		}
@@ -119,7 +119,7 @@ func loadWorkflowArtifact(path string) (*program.WorkflowConfig, error) {
 		return nil, fmt.Errorf("workflow artifact %s: %w", path, err)
 	}
 	if workflow.Type == "" {
-		return nil, fmt.Errorf("workflow artifact %s: workflow id is empty", path)
+		return nil, fmt.Errorf("workflow artifact %s: workflow type is empty", path)
 	}
 	return &workflow, nil
 }

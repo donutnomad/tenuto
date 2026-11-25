@@ -40,7 +40,7 @@ func TestArtifactRegistrationKeepsLatest(t *testing.T) {
 	if active.Version != refA.Version {
 		t.Fatalf("latest changed to %q after artifact registration, want %q", active.Version, refA.Version)
 	}
-	if _, err := server.workflowConfigs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: "default", WorkflowID: "artifact-flow", Version: refB.Version}); err != nil {
+	if _, err := server.workflowConfigs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: "default", WorkflowType: "artifact-flow", Version: refB.Version}); err != nil {
 		t.Fatalf("registered artifact version is not loadable: %v", err)
 	}
 }

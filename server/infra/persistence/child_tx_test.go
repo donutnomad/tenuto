@@ -18,7 +18,7 @@ func TestStoreRunInTxChildCommits(t *testing.T) {
 			return e
 		}
 		return tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{
-			RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowID: "child-flow",
+			RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowType: "child-flow",
 			Status: execution.ChildWorkflowStatusEnums.Initiated,
 		})
 	})
@@ -40,7 +40,7 @@ func TestStoreRunInTxChildRollsBack(t *testing.T) {
 	wantErr := errors.New("boom")
 	err := store.Executions.RunInTx(func(tx execution.ExecutionTx) error {
 		_, _, _ = tx.AppendIdempotent("parent-1", "parent-1", "parent-1", history.NewChildWorkflowStartedEvent("child-flow", "child_1", "child-run-1", "v1", nil))
-		_ = tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowID: "child-flow", Status: execution.ChildWorkflowStatusEnums.Initiated})
+		_ = tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: "parent-1", ScheduledEventID: 1, ChildID: "child_1", WorkflowType: "child-flow", Status: execution.ChildWorkflowStatusEnums.Initiated})
 		return wantErr
 	})
 	if !errors.Is(err, wantErr) {

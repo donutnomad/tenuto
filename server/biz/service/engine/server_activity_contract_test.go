@@ -51,8 +51,8 @@ func startContractRunWithTarget(t testing.TB, mgr execution.ExecutionManager, se
 	run := &execution.Run{
 		ID:                    runID,
 		Namespace:             protocol.DefaultNamespace,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		TargetWorkerIdentity:  target,
 		Status:                historypkg.StatusRunning,
@@ -404,7 +404,7 @@ func TestActivityQueueWithoutConsumerVersusMissingActivityType(t *testing.T) {
 	runID := "run-inventory-two-stage"
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error {
 		return tx.CreateRun(WithRootBranch(&execution.Run{
-			ID: runID, Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowID, WorkflowType: ref.WorkflowID,
+			ID: runID, Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowType, WorkflowType: ref.WorkflowType,
 			WorkflowConfigVersion: ref.Version, Status: historypkg.StatusRunning, CreatedAt: time.Now(),
 		}))
 	}); err != nil {

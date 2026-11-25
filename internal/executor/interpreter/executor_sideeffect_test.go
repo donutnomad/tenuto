@@ -30,10 +30,10 @@ import (
 // - 大整数死角:       >2^53 int64 first-run vs replay 边界固化。
 // ============================================================================
 
-func compileWLangSource(t *testing.T, src []byte, workflowID, funcName, filename string) *program.WorkflowConfig {
+func compileWLangSource(t *testing.T, src []byte, workflowType, funcName, filename string) *program.WorkflowConfig {
 	t.Helper()
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowType: workflowID,
+		WorkflowType: workflowType,
 		FuncName:     funcName,
 		Filename:     filename,
 	})

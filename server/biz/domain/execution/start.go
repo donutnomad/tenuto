@@ -31,17 +31,17 @@ type NewRunOptions struct {
 
 // WorkflowStartOptions identifies the pinned program used by a new Run.
 type WorkflowStartOptions struct {
-	Namespace        string
-	WorkflowID       string
-	ConfigWorkflowID string
-	ProgramVersion   string
-	Input            map[string]any
-	Initiator        string
-	Now              time.Time
+	Namespace      string
+	WorkflowID     string
+	WorkflowType   string
+	ProgramVersion string
+	Input          map[string]any
+	Initiator      string
+	Now            time.Time
 }
 
 func NewWorkflowVersionRun(opts WorkflowStartOptions) (*Run, error) {
-	if opts.ConfigWorkflowID == "" || opts.ProgramVersion == "" {
+	if opts.WorkflowType == "" || opts.ProgramVersion == "" {
 		return nil, protocol.InvalidRequestf("workflow config ref is incomplete")
 	}
 	if opts.WorkflowID == "" {
@@ -50,7 +50,7 @@ func NewWorkflowVersionRun(opts WorkflowStartOptions) (*Run, error) {
 	return NewRun(NewRunOptions{
 		Namespace:             opts.Namespace,
 		WorkflowID:            opts.WorkflowID,
-		WorkflowType:          opts.ConfigWorkflowID,
+		WorkflowType:          opts.WorkflowType,
 		WorkflowConfigVersion: opts.ProgramVersion,
 		Input:                 opts.Input,
 		Attempt:               1,
@@ -114,7 +114,7 @@ func NewRun(opts NewRunOptions) *Run {
 // by NewRun, before the database transaction starts. The caller resolves the
 // pinned definition.
 func PrepareStartedRun(run *Run, workflowName string, executionTimeoutMs int64) (treeID, branchID string, event history.Event, err error) {
-	if run.WorkflowID == "" || run.WorkflowConfigVersion == "" {
+	if run.WorkflowType == "" || run.WorkflowConfigVersion == "" {
 		return "", "", history.Event{}, protocol.InvalidRequestf("workflow config ref is incomplete")
 	}
 	branch, err := DeserializeBranchToken(run.BranchToken)

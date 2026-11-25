@@ -9,7 +9,7 @@ import (
 
 func TestApplyTimeoutsAndInheritance(t *testing.T) {
 	now := time.Date(2026, time.October, 27, 10, 0, 0, 0, time.UTC)
-	current := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow"})
+	current := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow", WorkflowType: "flow"})
 	if current.ApplyTimeouts(0, 0, now) || current.DeadlineAt != nil || current.RunDeadlineAt != nil {
 		t.Fatalf("undeclared timeouts set deadlines: %+v", current)
 	}

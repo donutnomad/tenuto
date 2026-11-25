@@ -47,7 +47,7 @@ API 设置目标：
 POST /runtime/workflow/set-worker-target
 Content-Type: application/json
 
-{"namespace":"default","workflow_id":"payment","target_worker_identity":"worker-B"}
+{"namespace":"default","workflow_type":"payment","target_worker_identity":"worker-B"}
 ```
 
 返回新版本的 `WorkflowConfigRef`。空字符串清除目标。完整配置注册 `/runtime/workflow/register` 也支持 WorkflowConfig 顶层的 `target_worker_identity`。设置时目标需在线，并能处理配置中的 Activity 类型及显式 queue/build；未知、离线或能力不匹配的目标返回说明性错误。`/runtime/workflow/list-configs` 返回 `target_worker_identity` 和 `target_worker_status`（`default`、`online`、`offline`）。

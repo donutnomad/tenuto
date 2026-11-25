@@ -24,10 +24,10 @@ import (
 //   - execution deadline 由 Reset/CAN/retry 继承；run deadline 每代重置。
 //   - 已完成 Activity 的结果复用（不重新调度），未完成 Activity 在新 Run 上的重新派发行为按实测记录。
 
-func registerGeneratedWorkflowTuned(t *testing.T, server *engine.Server, workflowID, source, policy, name string, tune func(*program.WorkflowConfig)) definition.WorkflowConfigRef {
+func registerGeneratedWorkflowTuned(t *testing.T, server *engine.Server, workflowType, source, policy, name string, tune func(*program.WorkflowConfig)) definition.WorkflowConfigRef {
 	t.Helper()
 	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{
-		WorkflowType: workflowID,
+		WorkflowType: workflowType,
 		Name:         name,
 		FuncName:     "Flow",
 		Filename:     "flow.go",

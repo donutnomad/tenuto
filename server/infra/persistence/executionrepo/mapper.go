@@ -121,7 +121,7 @@ func (p *ChildWorkflowStatePO) ToPO(state *execution.ChildWorkflowState) *ChildW
 		ScheduledEventID:      state.ScheduledEventID,
 		ChildID:               state.ChildID,
 		ChildRunID:            state.ChildRunID,
-		WorkflowID:            state.WorkflowID,
+		WorkflowType:          state.WorkflowType,
 		WorkflowConfigVersion: state.WorkflowConfigVersion,
 		Status:                string(state.Status),
 		ParentClosePolicy:     string(state.ParentClosePolicy),

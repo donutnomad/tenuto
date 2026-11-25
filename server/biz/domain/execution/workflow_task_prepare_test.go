@@ -19,12 +19,12 @@ func (s *commandResolverStub) ResolveActivityCommand(_ string, command history.C
 	return command, nil
 }
 
-func (s *commandResolverStub) ChildWorkflowRef(_, workflowID string) (WorkflowTargetRef, error) {
-	return WorkflowTargetRef{Namespace: "tenant", WorkflowID: workflowID, Version: "child-v2"}, nil
+func (s *commandResolverStub) ChildWorkflowRef(_, workflowType string) (WorkflowTargetRef, error) {
+	return WorkflowTargetRef{Namespace: "tenant", WorkflowType: workflowType, Version: "child-v2"}, nil
 }
 
-func (s *commandResolverStub) ContinuedWorkflowRef(_, workflowID string) (WorkflowTargetRef, error) {
-	return WorkflowTargetRef{Namespace: "tenant", WorkflowID: workflowID, Version: "next-v3"}, nil
+func (s *commandResolverStub) ContinuedWorkflowRef(_, workflowType string) (WorkflowTargetRef, error) {
+	return WorkflowTargetRef{Namespace: "tenant", WorkflowType: workflowType, Version: "next-v3"}, nil
 }
 
 func (s *commandResolverStub) CheckWorkflowInput(ref WorkflowTargetRef, _ map[string]any) error {
@@ -37,8 +37,8 @@ func TestPrepareWorkflowTaskPinsRoutesAndTargetVersions(t *testing.T) {
 	commands := []history.Command{
 		{Type: history.CmdScheduleActivity, ActivityID: "charge", ActivityType: "charge", StartToCloseTimeout: time.Second},
 		{Type: history.CmdFailWorkflow, Error: "failed"},
-		{Type: history.CmdStartChildWorkflow, ChildID: "child-1", WorkflowID: "child"},
-		{Type: history.CmdContinueAsNew, WorkflowID: "next"},
+		{Type: history.CmdStartChildWorkflow, ChildID: "child-1", WorkflowType: "child"},
+		{Type: history.CmdContinueAsNew, WorkflowType: "next"},
 	}
 	prepared, err := PrepareWorkflowTask("run-1", commands, map[string]string{"trace": "value"}, resolver)
 	if err != nil {

@@ -130,7 +130,7 @@ func waitForRegistration(t *testing.T, runtime *engine.Server, namespace, versio
 		result, err := runtime.View().ListWorkflowConfigs(namespace)
 		if err == nil {
 			for _, item := range result.Items {
-				if item.WorkflowID == "startup-greeting" && item.Active && item.LatestVersion == version {
+				if item.WorkflowType == "startup-greeting" && item.Active && item.LatestVersion == version {
 					return
 				}
 			}

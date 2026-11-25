@@ -11,13 +11,13 @@ import (
 // ================ gormgen ================
 
 type WorkflowConfigActiveSchemaType struct {
-	Namespace  gsql.StringField   // string
-	WorkflowID gsql.StringField   // string
-	Version    gsql.StringField   // string
-	UpdatedAt  gsql.DateTimeField // time.Time
-	fieldType  WorkflowConfigActivePO
-	alias      string
-	tableName  string
+	Namespace    gsql.StringField   // string
+	WorkflowType gsql.StringField   // string
+	Version      gsql.StringField   // string
+	UpdatedAt    gsql.DateTimeField // time.Time
+	fieldType    WorkflowConfigActivePO
+	alias        string
+	tableName    string
 }
 
 func (t WorkflowConfigActiveSchemaType) TableName() string {
@@ -31,7 +31,7 @@ func (t WorkflowConfigActiveSchemaType) Alias() string {
 func (t *WorkflowConfigActiveSchemaType) WithTable(tableName string) {
 	tn := gsql.TN(tableName)
 	t.Namespace = t.Namespace.WithTable(&tn)
-	t.WorkflowID = t.WorkflowID.WithTable(&tn)
+	t.WorkflowType = t.WorkflowType.WithTable(&tn)
 	t.Version = t.Version.WithTable(&tn)
 	t.UpdatedAt = t.UpdatedAt.WithTable(&tn)
 }
@@ -54,7 +54,7 @@ func (t WorkflowConfigActiveSchemaType) ModelTypeAny() any {
 func (t WorkflowConfigActiveSchemaType) AllFields() field.BaseFields {
 	return field.BaseFields{
 		t.Namespace,
-		t.WorkflowID,
+		t.WorkflowType,
 		t.Version,
 		t.UpdatedAt,
 	}
@@ -68,23 +68,23 @@ func (t WorkflowConfigActiveSchemaType) Star() field.IField {
 }
 
 var WorkflowConfigActiveSchema = WorkflowConfigActiveSchemaType{
-	tableName:  "tenuto_config_active",
-	Namespace:  gsql.StringFieldOf[string]("tenuto_config_active", "namespace"),
-	WorkflowID: gsql.StringFieldOf[string]("tenuto_config_active", "workflow_id"),
-	Version:    gsql.StringFieldOf[string]("tenuto_config_active", "version"),
-	UpdatedAt:  gsql.DateTimeFieldOf[time.Time]("tenuto_config_active", "updated_at"),
-	fieldType:  WorkflowConfigActivePO{},
+	tableName:    "tenuto_config_active",
+	Namespace:    gsql.StringFieldOf[string]("tenuto_config_active", "namespace"),
+	WorkflowType: gsql.StringFieldOf[string]("tenuto_config_active", "workflow_type"),
+	Version:      gsql.StringFieldOf[string]("tenuto_config_active", "version"),
+	UpdatedAt:    gsql.DateTimeFieldOf[time.Time]("tenuto_config_active", "updated_at"),
+	fieldType:    WorkflowConfigActivePO{},
 }
 
 type WorkflowConfigSchemaType struct {
-	Namespace  gsql.StringField   // string
-	WorkflowID gsql.StringField   // string
-	Version    gsql.StringField   // string
-	ConfigJSON gsql.StringField   // []byte
-	CreatedAt  gsql.DateTimeField // time.Time
-	fieldType  WorkflowConfigPO
-	alias      string
-	tableName  string
+	Namespace    gsql.StringField   // string
+	WorkflowType gsql.StringField   // string
+	Version      gsql.StringField   // string
+	ConfigJSON   gsql.StringField   // []byte
+	CreatedAt    gsql.DateTimeField // time.Time
+	fieldType    WorkflowConfigPO
+	alias        string
+	tableName    string
 }
 
 func (t WorkflowConfigSchemaType) TableName() string {
@@ -98,7 +98,7 @@ func (t WorkflowConfigSchemaType) Alias() string {
 func (t *WorkflowConfigSchemaType) WithTable(tableName string) {
 	tn := gsql.TN(tableName)
 	t.Namespace = t.Namespace.WithTable(&tn)
-	t.WorkflowID = t.WorkflowID.WithTable(&tn)
+	t.WorkflowType = t.WorkflowType.WithTable(&tn)
 	t.Version = t.Version.WithTable(&tn)
 	t.ConfigJSON = t.ConfigJSON.WithTable(&tn)
 	t.CreatedAt = t.CreatedAt.WithTable(&tn)
@@ -122,7 +122,7 @@ func (t WorkflowConfigSchemaType) ModelTypeAny() any {
 func (t WorkflowConfigSchemaType) AllFields() field.BaseFields {
 	return field.BaseFields{
 		t.Namespace,
-		t.WorkflowID,
+		t.WorkflowType,
 		t.Version,
 		t.ConfigJSON,
 		t.CreatedAt,
@@ -137,13 +137,13 @@ func (t WorkflowConfigSchemaType) Star() field.IField {
 }
 
 var WorkflowConfigSchema = WorkflowConfigSchemaType{
-	tableName:  "tenuto_configs",
-	Namespace:  gsql.StringFieldOf[string]("tenuto_configs", "namespace"),
-	WorkflowID: gsql.StringFieldOf[string]("tenuto_configs", "workflow_id"),
-	Version:    gsql.StringFieldOf[string]("tenuto_configs", "version"),
-	ConfigJSON: gsql.StringFieldOf[[]byte]("tenuto_configs", "config_json"),
-	CreatedAt:  gsql.DateTimeFieldOf[time.Time]("tenuto_configs", "created_at"),
-	fieldType:  WorkflowConfigPO{},
+	tableName:    "tenuto_configs",
+	Namespace:    gsql.StringFieldOf[string]("tenuto_configs", "namespace"),
+	WorkflowType: gsql.StringFieldOf[string]("tenuto_configs", "workflow_type"),
+	Version:      gsql.StringFieldOf[string]("tenuto_configs", "version"),
+	ConfigJSON:   gsql.StringFieldOf[[]byte]("tenuto_configs", "config_json"),
+	CreatedAt:    gsql.DateTimeFieldOf[time.Time]("tenuto_configs", "created_at"),
+	fieldType:    WorkflowConfigPO{},
 }
 
 // ================ settergen ================

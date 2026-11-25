@@ -8,7 +8,7 @@ type ChildStart struct {
 	ChildRunID       string
 	ScheduledEventID int64
 	Namespace        string
-	WorkflowID       string
+	WorkflowType     string
 	ConfigVersion    string
 	Input            map[string]any
 }
@@ -22,12 +22,12 @@ func ChildWorkflowID(parentRunID, childID string) string {
 }
 
 // NewChildRun starts the child's first attempt on its own History branch.
-// request.WorkflowID names the child's workflow type.
+// request.WorkflowType names the child's workflow type.
 func NewChildRun(request ChildStart, now time.Time) *Run {
 	return NewRun(NewRunOptions{
 		ID: request.ChildRunID, Namespace: request.Namespace,
 		WorkflowID:            ChildWorkflowID(request.ParentRunID, request.ChildID),
-		WorkflowType:          request.WorkflowID,
+		WorkflowType:          request.WorkflowType,
 		WorkflowConfigVersion: request.ConfigVersion, ParentRunID: request.ParentRunID,
 		ParentChildID: request.ChildID, ParentScheduledEventID: request.ScheduledEventID,
 		Input: request.Input, Attempt: 1, CreatedAt: now,
@@ -58,7 +58,7 @@ func MarkChildStarted(tx ExecutionTx, request ChildStart, now time.Time) error {
 	if !found {
 		state = &ChildWorkflowState{
 			RunID: request.ParentRunID, ScheduledEventID: request.ScheduledEventID,
-			ChildID: request.ChildID, WorkflowID: request.WorkflowID,
+			ChildID: request.ChildID, WorkflowType: request.WorkflowType,
 			WorkflowConfigVersion: request.ConfigVersion, Input: request.Input,
 			CreatedAt: now,
 		}

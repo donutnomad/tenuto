@@ -40,7 +40,7 @@ func newPolicyTree(t *testing.T, parentRunID string) *policyTree {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return ref.WorkflowID
+		return ref.WorkflowType
 	}
 	tree := &policyTree{
 		srv: srv, mgr: mgr, parentRunID: parentRunID,
@@ -73,7 +73,7 @@ func (tree *policyTree) completeTask(t *testing.T, runID string, commands ...his
 func (tree *policyTree) startChild(t *testing.T, runID, typ, childID string, policy protocol.ParentClosePolicy) string {
 	t.Helper()
 	tree.completeTask(t, runID, history.Command{
-		Type: history.CmdStartChildWorkflow, ChildID: childID, WorkflowID: typ,
+		Type: history.CmdStartChildWorkflow, ChildID: childID, WorkflowType: typ,
 		Input: map[string]any{"order_id": "o-1"}, ParentClosePolicy: policy,
 	})
 	return tree.link(t, runID, childID).ChildRunID
@@ -105,7 +105,7 @@ func (tree *policyTree) closeRun(t *testing.T, runID, typ, kind string) {
 	case "cancelled":
 		tree.completeTask(t, runID, history.Command{Type: history.CmdCancelWorkflow})
 	case "continued_as_new":
-		tree.completeTask(t, runID, history.Command{Type: history.CmdContinueAsNew, WorkflowID: typ, Input: map[string]any{}})
+		tree.completeTask(t, runID, history.Command{Type: history.CmdContinueAsNew, WorkflowType: typ, Input: map[string]any{}})
 	case "terminated":
 		if err := tree.srv.TerminateWorkflow(context.Background(), "", "", runID, "stop"); err != nil {
 			t.Fatal(err)
@@ -223,7 +223,7 @@ func TestParentClosePolicyRejectsUnknownValue(t *testing.T) {
 	tree := newPolicyTree(t, "run-policy-unknown")
 	wftID := appendOpenWorkflowTaskForTest(t, tree.mgr, tree.parentRunID)
 	err := tree.srv.HandleWorkflowTaskCompleted(tree.srv.WorkflowTaskContext(context.Background(), tree.parentRunID, wftID), tree.parentRunID, wftID, []history.Command{{
-		Type: history.CmdStartChildWorkflow, ChildID: "child_1", WorkflowID: tree.childType, ParentClosePolicy: "detach",
+		Type: history.CmdStartChildWorkflow, ChildID: "child_1", WorkflowType: tree.childType, ParentClosePolicy: "detach",
 	}}, "")
 	if err == nil {
 		t.Fatal("unknown parent close policy accepted")

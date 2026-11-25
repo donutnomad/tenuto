@@ -12,7 +12,7 @@ func TestNewChildWorkflowStateDefaults(t *testing.T) {
 		RunID:            "parent-1",
 		ScheduledEventID: 10,
 		ChildID:          "child_1",
-		WorkflowID:       "child-flow",
+		WorkflowType:     "child-flow",
 		Status:           execution.ChildWorkflowStatusEnums.Initiated,
 	}
 	if st.Status != execution.ChildWorkflowStatusEnums.Initiated {

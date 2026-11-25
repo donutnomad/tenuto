@@ -14,9 +14,9 @@ import (
 
 // WorkflowConfigRef 指向一个配置内容版本；Version 是配置 JSON 的内容 hash。
 type WorkflowConfigRef struct {
-	Namespace  string
-	WorkflowID string
-	Version    string
+	Namespace    string
+	WorkflowType string
+	Version      string
 }
 
 var ErrWorkflowConfigNotFound = errors.New("workflow config not found")
@@ -33,14 +33,14 @@ func CloneWorkflowConfig(wf *program.WorkflowConfig) (*program.WorkflowConfig, e
 	return &cloned, nil
 }
 
-// ValidateWorkflowConfig 校验配置能否作为内容版本保存：ID 必填，WLang 程序产物有效，
+// ValidateWorkflowConfig 校验配置能否作为内容版本保存：Type 必填，WLang 程序产物有效，
 // run_timeout 不超过 execution_timeout。
 func ValidateWorkflowConfig(workflow *program.WorkflowConfig) error {
 	if workflow == nil {
 		return fmt.Errorf("workflow config is nil")
 	}
 	if workflow.Type == "" {
-		return protocol.InvalidRequestf("workflow id is empty")
+		return protocol.InvalidRequestf("workflow type is empty")
 	}
 	if err := workflow.Program.ValidateArtifact(); err != nil {
 		return err
@@ -58,28 +58,28 @@ func ValidateWorkflowConfig(workflow *program.WorkflowConfig) error {
 // ActiveWorkflowRef 返回 workflow 的 active 配置版本。每次都读仓储，
 // 任一副本激活的版本对所有副本立即可见。没有 active 版本时返回满足
 // errors.Is(err, ErrWorkflowConfigNotFound) 的错误，仓储故障按原因包装返回。
-func ActiveWorkflowRef(configs ConfigRepository, namespace, workflowID string) (WorkflowConfigRef, error) {
+func ActiveWorkflowRef(configs ConfigRepository, namespace, workflowType string) (WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref, err := configs.LatestWorkflowConfigRefInNamespace(namespace, workflowID)
+	ref, err := configs.LatestWorkflowConfigRefInNamespace(namespace, workflowType)
 	if errors.Is(err, ErrWorkflowConfigNotFound) {
-		return WorkflowConfigRef{}, fmt.Errorf("workflow %s/%s has no registered config version: %w", namespace, workflowID, ErrWorkflowConfigNotFound)
+		return WorkflowConfigRef{}, fmt.Errorf("workflow %s/%s has no registered config version: %w", namespace, workflowType, ErrWorkflowConfigNotFound)
 	}
 	if err != nil {
-		return WorkflowConfigRef{}, fmt.Errorf("load active config version of workflow %s/%s: %w", namespace, workflowID, err)
+		return WorkflowConfigRef{}, fmt.Errorf("load active config version of workflow %s/%s: %w", namespace, workflowType, err)
 	}
 	return ref, nil
 }
 
 // ResolveWorkflowConfigRef 解析 Run 要引用的配置版本：version 为空取 active，否则要求该版本已保存。
-func ResolveWorkflowConfigRef(configs ConfigRepository, namespace, workflowID, version string) (WorkflowConfigRef, error) {
+func ResolveWorkflowConfigRef(configs ConfigRepository, namespace, workflowType, version string) (WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
-	if workflowID == "" {
-		return WorkflowConfigRef{}, protocol.InvalidRequestf("workflow id is empty")
+	if workflowType == "" {
+		return WorkflowConfigRef{}, protocol.InvalidRequestf("workflow type is empty")
 	}
 	if version == "" {
-		return ActiveWorkflowRef(configs, namespace, workflowID)
+		return ActiveWorkflowRef(configs, namespace, workflowType)
 	}
-	ref := WorkflowConfigRef{Namespace: namespace, WorkflowID: workflowID, Version: version}
+	ref := WorkflowConfigRef{Namespace: namespace, WorkflowType: workflowType, Version: version}
 	if _, err := configs.GetWorkflowConfig(ref); err != nil {
 		return WorkflowConfigRef{}, err
 	}

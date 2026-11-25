@@ -72,7 +72,7 @@ func (h *buildRoutingHarness) startRun(id, policy, queue, shape string, cmd hist
 		h.t.Fatal(err)
 	}
 	run := &execution.Run{
-		ID: "run-" + id, Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowID, WorkflowType: ref.WorkflowID,
+		ID: "run-" + id, Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowType, WorkflowType: ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version, Policy: policy, Status: historypkg.StatusRunning, CreatedAt: h.clk.Now(),
 	}
 	createStartedRunForTest(h.t, h.mgr, run)

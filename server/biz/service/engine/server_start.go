@@ -239,21 +239,21 @@ func (s *Server) startWorkflowVersion(ctx context.Context, configRef definition.
 func (s *Server) newWorkflowVersionRun(workflowID string, configRef definition.WorkflowConfigRef, input map[string]any, initiator string) (*execution.Run, error) {
 	return execution.NewWorkflowVersionRun(execution.WorkflowStartOptions{
 		Namespace: configRef.Namespace, WorkflowID: workflowID,
-		ConfigWorkflowID: configRef.WorkflowID, ProgramVersion: configRef.Version,
+		WorkflowType: configRef.WorkflowType, ProgramVersion: configRef.Version,
 		Input: input, Initiator: initiator,
 		Now: s.clock.Now(),
 	})
 }
 
 func (s *Server) startContinuedRunWithRef(ctx context.Context, oldRunID string, newRunID string, input map[string]any, configRef definition.WorkflowConfigRef) error {
-	if configRef.WorkflowID == "" || configRef.Version == "" {
+	if configRef.WorkflowType == "" || configRef.Version == "" {
 		return protocol.InvalidRequestf("continued workflow config ref is incomplete")
 	}
 	oldRun, err := s.continuedRunSource(oldRunID)
 	if err != nil {
 		return err
 	}
-	run := execution.NewContinuedRun(oldRun, newRunID, configRef.Namespace, configRef.WorkflowID, configRef.Version, input, s.clock.Now())
+	run := execution.NewContinuedRun(oldRun, newRunID, configRef.Namespace, configRef.WorkflowType, configRef.Version, input, s.clock.Now())
 	// 旧 Run 的 ContinuedAsNew 状态与接续 Run 同事务提交（execution.CommitContinuedRun）：接续 Run 建好之前旧 Run
 	// 保持 Running，恢复扫描据此补建接续 Run。接续 Run 的有效策略取事务内锁下读到的旧 Run。
 	if err := s.createStartedRun(ctx, run, nil); err != nil {
@@ -293,10 +293,10 @@ func (s *Server) createStartedRun(ctx context.Context, run *execution.Run, with 
 }
 
 func (s *Server) prepareStartedRun(run *execution.Run) (string, string, history.Event, error) {
-	if run.WorkflowID == "" || run.WorkflowConfigVersion == "" {
+	if run.WorkflowType == "" || run.WorkflowConfigVersion == "" {
 		return "", "", history.Event{}, protocol.InvalidRequestf("workflow config ref is incomplete")
 	}
-	cfg, err := s.workflowConfigs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: run.Namespace, WorkflowID: run.WorkflowType, Version: run.WorkflowConfigVersion})
+	cfg, err := s.workflowConfigs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: run.Namespace, WorkflowType: run.WorkflowType, Version: run.WorkflowConfigVersion})
 	if err != nil {
 		return "", "", history.Event{}, err
 	}

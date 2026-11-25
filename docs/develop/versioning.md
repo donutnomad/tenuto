@@ -18,7 +18,7 @@ Tenuto 有三层互相独立的版本机制：
 
 ## 定义版本与 latest
 
-生成器为每份 `workflow.json` 计算内容 hash。同一个 `(Namespace, Workflow ID, 内容 hash)` 只保存一份，重复登记幂等。每个 Workflow ID 有一个 latest 指针：
+生成器为每份 `workflow.json` 计算内容 hash。同一个 `(Namespace, Workflow Type, 内容 hash)` 只保存一份，重复登记幂等。每个 Workflow Type 有一个 latest 指针：
 
 - Worker 启动自动登记：新内容首次出现时 latest 指向它；同 hash 重复启动保持 latest。
 - `tenuto-workflow-gen generate -url ... -publish`：注册并激活 latest，用于显式发布和回滚。
@@ -204,7 +204,7 @@ Activity 内部实现可以常规发布；它的输入输出结构和错误 Type
 | Signal（按名字） | `WorkflowSignaled` | `WaitSignal(ctx, "name").Get(ctx, &v)` 的 `v` |
 | Activity 结果（按 `type`） | `ActivityCompleted` | `Get(ctx, &v)` 的 `v`，或 `CallX` 的返回值 |
 | 未关闭 Activity 的输入（按 `type`） | 没有关闭事件的 `ActivityScheduled` | 调用处的输入实参；之后由 Worker 按 Run 新 Program 的契约执行 |
-| 子 Workflow 结果（按 Workflow ID） | `ChildWorkflowCompleted` | `Get(ctx, &v)` 的 `v` |
+| 子 Workflow 结果（按 Workflow Type） | `ChildWorkflowCompleted` | `Get(ctx, &v)` 的 `v` |
 | Update 参数（按名字与序号） | `WorkflowUpdateAccepted` | `SetUpdateHandler` 处理函数的参数 |
 | SideEffect / MutableSideEffect（按 ID）的值 | `MarkerRecorded` | `Get(ctx, &v)` 的 `v` |
 | 应用错误的 detail | 带失败的 `ActivityFailed`、`ActivityTimedOut`、`ChildWorkflowFailed` | `ApplicationErrorDetail(err, i, &v)` 的 `v` |
@@ -234,7 +234,7 @@ auto upgrade to 3f2a… refused: payloads recorded in history cannot be read by 
 检查从 Program 的语句里找每处解码（`Get`、`ApplicationErrorDetail`、Update 处理函数的参数）的位置与类型：
 
 - future：直接调用（`workflow.WaitSignal(ctx, "approve").Get(...)`）、保存它的变量、future 切片的元素、同包函数的 future 参数（按调用处的实参），以及 Selector 回调的参数——`AddFuture` / `AddSignalFuture` / `AddChildFuture` 回调里的 `f` 就是加入的那个 future。
-- 名字（Signal 名、Activity `type`、子 Workflow ID、MutableSideEffect ID、Update 名）：字面量与 Go 常量、只赋值为同一常量的变量、常量的 `+` 拼接、实参全是常量的 `fmt.Sprintf`、每个调用处都传同一常量的同包函数参数。
+- 名字（Signal 名、Activity `type`、子 Workflow Type、MutableSideEffect ID、Update 名）：字面量与 Go 常量、只赋值为同一常量的变量、常量的 `+` 拼接、实参全是常量的 `fmt.Sprintf`、每个调用处都传同一常量的同包函数参数。
 - 类型：`var v T`、`v := T{...}`、同包函数的返回值（含 `v, err := f()`）、从另一个变量或字段（`v := in.Order`）复制、入口参数。变量按作用域查找，不同闭包里的同名变量互不影响。
 
 `AddReceive` 回调里 `Receive` 的值来自 Workflow 内部的 Channel，不进 History，不检查。Query 的参数同样不进 History。

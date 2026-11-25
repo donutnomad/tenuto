@@ -89,7 +89,7 @@ func TestCheckEntryInputSkipsUntypedWorkflow(t *testing.T) {
 // TestCheckEntryInputMissingConfig：目标版本不存在时返回仓储的 not-found 错误。
 func TestCheckEntryInputMissingConfig(t *testing.T) {
 	repo := memory.NewDefinitionRepository()
-	err := definition.CheckEntryInput(repo, definition.WorkflowConfigRef{WorkflowID: "missing", Version: "v"}, nil)
+	err := definition.CheckEntryInput(repo, definition.WorkflowConfigRef{WorkflowType: "missing", Version: "v"}, nil)
 	if !errors.Is(err, definition.ErrWorkflowConfigNotFound) {
 		t.Fatalf("error = %v, want ErrWorkflowConfigNotFound", err)
 	}

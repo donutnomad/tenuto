@@ -33,7 +33,7 @@ func TestMatchReplay_AllMatch(t *testing.T) {
 	commands := []history.Command{
 		cmdSched("#a1", "activities.A"),
 		{Type: history.CmdScheduleTimer, TimerID: "#t1"},
-		{Type: history.CmdStartChildWorkflow, ChildID: "#c1", WorkflowID: "child-wf"},
+		{Type: history.CmdStartChildWorkflow, ChildID: "#c1", WorkflowType: "child-wf"},
 		{Type: history.CmdRecordMarker, MarkerName: "SideEffect", MarkerID: "se1"},
 	}
 	events := []history.Event{

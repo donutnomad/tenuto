@@ -123,7 +123,7 @@ func TestFirstTargetDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := &execution.Run{ID: "first-delivery", Namespace: "default", WorkflowID: ref.WorkflowID, WorkflowType: ref.WorkflowID, WorkflowConfigVersion: ref.Version, TargetWorkerIdentity: "B", Status: history.StatusRunning, CreatedAt: time.Now()}
+	run := &execution.Run{ID: "first-delivery", Namespace: "default", WorkflowID: ref.WorkflowType, WorkflowType: ref.WorkflowType, WorkflowConfigVersion: ref.Version, TargetWorkerIdentity: "B", Status: history.StatusRunning, CreatedAt: time.Now()}
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(run)) }); err != nil {
 		t.Fatal(err)
 	}

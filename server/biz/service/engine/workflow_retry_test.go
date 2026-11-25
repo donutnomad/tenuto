@@ -46,7 +46,7 @@ func TestWorkflowRetry_BasicRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowID, ref.WorkflowID, "", nil))
+	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowType, ref.WorkflowType, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestWorkflowRetry_BasicRetry(t *testing.T) {
 	if err := server.failWorkflow(run1ID, protocol.Failure{Message: "transient error"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	run2ID := onlyRetryRun(t, mgr, ref.WorkflowID, run1ID)
+	run2ID := onlyRetryRun(t, mgr, ref.WorkflowType, run1ID)
 
 	run2, err := mgr.Get(run2ID)
 	if err != nil || run2 == nil {

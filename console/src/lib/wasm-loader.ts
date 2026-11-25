@@ -45,7 +45,7 @@ export interface TraceEffect {
   activity_type?: string
   child_id?: string
   child_run_id?: string
-  child_workflow_id?: string
+  child_workflow_type?: string
   scheduled_event_id?: number
   call_seq?: number
   wait_seq?: number

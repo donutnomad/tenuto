@@ -72,7 +72,7 @@ func newSearchAttributeCommitStore(t *testing.T) *memory.ExecutionManager {
 	t.Helper()
 	store := memory.NewExecutionManager()
 	if err := store.RunInTx(func(tx execution.ExecutionTx) error {
-		return tx.CreateRun(execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "workflow", WorkflowConfigVersion: "v1", CreatedAt: time.Now()}))
+		return tx.CreateRun(execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "workflow", WorkflowType: "workflow", WorkflowConfigVersion: "v1", CreatedAt: time.Now()}))
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestSearchAttributesAtEventRequiresWorkflowStarted(t *testing.T) {
 func TestCommitWorkflowTaskRollsBackHistoryWhenStateCannotBeBuilt(t *testing.T) {
 	store := memory.NewExecutionManager()
 	commit := execution.WorkflowTaskCommit{
-		Run: execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "workflow"}), TreeID: "run-1", BranchID: "run-1",
+		Run: execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "workflow", WorkflowType: "workflow"}), TreeID: "run-1", BranchID: "run-1",
 		CloseEvent:    history.NewWorkflowTaskCompletedEvent(2, "worker-1"),
 		CommandEvents: []history.Event{history.NewChildWorkflowStartedEvent("child", "child-1", "run-child", "version-1", nil)},
 		Commands:      []history.Command{{Type: history.CmdStartChildWorkflow, ChildID: "child-1"}},
@@ -248,7 +248,7 @@ func TestCommitWorkflowTaskPromotesProgramVersionWithHistory(t *testing.T) {
 	newStore := func(t *testing.T) *memory.ExecutionManager {
 		t.Helper()
 		store := memory.NewExecutionManager()
-		run := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "workflow", WorkflowConfigVersion: "vA"})
+		run := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "workflow", WorkflowType: "workflow", WorkflowConfigVersion: "vA"})
 		run.OriginalWorkflowConfigVersion = "vA"
 		run.TargetWorkerIdentity = "worker-a"
 		run.UpgradeError = "auto upgrade to vB failed at workflow task 2"

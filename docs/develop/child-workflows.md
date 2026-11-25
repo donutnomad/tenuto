@@ -20,14 +20,14 @@ if err != nil {
 }
 ```
 
-签名：`func ExecuteChildWorkflow(ctx Context, workflowID string, input any, opts ...ChildWorkflowOptions) ChildWorkflowFuture`。
+签名：`func ExecuteChildWorkflow(ctx Context, workflowType string, input any, opts ...ChildWorkflowOptions) ChildWorkflowFuture`。
 
-- `workflowID` 是子 Workflow 的定义 ID，即子 Workflow 的 `@Workflow(type=...)`，需要已在同一 Namespace 登记。
+- `workflowType` 是子 Workflow 的 Workflow Type，即子 Workflow 的 `@Workflow(type=...)`，需要已在同一 Namespace 登记。
 - `input` 是结构体或 `map[string]any`，作为子 Workflow 的输入。
 - `opts` 可选：`ParentClosePolicy`（见下文「父关闭策略」）与 `WaitForCancellation`（见下文「取消子 Workflow」）。
 - 调用时立即产生启动命令，返回的 Future 用 `Get` 等待；`Get` 的目标是 `*map[string]any`，内容是子 Run 的 Output。
 
-Server 在父 Run 写入 `ChildWorkflowStarted`，创建子 Run 并调度它的 Workflow Task。子 Run 的 Workflow Type 是这个定义 ID，Workflow ID 是 `<父 Run ID>/<Child ID>`（例如 `01a1…/#c1`）。因此一个父 Run 可以启动多个同类型的子 Workflow，多个父 Run 可以同时启动同类型的子 Workflow，该类型自己的顶层 Run 也不受影响。子 Run 进入终态后，父 Run 收到对应事件并继续执行。
+Server 在父 Run 写入 `ChildWorkflowStarted`，创建子 Run 并调度它的 Workflow Task。子 Run 的 Workflow Type 是 `workflowType`，Workflow ID 是 `<父 Run ID>/<Child ID>`（例如 `01a1…/#c1`）。因此一个父 Run 可以启动多个同类型的子 Workflow，多个父 Run 可以同时启动同类型的子 Workflow，该类型自己的顶层 Run 也不受影响。子 Run 进入终态后，父 Run 收到对应事件并继续执行。
 
 ## 失败处理
 

@@ -10,17 +10,17 @@ import (
 )
 
 type WorkflowTargetRef struct {
-	Namespace  string
-	WorkflowID string
-	Version    string
+	Namespace    string
+	WorkflowType string
+	Version      string
 }
 
 // WorkflowCommandResolver lets the Run layer request routing and immutable
 // definition refs without depending on the server composition package.
 type WorkflowCommandResolver interface {
 	ResolveActivityCommand(runID string, command history.Command) (history.Command, error)
-	ChildWorkflowRef(runID, workflowID string) (WorkflowTargetRef, error)
-	ContinuedWorkflowRef(runID, workflowID string) (WorkflowTargetRef, error)
+	ChildWorkflowRef(runID, workflowType string) (WorkflowTargetRef, error)
+	ContinuedWorkflowRef(runID, workflowType string) (WorkflowTargetRef, error)
 	CheckWorkflowInput(ref WorkflowTargetRef, input map[string]any) error
 }
 
@@ -124,35 +124,35 @@ func PrepareWorkflowTask(runID string, commands []history.Command, traceContext 
 		case history.CmdUpsertSearchAttributes:
 			prepared.CommandEvents = append(prepared.CommandEvents, history.NewSearchAttributesUpsertedEvent(command.Input))
 		case history.CmdStartChildWorkflow:
-			ref, err := resolver.ChildWorkflowRef(runID, command.WorkflowID)
+			ref, err := resolver.ChildWorkflowRef(runID, command.WorkflowType)
 			if err != nil {
 				return PreparedWorkflowTask{}, err
 			}
 			if err := resolver.CheckWorkflowInput(ref, command.Input); err != nil {
-				return PreparedWorkflowTask{}, fmt.Errorf("child workflow %q: %w", command.WorkflowID, err)
+				return PreparedWorkflowTask{}, fmt.Errorf("child workflow %q: %w", command.WorkflowType, err)
 			}
 			policy, err := protocol.NormalizeParentClosePolicy(command.ParentClosePolicy)
 			if err != nil {
-				return PreparedWorkflowTask{}, fmt.Errorf("child workflow %q: %w", command.WorkflowID, err)
+				return PreparedWorkflowTask{}, fmt.Errorf("child workflow %q: %w", command.WorkflowType, err)
 			}
 			childRunID := NewID()
-			prepared.ChildTargets[i] = ChildWorkflowTarget{RunID: childRunID, WorkflowID: ref.WorkflowID, ConfigVersion: ref.Version, ParentClosePolicy: policy}
+			prepared.ChildTargets[i] = ChildWorkflowTarget{RunID: childRunID, WorkflowType: ref.WorkflowType, ConfigVersion: ref.Version, ParentClosePolicy: policy}
 			prepared.ChildRefs[i] = ref
-			event := history.NewChildWorkflowStartedEvent(ref.WorkflowID, command.ChildID, childRunID, ref.Version, command.Input)
+			event := history.NewChildWorkflowStartedEvent(ref.WorkflowType, command.ChildID, childRunID, ref.Version, command.Input)
 			event.ChildWorkflowStarted.ParentClosePolicy = policy
 			prepared.CommandEvents = append(prepared.CommandEvents, event)
 		case history.CmdContinueAsNew:
-			ref, err := resolver.ContinuedWorkflowRef(runID, command.WorkflowID)
+			ref, err := resolver.ContinuedWorkflowRef(runID, command.WorkflowType)
 			if err != nil {
 				return PreparedWorkflowTask{}, err
 			}
 			if err := resolver.CheckWorkflowInput(ref, command.Input); err != nil {
-				return PreparedWorkflowTask{}, fmt.Errorf("continue-as-new %q: %w", ref.WorkflowID, err)
+				return PreparedWorkflowTask{}, fmt.Errorf("continue-as-new %q: %w", ref.WorkflowType, err)
 			}
 			continuedRunID := NewID()
 			prepared.ContinuedRunIDs[i] = continuedRunID
 			prepared.ContinuedRefs[i] = ref
-			prepared.CommandEvents = append(prepared.CommandEvents, history.NewWorkflowContinuedAsNewEvent(ref.WorkflowID, continuedRunID, ref.Version, command.Input))
+			prepared.CommandEvents = append(prepared.CommandEvents, history.NewWorkflowContinuedAsNewEvent(ref.WorkflowType, continuedRunID, ref.Version, command.Input))
 		case history.CmdCompleteWorkflowUpdate:
 			if command.UpdateOutcome == nil {
 				return PreparedWorkflowTask{}, protocol.InvalidRequestf("complete workflow update %q: UpdateOutcome is required", command.UpdateID)

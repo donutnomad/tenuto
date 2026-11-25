@@ -18,8 +18,8 @@ import (
 // + childRunID。
 func startChildWorkflow(t *testing.T, srv *Server, mgr execution.ExecutionManager, parentRunID string) (string, int64, string) {
 	t.Helper()
-	wftID, childWorkflowID := openParentForChildWorkflow(t, srv, mgr, parentRunID)
-	submitStartChildWorkflow(t, srv, parentRunID, wftID, childWorkflowID)
+	wftID, childWorkflowType := openParentForChildWorkflow(t, srv, mgr, parentRunID)
+	submitStartChildWorkflow(t, srv, parentRunID, wftID, childWorkflowType)
 	states, _ := mgr.ListChildWorkflowStates(parentRunID)
 	if len(states) != 1 {
 		t.Fatalf("want 1 child state after schedule, got %d", len(states))
@@ -38,19 +38,19 @@ func openParentForChildWorkflow(t *testing.T, srv *Server, mgr execution.Executi
 	if err != nil {
 		t.Fatal(err)
 	}
-	parent := &execution.Run{ID: parentRunID, WorkflowID: parentRef.WorkflowID, WorkflowType: parentRef.WorkflowID, WorkflowConfigVersion: parentRef.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
+	parent := &execution.Run{ID: parentRunID, WorkflowID: parentRef.WorkflowType, WorkflowType: parentRef.WorkflowType, WorkflowConfigVersion: parentRef.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
 	createStartedRunForTest(t, mgr, parent)
-	return appendOpenWorkflowTaskForTest(t, mgr, parentRunID), childRef.WorkflowID
+	return appendOpenWorkflowTaskForTest(t, mgr, parentRunID), childRef.WorkflowType
 }
 
 // submitStartChildWorkflow 以一个 CmdStartChildWorkflow 完成父 Run 的 WFT。
-func submitStartChildWorkflow(t *testing.T, srv *Server, parentRunID string, wftID int64, childWorkflowID string) {
+func submitStartChildWorkflow(t *testing.T, srv *Server, parentRunID string, wftID int64, childWorkflowType string) {
 	t.Helper()
 	if err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(context.Background(), parentRunID, wftID), parentRunID, wftID, []history.Command{{
-		Type:       history.CmdStartChildWorkflow,
-		ChildID:    "child_1",
-		WorkflowID: childWorkflowID,
-		Input:      map[string]any{"order_id": "o-1"},
+		Type:         history.CmdStartChildWorkflow,
+		ChildID:      "child_1",
+		WorkflowType: childWorkflowType,
+		Input:        map[string]any{"order_id": "o-1"},
 	}}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -127,10 +127,10 @@ func TestChildClosePropagateIdempotent(t *testing.T) {
 func TestRecoverChildRebuildsMissingChildRun(t *testing.T) {
 	srv, mgr := newFailingServerForTest(t)
 	const parentRunID = "run-parent-recover-rebuild"
-	wftID, childWorkflowID := openParentForChildWorkflow(t, srv, mgr, parentRunID)
+	wftID, childWorkflowType := openParentForChildWorkflow(t, srv, mgr, parentRunID)
 	// 模拟"崩溃在建子 Run 前"：子 Run 的 WorkflowStarted 写入失败，父侧 state 停在 initiated。
 	mgr.failOn(history.EventWorkflowStarted)
-	submitStartChildWorkflow(t, srv, parentRunID, wftID, childWorkflowID)
+	submitStartChildWorkflow(t, srv, parentRunID, wftID, childWorkflowType)
 	mgr.failOn("")
 	states, _ := mgr.ListChildWorkflowStates(parentRunID)
 	if len(states) != 1 || states[0].Status != execution.ChildWorkflowStatusEnums.Initiated || states[0].ChildRunID == "" || srv.runExists(states[0].ChildRunID) {
@@ -217,12 +217,12 @@ func TestRecoverChildReadsStateNotHistory(t *testing.T) {
 	srv, mgr := newServerForTest(t)
 	parentRef, _ := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "parent-only-state", Program: programtest.Noop()})
 	childRef, _ := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "child-only-state", Program: programtest.Noop()})
-	parent := &execution.Run{ID: "run-parent-only-state", WorkflowID: parentRef.WorkflowID, WorkflowType: parentRef.WorkflowID, WorkflowConfigVersion: parentRef.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
+	parent := &execution.Run{ID: "run-parent-only-state", WorkflowID: parentRef.WorkflowType, WorkflowType: parentRef.WorkflowType, WorkflowConfigVersion: parentRef.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
 	_ = mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(parent)) })
 	// 只写 ChildWorkflowState（initiated），父 history 无任何 child 事件。
 	_ = mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 		RunID: parent.ID, ScheduledEventID: 99, ChildID: "child_1", ChildRunID: "child-run-only-state",
-		WorkflowID: childRef.WorkflowID, WorkflowConfigVersion: childRef.Version,
+		WorkflowType: childRef.WorkflowType, WorkflowConfigVersion: childRef.Version,
 		Status: execution.ChildWorkflowStatusEnums.Initiated, Input: map[string]any{"x": 1},
 	})
 
@@ -286,7 +286,7 @@ func TestCheckPendingChildWorkflowsRejectsOpenChild(t *testing.T) {
 	// open child（started），ScheduledEventID=5
 	_ = mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 		RunID: parentRunID, ScheduledEventID: 5, ChildID: "child_1", ChildRunID: "c1",
-		WorkflowID: "wf", Status: execution.ChildWorkflowStatusEnums.Started,
+		WorkflowType: "wf", Status: execution.ChildWorkflowStatusEnums.Started,
 	})
 	if err := execution.CheckPendingChildWorkflows(childStates(t, mgr, parentRunID), 10); err == nil {
 		t.Fatal("expected reset rejected due to pending child at reset point")
@@ -302,7 +302,7 @@ func TestCheckPendingChildWorkflowsAllowsClosedChild(t *testing.T) {
 	})
 	_ = mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 		RunID: parentRunID, ScheduledEventID: 5, ChildID: "child_1", ChildRunID: "c1",
-		WorkflowID: "wf", Status: execution.ChildWorkflowStatusEnums.Completed,
+		WorkflowType: "wf", Status: execution.ChildWorkflowStatusEnums.Completed,
 	})
 	if err := execution.CheckPendingChildWorkflows(childStates(t, mgr, parentRunID), 10); err != nil {
 		t.Fatalf("closed child should not block reset: %v", err)
@@ -318,7 +318,7 @@ func TestCheckPendingChildWorkflowsIgnoresChildAfterResetPoint(t *testing.T) {
 	})
 	_ = mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 		RunID: parentRunID, ScheduledEventID: 50, ChildID: "child_1", ChildRunID: "c1",
-		WorkflowID: "wf", Status: execution.ChildWorkflowStatusEnums.Started,
+		WorkflowType: "wf", Status: execution.ChildWorkflowStatusEnums.Started,
 	})
 	if err := execution.CheckPendingChildWorkflows(childStates(t, mgr, parentRunID), 10); err != nil {
 		t.Fatalf("child after reset point should not block: %v", err)

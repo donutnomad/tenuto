@@ -23,7 +23,7 @@ type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 原样写入 `workflow.json` 的 `policy` / `version`。
 
 `version` 是作者声明的发布标签，会写进 config JSON 并参与内容 hash；服务端存储和 Run 引用的是
-config JSON 的 sha256 内容版本。同一 `(namespace, workflow_id, 内容版本)` 只保留一份 JSON，
+config JSON 的 sha256 内容版本。同一 `(namespace, workflow_type, 内容版本)` 只保留一份 JSON，
 重复登记幂等；Pinned Run 保存版本引用，多个 Run 共享同一份内容，不为每个 Run 复制 JSON。
 
 `@Activity` 与 `@RemoteActivity` 的 key：`type`（必填）、`queue`。`@RemoteActivity` 只能标注**命名函数类型**

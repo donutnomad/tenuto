@@ -70,8 +70,8 @@ func enrichDebugEffectHook(events []history.Event, hook executor.DebugEffectHook
 		if effect.Kind == "child-workflow" {
 			if started, ok := childStarted[effect.ChildID]; ok {
 				effect.ChildRunID = started.ChildRunID
-				if effect.ChildWorkflowID == "" {
-					effect.ChildWorkflowID = started.Name
+				if effect.ChildWorkflowType == "" {
+					effect.ChildWorkflowType = started.Name
 				}
 				effect.ScheduledEventID = childStartedEventID[effect.ChildID]
 			}

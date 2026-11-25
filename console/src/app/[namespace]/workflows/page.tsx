@@ -29,10 +29,10 @@ export default function WorkflowsPage() {
   const { data: workers } = useSWR(["workers", namespace], () => api.listWorkers(namespace), { refreshInterval: 5000 })
   const [saving, setSaving] = useState("")
   const [saveError, setSaveError] = useState("")
-  async function setTarget(workflowID: string, identity: string) {
-    setSaving(workflowID)
+  async function setTarget(workflowType: string, identity: string) {
+    setSaving(workflowType)
     setSaveError("")
-    try { await api.setWorkerTarget(namespace, workflowID, identity); await mutate() }
+    try { await api.setWorkerTarget(namespace, workflowType, identity); await mutate() }
     catch (error) { setSaveError(error instanceof Error ? error.message : String(error)) }
     finally { setSaving("") }
   }
@@ -78,9 +78,9 @@ export default function WorkflowsPage() {
                 </TableRow>
               ) : (
                 items.map((wf) => (
-                  <TableRow key={wf.workflow_id}>
+                  <TableRow key={wf.workflow_type}>
                     <TableCell className="font-mono text-xs">
-                      {wf.workflow_id}
+                      {wf.workflow_type}
                     </TableCell>
                     <TableCell className="text-sm">
                       {wf.name || "-"}
@@ -108,12 +108,12 @@ export default function WorkflowsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <select aria-label={`Activity worker target for ${wf.workflow_id}`} value={wf.target_worker_identity ?? ""} disabled={saving === wf.workflow_id} onChange={(event) => void setTarget(wf.workflow_id, event.target.value)} className="max-w-64 rounded border bg-background px-2 py-1 text-xs">
+                      <select aria-label={`Activity worker target for ${wf.workflow_type}`} value={wf.target_worker_identity ?? ""} disabled={saving === wf.workflow_type} onChange={(event) => void setTarget(wf.workflow_type, event.target.value)} className="max-w-64 rounded border bg-background px-2 py-1 text-xs">
                         <option value="">Default scheduling</option>
                         {wf.target_worker_identity && !identities.includes(wf.target_worker_identity) && <option value={wf.target_worker_identity}>{wf.target_worker_identity} (offline)</option>}
                         {identities.map((id) => <option key={id} value={id}>{id}</option>)}
                       </select>
-                      <div className="mt-1 text-xs text-muted-foreground">{wf.target_worker_status ?? "default"}{saving === wf.workflow_id ? " · saving" : ""}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{wf.target_worker_status ?? "default"}{saving === wf.workflow_type ? " · saving" : ""}</div>
                     </TableCell>
                   </TableRow>
                 ))

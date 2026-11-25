@@ -32,7 +32,7 @@ func TestUpdateFailsWhenRunCloses(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			run := &execution.Run{ID: "run-update-close-" + kind, Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowID, WorkflowType: ref.WorkflowID, Status: history.StatusRunning, CreatedAt: time.Now()}
+			run := &execution.Run{ID: "run-update-close-" + kind, Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowType, WorkflowType: ref.WorkflowType, Status: history.StatusRunning, CreatedAt: time.Now()}
 			createStartedRunForTest(t, mgr, run)
 			ctx := context.Background()
 

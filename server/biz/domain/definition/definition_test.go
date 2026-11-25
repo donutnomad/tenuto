@@ -105,7 +105,7 @@ func TestValidateWorkflowConfig(t *testing.T) {
 		{name: "unparseable timeout", workflow: &program.WorkflowConfig{Type: "payments", Program: programtest.Noop(), RunTimeout: "soon", ExecutionTimeout: "1h"}},
 		// Error Case
 		{name: "nil", workflow: nil, wantErr: "workflow config is nil"},
-		{name: "empty id", workflow: &program.WorkflowConfig{}, wantErr: "workflow id is empty"},
+		{name: "empty type", workflow: &program.WorkflowConfig{}, wantErr: "workflow type is empty"},
 		{name: "missing program", workflow: &program.WorkflowConfig{Type: "payments"}, wantErr: "wlang program is empty"},
 		{name: "run timeout exceeds execution timeout", workflow: &program.WorkflowConfig{Type: "payments", Program: programtest.Noop(), RunTimeout: "2h", ExecutionTimeout: "1h"},
 			wantErr: "run_timeout (2h) must not exceed execution_timeout (1h)"},
@@ -173,7 +173,7 @@ func TestResolveWorkflowConfigRef(t *testing.T) {
 		t.Fatalf("default namespace ref = %+v err=%v", ref, err)
 	}
 	// Error Case
-	if _, err := definition.ResolveWorkflowConfigRef(repo, "tenant", "", ""); err == nil || err.Error() != "workflow id is empty" {
+	if _, err := definition.ResolveWorkflowConfigRef(repo, "tenant", "", ""); err == nil || err.Error() != "workflow type is empty" {
 		t.Fatalf("empty id error = %v", err)
 	}
 	if _, err := definition.ResolveWorkflowConfigRef(repo, "tenant", "payments", "missing"); !errors.Is(err, definition.ErrWorkflowConfigNotFound) {

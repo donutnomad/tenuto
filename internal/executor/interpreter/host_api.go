@@ -557,14 +557,14 @@ func (w workflowTime) MarshalJSON() ([]byte, error) { return w.t.MarshalJSON() }
 func (w workflowTime) String() string { return w.t.UTC().Format(time.RFC3339Nano) }
 
 // ExecuteChildWorkflow 的 args 是可选的 workflow.ChildWorkflowOptions；父关闭策略原样放进命令，由服务端校验。
-func (api *runtimeWorkflowAPI) ExecuteChildWorkflow(ctx workflowContext, workflowID string, input any, args ...any) types.Value {
+func (api *runtimeWorkflowAPI) ExecuteChildWorkflow(ctx workflowContext, workflowType string, input any, args ...any) types.Value {
 	childID := api.laneKey(ctx, "c")
 	e := api.executor
 	e.emitDebugEffect(executor.DebugEffect{
-		Kind:            "child-workflow",
-		Phase:           "scheduled",
-		ChildID:         childID,
-		ChildWorkflowID: workflowID,
+		Kind:              "child-workflow",
+		Phase:             "scheduled",
+		ChildID:           childID,
+		ChildWorkflowType: workflowType,
 	})
 	// 发起时机上移：对齐 Temporal ExecuteChildWorkflow 调用即在
 	// command 状态机产 StartChildWorkflow 命令，也对齐我们 ExecuteActivity 即调度的先例。否则
@@ -573,7 +573,7 @@ func (api *runtimeWorkflowAPI) ExecuteChildWorkflow(ctx workflowContext, workflo
 	// 三表任一命中（completed/failed/started）→ 历史已有 ChildWorkflowStarted 事件 → replay 批补
 	// shadow 配对；全 miss → 首见发起 CmdStartChildWorkflow（live 批
 	// 进 commands，replay 批进 replayCommands 与历史待配对）。
-	shadow := history.Command{Type: history.CmdStartChildWorkflow, WorkflowID: workflowID, ChildID: childID}
+	shadow := history.Command{Type: history.CmdStartChildWorkflow, WorkflowType: workflowType, ChildID: childID}
 	_, completed := e.childCompleted[childID]
 	_, failed := e.childFailures[childID]
 	_, started := e.childStarted[childID]
@@ -587,10 +587,10 @@ func (api *runtimeWorkflowAPI) ExecuteChildWorkflow(ctx workflowContext, workflo
 		e.emitShadow(shadow)
 	} else {
 		command := history.Command{
-			Type:       history.CmdStartChildWorkflow,
-			WorkflowID: workflowID,
-			ChildID:    childID,
-			Input:      mustRecordToMap(api.registry, input),
+			Type:         history.CmdStartChildWorkflow,
+			WorkflowType: workflowType,
+			ChildID:      childID,
+			Input:        mustRecordToMap(api.registry, input),
 		}
 		for _, arg := range args {
 			if opts, ok := arg.(workflow.ChildWorkflowOptions); ok && opts.ParentClosePolicy != "" {
@@ -601,10 +601,10 @@ func (api *runtimeWorkflowAPI) ExecuteChildWorkflow(ctx workflowContext, workflo
 	}
 	api.registerChildCancel(ctx, childID, wait)
 	return types.NewValue("workflow.ChildWorkflowFuture", ChildWorkflowFuture{
-		executor:   e,
-		childID:    childID,
-		workflowID: workflowID,
-		input:      mustRecordToMap(api.registry, input),
+		executor:     e,
+		childID:      childID,
+		workflowType: workflowType,
+		input:        mustRecordToMap(api.registry, input),
 	})
 }
 
@@ -630,13 +630,13 @@ func (api *runtimeWorkflowAPI) registerChildCancel(ctx workflowContext, childID 
 	})
 }
 
-func (api *runtimeWorkflowAPI) ContinueAsNew(ctx workflowContext, workflowID string, input any) error {
+func (api *runtimeWorkflowAPI) ContinueAsNew(ctx workflowContext, workflowType string, input any) error {
 	// replay 批产生的 CAN 进 replayCommands → canInReplay() 豁免比对（CAN 是唯一真实可达的
 	// 「replay 中跑到终态」形态）。
 	api.executor.emitCommand(history.Command{
-		Type:       history.CmdContinueAsNew,
-		WorkflowID: workflowID,
-		Input:      mustRecordToMap(api.registry, input),
+		Type:         history.CmdContinueAsNew,
+		WorkflowType: workflowType,
+		Input:        mustRecordToMap(api.registry, input),
 	})
 	runtime.Goexit()
 	return nil

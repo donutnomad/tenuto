@@ -143,7 +143,7 @@ go generate ./...
 两类注册都在 Worker 启动时完成：
 
 - **Activity**：生成的 `RegisterActivities(registry)` 一次登记本包全部 `@Activity` 实现。也可以逐个登记：`activity.RegisterActivityOnQueue(registry, "orders", "orders.charge", Charge)`。Worker 启动时把每个 Activity 的契约（type、输入输出指纹）随路由上报给 Server。
-- **Workflow**：把 `WorkflowDefinition()` 放进 `worker.Options.Workflows`，`Start` 时登记到 Client 的 Namespace。版本按 `workflow.json` 的内容 hash 区分：新内容首次登记时成为该 Workflow ID 的 latest，新 Run 使用 latest；同一内容重复登记幂等，latest 保持不变。
+- **Workflow**：把 `WorkflowDefinition()` 放进 `worker.Options.Workflows`，`Start` 时登记到 Client 的 Namespace。版本按 `workflow.json` 的内容 hash 区分：新内容首次登记时成为该 Workflow Type 的 latest，新 Run 使用 latest；同一内容重复登记幂等，latest 保持不变。
 
 ```go
 // cmd/worker/main.go

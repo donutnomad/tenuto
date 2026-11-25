@@ -11,7 +11,7 @@ import (
 
 type ChildWorkflowTarget struct {
 	RunID             string
-	WorkflowID        string
+	WorkflowType      string
 	ConfigVersion     string
 	ParentClosePolicy protocol.ParentClosePolicy
 }
@@ -167,7 +167,7 @@ func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTask
 				ScheduledEventID:      inserted.EventID,
 				ChildID:               command.ChildID,
 				ChildRunID:            target.RunID,
-				WorkflowID:            target.WorkflowID,
+				WorkflowType:          target.WorkflowType,
 				WorkflowConfigVersion: target.ConfigVersion,
 				Status:                ChildWorkflowStatusEnums.Initiated,
 				ParentClosePolicy:     target.ParentClosePolicy,

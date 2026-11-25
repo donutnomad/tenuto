@@ -37,7 +37,7 @@ func TestExecutionTimeoutNotResetOnContinueAsNew(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowID, ref.WorkflowID, "", nil))
+	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowType, ref.WorkflowType, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,9 +57,9 @@ func TestExecutionTimeoutNotResetOnContinueAsNew(t *testing.T) {
 	// 创建 continue-as-new run，继承旧 run 的 DeadlineAt
 	run2ID := execution.NewID()
 	err = server.startContinuedRunWithRef(ctx, run1ID, run2ID, nil, definition.WorkflowConfigRef{
-		Namespace:  ref.Namespace,
-		WorkflowID: ref.WorkflowID,
-		Version:    ref.Version,
+		Namespace:    ref.Namespace,
+		WorkflowType: ref.WorkflowType,
+		Version:      ref.Version,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestRunTimeoutResetsOnContinueAsNew(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowID, ref.WorkflowID, "", nil))
+	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowType, ref.WorkflowType, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,9 +115,9 @@ func TestRunTimeoutResetsOnContinueAsNew(t *testing.T) {
 	clk.Advance(20 * time.Second)
 	run2ID := execution.NewID()
 	err = server.startContinuedRunWithRef(ctx, run1ID, run2ID, nil, definition.WorkflowConfigRef{
-		Namespace:  ref.Namespace,
-		WorkflowID: ref.WorkflowID,
-		Version:    ref.Version,
+		Namespace:    ref.Namespace,
+		WorkflowType: ref.WorkflowType,
+		Version:      ref.Version,
 	})
 	if err != nil {
 		t.Fatal(err)

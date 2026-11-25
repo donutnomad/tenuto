@@ -41,9 +41,9 @@ type blockClassifyWorkerAPI struct {
 	failCause        string
 }
 
-func newBlockClassifyWorkerAPI(t *testing.T, src []byte, workflowID, funcName, filename string, replay bool) *blockClassifyWorkerAPI {
+func newBlockClassifyWorkerAPI(t *testing.T, src []byte, workflowType, funcName, filename string, replay bool) *blockClassifyWorkerAPI {
 	t.Helper()
-	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: workflowID, FuncName: funcName, Filename: filename})
+	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: workflowType, FuncName: funcName, Filename: filename})
 	if err != nil {
 		t.Fatal(err)
 	}

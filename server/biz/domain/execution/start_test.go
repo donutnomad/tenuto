@@ -13,8 +13,8 @@ func TestCommitStartedRunKeepsCurrentAndHistoryAtomic(t *testing.T) {
 	store := memory.NewExecutionManager()
 	start := func(id string) error {
 		candidate := execution.NewRun(execution.NewRunOptions{
-			ID:                    id,
-			WorkflowID:            "payment",
+			ID:         id,
+			WorkflowID: "payment", WorkflowType: "payment",
 			WorkflowConfigVersion: "version-1",
 		})
 		treeID, branchID, started, err := execution.PrepareStartedRun(candidate, "Payment", 0)
@@ -50,7 +50,7 @@ func TestCommitStartedRunKeepsCurrentAndHistoryAtomic(t *testing.T) {
 
 func TestNewWorkflowVersionRunPinsProgramAndWorkflowType(t *testing.T) {
 	started, err := execution.NewWorkflowVersionRun(execution.WorkflowStartOptions{
-		Namespace: " tenant ", WorkflowID: "run-family", ConfigWorkflowID: "payment",
+		Namespace: " tenant ", WorkflowID: "run-family", WorkflowType: "payment",
 		ProgramVersion: "program-v2", Initiator: "workflow",
 	})
 	if err != nil {
@@ -64,7 +64,7 @@ func TestNewWorkflowVersionRunPinsProgramAndWorkflowType(t *testing.T) {
 	}
 
 	started, err = execution.NewWorkflowVersionRun(execution.WorkflowStartOptions{
-		WorkflowID: "payment", ConfigWorkflowID: "payment", ProgramVersion: "program-v2",
+		WorkflowID: "payment", WorkflowType: "payment", ProgramVersion: "program-v2",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -79,9 +79,9 @@ func TestNewWorkflowVersionRunValidatesIdentityAndProgram(t *testing.T) {
 		name string
 		opts execution.WorkflowStartOptions
 	}{
-		{name: "missing workflow ID", opts: execution.WorkflowStartOptions{ConfigWorkflowID: "payment", ProgramVersion: "v1"}},
-		{name: "missing config workflow ID", opts: execution.WorkflowStartOptions{WorkflowID: "payment", ProgramVersion: "v1"}},
-		{name: "missing program version", opts: execution.WorkflowStartOptions{WorkflowID: "payment", ConfigWorkflowID: "payment"}},
+		{name: "missing workflow ID", opts: execution.WorkflowStartOptions{WorkflowType: "payment", ProgramVersion: "v1"}},
+		{name: "missing workflow type", opts: execution.WorkflowStartOptions{WorkflowID: "payment", ProgramVersion: "v1"}},
+		{name: "missing program version", opts: execution.WorkflowStartOptions{WorkflowID: "payment", WorkflowType: "payment"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -207,7 +207,7 @@ Server 的非 2xx 应答是 `*client.ServiceError{StatusCode, Message}`，用 `e
 | `start-batch`、`get-batch`、`list-batches`、`cancel-batch` | 见 `operations.md` | Batch 记录（`start-batch` 应答 202） |
 | `create-schedule` 等 | 见 `schedules.md` | Schedule |
 | `list-configs`、`list-workers`、`list-task-queues`、`list-namespaces`、`capabilities`、`activity-states` | 过滤字段 | 资源列表 |
-| `register`、`artifacts` | 生成器产物（由 `tenuto-workflow-gen -url` 调用） | `{namespace, workflow_id, version}` |
+| `register`、`artifacts` | 生成器产物（由 `tenuto-workflow-gen -url` 调用） | `{namespace, workflow_type, version}` |
 
 所有 POST 必须带 `Content-Type: application/json`（没有请求体的 `capabilities` 等也一样，发 `-d '{}'`），否则 415。按 Run ID 或 Workflow ID 寻址的端点（上表带 `run_id` / `workflow_id` 的，以及 `get-config`、`activity-states`、`history`、`history-page`）都带 `namespace`，省略即 `default`。给出的 `run_id` 不属于请求的 Namespace（或不属于给出的 `workflow_id`）时返回 404 `run not found`，与 Run 不存在相同。`wait_stage` 取 `Accepted` 或 `Completed`，其他取值返回 400；Update 的结果只在 `outcome` 里。
 

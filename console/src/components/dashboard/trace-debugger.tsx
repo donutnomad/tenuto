@@ -57,7 +57,7 @@ import {
 
 export interface TraceAncestorFrame {
   runID: string
-  workflowID: string
+  workflowType: string
   line: number
 }
 
@@ -536,7 +536,7 @@ export function TraceDebugger({
               title={childEffects.length > 1
                 ? `选择要步入的子 Workflow (${childEffects.length})`
                 : readyChildEffects.length === 1
-                  ? `步入子 Workflow: ${readyChildEffects[0].child_workflow_id ?? readyChildEffects[0].child_run_id}`
+                  ? `步入子 Workflow: ${readyChildEffects[0].child_workflow_type ?? readyChildEffects[0].child_run_id}`
                   : childEffects.length === 1
                     ? "子 Workflow 正在等待创建 Run"
                     : "当前步骤没有可步入的子 Workflow"}
@@ -566,7 +566,7 @@ export function TraceDebugger({
                       )}
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-mono text-[#dfe1e5]">
-                          {effect.child_workflow_id ?? effect.child_id ?? effect.activity_id}
+                          {effect.child_workflow_type ?? effect.child_id ?? effect.activity_id}
                         </span>
                         <span className="block truncate font-mono text-[10px] text-[#7a7e85]">
                           {effect.child_id ?? effect.invocation_id} · {effect.child_run_id ?? "waiting for child run"}
@@ -710,10 +710,10 @@ export function TraceDebugger({
                     "flex h-6 w-full items-center gap-2 rounded px-2 text-left font-mono text-[11px] hover:bg-[#34363b]",
                     index === 0 ? "text-[#79c0ff]" : "text-[#bcbec4]",
                   )}
-                  title={`查看执行中的 Workflow: ${frame.workflowID}`}
+                  title={`查看执行中的 Workflow: ${frame.workflowType}`}
                 >
                   <CornerDownRight className="size-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{frame.workflowID}</span>
+                  <span className="min-w-0 flex-1 truncate">{frame.workflowType}</span>
                   <span className="shrink-0 text-[10px] text-[#7a7e85]">line {frame.line + 1}</span>
                 </button>
               ))}
@@ -748,10 +748,10 @@ export function TraceDebugger({
                     type="button"
                     onClick={() => onSelectAncestor?.(frame.runID)}
                     className="flex h-6 w-full items-center gap-2 rounded px-2 text-left font-mono text-[11px] text-[#bcbec4] hover:bg-[#34363b]"
-                    title={`查看父 Workflow: ${frame.workflowID}`}
+                    title={`查看父 Workflow: ${frame.workflowType}`}
                   >
                     <CornerUpLeft className="size-3.5 shrink-0 text-[#a8adbd]" />
-                    <span className="min-w-0 flex-1 truncate">{frame.workflowID}</span>
+                    <span className="min-w-0 flex-1 truncate">{frame.workflowType}</span>
                     <span className="shrink-0 text-[10px] text-[#7a7e85]">line {frame.line + 1}</span>
                   </button>
                 ))}

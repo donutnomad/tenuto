@@ -15,7 +15,7 @@ func newStoreWithRun(t *testing.T, runID string) *memory.ExecutionManager {
 	t.Helper()
 	store := memory.NewExecutionManager()
 	if err := store.RunInTx(func(tx execution.ExecutionTx) error {
-		return tx.CreateRun(execution.NewRun(execution.NewRunOptions{ID: runID, WorkflowID: "workflow", WorkflowConfigVersion: "v1"}))
+		return tx.CreateRun(execution.NewRun(execution.NewRunOptions{ID: runID, WorkflowID: "workflow", WorkflowType: "workflow", WorkflowConfigVersion: "v1"}))
 	}); err != nil {
 		t.Fatal(err)
 	}

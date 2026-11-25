@@ -34,7 +34,7 @@ func TestTargetAPI(t *testing.T) {
 	setTarget := func(identity string) (runtimeapi.WorkflowConfigRef, error) {
 		var ref runtimeapi.WorkflowConfigRef
 		err := wirePost(context.Background(), httpServer.URL, runtimeapi.WorkflowRuntimeSetWorkerTargetPath, runtimeapi.WorkflowRuntimeSetWorkerTargetRequest{
-			Namespace: "ns", WorkflowID: "pay", TargetWorkerIdentity: identity,
+			Namespace: "ns", WorkflowType: "pay", TargetWorkerIdentity: identity,
 		}, &ref)
 		return ref, err
 	}
@@ -49,7 +49,7 @@ func TestTargetAPI(t *testing.T) {
 	if result.Items[0].TargetWorkerIdentity != "A" || result.Items[0].TargetWorkerStatus != "online" {
 		t.Fatalf("list=%+v", result)
 	}
-	resp, err := http.Post(httpServer.URL+"/runtime/workflow/set-worker-target", "application/json", strings.NewReader(`{"namespace":"ns","workflow_id":"pay","target_worker_identity":"unknown"}`))
+	resp, err := http.Post(httpServer.URL+"/runtime/workflow/set-worker-target", "application/json", strings.NewReader(`{"namespace":"ns","workflow_type":"pay","target_worker_identity":"unknown"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

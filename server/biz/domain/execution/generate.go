@@ -205,7 +205,7 @@ type ChildWorkflowStatePatch struct {
 	ScheduledEventID      mo.Option[int64]
 	ChildID               mo.Option[string]
 	ChildRunID            mo.Option[string]
-	WorkflowID            mo.Option[string]
+	WorkflowType          mo.Option[string]
 	WorkflowConfigVersion mo.Option[string]
 	Status                mo.Option[ChildWorkflowStatus]
 	ParentClosePolicy     mo.Option[protocol.ParentClosePolicy]
@@ -238,9 +238,9 @@ func (c *ChildWorkflowState) setChildRunID(childRunID string) {
 	c.patch.ChildRunID = mo.Some(childRunID)
 }
 
-func (c *ChildWorkflowState) setWorkflowID(workflowID string) {
-	c.WorkflowID = workflowID
-	c.patch.WorkflowID = mo.Some(workflowID)
+func (c *ChildWorkflowState) setWorkflowType(workflowType string) {
+	c.WorkflowType = workflowType
+	c.patch.WorkflowType = mo.Some(workflowType)
 }
 
 func (c *ChildWorkflowState) setWorkflowConfigVersion(workflowConfigVersion string) {

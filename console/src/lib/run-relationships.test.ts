@@ -57,7 +57,7 @@ describe("buildRunRelationships", () => {
     expect(relationships).toContainEqual(expect.objectContaining({
       kind: "continue-as-new",
       runID: "child-segment-2",
-      workflowID: "child-flow",
+      workflowType: "child-flow",
     }))
   })
 

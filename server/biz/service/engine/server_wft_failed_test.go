@@ -142,8 +142,8 @@ func TestRecoveryReschedulesRunningRunWithoutOpenWFT(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-recover-block",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),

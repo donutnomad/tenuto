@@ -219,7 +219,7 @@ func TestChildRunCommitsWithParentStartedState(t *testing.T) {
 	mgr.setFault(func(tx execution.ExecutionTx) execution.ExecutionTx { return failChildStartedTx{tx} })
 	// 子 Run 的启动是提交后的动作：失败只记日志，留给补偿扫描。
 	if err := server.HandleWorkflowTaskCompleted(taskCtx, parentRunID, lease.Task.ScheduledEventID,
-		[]history.Command{{Type: history.CmdStartChildWorkflow, ChildID: "child-1", WorkflowID: "child-atomic-child"}}, "worker-a"); err != nil {
+		[]history.Command{{Type: history.CmdStartChildWorkflow, ChildID: "child-1", WorkflowType: "child-atomic-child"}}, "worker-a"); err != nil {
 		t.Fatal(err)
 	}
 	states, err := mgr.ListChildWorkflowStates(parentRunID)

@@ -31,9 +31,9 @@ func Processor(ctx workflow.Context, state LoopState) error {
 }
 ```
 
-签名：`func ContinueAsNew(ctx Context, workflowID string, input any) error`。
+签名：`func ContinueAsNew(ctx Context, workflowType string, input any) error`。
 
-- `workflowID` 是下一代 Run 使用的 Workflow 定义 ID，通常与当前 Workflow 相同。
+- `workflowType` 是下一代 Run 使用的 Workflow Type，通常与当前 Workflow 相同。
 - `input` 成为下一代 Run 的输入。
 - 调用后当前协程立即结束，它后面的语句不再执行。当前 Run 状态变为 `continued_as_new`，新 Run 从 `WorkflowStarted` 开始。
 

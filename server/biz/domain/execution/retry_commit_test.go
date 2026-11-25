@@ -11,7 +11,7 @@ import (
 )
 
 func TestPrepareStartedRunRecordsStartSearchAttributes(t *testing.T) {
-	empty := execution.NewRun(execution.NewRunOptions{ID: "run-empty", WorkflowID: "payment", WorkflowConfigVersion: "v1"})
+	empty := execution.NewRun(execution.NewRunOptions{ID: "run-empty", WorkflowID: "payment", WorkflowType: "payment", WorkflowConfigVersion: "v1"})
 	_, _, started, err := execution.PrepareStartedRun(empty, "Payment", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -20,7 +20,7 @@ func TestPrepareStartedRunRecordsStartSearchAttributes(t *testing.T) {
 		t.Fatalf("empty start attrs = %#v, want empty", attrs)
 	}
 
-	old := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "payment", WorkflowConfigVersion: "v1",
+	old := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "payment", WorkflowType: "payment", WorkflowConfigVersion: "v1",
 		SearchAttributes: map[string]string{"env": "prod", history.ChangeVersionSearchAttribute: `["foo-1"]`}})
 	continued := execution.NewContinuedRun(old, "run-2", "", "payment", "v1", nil, time.Now())
 	_, _, started, err = execution.PrepareStartedRun(continued, "Payment", 0)
@@ -35,7 +35,7 @@ func TestPrepareStartedRunRecordsStartSearchAttributes(t *testing.T) {
 }
 
 func TestNewRetryRunUsesStartSearchAttributes(t *testing.T) {
-	old := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "payment", WorkflowConfigVersion: "v1",
+	old := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "payment", WorkflowType: "payment", WorkflowConfigVersion: "v1",
 		SearchAttributes: map[string]string{"env": "prod", "biz": "x", history.ChangeVersionSearchAttribute: `["foo-1"]`}})
 	now := time.Now()
 	if next := execution.NewRetryRun(old, "run-2", now, map[string]string{}); len(next.SearchAttributes) != 0 {
@@ -51,7 +51,7 @@ func TestNewRetryRunUsesStartSearchAttributes(t *testing.T) {
 
 func TestCommitRetryRunMovesCurrentPointerWithHistoryAndTimer(t *testing.T) {
 	store := memory.NewExecutionManager()
-	old := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "payment", WorkflowConfigVersion: "v1", Input: map[string]any{"order": "one"}})
+	old := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "payment", WorkflowType: "payment", WorkflowConfigVersion: "v1", Input: map[string]any{"order": "one"}})
 	oldTree, oldBranch, oldStarted, err := execution.PrepareStartedRun(old, "Payment", 0)
 	if err != nil {
 		t.Fatal(err)

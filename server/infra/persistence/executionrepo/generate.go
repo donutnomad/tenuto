@@ -182,7 +182,7 @@ type ChildWorkflowStateSchemaType struct {
 	ScheduledEventID      gsql.IntField      // int64
 	ChildID               gsql.StringField   // string
 	ChildRunID            gsql.StringField   // string
-	WorkflowID            gsql.StringField   // string
+	WorkflowType          gsql.StringField   // string
 	WorkflowConfigVersion gsql.StringField   // string
 	Status                gsql.StringField   // string
 	ParentClosePolicy     gsql.StringField   // string
@@ -212,7 +212,7 @@ func (t *ChildWorkflowStateSchemaType) WithTable(tableName string) {
 	t.ScheduledEventID = t.ScheduledEventID.WithTable(&tn)
 	t.ChildID = t.ChildID.WithTable(&tn)
 	t.ChildRunID = t.ChildRunID.WithTable(&tn)
-	t.WorkflowID = t.WorkflowID.WithTable(&tn)
+	t.WorkflowType = t.WorkflowType.WithTable(&tn)
 	t.WorkflowConfigVersion = t.WorkflowConfigVersion.WithTable(&tn)
 	t.Status = t.Status.WithTable(&tn)
 	t.ParentClosePolicy = t.ParentClosePolicy.WithTable(&tn)
@@ -246,7 +246,7 @@ func (t ChildWorkflowStateSchemaType) AllFields() field.BaseFields {
 		t.ScheduledEventID,
 		t.ChildID,
 		t.ChildRunID,
-		t.WorkflowID,
+		t.WorkflowType,
 		t.WorkflowConfigVersion,
 		t.Status,
 		t.ParentClosePolicy,
@@ -273,7 +273,7 @@ var ChildWorkflowStateSchema = ChildWorkflowStateSchemaType{
 	ScheduledEventID:      gsql.IntFieldOf[int64]("tenuto_child_workflow_states", "scheduled_event_id"),
 	ChildID:               gsql.StringFieldOf[string]("tenuto_child_workflow_states", "child_id"),
 	ChildRunID:            gsql.StringFieldOf[string]("tenuto_child_workflow_states", "child_run_id"),
-	WorkflowID:            gsql.StringFieldOf[string]("tenuto_child_workflow_states", "workflow_id"),
+	WorkflowType:          gsql.StringFieldOf[string]("tenuto_child_workflow_states", "workflow_type"),
 	WorkflowConfigVersion: gsql.StringFieldOf[string]("tenuto_child_workflow_states", "workflow_config_version"),
 	Status:                gsql.StringFieldOf[string]("tenuto_child_workflow_states", "status"),
 	ParentClosePolicy:     gsql.StringFieldOf[string]("tenuto_child_workflow_states", "parent_close_policy"),
@@ -1025,8 +1025,8 @@ func (c *ChildWorkflowStatePO) ToPatch(input *execution.ChildWorkflowState) map[
 	if fields.ChildRunID.IsPresent() {
 		values["child_run_id"] = b.ChildRunID
 	}
-	if fields.WorkflowID.IsPresent() {
-		values["workflow_id"] = b.WorkflowID
+	if fields.WorkflowType.IsPresent() {
+		values["workflow_type"] = b.WorkflowType
 	}
 	if fields.WorkflowConfigVersion.IsPresent() {
 		values["workflow_config_version"] = b.WorkflowConfigVersion

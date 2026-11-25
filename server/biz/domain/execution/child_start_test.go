@@ -15,7 +15,7 @@ func TestMarkChildStartedPreservesTerminalState(t *testing.T) {
 	store := memory.NewExecutionManager()
 	request := execution.ChildStart{
 		ParentRunID: "parent", ChildID: "child-1", ChildRunID: "child-run",
-		ScheduledEventID: 3, Namespace: "tenant-a", WorkflowID: "subflow",
+		ScheduledEventID: 3, Namespace: "tenant-a", WorkflowType: "subflow",
 		ConfigVersion: "v1", Input: map[string]any{"id": "one"},
 	}
 	child := execution.NewChildRun(request, time.Now())
@@ -26,7 +26,7 @@ func TestMarkChildStartedPreservesTerminalState(t *testing.T) {
 		return store.RunInTx(func(tx execution.ExecutionTx) error { return execution.MarkChildStarted(tx, request, time.Now()) })
 	}
 	if err := store.RunInTx(func(tx execution.ExecutionTx) error {
-		return tx.CreateRun(execution.NewRun(execution.NewRunOptions{ID: request.ParentRunID, WorkflowID: "parent-flow", WorkflowConfigVersion: "v1"}))
+		return tx.CreateRun(execution.NewRun(execution.NewRunOptions{ID: request.ParentRunID, WorkflowID: "parent-flow", WorkflowType: "parent-flow", WorkflowConfigVersion: "v1"}))
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestMarkChildStartedPreservesTerminalState(t *testing.T) {
 func TestNewContinuedRunPreservesDefinitionAndDeadline(t *testing.T) {
 	deadline := time.Now().Add(time.Hour)
 	old := execution.NewRun(execution.NewRunOptions{
-		ID: "old", WorkflowID: "flow", WorkflowConfigVersion: "v1",
+		ID: "old", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1",
 		DeadlineAt: &deadline,
 		Attempt:    3,
 	})
@@ -71,7 +71,7 @@ func TestNewContinuedRunPreservesDefinitionAndDeadline(t *testing.T) {
 func TestNewChildRunStartsAtFirstAttempt(t *testing.T) {
 	child := execution.NewChildRun(execution.ChildStart{
 		ParentRunID: "parent", ChildID: "child-1", ChildRunID: "child-run",
-		ScheduledEventID: 3, Namespace: " tenant-a ", WorkflowID: "subflow", ConfigVersion: "v1",
+		ScheduledEventID: 3, Namespace: " tenant-a ", WorkflowType: "subflow", ConfigVersion: "v1",
 	}, time.Now())
 	if child.ID != "child-run" || child.FirstRunID != "child-run" || child.Namespace != "tenant-a" ||
 		child.ParentRunID != "parent" || child.ParentChildID != "child-1" || child.ParentScheduledEventID != 3 ||

@@ -318,7 +318,7 @@ Workflow worker 与 Activity worker 是两个独立部署时，带新定义的 W
 
 配置内容多了一个不同的字段值，内容版本随之改变，服务端把它当作一份新内容：
 
-- **登记**：带着新标签的 worker 启动时登记这份配置，`(Namespace, Workflow ID, hash)` 是新的，latest 指针指向它。
+- **登记**：带着新标签的 worker 启动时登记这份配置，`(Namespace, Workflow Type, hash)` 是新的，latest 指针指向它。
 - **新启动的 Run**：使用新内容。
 - **运行中的 `auto_upgrade` Run**：在下一个 Workflow Task 边界换到新内容，用它重放已有 History。编排相同，命令序列相同，重放通过，Run 继续执行。
 - **运行中的 `pinned` Run**：留在启动时的内容。worker 按任务携带的版本向服务端读取对应配置（`GetWorkflowConfig(ctx, runID, programVersion)`），所以新 worker 也能执行旧内容；旧内容用到的 Activity 仍要有 worker 提供。

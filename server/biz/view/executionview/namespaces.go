@@ -61,7 +61,7 @@ func (v *View) ListNamespaces() (NamespaceListResult, error) {
 		}
 		workflows := make(map[string]bool)
 		for _, ref := range refs {
-			workflows[ref.WorkflowID] = true
+			workflows[ref.WorkflowType] = true
 		}
 		info.WorkflowCount = len(workflows)
 		schedules, err := v.schedules.ListSchedules(ns)

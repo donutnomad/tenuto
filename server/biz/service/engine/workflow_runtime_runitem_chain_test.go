@@ -82,8 +82,8 @@ func TestListRuns_ContinueAsNewRunNotMarkedReset(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-can-base",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-can-base",
 		Status:                history.StatusRunning,
@@ -95,9 +95,9 @@ func TestListRuns_ContinueAsNewRunNotMarkedReset(t *testing.T) {
 	}
 	workflowTaskID := appendOpenWorkflowTaskForTest(t, mgr, run.ID)
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, run.ID, workflowTaskID), run.ID, workflowTaskID, []history.Command{{
-		Type:       history.CmdContinueAsNew,
-		WorkflowID: ref.WorkflowID,
-		Input:      map[string]any{"page": int64(2)},
+		Type:         history.CmdContinueAsNew,
+		WorkflowType: ref.WorkflowType,
+		Input:        map[string]any{"page": int64(2)},
 	}}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestListRuns_ContinueAsNewRunNotMarkedReset(t *testing.T) {
 	}
 
 	result, err := server.View().ListRuns(execution.RunListFilter{
-		WorkflowID:      ref.WorkflowID,
+		WorkflowID:      ref.WorkflowType,
 		RunIDs:          []string{run.ID, newRunID},
 		IncludeTerminal: true,
 	})

@@ -45,8 +45,8 @@ func TestTimerKeyedLock_UserTimerFired_ConcurrentWithSignal_Serialized(t *testin
 	run := &execution.Run{
 		ID:                    runID,
 		Namespace:             protocol.DefaultNamespace,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            runID,
 		Status:                history.StatusRunning,
@@ -142,8 +142,8 @@ func TestTimerKeyedLock_WorkflowTimeout_NoReentrantDeadlock(t *testing.T) {
 	run := &execution.Run{
 		ID:                    "run-timer-wftimeout",
 		Namespace:             protocol.DefaultNamespace,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-timer-wftimeout",
 		Status:                history.StatusRunning,
@@ -198,8 +198,8 @@ func TestTimerKeyedLock_RunTimeout_WithRetry_NoReentrantDeadlock(t *testing.T) {
 	run := &execution.Run{
 		ID:                    "run-timer-runtimeout-retry",
 		Namespace:             protocol.DefaultNamespace,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-timer-runtimeout-retry",
 		Status:                history.StatusRunning,

@@ -42,9 +42,9 @@ function childEffect(overrides: Partial<TraceEffect>): TraceEffect {
 function boundary(overrides: Partial<WorkflowBoundary>): WorkflowBoundary {
   return {
     parentRunID: "root-run",
-    parentWorkflowID: "order",
+    parentWorkflowType: "order",
     childRunID: "child-run",
-    childWorkflowID: "payment",
+    childWorkflowType: "payment",
     effect: childEffect({ child_run_id: "child-run" }),
     entryNavigation: { ...emptyTraceNavigation(), line: 4 },
     resumeNavigation: emptyTraceNavigation(),
@@ -83,14 +83,14 @@ describe("snapshotForStep", () => {
 })
 
 describe("buildBoundary", () => {
-  const parentRun = { id: "root-run", workflow_id: "order" } as Run
+  const parentRun = { id: "root-run", workflow_id: "order-1001", workflow_type: "order" } as Run
   const steps = [
     step({ seq: 0, line: 1 }),
     step({
       seq: 1,
       lane_seq: 1,
       line: 4,
-      effects: [childEffect({ child_run_id: "child-run", child_workflow_id: "payment", resume_seq: 2 })],
+      effects: [childEffect({ child_run_id: "child-run", child_workflow_type: "payment", resume_seq: 2 })],
     }),
     step({ seq: 2, lane_seq: 2, line: 6 }),
   ]
@@ -98,8 +98,8 @@ describe("buildBoundary", () => {
   it("enters at the scheduling step and resumes at the effect's resume step", () => {
     const built = buildBoundary({ run: parentRun, trace: trace(steps) }, "child-run")
     expect(built.parentRunID).toBe("root-run")
-    expect(built.parentWorkflowID).toBe("order")
-    expect(built.childWorkflowID).toBe("payment")
+    expect(built.parentWorkflowType).toBe("order")
+    expect(built.childWorkflowType).toBe("payment")
     expect(built.segments).toEqual(["child-run"])
     expect(built.entryNavigation).toEqual(expect.objectContaining({ stepSeq: 1, line: 4 }))
     expect(built.resumeNavigation).toEqual(expect.objectContaining({ stepSeq: 2, line: 6 }))
@@ -108,7 +108,7 @@ describe("buildBoundary", () => {
   it("resumes at the scheduling step when the effect has no resume position in the trace", () => {
     const pending = [step({ seq: 0, line: 4, effects: [childEffect({ child_run_id: "child-run" })] })]
     const built = buildBoundary({ run: parentRun, trace: trace(pending) }, "child-run")
-    expect(built.childWorkflowID).toBe("child-run")
+    expect(built.childWorkflowType).toBe("child-run")
     expect(built.resumeNavigation).toEqual(built.entryNavigation)
   })
 
@@ -121,8 +121,8 @@ describe("buildBoundary", () => {
 describe("workflowPath", () => {
   it("lists the root run segments when no child workflow is entered", () => {
     expect(workflowPath("order", [], ["root-run", "root-run-2"])).toEqual([
-      { runID: "root-run", workflowID: "order", line: 0 },
-      { runID: "root-run-2", workflowID: "order", line: 0 },
+      { runID: "root-run", workflowType: "order", line: 0 },
+      { runID: "root-run-2", workflowType: "order", line: 0 },
     ])
   })
 
@@ -131,17 +131,17 @@ describe("workflowPath", () => {
       boundary({}),
       boundary({
         parentRunID: "child-run",
-        parentWorkflowID: "payment",
+        parentWorkflowType: "payment",
         childRunID: "grandchild-run",
-        childWorkflowID: "ledger",
+        childWorkflowType: "ledger",
         entryNavigation: { ...emptyTraceNavigation(), line: 11 },
         segments: ["grandchild-run", "grandchild-run-2"],
       }),
     ]
     expect(workflowPath("order", boundaries, ["root-run"])).toEqual([
-      { runID: "root-run", workflowID: "order", line: 4 },
-      { runID: "child-run", workflowID: "payment", line: 11 },
-      { runID: "grandchild-run-2", workflowID: "ledger", line: 0 },
+      { runID: "root-run", workflowType: "order", line: 4 },
+      { runID: "child-run", workflowType: "payment", line: 11 },
+      { runID: "grandchild-run-2", workflowType: "ledger", line: 0 },
     ])
   })
 })

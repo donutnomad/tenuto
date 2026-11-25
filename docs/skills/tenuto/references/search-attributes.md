@@ -81,4 +81,4 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 
 - 键名保持业务稳定（`order_id`、`tenant`、`region`）；高基数字段用于精确定位，低基数字段用于列表过滤。
 - 敏感数据用脱敏后的标识。
-- 需要按业务 ID 找 Run 时写入搜索属性；Workflow ID 在缺省启动方式下等于定义 ID，不携带业务 ID。
+- 一个 Run 需要按多个业务键查找时写入搜索属性；Workflow ID 只承载一个业务键，留空启动时是生成的 UUIDv7 文本。

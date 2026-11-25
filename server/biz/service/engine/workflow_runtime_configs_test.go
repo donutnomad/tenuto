@@ -51,8 +51,8 @@ func TestListWorkflowConfigs_SingleWorkflow(t *testing.T) {
 		t.Fatalf("expected 1 item, got %d", result.Total)
 	}
 	item := result.Items[0]
-	if item.WorkflowID != "order-flow" {
-		t.Fatalf("expected workflow_id=order-flow, got %s", item.WorkflowID)
+	if item.WorkflowType != "order-flow" {
+		t.Fatalf("expected workflow_type=order-flow, got %s", item.WorkflowType)
 	}
 	if item.Name != "Order Flow" {
 		t.Fatalf("expected name=Order Flow, got %s", item.Name)
@@ -72,7 +72,7 @@ func TestListWorkflowConfigs_SingleWorkflow(t *testing.T) {
 }
 
 func TestListWorkflowConfigs_MultipleWorkflows(t *testing.T) {
-	// Happy Path: 多个 workflow 按 workflow_id 排序返回
+	// Happy Path: 多个 workflow 按 workflow_type 排序返回
 	server := newTestServer()
 
 	workflows := []program.WorkflowConfig{
@@ -93,14 +93,14 @@ func TestListWorkflowConfigs_MultipleWorkflows(t *testing.T) {
 	if result.Total != 3 {
 		t.Fatalf("expected 3 items, got %d", result.Total)
 	}
-	if result.Items[0].WorkflowID != "alpha-flow" {
-		t.Fatalf("expected first item alpha-flow, got %s", result.Items[0].WorkflowID)
+	if result.Items[0].WorkflowType != "alpha-flow" {
+		t.Fatalf("expected first item alpha-flow, got %s", result.Items[0].WorkflowType)
 	}
-	if result.Items[1].WorkflowID != "beta-flow" {
-		t.Fatalf("expected second item beta-flow, got %s", result.Items[1].WorkflowID)
+	if result.Items[1].WorkflowType != "beta-flow" {
+		t.Fatalf("expected second item beta-flow, got %s", result.Items[1].WorkflowType)
 	}
-	if result.Items[2].WorkflowID != "gamma-flow" {
-		t.Fatalf("expected third item gamma-flow, got %s", result.Items[2].WorkflowID)
+	if result.Items[2].WorkflowType != "gamma-flow" {
+		t.Fatalf("expected third item gamma-flow, got %s", result.Items[2].WorkflowType)
 	}
 }
 
@@ -122,8 +122,8 @@ func TestListWorkflowConfigs_NamespaceIsolation(t *testing.T) {
 	if resultA.Total != 1 {
 		t.Fatalf("ns-a: expected 1 item, got %d", resultA.Total)
 	}
-	if resultA.Items[0].WorkflowID != "wf-a" {
-		t.Fatalf("ns-a: expected wf-a, got %s", resultA.Items[0].WorkflowID)
+	if resultA.Items[0].WorkflowType != "wf-a" {
+		t.Fatalf("ns-a: expected wf-a, got %s", resultA.Items[0].WorkflowType)
 	}
 
 	resultB, err := server.View().ListWorkflowConfigs("ns-b")
@@ -133,8 +133,8 @@ func TestListWorkflowConfigs_NamespaceIsolation(t *testing.T) {
 	if resultB.Total != 1 {
 		t.Fatalf("ns-b: expected 1 item, got %d", resultB.Total)
 	}
-	if resultB.Items[0].WorkflowID != "wf-b" {
-		t.Fatalf("ns-b: expected wf-b, got %s", resultB.Items[0].WorkflowID)
+	if resultB.Items[0].WorkflowType != "wf-b" {
+		t.Fatalf("ns-b: expected wf-b, got %s", resultB.Items[0].WorkflowType)
 	}
 }
 

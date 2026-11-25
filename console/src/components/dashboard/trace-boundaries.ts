@@ -10,9 +10,9 @@ import type { TraceAncestorFrame } from "./trace-debugger"
 
 export interface WorkflowBoundary {
   parentRunID: string
-  parentWorkflowID: string
+  parentWorkflowType: string
   childRunID: string
-  childWorkflowID: string
+  childWorkflowType: string
   effect: TraceEffect
   entryNavigation: TraceNavigationSnapshot
   resumeNavigation: TraceNavigationSnapshot
@@ -65,9 +65,9 @@ export function buildBoundary(parent: Pick<TraceRunContext, "run" | "trace">, ch
     : trace.steps.find((step) => step.seq === resumeSeq) ?? match.step
   return {
     parentRunID: parentRun.id,
-    parentWorkflowID: parentRun.workflow_id,
+    parentWorkflowType: parentRun.workflow_type ?? parentRun.id,
     childRunID,
-    childWorkflowID: match.effect.child_workflow_id ?? childRunID,
+    childWorkflowType: match.effect.child_workflow_type ?? childRunID,
     effect: match.effect,
     entryNavigation,
     resumeNavigation: snapshotForStep(trace, resumeStep),
@@ -78,27 +78,27 @@ export function buildBoundary(parent: Pick<TraceRunContext, "run" | "trace">, ch
 // workflowPath 是页头面包屑：没有边界时列出 root 的各个 Run Segment；
 // 有边界时列出每层父 Workflow（停在调用行）加最深一层子 Workflow 当前的 Segment。
 export function workflowPath(
-  rootWorkflowID: string,
+  rootWorkflowType: string,
   boundaries: WorkflowBoundary[],
   rootSegments: string[],
 ): TraceAncestorFrame[] {
   if (boundaries.length === 0) {
     return rootSegments.map((runID) => ({
       runID,
-      workflowID: rootWorkflowID,
+      workflowType: rootWorkflowType,
       line: 0,
     }))
   }
   const frames: TraceAncestorFrame[] = boundaries.map((boundary) => ({
     runID: boundary.parentRunID,
-    workflowID: boundary.parentWorkflowID,
+    workflowType: boundary.parentWorkflowType,
     line: boundary.entryNavigation.line,
   }))
   const deepest = boundaries.at(-1)!
   const activeSegmentRunID = deepest.segments.at(-1) ?? deepest.childRunID
   frames.push({
     runID: activeSegmentRunID,
-    workflowID: deepest.childWorkflowID,
+    workflowType: deepest.childWorkflowType,
     line: 0,
   })
   return frames

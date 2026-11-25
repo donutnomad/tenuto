@@ -17,15 +17,15 @@ type DebugActivity struct {
 }
 
 type DebugEffect struct {
-	Kind             string
-	Phase            string
-	RoutineID        uint64
-	ActivityID       string
-	Type             string
-	ChildID          string
-	ChildRunID       string
-	ChildWorkflowID  string
-	ScheduledEventID int64
+	Kind              string
+	Phase             string
+	RoutineID         uint64
+	ActivityID        string
+	Type              string
+	ChildID           string
+	ChildRunID        string
+	ChildWorkflowType string
+	ScheduledEventID  int64
 }
 
 type DebugEffectHook func(DebugEffect)

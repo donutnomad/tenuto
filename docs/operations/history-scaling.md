@@ -26,7 +26,7 @@ Event History 大小直接影响 cold replay、网络传输、存储和调试体
 ```go
 info := workflow.GetInfo(ctx)
 if info.GetContinueAsNewSuggested() {
-    return workflow.ContinueAsNew(ctx, workflowID, compactState)
+    return workflow.ContinueAsNew(ctx, "orders.LongRunning", compactState)
 }
 ```
 

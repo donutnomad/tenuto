@@ -92,7 +92,7 @@ export interface RunListResult {
 export interface WorkflowConfigSummary {
   target_worker_identity?: string
   target_worker_status?: string
-  workflow_id: string
+  workflow_type: string
   namespace: string
   name?: string
   latest_version: string

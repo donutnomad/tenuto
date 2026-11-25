@@ -19,7 +19,7 @@ func startChildrenOfType(t *testing.T, srv *Server, mgr execution.ExecutionManag
 	wftID := openWorkflowTaskForTest(t, mgr, parentRunID)
 	commands := make([]history.Command, 0, len(childIDs))
 	for _, childID := range childIDs {
-		commands = append(commands, history.Command{Type: history.CmdStartChildWorkflow, ChildID: childID, WorkflowID: childType})
+		commands = append(commands, history.Command{Type: history.CmdStartChildWorkflow, ChildID: childID, WorkflowType: childType})
 	}
 	if err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(context.Background(), parentRunID, wftID), parentRunID, wftID, commands, ""); err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestSameTypeChildren_OneParentTwoChildrenBothComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	parentRunID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "same-type-parent", Program: programtest.Noop()})
-	children := startChildrenOfType(t, srv, mgr, parentRunID, childRef.WorkflowID, "child_1", "child_2")
+	children := startChildrenOfType(t, srv, mgr, parentRunID, childRef.WorkflowType, "child_1", "child_2")
 
 	first, _ := mgr.Get(children[0])
 	second, _ := mgr.Get(children[1])
@@ -75,8 +75,8 @@ func TestSameTypeChildren_OneParentTwoChildrenBothComplete(t *testing.T) {
 		t.Fatalf("same-type children must have distinct workflow ids, both are %q", first.WorkflowID)
 	}
 	for _, child := range []*execution.Run{first, second} {
-		if child.WorkflowType != childRef.WorkflowID {
-			t.Fatalf("child %s: want workflow type %q, got %q", child.ID, childRef.WorkflowID, child.WorkflowType)
+		if child.WorkflowType != childRef.WorkflowType {
+			t.Fatalf("child %s: want workflow type %q, got %q", child.ID, childRef.WorkflowType, child.WorkflowType)
 		}
 		if child.WorkflowID != execution.ChildWorkflowID(parentRunID, child.ParentChildID) {
 			t.Fatalf("child %s: workflow id %q is not derived from parent run and child id", child.ID, child.WorkflowID)
@@ -94,8 +94,8 @@ func TestSameTypeChildren_TwoParentsOneChildEach(t *testing.T) {
 	}
 	parentA := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "same-type-parent-a", Program: programtest.Noop()})
 	parentB := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "same-type-parent-b", Program: programtest.Noop()})
-	childrenA := startChildrenOfType(t, srv, mgr, parentA, childRef.WorkflowID, "child_1")
-	childrenB := startChildrenOfType(t, srv, mgr, parentB, childRef.WorkflowID, "child_1")
+	childrenA := startChildrenOfType(t, srv, mgr, parentA, childRef.WorkflowType, "child_1")
+	childrenB := startChildrenOfType(t, srv, mgr, parentB, childRef.WorkflowType, "child_1")
 	completeChildrenAndExpectPropagation(t, srv, mgr, parentA, childrenA)
 	completeChildrenAndExpectPropagation(t, srv, mgr, parentB, childrenB)
 }
@@ -131,7 +131,7 @@ func TestReconcileRun_ChildStartFailureKeepsRemainingRecoverySteps(t *testing.T)
 	mgr.failOn(history.EventWorkflowStarted)
 	defer mgr.failOn("")
 	if err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, []history.Command{
-		{Type: history.CmdStartChildWorkflow, ChildID: "child_1", WorkflowID: childRef.WorkflowID},
+		{Type: history.CmdStartChildWorkflow, ChildID: "child_1", WorkflowType: childRef.WorkflowType},
 		{Type: history.CmdScheduleTimer, TimerID: "sleep-1", Delay: time.Hour},
 	}, ""); err != nil {
 		t.Fatal(err)

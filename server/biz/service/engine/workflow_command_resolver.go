@@ -20,13 +20,13 @@ func (r workflowCommandResolver) ResolveActivityCommand(runID string, command hi
 	return r.server.resolveActivityCommand(runID, r.programVersion, command)
 }
 
-func (r workflowCommandResolver) ChildWorkflowRef(runID, workflowID string) (execution.WorkflowTargetRef, error) {
-	ref, err := r.server.childWorkflowConfigRef(r.server.runNamespace(runID), workflowID)
+func (r workflowCommandResolver) ChildWorkflowRef(runID, workflowType string) (execution.WorkflowTargetRef, error) {
+	ref, err := r.server.childWorkflowConfigRef(r.server.runNamespace(runID), workflowType)
 	return execution.WorkflowTargetRef(ref), err
 }
 
-func (r workflowCommandResolver) ContinuedWorkflowRef(runID, workflowID string) (execution.WorkflowTargetRef, error) {
-	workflowType, err := r.server.continuedWorkflowType(runID, workflowID)
+func (r workflowCommandResolver) ContinuedWorkflowRef(runID, requestedType string) (execution.WorkflowTargetRef, error) {
+	workflowType, err := r.server.continuedWorkflowType(runID, requestedType)
 	if err != nil {
 		return execution.WorkflowTargetRef{}, err
 	}

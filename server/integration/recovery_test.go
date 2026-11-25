@@ -75,7 +75,7 @@ func TestActivityWorkerRouteRestoresAfterWorkflowAppRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(recoveredServer.StartWorkflowVersion(ctx, ref, ref.WorkflowID, map[string]any{"order_id": "o-1"}))
+	runID, err := startedRunID(recoveredServer.StartWorkflowVersion(ctx, ref, ref.WorkflowType, map[string]any{"order_id": "o-1"}))
 	if err != nil {
 		t.Fatal(err)
 	}

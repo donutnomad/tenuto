@@ -185,8 +185,8 @@ func TestListWorkflowConfigs(t *testing.T) {
 	}
 	byID := map[string]executionview.WorkflowConfigSummary{}
 	for i, item := range result.Items {
-		byID[item.WorkflowID] = item
-		if i > 0 && result.Items[i-1].WorkflowID >= item.WorkflowID {
+		byID[item.WorkflowType] = item
+		if i > 0 && result.Items[i-1].WorkflowType >= item.WorkflowType {
 			t.Fatalf("items are not sorted by workflow id: %+v", result.Items)
 		}
 		if item.Namespace != "ns" {
@@ -217,7 +217,7 @@ func TestListWorkflowConfigs(t *testing.T) {
 		if summary.TargetWorkerStatus != "" {
 			t.Fatalf("summary carries worker status: %+v", summary)
 		}
-		want := byID[summary.WorkflowID]
+		want := byID[summary.WorkflowType]
 		want.TargetWorkerStatus = ""
 		if summary != want {
 			t.Fatalf("summary = %+v, want %+v", summary, want)

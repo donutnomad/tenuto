@@ -35,7 +35,7 @@ export default function StartWorkflowPage() {
 
   const workflowTypes = useMemo(() => {
     if (!configs?.items) return []
-    return configs.items.map((c) => c.workflow_id)
+    return configs.items.map((c) => c.workflow_type)
   }, [configs])
 
   const jsonError = useMemo(() => {

@@ -43,8 +43,8 @@ func TestWFTKeyedLock_ConcurrentWithSignal_Serialized(t *testing.T) {
 	run := &execution.Run{
 		ID:                    "run-wft-signal",
 		Namespace:             protocol.DefaultNamespace,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-wft-signal",
 		Status:                history.StatusRunning,
@@ -65,7 +65,7 @@ func TestWFTKeyedLock_ConcurrentWithSignal_Serialized(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_, signalErrs[idx] = server.SignalWorkflow(ctx, protocol.DefaultNamespace, ref.WorkflowID, "", "sig", "", map[string]any{"i": int64(idx)})
+			_, signalErrs[idx] = server.SignalWorkflow(ctx, protocol.DefaultNamespace, ref.WorkflowType, "", "sig", "", map[string]any{"i": int64(idx)})
 		}(i)
 	}
 
@@ -134,8 +134,8 @@ func TestWFTKeyedLock_ContinueAsNew_NoReentrantDeadlock(t *testing.T) {
 	run := &execution.Run{
 		ID:                    "run-wft-can",
 		Namespace:             protocol.DefaultNamespace,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-wft-can",
 		Status:                history.StatusRunning,
@@ -149,8 +149,8 @@ func TestWFTKeyedLock_ContinueAsNew_NoReentrantDeadlock(t *testing.T) {
 
 	// 在持 keyedMu(wf-wft-can) 的 WFT 处理内触发 CAN（同 workflowID 开新代）→ 必须不重入死锁。
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, run.ID, workflowTaskID), run.ID, workflowTaskID, []history.Command{{
-		Type:       history.CmdContinueAsNew,
-		WorkflowID: ref.WorkflowID,
+		Type:         history.CmdContinueAsNew,
+		WorkflowType: ref.WorkflowType,
 	}}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -190,8 +190,8 @@ func TestWFTKeyedLock_DistinctWorkflowIDs_ConcurrentNoDeadlock(t *testing.T) {
 		run := &execution.Run{
 			ID:                    runID,
 			Namespace:             protocol.DefaultNamespace,
-			WorkflowID:            ref.WorkflowID,
-			WorkflowType:          ref.WorkflowID,
+			WorkflowID:            ref.WorkflowType,
+			WorkflowType:          ref.WorkflowType,
 			WorkflowConfigVersion: ref.Version,
 			FirstRunID:            runID,
 			Status:                history.StatusRunning,

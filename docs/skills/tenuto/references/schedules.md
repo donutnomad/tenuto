@@ -1,6 +1,6 @@
 # Schedule
 
-Schedule 按 Cron 周期启动 Workflow。它保存 Workflow 定义 ID、输入、Cron、时区、Overlap Policy 与下一次触发时间；每次触发等价于一次 `start`。
+Schedule 按 Cron 周期启动 Workflow。它保存 Workflow Type、输入、Cron、时区、Overlap Policy 与下一次触发时间；每次触发等价于一次 `start`。
 
 Workflow 内部的周期逻辑（一个 Run 里循环等待）用 `workflow.Sleep` + Continue-As-New，见 `time-and-randomness.md`。两者的选择：每个周期是一次独立的业务执行、要独立的 History 与失败边界时用 Schedule；周期之间要在内存里延续状态时用循环。
 

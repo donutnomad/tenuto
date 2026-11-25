@@ -12,7 +12,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - **Run**：一次 Workflow 执行，有 Run ID、状态（`running` / `completed` / `failed` / `cancelled` / `terminated` / `continued_as_new`）和独立的 Event History。同一 Namespace + Workflow ID 同时只有一个活跃 Run。
 - **Event History 与重放**：Workflow 代码每产生一个副作用就写一条事件（Activity、Timer、Signal、Marker…）。Worker 重启、缓存逐出、版本切换后从头重放代码，重放产生的命令逐条与 History 对照（命令种类、ActivityID、ActivityType）。同一份 Program + History 必须得到同一串命令，这就是确定性。
 - **Workflow Task 与 Activity Task**：Workflow Task 推进编排（解释器执行 Workflow 函数直到全部协程阻塞，提交命令）；Activity Task 执行原生 Go 的副作用函数。Workflow 函数的 Go 代码本身不在运行期被调用，`sdk/workflow` 的函数全是定义期标记。
-- **Program 版本**：每份生成的 `workflow.json` 有内容 hash；每个 Workflow ID 有一个 latest 指针。新 Run 用 latest；运行中的 Run 按自己的 `policy`（`auto_upgrade` 缺省 / `pinned`）决定是否在下一个 Workflow Task 边界换到 latest。
+- **Program 版本**：每份生成的 `workflow.json` 有内容 hash；每个 Workflow Type 有一个 latest 指针。新 Run 用 latest；运行中的 Run 按自己的 `policy`（`auto_upgrade` 缺省 / `pinned`）决定是否在下一个 Workflow Task 边界换到 latest。
 - **Worker BuildID**：Activity Worker 的代码版本，Server 按它分开保存每个 build 的契约，新旧 build 并存靠不同 BuildID。Activity 任务只按队列投递、不带 build，队列上任一 build 都能领取；开始执行前按领取者这个 build 的契约对照 Run 当前 Program 的声明，不一致时拒绝（`worker_contract_mismatch`），任务约 1s 后重新投递。单个 Activity 调用不能指定 build。
 - **契约**：每个 `@Activity` 生成三维契约 `type`、`input` 指纹、`output` 指纹。Workflow 侧随 Program 声明，Worker 侧随注册表上报，Server 在调度 Activity 时逐维度做相等对照；全部候选 Worker 都不一致时 Run 记 `ConfigError` 并暂停。Activity 的含义或结构要变时用新 `type`，旧 `type` 保留到没有 Run 再调用它。
 

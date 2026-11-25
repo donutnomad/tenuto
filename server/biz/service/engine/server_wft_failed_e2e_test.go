@@ -48,8 +48,8 @@ func E2EGuardFlow(ctx workflow.Context, input map[string]any) error {
 
 	run := &execution.Run{
 		ID:                    "run-e2e-block",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),

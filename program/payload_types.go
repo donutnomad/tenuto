@@ -27,7 +27,7 @@ const (
 	PayloadErrorDetail       PayloadPositionKind = "error detail"
 )
 
-// PayloadPosition 标识 History 里的一类载荷：Name 是 Signal 名、Activity type、子 Workflow ID、Update 名或
+// PayloadPosition 标识 History 里的一类载荷：Name 是 Signal 名、Activity type、子 Workflow Type、Update 名或
 // MutableSideEffect ID，Index 是 Update 参数的序号。同一位置的载荷由 Program 解码成同一个类型。SideEffect 的值与
 // 应用错误的 detail（`workflow.ApplicationErrorDetail`）各自只有一个位置。
 type PayloadPosition struct {
@@ -257,7 +257,7 @@ func unresolvedIncompatibilities(current, candidate PayloadTypeSet) []PayloadInc
 //   - Update 参数：SetUpdateHandler 闭包（或同包函数）的形参类型（跳过 workflow.Context）；
 //   - 应用错误的 detail：ApplicationErrorDetail 的 out 变量的类型。
 //
-// 名字（Signal 名、Activity type、子 Workflow ID、MutableSideEffect ID、Update 名）取常量：字面量（Go 常量已由翻译器
+// 名字（Signal 名、Activity type、子 Workflow Type、MutableSideEffect ID、Update 名）取常量：字面量（Go 常量已由翻译器
 // 折叠成字面量）、每处赋值都是同一常量的变量或形参、常量的 `+` 拼接、实参全是常量的 fmt.Sprintf。变量的类型取
 // `var v T` / `v := T{...}` 的声明、形参类型、入口参数类型、同包函数的返回类型（含多返回值）、另一个变量的类型与
 // 字段访问（`v.Field`）。变量按作用域查找：每个 fn 字面量（同包函数、闭包、回调）是一个作用域，`let` 在当前作用域

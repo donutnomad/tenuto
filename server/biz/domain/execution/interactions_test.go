@@ -12,7 +12,7 @@ import (
 func TestRunInteractionsCommitHistoryAndState(t *testing.T) {
 	store := memory.NewExecutionManager()
 	current := execution.NewRun(execution.NewRunOptions{
-		ID: "run-1", WorkflowID: "flow", WorkflowConfigVersion: "v1",
+		ID: "run-1", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1",
 	})
 	tree, branch, started, err := execution.PrepareStartedRun(current, "Flow", 0)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestRunInteractionsCommitHistoryAndState(t *testing.T) {
 
 func TestUpsertSearchAttributesRejectsReservedChangeVersionKey(t *testing.T) {
 	store := memory.NewExecutionManager()
-	current := execution.NewRun(execution.NewRunOptions{ID: "run-reserved", WorkflowID: "flow", WorkflowConfigVersion: "v1"})
+	current := execution.NewRun(execution.NewRunOptions{ID: "run-reserved", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1"})
 	tree, branch, started, err := execution.PrepareStartedRun(current, "Flow", 0)
 	if err != nil {
 		t.Fatal(err)

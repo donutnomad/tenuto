@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 }
 
 // TestContentVersionSharedAcrossRuns 固定 Pinned 的存储事实：
-// version 是 config JSON 的内容 hash；同一 (namespace, workflow_id, version) 只有一行 JSON，
+// version 是 config JSON 的内容 hash；同一 (namespace, workflow_type, version) 只有一行 JSON，
 // 重复登记幂等；多个 Run 只保存版本字符串引用，不复制内容。
 func TestContentVersionSharedAcrossRuns(t *testing.T) {
 	database := mysqltest.NewDB(t)
@@ -48,7 +48,7 @@ func TestContentVersionSharedAcrossRuns(t *testing.T) {
 	}
 	var contentRows int64
 	if err := database.Model(&WorkflowConfigPO{}).
-		Where("namespace = ? AND workflow_id = ? AND version = ?", "ns", "shared-flow", first.Version).
+		Where("namespace = ? AND workflow_type = ? AND version = ?", "ns", "shared-flow", first.Version).
 		Count(&contentRows).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -120,20 +120,20 @@ func TestEnrollGormRules(t *testing.T) {
 	configs := New(database)
 	const namespace = "ns"
 
-	assertActive := func(t *testing.T, workflowID, want string) {
+	assertActive := func(t *testing.T, workflowType, want string) {
 		t.Helper()
-		ref, err := configs.LatestWorkflowConfigRefInNamespace(namespace, workflowID)
+		ref, err := configs.LatestWorkflowConfigRefInNamespace(namespace, workflowType)
 		if err != nil {
-			t.Fatalf("读取 %s latest: %v", workflowID, err)
+			t.Fatalf("读取 %s latest: %v", workflowType, err)
 		}
 		if ref.Version != want {
-			t.Fatalf("%s latest = %q, want %q", workflowID, ref.Version, want)
+			t.Fatalf("%s latest = %q, want %q", workflowType, ref.Version, want)
 		}
 	}
-	assertNoActive := func(t *testing.T, workflowID string) {
+	assertNoActive := func(t *testing.T, workflowType string) {
 		t.Helper()
-		if ref, err := configs.LatestWorkflowConfigRefInNamespace(namespace, workflowID); err == nil {
-			t.Fatalf("%s 不应有 latest，实际 %q", workflowID, ref.Version)
+		if ref, err := configs.LatestWorkflowConfigRefInNamespace(namespace, workflowType); err == nil {
+			t.Fatalf("%s 不应有 latest，实际 %q", workflowType, ref.Version)
 		}
 	}
 
@@ -180,7 +180,7 @@ func TestEnrollGormRules(t *testing.T) {
 	}
 	var contentRows int64
 	if err := database.Model(&WorkflowConfigPO{}).
-		Where("namespace = ? AND workflow_id = ?", namespace, "enroll-flow").
+		Where("namespace = ? AND workflow_type = ?", namespace, "enroll-flow").
 		Count(&contentRows).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestEnrollGormRules(t *testing.T) {
 			t.Fatalf("计算内容版本: %v", err)
 		}
 		activating, err := configs.WorkflowConfigEnrollStateInNamespace(namespace, definition.WorkflowConfigRef{
-			Namespace: namespace, WorkflowID: workflow.Type, Version: version,
+			Namespace: namespace, WorkflowType: workflow.Type, Version: version,
 		})
 		if err != nil {
 			t.Fatalf("读取登记状态: %v", err)
@@ -298,7 +298,7 @@ func TestGetWorkflowConfigReadsEachContentVersionOnce(t *testing.T) {
 	if selects != 2 {
 		t.Fatalf("latest ref was served without reading the store: SELECTs = %d, want 2", selects)
 	}
-	if _, err := configs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: "ns", WorkflowID: "cached-flow", Version: "missing"}); err == nil {
+	if _, err := configs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: "ns", WorkflowType: "cached-flow", Version: "missing"}); err == nil {
 		t.Fatal("missing content version was found")
 	}
 }
@@ -306,12 +306,12 @@ func TestGetWorkflowConfigReadsEachContentVersionOnce(t *testing.T) {
 func TestConfigContentsEvictsOldestBeyondLimit(t *testing.T) {
 	var contents configContents
 	for i := range configContentsLimit + 1 {
-		contents.put(definition.WorkflowConfigRef{Namespace: "ns", WorkflowID: "wf", Version: fmt.Sprint(i)}, &program.WorkflowConfig{})
+		contents.put(definition.WorkflowConfigRef{Namespace: "ns", WorkflowType: "wf", Version: fmt.Sprint(i)}, &program.WorkflowConfig{})
 	}
-	if _, ok := contents.get(definition.WorkflowConfigRef{Namespace: "ns", WorkflowID: "wf", Version: "0"}); ok {
+	if _, ok := contents.get(definition.WorkflowConfigRef{Namespace: "ns", WorkflowType: "wf", Version: "0"}); ok {
 		t.Fatal("oldest content version survived past the limit")
 	}
-	if _, ok := contents.get(definition.WorkflowConfigRef{Namespace: "ns", WorkflowID: "wf", Version: fmt.Sprint(configContentsLimit)}); !ok {
+	if _, ok := contents.get(definition.WorkflowConfigRef{Namespace: "ns", WorkflowType: "wf", Version: fmt.Sprint(configContentsLimit)}); !ok {
 		t.Fatal("newest content version was evicted")
 	}
 	if len(contents.entries) != configContentsLimit || len(contents.order) != configContentsLimit {

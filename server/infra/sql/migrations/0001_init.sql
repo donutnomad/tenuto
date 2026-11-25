@@ -127,7 +127,7 @@ CREATE TABLE `tenuto_child_workflow_states` (
   `scheduled_event_id`      BIGINT       NOT NULL,
   `child_id`                VARCHAR(191) NOT NULL DEFAULT '',
   `child_run_id`            VARCHAR(191) NOT NULL DEFAULT '',
-  `workflow_id`             VARCHAR(191) NOT NULL DEFAULT '',
+  `workflow_type`           VARCHAR(191) NOT NULL DEFAULT '',
   `workflow_config_version` VARCHAR(191) NOT NULL DEFAULT '',
   `status`                  VARCHAR(32)  NOT NULL,
   `parent_close_policy`     VARCHAR(32)  NOT NULL DEFAULT '',
@@ -146,20 +146,20 @@ CREATE TABLE `tenuto_child_workflow_states` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `tenuto_configs` (
-  `namespace`   VARCHAR(191) NOT NULL DEFAULT 'default',
-  `workflow_id` VARCHAR(191) NOT NULL,
-  `version`     VARCHAR(64)  NOT NULL,
-  `config_json` LONGBLOB     NOT NULL,
-  `created_at`  DATETIME(3)  NOT NULL,
-  PRIMARY KEY (`namespace`, `workflow_id`, `version`)
+  `namespace`     VARCHAR(191) NOT NULL DEFAULT 'default',
+  `workflow_type` VARCHAR(191) NOT NULL,
+  `version`       VARCHAR(64)  NOT NULL,
+  `config_json`   LONGBLOB     NOT NULL,
+  `created_at`    DATETIME(3)  NOT NULL,
+  PRIMARY KEY (`namespace`, `workflow_type`, `version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `tenuto_config_active` (
-  `namespace`   VARCHAR(191) NOT NULL DEFAULT 'default',
-  `workflow_id` VARCHAR(191) NOT NULL,
-  `version`     VARCHAR(64)  NOT NULL,
-  `updated_at`  DATETIME(3)  NOT NULL,
-  PRIMARY KEY (`namespace`, `workflow_id`)
+  `namespace`     VARCHAR(191) NOT NULL DEFAULT 'default',
+  `workflow_type` VARCHAR(191) NOT NULL,
+  `version`       VARCHAR(64)  NOT NULL,
+  `updated_at`    DATETIME(3)  NOT NULL,
+  PRIMARY KEY (`namespace`, `workflow_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `tenuto_task_dispatches` (

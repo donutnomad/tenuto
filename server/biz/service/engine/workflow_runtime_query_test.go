@@ -28,12 +28,12 @@ type queryE2EEnv struct {
 }
 
 // newQueryE2EEnv 翻译 src → 注册 config → 建 running run → 写 started 历史（run 停在首个 park 前）。
-func newQueryE2EEnv(t *testing.T, src, workflowID, funcName string) *queryE2EEnv {
+func newQueryE2EEnv(t *testing.T, src, workflowType, funcName string) *queryE2EEnv {
 	t.Helper()
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: workflowID, FuncName: funcName, Filename: "q.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: workflowType, FuncName: funcName, Filename: "q.go"})
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}
@@ -44,9 +44,9 @@ func newQueryE2EEnv(t *testing.T, src, workflowID, funcName string) *queryE2EEnv
 	}
 
 	run := &execution.Run{
-		ID:                    "run-" + workflowID,
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		ID:                    "run-" + workflowType,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                history.StatusRunning,
 		CreatedAt:             time.Now(),

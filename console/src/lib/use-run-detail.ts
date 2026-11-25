@@ -87,9 +87,8 @@ export function useRunDetail(namespace: string, runID: string) {
     () => api.listWorkflowConfigs(namespace),
     { refreshInterval: REFRESH_INTERVAL_DETAIL },
   )
-  // 配置汇总的 workflow_id 是定义 ID，对应 Run 的 workflow_type（Run 的 workflow_id 是执行 ID）。
   const latestVersion = useMemo(
-    () => configSummaries?.items.find((item) => item.workflow_id === run?.workflow_type)?.latest_version,
+    () => configSummaries?.items.find((item) => item.workflow_type === run?.workflow_type)?.latest_version,
     [configSummaries, run?.workflow_type],
   )
 

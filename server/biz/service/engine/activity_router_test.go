@@ -350,8 +350,8 @@ func TestScheduleActivityCommandUsesResolvedWorkerVersionRoute(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-worker-version-route",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),

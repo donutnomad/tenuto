@@ -71,7 +71,7 @@ func (s *cancelSim) decide() []history.Command {
 		case history.CmdCancelTimer:
 			s.add(history.NewTimerCancelledEvent(command.TimerID, 0))
 		case history.CmdStartChildWorkflow:
-			s.add(history.NewChildWorkflowStartedEvent(command.WorkflowID, command.ChildID, "child-run", "", command.Input))
+			s.add(history.NewChildWorkflowStartedEvent(command.WorkflowType, command.ChildID, "child-run", "", command.Input))
 		case history.CmdRequestCancelChildWorkflow:
 			s.add(history.NewChildWorkflowCancelRequestedEvent(command.ChildID, "child-run", 0))
 		case history.CmdCompleteWorkflow:

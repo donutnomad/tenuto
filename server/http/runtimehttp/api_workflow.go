@@ -35,7 +35,7 @@ type WorkflowRuntimeHTTPAPI interface {
 	// @POST(/set-worker-target)
 	SetWorkerTarget(ctx *gin.Context, req runtimeapi.WorkflowRuntimeSetWorkerTargetRequest) (runtimeapi.WorkflowConfigRef, error)
 
-	// Start 按 workflow ID 启动 Run
+	// Start 按 Workflow Type 启动 Run，Workflow ID 为这次执行的业务 ID
 	// @POST(/start)
 	Start(ctx *gin.Context, req runtimeapi.WorkflowRuntimeStartRequest) (runtimeapi.WorkflowRuntimeStartResponse, error)
 
@@ -331,7 +331,7 @@ func (a *workflowRuntimeHTTPAPI) SetWorkerTarget(ctx *gin.Context, req runtimeap
 	if err := ctx.Request.Context().Err(); err != nil {
 		return runtimeapi.WorkflowConfigRef{}, err
 	}
-	return configRefToWire(a.definitions.SetWorkflowWorkerTarget(req.Namespace, req.WorkflowID, req.TargetWorkerIdentity))
+	return configRefToWire(a.definitions.SetWorkflowWorkerTarget(req.Namespace, req.WorkflowType, req.TargetWorkerIdentity))
 }
 
 func (a *workflowRuntimeHTTPAPI) SetRunPolicy(ctx *gin.Context, req runtimeapi.WorkflowRuntimeSetRunPolicyRequest) (*runtimeapi.Run, error) {

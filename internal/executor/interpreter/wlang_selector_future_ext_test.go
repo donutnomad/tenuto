@@ -180,7 +180,7 @@ func TestSelectorChildFuture_ExecuteChildEmitsStartWithoutGet(t *testing.T) {
 	}
 	var startFound bool
 	for _, c := range cmds {
-		if c.Type == history.CmdStartChildWorkflow && c.WorkflowID == "child-wf" {
+		if c.Type == history.CmdStartChildWorkflow && c.WorkflowType == "child-wf" {
 			startFound = true
 		}
 	}

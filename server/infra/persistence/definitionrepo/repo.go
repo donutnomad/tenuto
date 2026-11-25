@@ -18,7 +18,7 @@ import (
 type Repository struct {
 	db infradb.DB
 	// contents 缓存解码后的内容版本。内容版本的 version 由内容计算（program.WorkflowConfigVersion），行写入后
-	// 不再修改、也没有删除路径：同一个 (namespace, workflow_id, version) 永远对应同一份内容，缓存不会过期。
+	// 不再修改、也没有删除路径：同一个 (namespace, workflow_type, version) 永远对应同一份内容，缓存不会过期。
 	// 缓存的配置由调用方共享、只读（见 definition.ConfigRepository）。latest/active 指针会变，不缓存。
 	contents configContents
 }
@@ -79,7 +79,7 @@ func (s *Repository) WorkflowConfigEnrollStateInNamespace(namespace string, ref 
 	row, err := gsql.From[WorkflowConfigPO](WorkflowConfigSchema).
 		Where(
 			WorkflowConfigSchema.Namespace.Eq(namespace),
-			WorkflowConfigSchema.WorkflowID.Eq(ref.WorkflowID),
+			WorkflowConfigSchema.WorkflowType.Eq(ref.WorkflowType),
 			WorkflowConfigSchema.Version.Eq(ref.Version),
 		).Take(s.db)
 	if err != nil {
@@ -91,7 +91,7 @@ func (s *Repository) WorkflowConfigEnrollStateInNamespace(namespace string, ref 
 	active, err := gsql.From[WorkflowConfigActivePO](WorkflowConfigActiveSchema).
 		Where(
 			WorkflowConfigActiveSchema.Namespace.Eq(namespace),
-			WorkflowConfigActiveSchema.WorkflowID.Eq(ref.WorkflowID),
+			WorkflowConfigActiveSchema.WorkflowType.Eq(ref.WorkflowType),
 		).Take(s.db)
 	if err != nil {
 		return false, err
@@ -123,17 +123,17 @@ func (s *Repository) saveWorkflowConfigInNamespace(namespace string, wf *program
 		return definition.WorkflowConfigRef{}, false, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.Type, Version: version}
+	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowType: wf.Type, Version: version}
 	activated := false
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		row := &WorkflowConfigPO{
-			Namespace:  namespace,
-			WorkflowID: wf.Type,
-			Version:    version,
-			ConfigJSON: data,
-			CreatedAt:  time.Now(),
+			Namespace:    namespace,
+			WorkflowType: wf.Type,
+			Version:      version,
+			ConfigJSON:   data,
+			CreatedAt:    time.Now(),
 		}
-		// 内容版本已存在时不改任何列：撞主键 (namespace, workflow_id, version) 时执行
+		// 内容版本已存在时不改任何列：撞主键 (namespace, workflow_type, version) 时执行
 		// ON DUPLICATE KEY UPDATE namespace = namespace，RowsAffected 为 0。
 		// 不用 INSERT IGNORE（gsql.InsertIgnore）：它会把截断、NOT NULL 等写入错误一并降成警告。
 		namespaceColumn := clause.Column{Name: "namespace"}
@@ -150,7 +150,7 @@ func (s *Repository) saveWorkflowConfigInNamespace(namespace string, wf *program
 			active, err := gsql.From[WorkflowConfigActivePO](WorkflowConfigActiveSchema).
 				Where(
 					WorkflowConfigActiveSchema.Namespace.Eq(namespace),
-					WorkflowConfigActiveSchema.WorkflowID.Eq(wf.Type),
+					WorkflowConfigActiveSchema.WorkflowType.Eq(wf.Type),
 				).Take(tx)
 			if err != nil {
 				return err
@@ -160,14 +160,14 @@ func (s *Repository) saveWorkflowConfigInNamespace(namespace string, wf *program
 			}
 		}
 		active := &WorkflowConfigActivePO{
-			Namespace:  namespace,
-			WorkflowID: wf.Type,
-			Version:    version,
-			UpdatedAt:  time.Now(),
+			Namespace:    namespace,
+			WorkflowType: wf.Type,
+			Version:      version,
+			UpdatedAt:    time.Now(),
 		}
-		// 撞主键 (namespace, workflow_id) 时改写 version 与 updated_at（ON DUPLICATE KEY UPDATE）。
+		// 撞主键 (namespace, workflow_type) 时改写 version 与 updated_at（ON DUPLICATE KEY UPDATE）。
 		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "namespace"}, {Name: "workflow_id"}},
+			Columns:   []clause.Column{{Name: "namespace"}, {Name: "workflow_type"}},
 			DoUpdates: clause.AssignmentColumns([]string{"version", "updated_at"}),
 		}).Create(active).Error; err != nil {
 			return err
@@ -189,14 +189,14 @@ func (s *Repository) GetWorkflowConfig(ref definition.WorkflowConfigRef) (*progr
 	row, err := gsql.From[WorkflowConfigPO](WorkflowConfigSchema).
 		Where(
 			WorkflowConfigSchema.Namespace.Eq(ref.Namespace),
-			WorkflowConfigSchema.WorkflowID.Eq(ref.WorkflowID),
+			WorkflowConfigSchema.WorkflowType.Eq(ref.WorkflowType),
 			WorkflowConfigSchema.Version.Eq(ref.Version),
 		).Take(s.db)
 	if err != nil {
 		return nil, err
 	}
 	if row == nil {
-		return nil, fmt.Errorf("%w: %s/%s@%s", definition.ErrWorkflowConfigNotFound, ref.Namespace, ref.WorkflowID, ref.Version)
+		return nil, fmt.Errorf("%w: %s/%s@%s", definition.ErrWorkflowConfigNotFound, ref.Namespace, ref.WorkflowType, ref.Version)
 	}
 	wf, err := unmarshalWorkflowConfig(row.ConfigJSON)
 	if err != nil {
@@ -208,29 +208,29 @@ func (s *Repository) GetWorkflowConfig(ref definition.WorkflowConfigRef) (*progr
 	return wf, nil
 }
 
-func (s *Repository) LatestWorkflowConfigRefInNamespace(namespace, workflowID string) (definition.WorkflowConfigRef, error) {
+func (s *Repository) LatestWorkflowConfigRefInNamespace(namespace, workflowType string) (definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
 	row, err := gsql.From[WorkflowConfigActivePO](WorkflowConfigActiveSchema).
 		Where(
 			WorkflowConfigActiveSchema.Namespace.Eq(namespace),
-			WorkflowConfigActiveSchema.WorkflowID.Eq(workflowID),
+			WorkflowConfigActiveSchema.WorkflowType.Eq(workflowType),
 		).Take(s.db)
 	if err != nil {
 		return definition.WorkflowConfigRef{}, err
 	}
 	if row == nil {
-		return definition.WorkflowConfigRef{}, fmt.Errorf("%w: %s/%s latest version", definition.ErrWorkflowConfigNotFound, namespace, workflowID)
+		return definition.WorkflowConfigRef{}, fmt.Errorf("%w: %s/%s latest version", definition.ErrWorkflowConfigNotFound, namespace, workflowType)
 	}
-	return definition.WorkflowConfigRef{Namespace: row.Namespace, WorkflowID: row.WorkflowID, Version: row.Version}, nil
+	return definition.WorkflowConfigRef{Namespace: row.Namespace, WorkflowType: row.WorkflowType, Version: row.Version}, nil
 }
 
 // ListWorkflowConfigRefsInNamespace 返回该 namespace 全部已存内容版本（历史 + active），
-// 按 (workflow_id, created_at, version) 排序。Console definitions 页依赖它展示版本列表。
+// 按 (workflow_type, created_at, version) 排序。Console definitions 页依赖它展示版本列表。
 func (s *Repository) ListWorkflowConfigRefsInNamespace(namespace string) ([]definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
 	rows, err := gsql.From[WorkflowConfigPO](WorkflowConfigSchema).
 		Where(WorkflowConfigSchema.Namespace.Eq(namespace)).
-		Order(WorkflowConfigSchema.WorkflowID).
+		Order(WorkflowConfigSchema.WorkflowType).
 		Order(WorkflowConfigSchema.CreatedAt).
 		Order(WorkflowConfigSchema.Version).
 		Find(s.db)
@@ -239,25 +239,25 @@ func (s *Repository) ListWorkflowConfigRefsInNamespace(namespace string) ([]defi
 	}
 	refs := make([]definition.WorkflowConfigRef, 0, len(rows))
 	for _, row := range rows {
-		refs = append(refs, definition.WorkflowConfigRef{Namespace: row.Namespace, WorkflowID: row.WorkflowID, Version: row.Version})
+		refs = append(refs, definition.WorkflowConfigRef{Namespace: row.Namespace, WorkflowType: row.WorkflowType, Version: row.Version})
 	}
 	return refs, nil
 }
 
-// ActiveWorkflowConfigRefsInNamespace 返回持久化的 active 引用，按 workflow_id 排序；进程重启后
+// ActiveWorkflowConfigRefsInNamespace 返回持久化的 active 引用，按 workflow_type 排序；进程重启后
 // Console 的 Active 标记与 latest 版本仍可展示。
 func (s *Repository) ActiveWorkflowConfigRefsInNamespace(namespace string) ([]definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
 	rows, err := gsql.From[WorkflowConfigActivePO](WorkflowConfigActiveSchema).
 		Where(WorkflowConfigActiveSchema.Namespace.Eq(namespace)).
-		Order(WorkflowConfigActiveSchema.WorkflowID).
+		Order(WorkflowConfigActiveSchema.WorkflowType).
 		Find(s.db)
 	if err != nil {
 		return nil, err
 	}
 	refs := make([]definition.WorkflowConfigRef, 0, len(rows))
 	for _, row := range rows {
-		refs = append(refs, definition.WorkflowConfigRef{Namespace: row.Namespace, WorkflowID: row.WorkflowID, Version: row.Version})
+		refs = append(refs, definition.WorkflowConfigRef{Namespace: row.Namespace, WorkflowType: row.WorkflowType, Version: row.Version})
 	}
 	return refs, nil
 }

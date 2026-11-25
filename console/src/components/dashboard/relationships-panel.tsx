@@ -226,7 +226,7 @@ function RelationshipTreeNode({
               {KIND_LABEL[relationship.kind]}
             </span>
             <span className="truncate text-sm font-medium">
-              {context?.run.workflow_id || relationship.workflowID || relationship.label}
+              {relationship.workflowType || context?.run.workflow_type || relationship.label}
             </span>
             {context?.run.status && <RunStatusBadge status={context.run.status} />}
           </div>

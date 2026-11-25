@@ -208,10 +208,10 @@ func assignAny(out any, v any) error {
 }
 
 type ChildWorkflowFuture struct {
-	executor   *WorkflowExecutor
-	childID    string
-	workflowID string
-	input      map[string]any
+	executor     *WorkflowExecutor
+	childID      string
+	workflowType string
+	input        map[string]any
 }
 
 // poll 查 childCompleted/childFailed 事实表报告 ready（纯查表，不 park/产命令/progressed）——
@@ -241,18 +241,18 @@ func (f ChildWorkflowFuture) Get(ctx workflowContext, out *map[string]any) error
 		return errors.New("workflow executor missing")
 	}
 	f.executor.emitDebugEffect(executor.DebugEffect{
-		Kind:            "child-workflow",
-		Phase:           "awaited",
-		ChildID:         f.childID,
-		ChildWorkflowID: f.workflowID,
+		Kind:              "child-workflow",
+		Phase:             "awaited",
+		ChildID:           f.childID,
+		ChildWorkflowType: f.workflowType,
 	})
 	for {
 		if output, failure, ready := f.poll(); ready {
 			f.executor.emitDebugEffect(executor.DebugEffect{
-				Kind:            "child-workflow",
-				Phase:           "resolved",
-				ChildID:         f.childID,
-				ChildWorkflowID: f.workflowID,
+				Kind:              "child-workflow",
+				Phase:             "resolved",
+				ChildID:           f.childID,
+				ChildWorkflowType: f.workflowType,
 			})
 			if failure != nil {
 				f.executor.progressed()

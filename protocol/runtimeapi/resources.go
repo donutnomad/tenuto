@@ -12,9 +12,9 @@ import (
 
 // WorkflowConfigRef 标识一个已登记的 Workflow 配置版本。
 type WorkflowConfigRef struct {
-	Namespace  string `json:"namespace"`
-	WorkflowID string `json:"workflow_id"`
-	Version    string `json:"version"`
+	Namespace    string `json:"namespace"`
+	WorkflowType string `json:"workflow_type"`
+	Version      string `json:"version"`
 }
 
 // Run 是一次 Workflow 执行。
@@ -243,7 +243,7 @@ type WorkflowConfigListResult struct {
 type WorkflowConfigSummary struct {
 	TargetWorkerIdentity string `json:"target_worker_identity,omitempty"`
 	TargetWorkerStatus   string `json:"target_worker_status,omitempty"`
-	WorkflowID           string `json:"workflow_id"`
+	WorkflowType         string `json:"workflow_type"`
 	Namespace            string `json:"namespace"`
 	Name                 string `json:"name,omitempty"`
 	LatestVersion        string `json:"latest_version"`

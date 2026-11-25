@@ -13,7 +13,7 @@ import (
 func TestCommitResetRunMovesCurrentAndRecordsBaseLink(t *testing.T) {
 	store := memory.NewExecutionManager()
 	base := execution.NewRun(execution.NewRunOptions{
-		ID: "base", WorkflowID: "flow", WorkflowConfigVersion: "config-v1",
+		ID: "base", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "config-v1",
 	})
 	tree, branch, started, err := execution.PrepareStartedRun(base, "Flow", 0)
 	if err != nil {
@@ -145,9 +145,9 @@ func TestCommitResetRunReappliesInputsAndRepointsParentLink(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := memory.NewExecutionManager()
-			parent := execution.NewRun(execution.NewRunOptions{ID: "parent", WorkflowID: "parent-flow", WorkflowConfigVersion: "v1"})
+			parent := execution.NewRun(execution.NewRunOptions{ID: "parent", WorkflowID: "parent-flow", WorkflowType: "parent-flow", WorkflowConfigVersion: "v1"})
 			base := execution.NewRun(execution.NewRunOptions{
-				ID: "base", WorkflowID: "child-flow", WorkflowConfigVersion: "v1",
+				ID: "base", WorkflowID: "child-flow", WorkflowType: "child-flow", WorkflowConfigVersion: "v1",
 				ParentRunID: parent.ID, ParentChildID: "child-1", ParentScheduledEventID: 5,
 			})
 			for _, run := range []*execution.Run{parent, base} {
@@ -163,7 +163,7 @@ func TestCommitResetRunReappliesInputsAndRepointsParentLink(t *testing.T) {
 			}
 			if err := store.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 				RunID: parent.ID, ScheduledEventID: 5, ChildID: "child-1", ChildRunID: base.ID,
-				WorkflowID: "child-flow", Status: tc.linkStatus,
+				WorkflowType: "child-flow", Status: tc.linkStatus,
 			}); err != nil {
 				t.Fatal(err)
 			}

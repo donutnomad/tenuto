@@ -32,7 +32,7 @@ func TestWorkflowRuntimeDispatchPendingTasksRecoversHistoryOutbox(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowID, ref.WorkflowID, "", map[string]any{"order_id": "o-1"}))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowType, ref.WorkflowType, "", map[string]any{"order_id": "o-1"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestWorkflowRuntimeDispatchPendingTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowID, ref.WorkflowID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", ref.WorkflowType, ref.WorkflowType, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,8 +137,8 @@ func TestWorkflowRuntimeRegistersActivityWorkerVersion(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-http-worker-version",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),

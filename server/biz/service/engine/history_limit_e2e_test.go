@@ -113,12 +113,12 @@ func TestHistoryLimitCloseReportsFailureTypeToParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentRunID, err := startedRunID(server.StartWorkflow(ctx, "", parentRef.WorkflowID, parentRef.WorkflowID, "", nil))
+	parentRunID, err := startedRunID(server.StartWorkflow(ctx, "", parentRef.WorkflowType, parentRef.WorkflowType, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, parentRunID, openWorkflowTaskScheduledID(t, mgr, parentRunID)), parentRunID, openWorkflowTaskScheduledID(t, mgr, parentRunID), []history.Command{
-		{Type: history.CmdStartChildWorkflow, ChildID: "child_1", WorkflowID: childRef.WorkflowID},
+		{Type: history.CmdStartChildWorkflow, ChildID: "child_1", WorkflowType: childRef.WorkflowType},
 	}, "worker"); err != nil {
 		t.Fatal(err)
 	}

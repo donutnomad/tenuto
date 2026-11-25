@@ -165,7 +165,7 @@ func StatePatchContract(t *testing.T, newManager func(t *testing.T) execution.Ex
 		inTx(t, manager, func(tx execution.ExecutionTx) error {
 			return tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 				RunID: parentID, ScheduledEventID: 5, ChildID: "child-1", ChildRunID: "run-child",
-				WorkflowID: "child-flow", WorkflowConfigVersion: "v1",
+				WorkflowType: "child-flow", WorkflowConfigVersion: "v1",
 				Status: execution.ChildWorkflowStatusEnums.Initiated, Input: map[string]any{"order": "o-1"},
 				ParentClosePolicy: protocol.ParentClosePolicyRequestCancel,
 				CreatedAt:         now, UpdatedAt: now,
@@ -181,7 +181,7 @@ func StatePatchContract(t *testing.T, newManager func(t *testing.T) execution.Ex
 
 		child := execution.NewChildRun(execution.ChildStart{
 			ParentRunID: parentID, ChildID: "child-1", ChildRunID: "run-child", ScheduledEventID: 5,
-			WorkflowID: "child-flow", ConfigVersion: "v1",
+			WorkflowType: "child-flow", ConfigVersion: "v1",
 		}, now)
 		inTx(t, manager, func(tx execution.ExecutionTx) error {
 			closed, err := execution.PropagateChildClose(staleTx{ExecutionTx: tx, child: snapshot}, execution.ChildClose{
@@ -236,7 +236,7 @@ func StatePatchContract(t *testing.T, newManager func(t *testing.T) execution.Ex
 				return err
 			}
 			return tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{RunID: runID, ScheduledEventID: childID, ChildID: "#c1", ChildRunID: "run-child",
-				WorkflowID: "child-flow", Status: execution.ChildWorkflowStatusEnums.Started, CreatedAt: now, UpdatedAt: now})
+				WorkflowType: "child-flow", Status: execution.ChildWorkflowStatusEnums.Started, CreatedAt: now, UpdatedAt: now})
 		})
 		inTx(t, manager, func(tx execution.ExecutionTx) error {
 			run, err := tx.GetRunForUpdate(runID)

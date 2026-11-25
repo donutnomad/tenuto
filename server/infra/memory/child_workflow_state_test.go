@@ -13,7 +13,7 @@ func mkChildState(runID string, schedID int64) *execution.ChildWorkflowState {
 		ScheduledEventID:      schedID,
 		ChildID:               "child_1",
 		ChildRunID:            "child-run-1",
-		WorkflowID:            "child-flow",
+		WorkflowType:          "child-flow",
 		WorkflowConfigVersion: "v1",
 		Status:                execution.ChildWorkflowStatusEnums.Initiated,
 		Input:                 map[string]any{"order_id": "o-1"},
@@ -50,12 +50,12 @@ func TestChildWorkflowStateStoreUpsertWithoutChangesKeepsRow(t *testing.T) {
 	st := mkChildState("parent-1", 10)
 	_ = store.UpsertChildWorkflowState(st)
 	stale := mkChildState("parent-1", 10)
-	stale.WorkflowID = "stale"
+	stale.WorkflowType = "stale"
 	if err := store.UpsertChildWorkflowState(stale); err != nil {
 		t.Fatal(err)
 	}
 	got, _, _ := store.GetChildWorkflowState("parent-1", 10)
-	if got.WorkflowID != st.WorkflowID {
+	if got.WorkflowType != st.WorkflowType {
 		t.Fatalf("upsert without changes rewrote the row: %+v", got)
 	}
 }

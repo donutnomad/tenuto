@@ -10,7 +10,7 @@ import (
 type WorkflowConfigSummary struct {
 	TargetWorkerIdentity string `json:"target_worker_identity,omitempty"`
 	TargetWorkerStatus   string `json:"target_worker_status,omitempty"`
-	WorkflowID           string `json:"workflow_id"`
+	WorkflowType         string `json:"workflow_type"`
 	Namespace            string `json:"namespace"`
 	Name                 string `json:"name,omitempty"`
 	LatestVersion        string `json:"latest_version"`
@@ -39,21 +39,21 @@ func (v *View) WorkflowConfigSummaries(namespace string) ([]WorkflowConfigSummar
 	}
 	activeRefs := make(map[string]definition.WorkflowConfigRef)
 	for _, ref := range active {
-		activeRefs[ref.WorkflowID] = ref
+		activeRefs[ref.WorkflowType] = ref
 	}
 	grouped := make(map[string][]definition.WorkflowConfigRef)
 	for _, ref := range stored {
-		grouped[ref.WorkflowID] = append(grouped[ref.WorkflowID], ref)
+		grouped[ref.WorkflowType] = append(grouped[ref.WorkflowType], ref)
 	}
 	summaries := make([]WorkflowConfigSummary, 0, len(grouped))
-	for workflowID, versions := range grouped {
+	for workflowType, versions := range grouped {
 		// active 版本是该 workflow 的 latest；尚未激活时展示已存的第一个内容版本。
-		latest, active := activeRefs[workflowID]
+		latest, active := activeRefs[workflowType]
 		if !active {
 			latest = versions[0]
 		}
 		summary := WorkflowConfigSummary{
-			WorkflowID: workflowID, Namespace: namespace,
+			WorkflowType: workflowType, Namespace: namespace,
 			VersionCount: len(versions), LatestVersion: latest.Version,
 			Active: active,
 		}
@@ -69,7 +69,7 @@ func (v *View) WorkflowConfigSummaries(namespace string) ([]WorkflowConfigSummar
 	return summaries, nil
 }
 
-// ListWorkflowConfigs 返回按 workflow ID 排序的配置汇总，并标出目标 Worker 的在线状态：
+// ListWorkflowConfigs 返回按 Workflow Type 排序的配置汇总，并标出目标 Worker 的在线状态：
 // default（未指定目标）、online、offline。
 func (v *View) ListWorkflowConfigs(namespace string) (WorkflowConfigListResult, error) {
 	summaries, err := v.WorkflowConfigSummaries(namespace)
@@ -92,6 +92,6 @@ func (v *View) ListWorkflowConfigs(namespace string) (WorkflowConfigListResult, 
 			}
 		}
 	}
-	sort.Slice(summaries, func(i, j int) bool { return summaries[i].WorkflowID < summaries[j].WorkflowID })
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].WorkflowType < summaries[j].WorkflowType })
 	return WorkflowConfigListResult{Items: summaries, Total: len(summaries)}, nil
 }

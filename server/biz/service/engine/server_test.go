@@ -37,8 +37,8 @@ func TestServerRecoversActivityQueueEnqueueFailureFromHistory(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-queue-recover",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),
@@ -965,8 +965,8 @@ func TestServerStartChildWorkflowCommandCreatesChildRunAndPropagatesCompletion(t
 	}
 	parent := &execution.Run{
 		ID:                    "run-parent-child",
-		WorkflowID:            parentRef.WorkflowID,
-		WorkflowType:          parentRef.WorkflowID,
+		WorkflowID:            parentRef.WorkflowType,
+		WorkflowType:          parentRef.WorkflowType,
 		WorkflowConfigVersion: parentRef.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),
@@ -976,10 +976,10 @@ func TestServerStartChildWorkflowCommandCreatesChildRunAndPropagatesCompletion(t
 	}
 	workflowTaskID := appendOpenWorkflowTaskForTest(t, mgr, parent.ID)
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, parent.ID, workflowTaskID), parent.ID, workflowTaskID, []historypkg.Command{{
-		Type:       historypkg.CmdStartChildWorkflow,
-		ChildID:    "child_1",
-		WorkflowID: childRef.WorkflowID,
-		Input:      map[string]any{"order_id": "o-1"},
+		Type:         historypkg.CmdStartChildWorkflow,
+		ChildID:      "child_1",
+		WorkflowType: childRef.WorkflowType,
+		Input:        map[string]any{"order_id": "o-1"},
 	}}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1009,7 +1009,7 @@ func TestServerStartChildWorkflowCommandCreatesChildRunAndPropagatesCompletion(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.WorkflowID != execution.ChildWorkflowID(parent.ID, "child_1") || child.WorkflowType != childRef.WorkflowID || child.ParentRunID != parent.ID || child.ParentChildID != "child_1" || child.ParentScheduledEventID != childScheduledEventID {
+	if child.WorkflowID != execution.ChildWorkflowID(parent.ID, "child_1") || child.WorkflowType != childRef.WorkflowType || child.ParentRunID != parent.ID || child.ParentChildID != "child_1" || child.ParentScheduledEventID != childScheduledEventID {
 		t.Fatalf("unexpected child run: %+v", child)
 	}
 	if child.WorkflowConfigVersion != childRef.Version {
@@ -1050,8 +1050,8 @@ func TestServerContinueAsNewCommandCreatesNewRunAndClosesCurrent(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-continue-as-new",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-continue-as-new",
 		Status:                historypkg.StatusRunning,
@@ -1063,9 +1063,9 @@ func TestServerContinueAsNewCommandCreatesNewRunAndClosesCurrent(t *testing.T) {
 	}
 	workflowTaskID := appendOpenWorkflowTaskForTest(t, mgr, run.ID)
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, run.ID, workflowTaskID), run.ID, workflowTaskID, []historypkg.Command{{
-		Type:       historypkg.CmdContinueAsNew,
-		WorkflowID: ref.WorkflowID,
-		Input:      map[string]any{"page": int64(2)},
+		Type:         historypkg.CmdContinueAsNew,
+		WorkflowType: ref.WorkflowType,
+		Input:        map[string]any{"page": int64(2)},
 	}}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1149,7 +1149,7 @@ func TestServerContinueAsNewDefaultsToWorkflowTypeAndPreservesExecutionID(t *tes
 	}
 	run := &execution.Run{
 		ID: "run-custom-execution", Namespace: protocol.DefaultNamespace,
-		WorkflowID: "create-rec-1", WorkflowType: ref.WorkflowID,
+		WorkflowID: "create-rec-1", WorkflowType: ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-custom-execution", Status: historypkg.StatusRunning,
 		IsCurrent: true, CreatedAt: time.Now(),
@@ -1198,8 +1198,8 @@ func TestServerContinueAsNewInheritsSearchAttributes(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-can-sa",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-can-sa",
 		Status:                historypkg.StatusRunning,
@@ -1212,9 +1212,9 @@ func TestServerContinueAsNewInheritsSearchAttributes(t *testing.T) {
 	}
 	workflowTaskID := appendOpenWorkflowTaskForTest(t, mgr, run.ID)
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, run.ID, workflowTaskID), run.ID, workflowTaskID, []historypkg.Command{{
-		Type:       historypkg.CmdContinueAsNew,
-		WorkflowID: ref.WorkflowID,
-		Input:      map[string]any{"page": int64(2)},
+		Type:         historypkg.CmdContinueAsNew,
+		WorkflowType: ref.WorkflowType,
+		Input:        map[string]any{"page": int64(2)},
 	}}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1259,8 +1259,8 @@ func TestServerRecoverySchedulesWorkflowTaskAfterActivityCloseEvent(t *testing.T
 	}
 	run := &execution.Run{
 		ID:                    "run-recover-after-activity-close",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),
@@ -1305,8 +1305,8 @@ func TestServerRecoverySchedulesWorkflowTaskAfterMarkerEvent(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-recover-after-marker",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),
@@ -1358,8 +1358,8 @@ func TestServerRecoveryCreatesMissingChildRunFromHistory(t *testing.T) {
 	}
 	parent := &execution.Run{
 		ID:                    "run-parent-recover-child",
-		WorkflowID:            parentRef.WorkflowID,
-		WorkflowType:          parentRef.WorkflowID,
+		WorkflowID:            parentRef.WorkflowType,
+		WorkflowType:          parentRef.WorkflowType,
 		WorkflowConfigVersion: parentRef.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),
@@ -1380,7 +1380,7 @@ func TestServerRecoveryCreatesMissingChildRunFromHistory(t *testing.T) {
 		ScheduledEventID:      childStartedEventID,
 		ChildID:               "child_1",
 		ChildRunID:            "run-child-recovered",
-		WorkflowID:            childRef.WorkflowID,
+		WorkflowType:          childRef.WorkflowType,
 		WorkflowConfigVersion: childRef.Version,
 		Status:                execution.ChildWorkflowStatusEnums.Initiated,
 		Input:                 map[string]any{"request": "child"},
@@ -1431,8 +1431,8 @@ func TestServerRecoveryPropagatesClosedChildWorkflowToParent(t *testing.T) {
 	}
 	parent := &execution.Run{
 		ID:                    "run-parent-recover-child-close",
-		WorkflowID:            parentRef.WorkflowID,
-		WorkflowType:          parentRef.WorkflowID,
+		WorkflowID:            parentRef.WorkflowType,
+		WorkflowType:          parentRef.WorkflowType,
 		WorkflowConfigVersion: parentRef.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),
@@ -1443,14 +1443,14 @@ func TestServerRecoveryPropagatesClosedChildWorkflowToParent(t *testing.T) {
 	if _, err := mgr.Append(parent.ID, parent.ID, parent.ID, historypkg.NewWorkflowStartedEvent(nil, "", "", "", "", 0)); err != nil {
 		t.Fatal(err)
 	}
-	childStartedID, err := mgr.Append(parent.ID, parent.ID, parent.ID, historypkg.NewChildWorkflowStartedEvent(childRef.WorkflowID, "child_1", "run-child-closed-before-parent-event", "", map[string]any{"request": "child"}))
+	childStartedID, err := mgr.Append(parent.ID, parent.ID, parent.ID, historypkg.NewChildWorkflowStartedEvent(childRef.WorkflowType, "child_1", "run-child-closed-before-parent-event", "", map[string]any{"request": "child"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	child := &execution.Run{
 		ID:                     "run-child-closed-before-parent-event",
-		WorkflowID:             childRef.WorkflowID,
-		WorkflowType:           childRef.WorkflowID,
+		WorkflowID:             childRef.WorkflowType,
+		WorkflowType:           childRef.WorkflowType,
 		WorkflowConfigVersion:  childRef.Version,
 		ParentRunID:            parent.ID,
 		ParentChildID:          "child_1",
@@ -1467,7 +1467,7 @@ func TestServerRecoveryPropagatesClosedChildWorkflowToParent(t *testing.T) {
 	if err := mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 		RunID: parent.ID, ScheduledEventID: childStartedID,
 		ChildID: "child_1", ChildRunID: child.ID,
-		WorkflowID: childRef.WorkflowID, WorkflowConfigVersion: childRef.Version,
+		WorkflowType: childRef.WorkflowType, WorkflowConfigVersion: childRef.Version,
 		Status: execution.ChildWorkflowStatusEnums.Started, CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -1514,7 +1514,7 @@ func TestServerRecoveryCreatesMissingContinueAsNewRunFromHistory(t *testing.T) {
 	run := &execution.Run{
 		ID:                    "run-recover-continue",
 		WorkflowID:            "recover-execution-1",
-		WorkflowType:          ref.WorkflowID,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		FirstRunID:            "run-recover-continue",
 		Status:                historypkg.StatusRunning,
@@ -1527,7 +1527,7 @@ func TestServerRecoveryCreatesMissingContinueAsNewRunFromHistory(t *testing.T) {
 	if _, err := mgr.Append(run.ID, run.ID, run.ID, historypkg.NewWorkflowStartedEvent(nil, "", "", "", "", 0)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mgr.Append(run.ID, run.ID, run.ID, historypkg.NewWorkflowContinuedAsNewEvent(ref.WorkflowID, "run-recovered-continue-next", ref.Version, map[string]any{"generation": int64(2)})); err != nil {
+	if _, err := mgr.Append(run.ID, run.ID, run.ID, historypkg.NewWorkflowContinuedAsNewEvent(ref.WorkflowType, "run-recovered-continue-next", ref.Version, map[string]any{"generation": int64(2)})); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
@@ -1730,8 +1730,8 @@ func TestServerRecoverRunReconcilesTerminalEventStatus(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-reconcile-terminal",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 	}
@@ -1773,8 +1773,8 @@ func TestServerRecoverRunAppliesExpiredWorkflowTimeoutBeforeQueueRecovery(t *tes
 	deadline := time.Now().Add(-time.Millisecond)
 	run := &execution.Run{
 		ID:                    "run-recover-expired-timeout",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now().Add(-time.Second),
@@ -2307,8 +2307,8 @@ func TestServerRecoversOpenWorkflowTaskFromEventHistory(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-recover-open-task",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),
@@ -2359,8 +2359,8 @@ func TestServerRecoversOpenActivityTaskFromState(t *testing.T) {
 	}
 	run := &execution.Run{
 		ID:                    "run-recover-open-activity",
-		WorkflowID:            ref.WorkflowID,
-		WorkflowType:          ref.WorkflowID,
+		WorkflowID:            ref.WorkflowType,
+		WorkflowType:          ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version,
 		Status:                historypkg.StatusRunning,
 		CreatedAt:             time.Now(),
@@ -2611,7 +2611,7 @@ func TestWorkflowTaskCapabilityUsesSelectedProgramVersion(t *testing.T) {
 	}
 
 	run := &execution.Run{
-		ID: "capability-upgrade-run", Namespace: protocol.DefaultNamespace, WorkflowID: refA.WorkflowID, WorkflowType: refA.WorkflowID,
+		ID: "capability-upgrade-run", Namespace: protocol.DefaultNamespace, WorkflowID: refA.WorkflowType, WorkflowType: refA.WorkflowType,
 		WorkflowConfigVersion: refA.Version, OriginalWorkflowConfigVersion: refA.Version,
 		Policy: execution.RunPolicyAutoUpgrade, Status: historypkg.StatusRunning, CreatedAt: time.Now(),
 	}

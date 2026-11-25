@@ -12,7 +12,7 @@ func TestFireTimerKeepsHistoryAndStateAtomic(t *testing.T) {
 	for _, kind := range []execution.TimerKind{execution.TimerKindEnums.UserTimer, execution.TimerKindEnums.RetryBackoff} {
 		t.Run(string(kind), func(t *testing.T) {
 			store := memory.NewExecutionManager()
-			candidate := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow", WorkflowConfigVersion: "v1"})
+			candidate := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1"})
 			tree, branch, started, err := execution.PrepareStartedRun(candidate, "Flow", 0)
 			if err != nil {
 				t.Fatal(err)

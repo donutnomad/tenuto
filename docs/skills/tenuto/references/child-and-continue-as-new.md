@@ -3,7 +3,7 @@
 ## Child Workflow
 
 ```go
-// func ExecuteChildWorkflow(ctx Context, workflowID string, input any, opts ...ChildWorkflowOptions) ChildWorkflowFuture
+// func ExecuteChildWorkflow(ctx Context, workflowType string, input any, opts ...ChildWorkflowOptions) ChildWorkflowFuture
 var child map[string]any
 err := workflow.ExecuteChildWorkflow(ctx, "child-wf", input).Get(ctx, &child)
 if err != nil {
@@ -11,7 +11,7 @@ if err != nil {
 }
 ```
 
-- `workflowID` 是子 Workflow 的定义 ID（它的 `@Workflow(type=...)`），需要已在同一 Namespace 登记：子 Workflow 的 `WorkflowDefinition()` 放进某个 Worker 的 `worker.Options.Workflows`。
+- `workflowType` 是子 Workflow 的 Workflow Type（它的 `@Workflow(type=...)`），需要已在同一 Namespace 登记：子 Workflow 的 `WorkflowDefinition()` 放进某个 Worker 的 `worker.Options.Workflows`。
 - `input` 是 struct 或 `map[string]any`，编码成 JSON object。
 - 调用时立即产生启动命令；`Get` 的目标是 `*map[string]any`，内容是子 Run 的 Output。
 - 子 Run 的 Workflow ID 是 `<父 Run ID>/<Child ID>`，例如 `01a1…/#c1`（`server/biz/domain/execution/child_start.go`）。同一个父 Run 可以启动多个同类型的子 Workflow，它们与该类型的顶层 Run 互不冲突。
@@ -111,9 +111,9 @@ func Processor(ctx workflow.Context, state LoopState) error {
 }
 ```
 
-签名：`func ContinueAsNew(ctx Context, workflowID string, input any) error`。
+签名：`func ContinueAsNew(ctx Context, workflowType string, input any) error`。
 
-- `workflowID` 是下一代 Run 使用的 Workflow 定义 ID，通常与当前 Workflow 相同。
+- `workflowType` 是下一代 Run 使用的 Workflow Type，通常与当前 Workflow 相同。
 - `input` 成为下一代 Run 的输入。
 - 调用后当前协程立即结束，后面的语句不再执行。当前 Run 状态变为 `continued_as_new`，新 Run 从 `WorkflowStarted` 开始，有新的 Run ID 与独立的 History；Workflow ID 不变。
 - 按 Workflow ID 发送的 Signal、Query、Update 解析到 current Run，即最新一段。

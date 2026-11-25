@@ -34,22 +34,22 @@ func mustVersion(t *testing.T, wf *programpkg.WorkflowConfig) string {
 	return version
 }
 
-func assertActive(t *testing.T, repo definition.ConfigRepository, namespace, workflowID, want string) {
+func assertActive(t *testing.T, repo definition.ConfigRepository, namespace, workflowType, want string) {
 	t.Helper()
-	ref, err := repo.LatestWorkflowConfigRefInNamespace(namespace, workflowID)
+	ref, err := repo.LatestWorkflowConfigRefInNamespace(namespace, workflowType)
 	if err != nil {
-		t.Fatalf("active ref of %s/%s: %v", namespace, workflowID, err)
+		t.Fatalf("active ref of %s/%s: %v", namespace, workflowType, err)
 	}
 	if ref.Version != want {
-		t.Fatalf("active version of %s/%s = %q, want %q", namespace, workflowID, ref.Version, want)
+		t.Fatalf("active version of %s/%s = %q, want %q", namespace, workflowType, ref.Version, want)
 	}
 }
 
-func assertNoActive(t *testing.T, repo definition.ConfigRepository, namespace, workflowID string) {
+func assertNoActive(t *testing.T, repo definition.ConfigRepository, namespace, workflowType string) {
 	t.Helper()
-	ref, err := repo.LatestWorkflowConfigRefInNamespace(namespace, workflowID)
+	ref, err := repo.LatestWorkflowConfigRefInNamespace(namespace, workflowType)
 	if !errors.Is(err, definition.ErrWorkflowConfigNotFound) {
-		t.Fatalf("active ref of %s/%s = %+v err=%v, want ErrWorkflowConfigNotFound", namespace, workflowID, ref, err)
+		t.Fatalf("active ref of %s/%s = %+v err=%v, want ErrWorkflowConfigNotFound", namespace, workflowType, ref, err)
 	}
 }
 
@@ -61,7 +61,7 @@ func testSaveActivatesContentVersion(t *testing.T, repo definition.ConfigReposit
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := definition.WorkflowConfigRef{Namespace: "ns", WorkflowID: "flow", Version: mustVersion(t, contentA)}
+	want := definition.WorkflowConfigRef{Namespace: "ns", WorkflowType: "flow", Version: mustVersion(t, contentA)}
 	if first != want {
 		t.Fatalf("ref = %+v, want %+v", first, want)
 	}
@@ -180,7 +180,7 @@ func testEnrollState(t *testing.T, repo definition.ConfigRepository) {
 	state := func(workflow *programpkg.WorkflowConfig) bool {
 		t.Helper()
 		activating, err := repo.WorkflowConfigEnrollStateInNamespace("ns", definition.WorkflowConfigRef{
-			Namespace: "ns", WorkflowID: workflow.Type, Version: mustVersion(t, workflow),
+			Namespace: "ns", WorkflowType: workflow.Type, Version: mustVersion(t, workflow),
 		})
 		if err != nil {
 			t.Fatalf("enroll state: %v", err)
@@ -211,7 +211,7 @@ func testEnrollState(t *testing.T, repo definition.ConfigRepository) {
 
 func testMissingConfig(t *testing.T, repo definition.ConfigRepository) {
 	// Error Case: 不存在的版本与不存在的 active 都返回 ErrWorkflowConfigNotFound。
-	_, err := repo.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: "ns", WorkflowID: "missing", Version: "v"})
+	_, err := repo.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: "ns", WorkflowType: "missing", Version: "v"})
 	if !errors.Is(err, definition.ErrWorkflowConfigNotFound) {
 		t.Fatalf("GetWorkflowConfig error = %v, want ErrWorkflowConfigNotFound", err)
 	}
@@ -219,7 +219,7 @@ func testMissingConfig(t *testing.T, repo definition.ConfigRepository) {
 }
 
 func testConfigNamespaceIsolation(t *testing.T, repo definition.ConfigRepository) {
-	// Edge Case: 同一 workflow ID 在两个 namespace 各自保存内容与 active；空 namespace 归入 default。
+	// Edge Case: 同一 Workflow Type 在两个 namespace 各自保存内容与 active；空 namespace 归入 default。
 	refA, err := repo.SaveWorkflowConfigInNamespace("tenant-a", &programpkg.WorkflowConfig{Type: "payments", Name: "A"})
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +231,7 @@ func testConfigNamespaceIsolation(t *testing.T, repo definition.ConfigRepository
 	assertActive(t, repo, "tenant-a", "payments", refA.Version)
 	assertActive(t, repo, "tenant-b", "payments", refB.Version)
 	assertNoActive(t, repo, "tenant-c", "payments")
-	if _, err := repo.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: "tenant-b", WorkflowID: "payments", Version: refA.Version}); !errors.Is(err, definition.ErrWorkflowConfigNotFound) {
+	if _, err := repo.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: "tenant-b", WorkflowType: "payments", Version: refA.Version}); !errors.Is(err, definition.ErrWorkflowConfigNotFound) {
 		t.Fatalf("tenant-a content read through tenant-b: err=%v", err)
 	}
 
@@ -243,7 +243,7 @@ func testConfigNamespaceIsolation(t *testing.T, repo definition.ConfigRepository
 		t.Fatalf("empty namespace stored as %q, want %q", refDefault.Namespace, protocol.DefaultNamespace)
 	}
 	assertActive(t, repo, protocol.DefaultNamespace, "payments", refDefault.Version)
-	loaded, err := repo.GetWorkflowConfig(definition.WorkflowConfigRef{WorkflowID: "payments", Version: refDefault.Version})
+	loaded, err := repo.GetWorkflowConfig(definition.WorkflowConfigRef{WorkflowType: "payments", Version: refDefault.Version})
 	if err != nil || loaded.Name != "D" {
 		t.Fatalf("read with empty namespace = %+v err=%v", loaded, err)
 	}
@@ -277,7 +277,7 @@ func testListRefs(t *testing.T, repo definition.ConfigRepository) {
 		t.Fatal(err)
 	}
 
-	// List 按 workflow ID 升序，同一 workflow 内按首次保存的先后；Active 按 workflow ID 升序。
+	// List 按 Workflow Type 升序，同一 workflow 内按首次保存的先后；Active 按 Workflow Type 升序。
 	// 两个后端返回同一顺序；重复保存不改变已有版本的位置。
 	listed, err := repo.ListWorkflowConfigRefsInNamespace("ns")
 	assertRefs(t, "stored refs", listed, err, a1, a2, b1, c1)

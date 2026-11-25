@@ -245,15 +245,15 @@ func countScheduledType(events []historypkg.Event, activityType string) int {
 	return count
 }
 
-func registerGeneratedWorkflow(t *testing.T, server *engine.Server, workflowID, source, policy string) definition.WorkflowConfigRef {
+func registerGeneratedWorkflow(t *testing.T, server *engine.Server, workflowType, source, policy string) definition.WorkflowConfigRef {
 	t.Helper()
-	return registerGeneratedWorkflowNamed(t, server, workflowID, source, policy, workflowID)
+	return registerGeneratedWorkflowNamed(t, server, workflowType, source, policy, workflowType)
 }
 
-func registerGeneratedWorkflowNamed(t *testing.T, server *engine.Server, workflowID, source, policy, name string) definition.WorkflowConfigRef {
+func registerGeneratedWorkflowNamed(t *testing.T, server *engine.Server, workflowType, source, policy, name string) definition.WorkflowConfigRef {
 	t.Helper()
 	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{
-		WorkflowType: workflowID,
+		WorkflowType: workflowType,
 		Name:         name,
 		FuncName:     "Flow",
 		Filename:     "flow.go",

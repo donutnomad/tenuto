@@ -34,7 +34,7 @@ func startReconcileTestRun(t *testing.T, srv *Server, wf *program.WorkflowConfig
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(srv.StartWorkflow(context.Background(), "", ref.WorkflowID, ref.WorkflowID, "", nil))
+	runID, err := startedRunID(srv.StartWorkflow(context.Background(), "", ref.WorkflowType, ref.WorkflowType, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestWorkflowTaskPostCommit_ChildStartFailureKeepsRemainingCommands(t *testi
 
 	mgr.failOn(historypkg.EventWorkflowStarted)
 	err = srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, []historypkg.Command{
-		{Type: historypkg.CmdStartChildWorkflow, ChildID: "child_1", WorkflowID: childRef.WorkflowID},
+		{Type: historypkg.CmdStartChildWorkflow, ChildID: "child_1", WorkflowType: childRef.WorkflowType},
 		{Type: historypkg.CmdScheduleTimer, TimerID: "sleep-1", Delay: time.Hour},
 	}, "")
 	mgr.failOn("")
@@ -332,7 +332,7 @@ func TestReconcileRunningRuns_OneFailingRunDoesNotStopOthers(t *testing.T) {
 	}
 	if err := mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
 		RunID: bad.ID, ScheduledEventID: 99, ChildID: "child_1", ChildRunID: "run-missing-child",
-		WorkflowID: "wf-not-registered", Status: execution.ChildWorkflowStatusEnums.Initiated,
+		WorkflowType: "wf-not-registered", Status: execution.ChildWorkflowStatusEnums.Initiated,
 		CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		t.Fatal(err)

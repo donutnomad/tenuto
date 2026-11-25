@@ -103,7 +103,7 @@ func childWorkflowStateRowToState(row *ChildWorkflowStatePO) (*execution.ChildWo
 		ScheduledEventID:      row.ScheduledEventID,
 		ChildID:               row.ChildID,
 		ChildRunID:            row.ChildRunID,
-		WorkflowID:            row.WorkflowID,
+		WorkflowType:          row.WorkflowType,
 		WorkflowConfigVersion: row.WorkflowConfigVersion,
 		Status:                execution.ChildWorkflowStatus(row.Status),
 		ParentClosePolicy:     protocol.ParentClosePolicy(row.ParentClosePolicy),

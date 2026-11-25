@@ -10,7 +10,7 @@ import (
 )
 
 func TestMarkTerminalSetsStatusAndOutput(t *testing.T) {
-	run := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow"})
+	run := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow", WorkflowType: "flow"})
 	if err := run.MarkTerminal(history.StatusRunning, nil); err == nil {
 		t.Fatal("accepted nonterminal status")
 	}
@@ -21,7 +21,7 @@ func TestMarkTerminalSetsStatusAndOutput(t *testing.T) {
 	if run.Status != history.StatusCompleted || run.Output["result"] != "ok" {
 		t.Fatalf("run=%+v", run)
 	}
-	failed := execution.NewRun(execution.NewRunOptions{ID: "run-2", WorkflowID: "flow"})
+	failed := execution.NewRun(execution.NewRunOptions{ID: "run-2", WorkflowID: "flow", WorkflowType: "flow"})
 	if err := failed.MarkTerminal(history.StatusFailed, output); err != nil || failed.Output != nil {
 		t.Fatalf("failed run output=%v err=%v, want no output", failed.Output, err)
 	}
@@ -29,7 +29,7 @@ func TestMarkTerminalSetsStatusAndOutput(t *testing.T) {
 
 func TestTerminateCommitsEventAndStatus(t *testing.T) {
 	store := memory.NewExecutionManager()
-	candidate := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow", WorkflowConfigVersion: "v1"})
+	candidate := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1"})
 	tree, branch, started, err := execution.PrepareStartedRun(candidate, "Flow", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestTerminateKeepsStatusWhenRunAlreadyClosed(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := memory.NewExecutionManager()
-			candidate := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow", WorkflowConfigVersion: "v1"})
+			candidate := execution.NewRun(execution.NewRunOptions{ID: "run-1", WorkflowID: "flow", WorkflowType: "flow", WorkflowConfigVersion: "v1"})
 			tree, branch, started, err := execution.PrepareStartedRun(candidate, "Flow", 0)
 			if err != nil {
 				t.Fatal(err)
@@ -132,7 +132,7 @@ func (failUpdateRunTx) UpdateRun(*execution.Run) error { return errRunWrite }
 
 func newStartedRun(t *testing.T, store *memory.ExecutionManager, runID string) *execution.Run {
 	t.Helper()
-	run := execution.NewRun(execution.NewRunOptions{ID: runID, WorkflowID: "flow-" + runID, WorkflowConfigVersion: "v1"})
+	run := execution.NewRun(execution.NewRunOptions{ID: runID, WorkflowID: "flow-" + runID, WorkflowType: "flow", WorkflowConfigVersion: "v1"})
 	tree, branch, started, err := execution.PrepareStartedRun(run, "Flow", 0)
 	if err != nil {
 		t.Fatal(err)

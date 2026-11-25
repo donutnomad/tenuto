@@ -180,15 +180,15 @@ func (s *Server) loadActivityRoutes(now time.Time, force bool) error {
 	return nil
 }
 
-func (s *Server) activeWorkflowRefInNamespace(namespace, workflowID string) (definition.WorkflowConfigRef, error) {
-	return definition.ActiveWorkflowRef(s.workflowConfigs, namespace, workflowID)
+func (s *Server) activeWorkflowRefInNamespace(namespace, workflowType string) (definition.WorkflowConfigRef, error) {
+	return definition.ActiveWorkflowRef(s.workflowConfigs, namespace, workflowType)
 }
 
-func (s *Server) childWorkflowConfigRef(namespace, workflowID string) (definition.WorkflowConfigRef, error) {
-	if workflowID == "" {
-		return definition.WorkflowConfigRef{}, protocol.InvalidRequestf("child workflow id is empty")
+func (s *Server) childWorkflowConfigRef(namespace, workflowType string) (definition.WorkflowConfigRef, error) {
+	if workflowType == "" {
+		return definition.WorkflowConfigRef{}, protocol.InvalidRequestf("child workflow type is empty")
 	}
-	return s.workflowConfigRef(namespace, workflowID, "")
+	return s.workflowConfigRef(namespace, workflowType, "")
 }
 
 // checkEntryInput 校验跨 workflow 边界（child / continue-as-new）的载荷能被目标
@@ -206,8 +206,8 @@ func (s *Server) checkEntryInput(ref definition.WorkflowConfigRef, input map[str
 	return definition.CheckEntryInput(s.workflowConfigs, ref, input)
 }
 
-func (s *Server) workflowConfigRef(namespace, workflowID, version string) (definition.WorkflowConfigRef, error) {
-	return definition.ResolveWorkflowConfigRef(s.workflowConfigs, namespace, workflowID, version)
+func (s *Server) workflowConfigRef(namespace, workflowType, version string) (definition.WorkflowConfigRef, error) {
+	return definition.ResolveWorkflowConfigRef(s.workflowConfigs, namespace, workflowType, version)
 }
 
 // GetWorkflowConfig 读取 Run 在 programVersion 这一版 Program 下的配置，供 WFT 在 task 内固定内容快照；
@@ -228,7 +228,7 @@ func runConfigRef(run *execution.Run, programVersion string) definition.Workflow
 	if programVersion == "" {
 		programVersion = run.WorkflowConfigVersion
 	}
-	return definition.WorkflowConfigRef{Namespace: run.Namespace, WorkflowID: run.WorkflowType, Version: programVersion}
+	return definition.WorkflowConfigRef{Namespace: run.Namespace, WorkflowType: run.WorkflowType, Version: programVersion}
 }
 
 // runWorkflowConfig 读取 Run 当前采用的配置。

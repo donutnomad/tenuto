@@ -221,9 +221,9 @@ export default function TracePage() {
       navigationByRun.current.set(activeRunID, entryNavigation)
       const boundary: WorkflowBoundary = {
         parentRunID: activeRunID,
-        parentWorkflowID: run.workflow_id,
+        parentWorkflowType: run.workflow_type ?? run.id,
         childRunID,
-        childWorkflowID: effect.child_workflow_id ?? childRunID,
+        childWorkflowType: effect.child_workflow_type ?? childRunID,
         effect,
         entryNavigation,
         resumeNavigation,
@@ -488,7 +488,7 @@ export default function TracePage() {
   }
 
   const pathFrames = workflowPath(
-    boundaries[0]?.parentWorkflowID ?? run?.workflow_id ?? rootRunID,
+    boundaries[0]?.parentWorkflowType ?? run?.workflow_type ?? rootRunID,
     boundaries,
     rootSegments,
   )
@@ -541,7 +541,7 @@ export default function TracePage() {
                     ? "max-w-48 truncate font-mono text-sm font-semibold text-[#f0f1f3]"
                     : "max-w-40 truncate font-mono text-xs text-[#a8adbd] hover:text-[#dfe1e5]"}
                 >
-                  {frame.workflowID}
+                  {frame.workflowType}
                 </button>
               </span>
             ))}

@@ -263,7 +263,7 @@ type WorkflowRuntimeSetRunPolicyRequest struct {
 
 type WorkflowRuntimeSetWorkerTargetRequest struct {
 	Namespace            string `json:"namespace"`
-	WorkflowID           string `json:"workflow_id"`
+	WorkflowType         string `json:"workflow_type"`
 	TargetWorkerIdentity string `json:"target_worker_identity"`
 }
 

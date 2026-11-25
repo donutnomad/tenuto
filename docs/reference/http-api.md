@@ -67,7 +67,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 
 ### 定义登记与 Run 策略请求体
 
-`/runtime/workflow/register` 与 `/runtime/workflow/artifacts` 使用同一个请求体，响应是 `WorkflowConfigRef` `{namespace, workflow_id, version}`：
+`/runtime/workflow/register` 与 `/runtime/workflow/artifacts` 使用同一个请求体，响应是 `WorkflowConfigRef` `{namespace, workflow_type, version}`：
 
 ```json
 {
@@ -142,7 +142,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 | `signal-with-start` | `{namespace, workflow_type, workflow_id?, start_input, signal_name, signal_input, request_id?}` | `{run_id, workflow_id, event_id}` |
 | `update-with-start` | `{namespace, workflow_type, workflow_id?, start_input, update_name, update_id, update_args, wait_stage}` | Update 阶段与结果，含 `run_id`、`workflow_id` |
 
-`start-version` 的 `ref` 是 `{namespace, workflow_id, version}`，指定一份已登记的配置内容版本；版本不存在时返回 404。
+`start-version` 的 `ref` 是 `{namespace, workflow_type, version}`，指定一份已登记的配置内容版本；版本不存在时返回 404。
 
 `start` 在该 Workflow ID 已有进行中的 Run 时返回 `current run conflict`；`signal-with-start` 与 `update-with-start` 复用进行中的 Run。三者在 current Run 已结束时都启动新 Run，新 Run 使用该 Workflow Type 当前 active 的 Program。
 
@@ -254,7 +254,7 @@ POST 把读写分区数都设为 `n`，只增不减：`n` 小于当前值时 409
 
 ## Activity worker target
 
-`POST /runtime/workflow/set-worker-target` accepts `{namespace, workflow_id, target_worker_identity}` and returns the new `WorkflowConfigRef`. An empty target restores default scheduling. The target must be an online compatible Activity worker in the namespace. The endpoint returns HTTP 400 with an explanatory message for unavailable or incompatible targets.
+`POST /runtime/workflow/set-worker-target` accepts `{namespace, workflow_type, target_worker_identity}` and returns the new `WorkflowConfigRef`. An empty target restores default scheduling. The target must be an online compatible Activity worker in the namespace. The endpoint returns HTTP 400 with an explanatory message for unavailable or incompatible targets.
 
 The saved version applies to new runs, including future schedule starts. Existing runs and activity retries retain their original target. Workflow orchestration keeps its existing workflow-task routing. `list-configs` exposes `target_worker_identity` and `target_worker_status`; `activity-states` exposes the persisted `targetWorkerIdentity` alongside the actual `workerIdentity` and `workerBuildId` after start; an activity state carries no build of its own.
 

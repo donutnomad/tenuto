@@ -24,7 +24,7 @@ import (
 func main() {
 	url := flag.String("url", "http://localhost:7400", "Tenuto Server HTTP 地址")
 	namespace := flag.String("namespace", "multiprocess-demo", "namespace")
-	workflowType := flag.String("workflow-type", "order-flow", "Workflow Type（workflow 定义 ID）")
+	workflowType := flag.String("workflow-type", "order-flow", "Workflow Type（@Workflow 的 type）")
 	orderID := flag.String("order", "demo-1", "订单号前缀（入参 order_id 为 <前缀>-<phase>）")
 	timeout := flag.Duration("timeout", 20*time.Second, "单个 Run 等待终态的最长时间")
 	readyDir := flag.String("ready-dir", os.Getenv("MP_READY_DIR"), "一键脚本的进程状态目录")
@@ -372,7 +372,7 @@ func (d *driver) versions() (string, error) {
 func (c *api) getWorkflowConfig(ctx context.Context) ([]string, error) {
 	var resp struct {
 		Items []struct {
-			WorkflowID      string `json:"workflow_id"`
+			WorkflowType    string `json:"workflow_type"`
 			LatestVersion   string `json:"latest_version"`
 			WorkflowVersion string `json:"workflow_version"`
 			VersionCount    int    `json:"version_count"`
@@ -384,7 +384,7 @@ func (c *api) getWorkflowConfig(ctx context.Context) ([]string, error) {
 	}
 	var out []string
 	for _, item := range resp.Items {
-		if item.WorkflowID != c.workflowType {
+		if item.WorkflowType != c.workflowType {
 			continue
 		}
 		out = append(out, fmt.Sprintf("latest=%s version=%s count=%d active=%t",

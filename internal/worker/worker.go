@@ -228,15 +228,15 @@ func (w *Worker) registerWorkflows(ctx context.Context) error {
 		return err
 	}
 	for _, definition := range w.options.Workflows {
-		workflowID, workflowJSON, err := definition.Load()
+		workflowType, workflowJSON, err := definition.Load()
 		if err != nil {
 			return err
 		}
 		version, err := registrar.RegisterWorkflowJSON(ctx, w.options.Namespace, workflowJSON)
 		if err != nil {
-			return fmt.Errorf("register workflow %s: %w", workflowID, err)
+			return fmt.Errorf("register workflow %s: %w", workflowType, err)
 		}
-		w.logger.Info("workflow definition registered", "workflow_id", workflowID, "version", version, "namespace", w.options.Namespace)
+		w.logger.Info("workflow definition registered", "workflow_type", workflowType, "version", version, "namespace", w.options.Namespace)
 	}
 	return nil
 }

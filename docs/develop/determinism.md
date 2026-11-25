@@ -57,7 +57,7 @@ Activity（没有指定 `ActivityOptions.ActivityID` 时）、Timer、Child Work
 - 修改协程启动顺序或数量。
 - 修改 Selector case 的添加顺序。
 - 新增、删除或重排 `SideEffect`、`RandomUUID`、`RandomInt` 调用。
-- 修改 Activity Type、`ActivityID` 或 Child Workflow ID。
+- 修改 Activity Type、`ActivityID`、子 Workflow 的 Workflow Type 或 Child ID。
 
 做法见 [Workflow 版本管理](/develop/versioning)。
 

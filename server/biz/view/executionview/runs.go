@@ -109,7 +109,7 @@ func (v *View) GetWorkflowConfig(namespace, runID, programVersion string) (*prog
 	if programVersion == "" {
 		programVersion = run.WorkflowConfigVersion
 	}
-	return v.configs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: run.Namespace, WorkflowID: run.WorkflowType, Version: programVersion})
+	return v.configs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: run.Namespace, WorkflowType: run.WorkflowType, Version: programVersion})
 }
 
 // ListRuns 按过滤条件列出 Run，过滤与分页规则见 execution.ListRuns。

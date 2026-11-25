@@ -203,7 +203,7 @@ func TestResetMarkerIsNotCountedAsWorkflowTaskFailure(t *testing.T) {
 // Happy Path: CurrentWaiting 取 open 等待里调度事件 ID 最大的一项；每项的 ScheduledEventID 就是它在 OpenWaits 里的键，
 // 关闭最新一项后回到次新的一项。
 func TestCurrentWaitingIsTheLatestOpenWait(t *testing.T) {
-	run := NewRun(NewRunOptions{ID: "run-waiting", WorkflowID: "wf", WorkflowConfigVersion: "v1"})
+	run := NewRun(NewRunOptions{ID: "run-waiting", WorkflowID: "wf", WorkflowType: "wf", WorkflowConfigVersion: "v1"})
 	events := []history.Event{
 		history.NewWorkflowStartedEvent(nil, run.ID, "", "wf", "Flow", 0),
 		history.NewActivityScheduledEvent(history.ActivityScheduledEvent{ActivityID: "charge", ActivityType: "charge"}),

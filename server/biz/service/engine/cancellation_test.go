@@ -232,7 +232,7 @@ func TestCancelTimerStopsFiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := &execution.Run{ID: "run-cancel-timer", Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowID, WorkflowType: ref.WorkflowID,
+	run := &execution.Run{ID: "run-cancel-timer", Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowType, WorkflowType: ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version, Status: historypkg.StatusRunning, CreatedAt: h.clk.Now()}
 	createStartedRunForTest(t, h.mgr, run)
 	h.decide(run.ID, historypkg.Command{Type: historypkg.CmdScheduleTimer, TimerID: "#t1", Delay: time.Hour})
@@ -316,7 +316,7 @@ func TestChildCancelRequestIsRecovered(t *testing.T) {
 	createStartedRunForTest(t, tree.mgr, child)
 	if err := tree.mgr.RunInTx(func(tx execution.ExecutionTx) error {
 		return tx.UpsertChildWorkflowState(&execution.ChildWorkflowState{
-			RunID: tree.parentRunID, ScheduledEventID: 99, ChildID: "#c9", ChildRunID: child.ID, WorkflowID: tree.childType,
+			RunID: tree.parentRunID, ScheduledEventID: 99, ChildID: "#c9", ChildRunID: child.ID, WorkflowType: tree.childType,
 			Status: execution.ChildWorkflowStatusEnums.Started, CancelRequested: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
 		})
 	}); err != nil {
@@ -338,7 +338,7 @@ func TestCancelWorkflowIsIdempotentAndRejectsClosedRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := &execution.Run{ID: "run-cancel-twice", Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowID, WorkflowType: ref.WorkflowID,
+	run := &execution.Run{ID: "run-cancel-twice", Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowType, WorkflowType: ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version, Status: historypkg.StatusRunning, CreatedAt: time.Now()}
 	createStartedRunForTest(t, mgr, run)
 	ctx := context.Background()
@@ -357,7 +357,7 @@ func TestCancelWorkflowIsIdempotentAndRejectsClosedRun(t *testing.T) {
 	if err := srv.TerminateWorkflow(ctx, "", "", run.ID, "done"); err != nil {
 		t.Fatal(err)
 	}
-	other := &execution.Run{ID: "run-cancel-closed", Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowID + "-closed", WorkflowType: ref.WorkflowID,
+	other := &execution.Run{ID: "run-cancel-closed", Namespace: protocol.DefaultNamespace, WorkflowID: ref.WorkflowType + "-closed", WorkflowType: ref.WorkflowType,
 		WorkflowConfigVersion: ref.Version, Status: historypkg.StatusRunning, CreatedAt: time.Now()}
 	createStartedRunForTest(t, mgr, other)
 	if err := srv.TerminateWorkflow(ctx, "", "", other.ID, "done"); err != nil {

@@ -29,13 +29,13 @@ func RunRepositoryContract(t *testing.T, newRepo func(t *testing.T) schedule.Rep
 	})
 }
 
-func newTestSchedule(id, namespace, workflowID, cron string) *schedule.Schedule {
+func newTestSchedule(id, namespace, workflowType, cron string) *schedule.Schedule {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	nextRunAt := now.Add(time.Hour)
 	return &schedule.Schedule{
 		ID:             id,
 		Namespace:      namespace,
-		WorkflowType:   workflowID,
+		WorkflowType:   workflowType,
 		Description:    "test schedule",
 		CronExpression: cron,
 		Timezone:       "UTC",

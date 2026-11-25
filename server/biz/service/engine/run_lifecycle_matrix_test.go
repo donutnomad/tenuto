@@ -201,7 +201,7 @@ func TestContinueAsNewUsesActiveLatestAndInheritsLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", refA.WorkflowID, refA.WorkflowID, "", nil))
+	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", refA.WorkflowType, refA.WorkflowType, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestContinueAsNewUsesActiveLatestAndInheritsLineage(t *testing.T) {
 	}
 	refB, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		Type:    refA.WorkflowID, Name: "B", Policy: execution.RunPolicyPinned,
+		Type:    refA.WorkflowType, Name: "B", Policy: execution.RunPolicyPinned,
 	})
 
 	if err != nil {
@@ -227,7 +227,7 @@ func TestContinueAsNewUsesActiveLatestAndInheritsLineage(t *testing.T) {
 	}}, ""); err != nil {
 		t.Fatal(err)
 	}
-	run2 := waitForNewCurrentRun(t, mgr, protocol.DefaultNamespace, refA.WorkflowID, run1ID, 3*time.Second)
+	run2 := waitForNewCurrentRun(t, mgr, protocol.DefaultNamespace, refA.WorkflowType, run1ID, 3*time.Second)
 	if run2.WorkflowConfigVersion != refB.Version {
 		t.Fatalf("continue-as-new content = %q, want active latest %q", run2.WorkflowConfigVersion, refB.Version)
 	}
@@ -276,7 +276,7 @@ func TestContinueAsNewVersionSelectionMatrix(t *testing.T) {
 			}
 			refB, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 				Program: programtest.Noop(),
-				Type:    refA.WorkflowID, Name: "B", Policy: policy, ExecutionTimeout: "5s",
+				Type:    refA.WorkflowType, Name: "B", Policy: policy, ExecutionTimeout: "5s",
 			})
 
 			if err != nil {
@@ -291,7 +291,7 @@ func TestContinueAsNewVersionSelectionMatrix(t *testing.T) {
 			}}, ""); err != nil {
 				t.Fatal(err)
 			}
-			run2 := waitForNewCurrentRun(t, mgr, protocol.DefaultNamespace, refA.WorkflowID, run1ID, 3*time.Second)
+			run2 := waitForNewCurrentRun(t, mgr, protocol.DefaultNamespace, refA.WorkflowType, run1ID, 3*time.Second)
 			if run2.WorkflowConfigVersion != refB.Version {
 				t.Fatalf("CAN content = %q, want active latest %q (policy %s)", run2.WorkflowConfigVersion, refB.Version, policy)
 			}

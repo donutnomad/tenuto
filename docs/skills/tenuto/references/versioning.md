@@ -73,8 +73,8 @@ nondeterministic workflow: extra replay command <...>
 
 ## 定义内容、latest 与 policy
 
-- 生成器为每份 `workflow.json` 计算内容 hash；`(Namespace, Workflow ID, hash)` 只保存一份，重复登记幂等。
-- 每个 Workflow ID 有一个 latest 指针，新启动的 Run 使用当时的 latest。
+- 生成器为每份 `workflow.json` 计算内容 hash；`(Namespace, Workflow Type, hash)` 只保存一份，重复登记幂等。
+- 每个 Workflow Type 有一个 latest 指针，新启动的 Run 使用当时的 latest。
 - Worker `Start` 自动登记 `worker.Options.Workflows`：新内容首次出现时 latest 指向它；已知 hash 再次登记保持 latest 不变（旧 Worker 重启不会把 latest 拉回去）。
 - `tenuto-workflow-gen generate -url <server> <pkg>` 只登记（`POST /runtime/workflow/artifacts`）；加 `-publish` 登记并激活 latest（`POST /runtime/workflow/register`），用于显式发布与回滚。
 
