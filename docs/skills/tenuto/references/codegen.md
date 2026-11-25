@@ -23,7 +23,6 @@ type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 | --- | --- | --- |
 | `id` | 是 | Workflow 定义 ID；启动 Run、Child、Continue-As-New、Schedule 都用它 |
 | `name` | 否 | 展示名，缺省等于 `id` |
-| `queue` | 否 | 默认 Activity Task Queue；`@Activity` 省略 `queue` 时使用它 |
 | `policy` | 否 | `auto_upgrade`（缺省）或 `pinned`；其他值（包括 `auto`）报错 |
 | `version` | 否 | 作者声明的发布标签，写入 `workflow.json` 并参与内容 hash |
 

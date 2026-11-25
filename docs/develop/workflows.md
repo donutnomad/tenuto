@@ -77,7 +77,6 @@ func SayHello(_ context.Context, in SayHelloInput) (SayHelloOutput, error) {
 | --- | --- | --- |
 | `id` | 是 | Workflow 定义 ID，启动 Run 时使用 |
 | `name` | 否 | 展示名，缺省等于 `id` |
-| `queue` | 否 | 默认 Activity Task Queue；`@Activity` 省略 `queue` 时使用它 |
 | `policy` | 否 | Run 版本策略：`auto_upgrade`（缺省）、`pinned`；其他取值在生成期报错 |
 | `version` | 否 | 作者声明的发布标签，写入 `workflow.json` 并参与内容 hash |
 

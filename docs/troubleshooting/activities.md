@@ -12,6 +12,18 @@ status: Stable
 
 检查 ActivityScheduled 的 Namespace、Task Queue 和 Activity Type，再检查 active Worker、Version Heartbeat 和 TaskQ physical queue。Server 日志反复出现 `activity claim refused: worker contract is incompatible` 时，在线 Worker 的契约都与 Run 当前 Program 的声明不一致：让契约兼容的 build 重新上线（例如 `pinned` Run 所需的旧 build），或者等 `ScheduleToStartTimeout` 到期。
 
+## Run Blocked：`activity_route_unavailable`
+
+调度时找不到能执行这个 Activity 的在线 Worker，任务不派发，History 不变，Worker 就绪或配置修正后 Run 按退避自动继续。按错误原文区分：
+
+| 错误原文 | 原因 | 处理 |
+| --- | --- | --- |
+| `... is not registered in activity route catalog` / `has no active route` | 这个 Namespace 里没有任何在线 Worker 登记这个 Activity 类型 | 启动登记了它的 Worker，核对 Namespace |
+| `declares a contract and no online worker on task queue <queue> reported one` | 定义或调用处指定了队列，该队列上没有提供它的 Worker | 让 Worker 拉这个队列（`@Activity(queue)` 登记的队列会自动拉取，调用处改派的队列要写进 `ActivityTaskQueues`） |
+| `declares no task queue and workers serve it on unrelated task queues [...]` | 定义与调用处都没有声明队列，几个服务在互不相关的队列上提供同一类型 | 在 `@Activity(queue=...)` 或 `ActivityOptions.TaskQueue` 声明队列后重新生成并发布，或停掉其中一个服务 |
+
+Console Workers 页的 Activity Routing 表列出每个 Activity 类型在哪些队列上有 Worker。队列的决定规则见 [Activity 的队列如何决定](/operations/namespaces-task-queues#activity-的队列如何决定)。
+
 ## Run Blocked：`bad_schedule_activity_attributes`
 
 Workflow 调度的 Activity 既没有 `StartToCloseTimeout` 也没有 `ScheduleToCloseTimeout`，错误原文 `activity "<id>" (type <type>) sets neither StartToCloseTimeout nor ScheduleToCloseTimeout`。给该调用的 `ActivityOptions` 补上超时，重新生成并发布；Run 按退避自动继续。

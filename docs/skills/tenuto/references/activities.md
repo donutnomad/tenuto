@@ -76,7 +76,7 @@ if err := f2.Get(ctx, &r2); err != nil {
 | 指向 | Activity Type | Task Queue | 契约 | 输入 |
 | --- | --- | --- | --- | --- |
 | 带 `@Activity` 的函数，或 remote 标记函数 `XRemoteActivity` | 注解的 `type` | 注解的 `queue` | 注解声明，调度时对照 | struct 或 `map[string]any` |
-| 没有注解的函数 | 符号文本 `pkg.Func`（如 `activities.CheckBalance`） | 这次调用的 `ActivityOptions.TaskQueue`，省略时为 `default` | 无声明，不对照 | struct 或 `map[string]any` |
+| 没有注解的函数 | 符号文本 `pkg.Func`（如 `activities.CheckBalance`） | 这次调用的 `ActivityOptions.TaskQueue`；省略时由 Server 按 Worker 的登记选路 | 无声明，不对照 | struct 或 `map[string]any` |
 
 没有注解的实现用符号文本登记：`activity.RegisterActivity(registry, "activities.CheckBalance", "", CheckBalance)`。新代码一律加 `@Activity`。
 

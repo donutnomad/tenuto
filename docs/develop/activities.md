@@ -109,7 +109,7 @@ if err := f2.Get(ctx, &b); err != nil {
 | 项 | 取值 |
 | --- | --- |
 | Activity Type | 符号文本 `pkg.Func`（如 `activities.CheckBalance`） |
-| Task Queue | 这次调用的 `ActivityOptions.TaskQueue`，省略时为 `default`；调用点的选项只作用于这一次调用 |
+| Task Queue | 这次调用的 `ActivityOptions.TaskQueue`，只作用于这一次调用；省略时由 Server 按 Worker 的登记选择，见[Activity 的队列如何决定](/operations/namespaces-task-queues#activity-的队列如何决定) |
 | 契约 | 无声明，Server 调度时不对照 |
 | 输入 | struct（字面量或变量）或 `map[string]any`，按 Program 的类型表编码成 JSON |
 
