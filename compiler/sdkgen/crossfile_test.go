@@ -135,9 +135,8 @@ func generateSplitFixture(t *testing.T, dir string) sdkgen.PackageResult {
 func splitArtifactBytes(t *testing.T, result sdkgen.PackageResult) map[string][]byte {
 	t.Helper()
 	out := map[string][]byte{
-		"workflow":   mustMarshal(t, result.Workflow),
-		"activities": mustMarshal(t, result.Activities),
-		"embedded":   result.Embedded.Content,
+		"workflow": mustMarshal(t, result.Workflow),
+		"embedded": result.Embedded.Content,
 	}
 	for _, bridge := range result.Bridges {
 		out["bridge:"+filepath.Base(bridge.Path)] = bridge.Content

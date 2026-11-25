@@ -1,7 +1,7 @@
 // Package artifact 加载 `tenuto-workflow-gen` 产出的 JSON 产物，并封装两个注册入口。
 //
-// 产物目录里 workflow.json 是必需项；activities.json 存在时必须能解析。校验失败的错误里带文件名，
-// 便于直接定位到出错的那份 JSON。
+// 产物目录里只有 workflow.json：程序与 Activity 契约（`activities` 字段）都在其中。
+// 校验失败的错误里带文件名，便于直接定位到出错的那份 JSON。
 package artifact
 
 import (
@@ -9,53 +9,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	programpkg "github.com/donutnomad/tenuto/program"
 )
 
-// 产物文件名。
-const (
-	WorkflowFile   = "workflow.json"
-	ActivitiesFile = "activities.json"
-)
-
-// Activity 是 activities.json 的一项：Workflow 侧静态声明的 activity 契约。
-//
-// Input/Output 是与 Go 包名/类型名无关的 wire 指纹（config.WLangWireFingerprint，
-// worker 侧对应 activity.ContractOf），不是 WLang type descriptor ID。
-type Activity struct {
-	Type    string `json:"type"`
-	Version string `json:"version,omitempty"`
-	Input   string `json:"input,omitempty"`
-	Output  string `json:"output,omitempty"`
-	Queue   string `json:"queue,omitempty"`
-	Symbol  string `json:"symbol"`
-}
-
-// Manifest 把 WorkflowConfig 里的 activity 引用转成 activities.json 的清单项。
-func Manifest(refs []programpkg.ActivityRef) []Activity {
-	activities := make([]Activity, 0, len(refs))
-	for _, ref := range refs {
-		activities = append(activities, Activity{
-			Type:    ref.Type,
-			Version: ref.Version,
-			Input:   ref.Input,
-			Output:  ref.Output,
-			Queue:   ref.TaskQueue,
-			Symbol:  ref.Symbol,
-		})
-	}
-	return activities
-}
+// WorkflowFile 是生成器写出的产物文件名。
+const WorkflowFile = "workflow.json"
 
 // Artifacts 是一个产物目录的强类型视图。
 type Artifacts struct {
 	Dir string
-	// Workflow 是 runtime 接受的 WorkflowConfig bundle，必需。
+	// Workflow 是 runtime 接受的 WorkflowConfig bundle；Activity 契约在 Workflow.Activities。
 	Workflow *programpkg.WorkflowConfig
-	// Activities 是可选产物，缺失时留零值。
-	Activities []Activity
 	// ContentVersion 是 workflow.json 的内容版本，与服务端登记后报告的版本相同
 	// （program.WorkflowConfigVersion）。
 	ContentVersion string
@@ -77,23 +42,6 @@ func LoadDir(dir string) (Artifacts, error) {
 	}
 	artifacts.Workflow = workflow
 
-	if data, ok, err := readOptional(dir, ActivitiesFile); err != nil {
-		return Artifacts{}, err
-	} else if ok {
-		var activities []Activity
-		if err := unmarshalFile(ActivitiesFile, data, &activities); err != nil {
-			return Artifacts{}, err
-		}
-		for index, activity := range activities {
-			if strings.TrimSpace(activity.Type) == "" {
-				return Artifacts{}, fmt.Errorf("%s: 第 %d 项的 type 为空", filepath.Join(dir, ActivitiesFile), index+1)
-			}
-			if strings.TrimSpace(activity.Symbol) == "" {
-				return Artifacts{}, fmt.Errorf("%s: 第 %d 项（%s）的 symbol 为空", filepath.Join(dir, ActivitiesFile), index+1, activity.Type)
-			}
-		}
-		artifacts.Activities = activities
-	}
 	version, err := programpkg.WorkflowConfigVersion(workflow)
 	if err != nil {
 		return Artifacts{}, err
@@ -110,19 +58,6 @@ func readRequired(dir, name string) ([]byte, error) {
 		return nil, fmt.Errorf("读取 %s 失败: %w", path, err)
 	}
 	return data, nil
-}
-
-// readOptional 读取可选文件；不存在时返回 ok=false。
-func readOptional(dir, name string) ([]byte, bool, error) {
-	path := filepath.Join(dir, name)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("读取 %s 失败: %w", path, err)
-	}
-	return data, true, nil
 }
 
 // unmarshalFile 解析 JSON，错误里带文件名。

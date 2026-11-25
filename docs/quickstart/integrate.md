@@ -136,8 +136,7 @@ go generate ./...
 | --- | --- |
 | `zz_orders_contract_gen.go` | 调用桥 `CallCharge`、`CallNotify`，签名断言，`RegisterActivities` |
 | `zz_orders_artifacts_gen.go` | 把 `workflow.json` 嵌入二进制，导出 `WorkflowDefinition()` |
-| `workflow.json` | Workflow 定义：注解里的 id、name、policy、version，翻译成 WLang 的程序 `program`，以及调用的 Activity。嵌入二进制，Worker 启动时登记给 Server |
-| `activities.json` | Activity 清单：type、version、queue、入参出参的结构指纹。运行期不读取，审阅时用来发现契约变化 |
+| `workflow.json` | Workflow 定义：注解里的 id、name、policy、version，翻译成 WLang 的程序 `program`，以及调用的 Activity 契约 `activities`（type、version、task_queue、入参出参的结构指纹；审阅时看这一段的 diff 发现契约变化）。嵌入二进制，Worker 启动时登记给 Server |
 
 在 `CallCharge` 第一次生成之前，编辑器会报未定义，属于正常现象。`go build` 不执行 `go:generate`，所以生成产物要和源码一起提交；CI 里先执行 `go generate ./...`，再用 `git diff --exit-code` 检查产物是否与源码一致。每次修改 Workflow、Activity 签名或注解之后都要重新生成；开发时可以用 `go tool tenuto-workflow-gen generate -watch ./orders` 在保存时自动生成。
 

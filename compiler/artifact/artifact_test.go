@@ -19,11 +19,11 @@ import (
 func writeArtifacts(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	workflow := &program.WorkflowConfig{ID: "demo", Name: "Demo", Policy: "auto_upgrade", Version: "v2", Program: programtest.Noop()}
+	workflow := &program.WorkflowConfig{ID: "demo", Name: "Demo", Policy: "auto_upgrade", Version: "v2", Program: programtest.Noop(),
+		Activities: map[string]program.ActivityRef{"demo.Charge": {
+			Symbol: "demo.Charge", Type: "demo.charge", TaskQueue: "demo", Version: "v1", Input: "demo.In", Output: "demo.Out",
+		}}}
 	writeJSON(t, dir, WorkflowFile, workflow)
-	writeJSON(t, dir, ActivitiesFile, []Activity{{
-		Type: "demo.charge", Version: "v1", Input: "demo.In", Output: "demo.Out", Queue: "demo", Symbol: "demo.Charge",
-	}})
 	return dir
 }
 
@@ -48,8 +48,8 @@ func TestLoadDirReadsAndHashesArtifacts(t *testing.T) {
 	if loaded.Workflow.ID != "demo" || loaded.Workflow.Version != "v2" {
 		t.Fatalf("workflow 内容异常: %+v", loaded.Workflow)
 	}
-	if len(loaded.Activities) != 1 || loaded.Activities[0].Symbol != "demo.Charge" {
-		t.Fatalf("activities 内容异常: %+v", loaded.Activities)
+	if ref := loaded.Workflow.Activities["demo.Charge"]; ref.Type != "demo.charge" || ref.TaskQueue != "demo" {
+		t.Fatalf("activities 内容异常: %+v", loaded.Workflow.Activities)
 	}
 	// 内容版本与服务端登记 workflow.json 时算出的版本一致。
 	want, err := program.WorkflowConfigVersion(loaded.Workflow)
@@ -85,16 +85,6 @@ func TestLoadDirRequiresWorkflowFile(t *testing.T) {
 	_, err := LoadDir(dir)
 	if err == nil || !strings.Contains(err.Error(), WorkflowFile) {
 		t.Fatalf("缺少 workflow.json 应报错: %v", err)
-	}
-}
-
-// TestLoadDirRejectsInvalidArtifacts 覆盖 activities.json 里的空 type。
-func TestLoadDirRejectsInvalidArtifacts(t *testing.T) {
-	dir := writeArtifacts(t)
-	writeJSON(t, dir, ActivitiesFile, []Activity{{Type: "", Symbol: "demo.Charge"}})
-	_, err := LoadDir(dir)
-	if err == nil || !strings.Contains(err.Error(), "type 为空") {
-		t.Fatalf("空 type 应报错: %v", err)
 	}
 }
 
@@ -165,29 +155,5 @@ func TestClientReportsNon2xxBody(t *testing.T) {
 	}
 	if _, err := (Client{Namespace: "demo-ns"}).Submit(context.Background(), RegisterPath, loaded); err == nil {
 		t.Fatal("缺少 URL 应失败")
-	}
-}
-
-// TestManifestMapsProgramActivities 锁住 activities.json 的字段映射。
-func TestManifestMapsProgramActivities(t *testing.T) {
-	manifest := Manifest([]program.ActivityRef{{
-		Symbol: "demo.Charge", Type: "demo.charge", TaskQueue: "demo", Version: "v1", Input: "demo.In", Output: "demo.Out",
-	}})
-	if len(manifest) != 1 {
-		t.Fatalf("清单长度异常: %+v", manifest)
-	}
-	got := manifest[0]
-	if got.Type != "demo.charge" || got.Queue != "demo" || got.Version != "v1" ||
-		got.Input != "demo.In" || got.Output != "demo.Out" || got.Symbol != "demo.Charge" {
-		t.Fatalf("字段映射异常: %+v", got)
-	}
-	data, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{`"type":"demo.charge"`, `"queue":"demo"`, `"symbol":"demo.Charge"`} {
-		if !strings.Contains(string(data), want) {
-			t.Fatalf("JSON 缺少 %s: %s", want, data)
-		}
 	}
 }

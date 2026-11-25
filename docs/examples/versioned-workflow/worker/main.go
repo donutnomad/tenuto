@@ -18,6 +18,7 @@ import (
 	"github.com/donutnomad/tenuto/compiler/artifact"
 	"github.com/donutnomad/tenuto/docs/examples/versioned-workflow/activities"
 	"github.com/donutnomad/tenuto/docs/examples/versioned-workflow/remote"
+	"github.com/donutnomad/tenuto/program"
 	wfsdk "github.com/donutnomad/tenuto/sdk/activity"
 	"github.com/donutnomad/tenuto/sdk/client"
 	"github.com/donutnomad/tenuto/sdk/worker"
@@ -29,7 +30,7 @@ func main() {
 	buildID := flag.String("build-id", "lifecycle-build-v1", "Activity worker build ID")
 	identity := flag.String("identity", "lifecycle-activity-v1", "worker identity")
 	isDefault := flag.Bool("default", true, "是否为该队列的默认 Activity 路由")
-	artifactsDir := flag.String("artifacts", "docs/examples/versioned-workflow/v2", "activities.json 所在目录")
+	artifactsDir := flag.String("artifacts", "docs/examples/versioned-workflow/v2", "workflow.json 所在目录（读取其中的 Activity 契约）")
 	flag.Parse()
 
 	if err := run(*url, *namespace, *buildID, *identity, *isDefault, *artifactsDir); err != nil {
@@ -63,7 +64,7 @@ func run(url, namespace, buildID, identity string, isDefault bool, artifactsDir 
 	workflowWorker.Start(ctx)
 
 	registry := wfsdk.NewRegistry()
-	if err := registerActivities(registry, artifacts.Activities); err != nil {
+	if err := registerActivities(registry, artifacts.Workflow.Activities); err != nil {
 		return fmt.Errorf("register activities: %w", err)
 	}
 	// registry 里的契约随 Worker 启动上报，服务端据此对照 workflow 侧声明。
@@ -96,7 +97,7 @@ func run(url, namespace, buildID, identity string, isDefault bool, artifactsDir 
 	}
 	reported := registry.Contracts()
 	log.Printf("ready namespace=%s build=%s identity=%s activities=%d contracts_reported=%d",
-		namespace, buildID, identity, len(artifacts.Activities), len(reported))
+		namespace, buildID, identity, len(artifacts.Workflow.Activities), len(reported))
 	<-ctx.Done()
 	activityWorker.Stop()
 	workflowWorker.Stop()
@@ -107,45 +108,36 @@ func run(url, namespace, buildID, identity string, isDefault bool, artifactsDir 
 //
 // 本地实现由 activities 包的生成 helper 一行登记。payments.settle 是 remote 契约：
 // 实现在本 worker 手写提供、不在 @Activity 标注的包里，所以保留这一条手写登记，
-// 并按 activities.json 的符号核对契约。
-func registerActivities(registry *wfsdk.Registry, manifest []artifact.Activity) error {
+// 并按 workflow.json 里该符号的契约核对。
+func registerActivities(registry *wfsdk.Registry, declared map[string]program.ActivityRef) error {
 	if err := activities.RegisterActivities(registry); err != nil {
 		return err
 	}
-	register(registry, manifest, "remote.SettleRemoteActivity", settle)
+	register(registry, declared, "remote.SettleRemoteActivity", settle)
 	return nil
 }
 
-// register 按 activities.json 里的 type 与 version 登记实现，并把实现的契约与生成产物对照。
+// register 按 workflow.json 里的 type 与 version 登记实现，并把实现的契约与生成产物对照。
 //
 // 两边都是 wire 指纹（与 Go 类型身份无关）：generator 侧 config.WLangWireFingerprint，
-// worker 侧 activity.ContractOf。不一致说明 activities.json 落后于实现，直接 fail fast，
+// worker 侧 activity.ContractOf。不一致说明 workflow.json 落后于实现，直接 fail fast，
 // 让问题停在启动阶段而不是真实调度期的 contract mismatch。
-func register[I, O any](registry *wfsdk.Registry, manifest []artifact.Activity, symbol string, fn func(context.Context, I) (O, error)) {
-	declared, ok := findActivity(manifest, symbol)
+func register[I, O any](registry *wfsdk.Registry, declared map[string]program.ActivityRef, symbol string, fn func(context.Context, I) (O, error)) {
+	ref, ok := declared[symbol]
 	if !ok {
-		panic(fmt.Sprintf("activities.json 缺少符号 %s（先生成产物再启动 worker）", symbol))
+		panic(fmt.Sprintf("workflow.json 缺少 Activity 符号 %s（先生成产物再启动 worker）", symbol))
 	}
-	expected, err := wfsdk.ContractOf[I, O](declared.Type, declared.Version)
+	expected, err := wfsdk.ContractOf[I, O](ref.Type, ref.Version)
 	if err != nil {
-		panic(fmt.Sprintf("计算 %s 的契约指纹失败: %v", declared.Type, err))
+		panic(fmt.Sprintf("计算 %s 的契约指纹失败: %v", ref.Type, err))
 	}
-	if expected.Input != declared.Input || expected.Output != declared.Output {
-		panic(fmt.Sprintf("activities.json 的 %s 契约与实现不一致（重新生成产物）：manifest input=%s output=%s，实现 input=%s output=%s",
-			declared.Type, declared.Input, declared.Output, expected.Input, expected.Output))
+	if expected.Input != ref.Input || expected.Output != ref.Output {
+		panic(fmt.Sprintf("workflow.json 的 %s 契约与实现不一致（重新生成产物）：声明 input=%s output=%s，实现 input=%s output=%s",
+			ref.Type, ref.Input, ref.Output, expected.Input, expected.Output))
 	}
-	if err := wfsdk.RegisterActivity(registry, declared.Type, declared.Version, fn); err != nil {
-		panic(fmt.Sprintf("注册 %s 失败: %v", declared.Type, err))
+	if err := wfsdk.RegisterActivity(registry, ref.Type, ref.Version, fn); err != nil {
+		panic(fmt.Sprintf("注册 %s 失败: %v", ref.Type, err))
 	}
-}
-
-func findActivity(manifest []artifact.Activity, symbol string) (artifact.Activity, bool) {
-	for _, activity := range manifest {
-		if activity.Symbol == symbol {
-			return activity, true
-		}
-	}
-	return artifact.Activity{}, false
 }
 
 // settle 是 remote 契约 payments.settle 的实现。

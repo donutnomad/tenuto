@@ -49,8 +49,6 @@ type PackageResult struct {
 	Version string
 	// Workflow 是登记用的配置，Program 内联其中。
 	Workflow *programpkg.WorkflowConfig
-	// Activities 是按 Symbol 排序的 activity 清单。
-	Activities []programpkg.ActivityRef
 	// Bridges 是本次生成使用的桥文件（与 Plan.Bridges 相同，便于调用方复查）。
 	Bridges []GeneratedFile
 	// WatchFiles 是本次生成读过的源码。
@@ -223,7 +221,6 @@ func Generate(plan Plan) (PackageResult, error) {
 	result.Workflow.Activities = refs
 	result.Workflow.Policy = plan.Spec.Annotation.Policy
 	result.Workflow.Version = plan.Spec.Annotation.Version
-	result.Activities = sortedActivityRefs(refs)
 	result.Embedded = embeddedArtifactsFile(plan.Dir, plan.PackageName)
 	return result, nil
 }
@@ -322,22 +319,6 @@ func keysOf(values map[string]bool) []string {
 		keys = append(keys, key)
 	}
 	return keys
-}
-
-// sortedActivityRefs 按符号排序，保证 activities.json 稳定。
-func sortedActivityRefs(activities map[string]programpkg.ActivityRef) []programpkg.ActivityRef {
-	symbols := make([]string, 0, len(activities))
-	for symbol := range activities {
-		symbols = append(symbols, symbol)
-	}
-	sort.Strings(symbols)
-	out := make([]programpkg.ActivityRef, 0, len(symbols))
-	for _, symbol := range symbols {
-		ref := activities[symbol]
-		ref.Symbol = symbol
-		out = append(out, ref)
-	}
-	return out
 }
 
 // descriptorIDs 是每个契约在 Program.Types 里的 Input/Output 描述符 ID，按注解位置索引。

@@ -127,8 +127,7 @@ Server 开启 `WORKFLOW_HTTP_AUTH_TOKEN` 时，用环境变量 `TENUTO_AUTH_TOKE
 | --- | --- |
 | `zz_<pkg>_contract_gen.go` | 每个契约包的 `CallX` 桥、签名断言；有本地实现时包含 `RegisterActivities` |
 | `zz_<pkg>_artifacts_gen.go` | 把 `workflow.json` embed 进二进制，导出 `WorkflowDefinition()` |
-| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（程序里的 Activity 符号 → 类型、队列、契约指纹）、`policy`、`version` |
-| `activities.json` | Activity 清单：`type`、`version`、输入输出 wire 指纹、`queue`、`symbol` |
+| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（程序里的 Activity 符号 → `type`、`task_queue`、`version`、输入输出 wire 指纹）、`policy`、`version` |
 
 只含 `@Activity` 的包目录只生成 `zz_<pkg>_contract_gen.go`。产物内容相同时不重写文件；产物不含源码目录的绝对路径，同一份源码在不同 checkout 得到相同的内容 hash。
 
@@ -211,7 +210,7 @@ if err := w.WaitReady(ctx); err != nil {
 
 ## 契约对照
 
-`activities.json` 里的 `input` / `output` 是 wire 指纹（`wire:<hash>`），由 JSON 字段名、类型和可选性计算，与 Go 包名和类型名无关。Worker 侧 `activity.ContractOf[In, Out](type, version)` 使用同一算法，Worker 启动时随路由上报自己的契约。Server 在调度 Activity 时对照两侧契约：Workflow Task 提交 Activity 调度命令后，Server 用该 Run 的 Program 声明的 `version`、`input`、`output` 选择契约一致的 Worker；没有一致的候选时命令不派发，Run 记录 `ConfigError`（`activity "..." contract mismatch on worker "..." ...`）并暂停，History 保持不变，见 [Workflow 版本管理](/develop/versioning)。Worker 注册和定义登记阶段不做这项对照。
+`workflow.json` 的 `activities` 里的 `input` / `output` 是 wire 指纹（`wire:<hash>`），由 JSON 字段名、类型和可选性计算，与 Go 包名和类型名无关。Worker 侧 `activity.ContractOf[In, Out](type, version)` 使用同一算法，Worker 启动时随路由上报自己的契约。Server 在调度 Activity 时对照两侧契约：Workflow Task 提交 Activity 调度命令后，Server 用该 Run 的 Program 声明的 `version`、`input`、`output` 选择契约一致的 Worker；没有一致的候选时命令不派发，Run 记录 `ConfigError`（`activity "..." contract mismatch on worker "..." ...`）并暂停，History 保持不变，见 [Workflow 版本管理](/develop/versioning)。Worker 注册和定义登记阶段不做这项对照。
 
 wire 指纹支持的类型：字符串、布尔、定宽整数与 `int`、浮点、指针、slice、定长数组、字符串 key 的 map、结构体、空接口，以及由它们组成的具名类型与递归类型（递归位置记为指向外层类型的回指，与类型名无关）。以下类型返回错误：`uint`、`[]byte`、匿名嵌入字段、自定义 `json.Marshaler` / `encoding.TextMarshaler`、`omitempty` 之外的 json tag 选项、非字符串 key 的 map。
 

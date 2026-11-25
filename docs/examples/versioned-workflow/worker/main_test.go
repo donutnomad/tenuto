@@ -9,17 +9,17 @@ import (
 )
 
 // TestWorkerReportsActivityContracts 锁住 worker 侧的契约元数据上报：
-// 实现按 activities.json 的符号注册，registry 里每个 activity 都带 Type/Version/Input/Output。
+// 实现按 workflow.json 里 activities 的符号注册，registry 里每个 activity 都带 Type/Version/Input/Output。
 func TestWorkerReportsActivityContracts(t *testing.T) {
 	artifacts, err := artifact.LoadDir("../v2")
 	if err != nil {
-		t.Fatalf("加载 activities.json 失败: %v", err)
+		t.Fatalf("加载 workflow.json 失败: %v", err)
 	}
-	if len(artifacts.Activities) == 0 {
-		t.Fatal("activities.json 为空，先生成产物")
+	if len(artifacts.Workflow.Activities) == 0 {
+		t.Fatal("workflow.json 的 activities 为空，先生成产物")
 	}
 	registry := wfsdk.NewRegistry()
-	if err := registerActivities(registry, artifacts.Activities); err != nil {
+	if err := registerActivities(registry, artifacts.Workflow.Activities); err != nil {
 		t.Fatalf("注册 activity 失败: %v", err)
 	}
 

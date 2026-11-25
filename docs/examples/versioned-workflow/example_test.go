@@ -337,18 +337,16 @@ func TestGeneratedArtifactsAreStable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Generate（第二次）: %v", err)
 			}
-			for _, file := range []string{"workflow.json", "activities.json"} {
-				if string(artifactBytes(t, first, file)) != string(artifactBytes(t, second, file)) {
-					t.Fatalf("两次生成的 %s 不同", file)
-				}
-				committed, err := os.ReadFile(filepath.Join(dir, file))
-				if err != nil {
-					t.Fatalf("读取已提交产物 %s: %v", file, err)
-				}
-				generated := artifactBytes(t, first, file)
-				if string(committed) != string(generated) {
-					t.Fatalf("%s/%s 与重新生成的结果不一致，需要重新运行 tenuto-workflow-gen", dir, file)
-				}
+			generated := workflowBytes(t, first)
+			if string(generated) != string(workflowBytes(t, second)) {
+				t.Fatal("两次生成的 workflow.json 不同")
+			}
+			committed, err := os.ReadFile(filepath.Join(dir, artifact.WorkflowFile))
+			if err != nil {
+				t.Fatalf("读取已提交产物 workflow.json: %v", err)
+			}
+			if string(committed) != string(generated) {
+				t.Fatalf("%s/workflow.json 与重新生成的结果不一致，需要重新运行 tenuto-workflow-gen", dir)
 			}
 			for _, bridge := range first.Bridges {
 				committed, err := os.ReadFile(bridge.Path)
@@ -363,21 +361,12 @@ func TestGeneratedArtifactsAreStable(t *testing.T) {
 	}
 }
 
-// artifactBytes 把生成结果序列化成与 CLI 写盘相同的字节。
-func artifactBytes(t *testing.T, result sdkgen.PackageResult, name string) []byte {
+// workflowBytes 把生成结果序列化成与 CLI 写盘相同的 workflow.json 字节。
+func workflowBytes(t *testing.T, result sdkgen.PackageResult) []byte {
 	t.Helper()
-	var value any
-	switch name {
-	case "workflow.json":
-		value = result.Workflow
-	case "activities.json":
-		value = artifact.Manifest(result.Activities)
-	default:
-		t.Fatalf("未知产物 %s", name)
-	}
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := json.MarshalIndent(result.Workflow, "", "  ")
 	if err != nil {
-		t.Fatalf("序列化 %s: %v", name, err)
+		t.Fatalf("序列化 workflow.json: %v", err)
 	}
 	return append(data, '\n')
 }
@@ -404,10 +393,8 @@ func TestRemoteContractFreshGeneration(t *testing.T) {
 			if err != nil {
 				t.Fatalf("二次生成失败: %v", err)
 			}
-			for _, name := range []string{"workflow.json", "activities.json"} {
-				if string(artifactBytes(t, first, name)) != string(artifactBytes(t, second, name)) {
-					t.Fatalf("二次生成的 %s 不稳定", name)
-				}
+			if string(workflowBytes(t, first)) != string(workflowBytes(t, second)) {
+				t.Fatal("二次生成的 workflow.json 不稳定")
 			}
 			// 删掉生成文件后重建：版本必须一致。
 			bridgePaths := make([]string, 0, len(plan.Bridges))
@@ -426,7 +413,7 @@ func TestRemoteContractFreshGeneration(t *testing.T) {
 			if err != nil {
 				t.Fatalf("删除生成文件后重建失败: %v", err)
 			}
-			if string(artifactBytes(t, rebuilt, "workflow.json")) != string(artifactBytes(t, first, "workflow.json")) {
+			if string(workflowBytes(t, rebuilt)) != string(workflowBytes(t, first)) {
 				t.Fatal("重建后 workflow.json 漂移")
 			}
 			_ = bridgePaths
@@ -546,7 +533,7 @@ func mustArtifactJSON(t *testing.T, value any) []byte {
 }
 
 // TestRegisterActivitiesMatchesManifest 锁住生成 helper 的验收点：
-// activities.RegisterActivities 注册全部本地实现，上报的契约与 activities.json 逐字段一致
+// activities.RegisterActivities 注册全部本地实现，上报的契约与 workflow.json 的 activities 逐字段一致
 // （同一 wire 指纹算法），handler 可直接调用，remote 契约不被它注册。
 func TestRegisterActivitiesMatchesManifest(t *testing.T) {
 	registry := wfsdk.NewRegistry()
@@ -555,11 +542,11 @@ func TestRegisterActivitiesMatchesManifest(t *testing.T) {
 	}
 	manifest, err := artifact.LoadDir("v2")
 	if err != nil {
-		t.Fatalf("加载 activities.json: %v", err)
+		t.Fatalf("加载 workflow.json: %v", err)
 	}
-	declared := map[string]artifact.Activity{}
-	for _, activity := range manifest.Activities {
-		declared[activity.Type] = activity
+	declared := map[string]program.ActivityRef{}
+	for _, ref := range manifest.Workflow.Activities {
+		declared[ref.Type] = ref
 	}
 	reported := registry.Contracts()
 	if len(reported) != 4 {
@@ -568,10 +555,10 @@ func TestRegisterActivitiesMatchesManifest(t *testing.T) {
 	for _, contract := range reported {
 		want, ok := declared[contract.Type]
 		if !ok {
-			t.Fatalf("上报的 %s 不在 activities.json 里（%v）", contract.Type, declared)
+			t.Fatalf("上报的 %s 不在 workflow.json 的 activities 里（%v）", contract.Type, declared)
 		}
 		if contract.Version != want.Version || contract.Input != want.Input || contract.Output != want.Output {
-			t.Fatalf("%s 契约与 activities.json 不一致：上报 %+v，声明 %+v", contract.Type, contract, want)
+			t.Fatalf("%s 契约与 workflow.json 不一致：上报 %+v，声明 %+v", contract.Type, contract, want)
 		}
 	}
 	// 注册的是同一份实现：handler 能直接调用。

@@ -1,7 +1,7 @@
 # 从普通 Go 到可审阅 JSON
 
 日常修改入口为 `v2/workflow.go` 的 `Lifecycle` 函数；注解、typed 桥与当前 CLI 见
-[GENERATION.md](GENERATION.md)。`v1/workflow.go` 保留变更前的 fixture，用于比较生成结果与验证历史兼容性。四个 Activity 实现在 `activities/activities.go`，使用普通 Go 的 `context.Context` 与 struct 入参/返回值；worker 从 `activities.json` 上报 wire 指纹契约。
+[GENERATION.md](GENERATION.md)。`v1/workflow.go` 保留变更前的 fixture，用于比较生成结果与验证历史兼容性。四个 Activity 实现在 `activities/activities.go`，使用普通 Go 的 `context.Context` 与 struct 入参/返回值；worker 按 `workflow.json` 的 `activities` 核对并上报 wire 指纹契约。
 
 ## 生成与保存同步
 

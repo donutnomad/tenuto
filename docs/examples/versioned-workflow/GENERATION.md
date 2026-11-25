@@ -36,15 +36,14 @@ activity 使用所属 `@Workflow` 的 `queue`。
 
 | 文件 | 内容 |
 | --- | --- |
-| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → 类型 / 队列 / 契约指纹）、`policy` / `version` |
-| `activities.json` | activity 清单：`type` / `version` / `input` / `output`（wire 指纹）/ `queue` / `symbol` |
+| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → `type` / `task_queue` / `version` / `input` / `output` wire 指纹）、`policy` / `version` |
 | `zz_<pkg>_contract_gen.go` | 每个契约包的 typed 桥与稳定 marker，本包有本地实现时额外给出 `RegisterActivities`（Code generated） |
 | `zz_<pkg>_artifacts_gen.go` | 把同目录 `workflow.json` embed 进二进制，并导出 `WorkflowDefinition()`（Code generated） |
 
 `input` / `output` 是 wire 指纹（`wire:<hash>`）：`config.WLangWireFingerprint` 把 WLang 类型描述符转成
 与 Go 包名/类型名无关的 JSON 结构指纹，worker 侧用 `activity.ContractOf[I, O]` 计算同一算法，因此
 跨模块各自定义的 DTO 只要 JSON 字段名、类型与可选性一致就判定匹配。本地实现的契约由生成 helper
-启动时用 `ContractOf` 现算；`activities.json` 是同一算法在生成侧的结果，两边不一致由服务端注册时对照
+启动时用 `ContractOf` 现算；`workflow.json` 的 `activities` 是同一算法在生成侧的结果，两边不一致由服务端注册时对照
 （`docs/examples/versioned-workflow/example_test.go` 另有逐字段回归）。
 
 `symbol` 是 marker 在翻译产物里的符号：同包实现形如 `v1.Charge`，跨包形如 `activities.Charge`，
@@ -225,7 +224,7 @@ func Flow(ctx workflow.Context, in ChargeInput) (ChargeOutput, error) {
   `SettleRemoteActivity`（remote-only，无 `RegisterActivities`）；Workflow 内直接 `remote.CallSettle(ctx, in)`。
 - `v1/`、`v2/`：同一 workflow 的两代源码。v1 记录 `GetVersion(3..4)`，v2 提高到 `GetVersion(3..6)`：
   新执行记录 6 走 `lifecycle.charge-v2` + `payments.settle`；v1 历史读回 4 保留旧 `lifecycle.charge`。
-- `worker/`：从 `activities.json` 读契约元数据，注册 workflow worker 与 Activity worker 并上报契约。
+- `worker/`：从 `workflow.json` 的 `activities` 读契约元数据，注册 workflow worker 与 Activity worker 并上报契约。
 - `../startup-workflow/`：作者最短路径示例（struct IO + 注解 + 一行 `Workflows`）。`worker/main_test.go`
   编译二进制、复制到没有源码/JSON 的目录后启动，验证仍能登记并激活定义（内存 engine + httptest）。
 

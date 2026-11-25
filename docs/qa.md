@@ -31,7 +31,7 @@ status: Stable
 同一条注解一次生成两份产物：
 
 - **Worker 上报侧**：`RegisterActivities(registry)` 把实现和契约一起登记进注册表，worker 启动时上报注册表里的全部契约。
-- **Workflow 声明侧**：`activities.json` 随 Program 一起编译，表示这个 Workflow 期望的契约。
+- **Workflow 声明侧**：`workflow.json` 的 `activities` 字段随 Program 一起编译，表示这个 Workflow 期望的契约。
 
 服务端逐维度做相等对照两次：调度 Activity 时对照在线 worker 的上报（`server/biz/service/engine/server_definition.go` 的 `resolveActivityCommand`），worker 开始执行前对照领取者自己的上报（`server/biz/service/engine/server_activity.go` 的 `RefuseIncompatibleActivityClaim`），比较逻辑在 `server/biz/domain/dispatch/activity_contract.go`：
 

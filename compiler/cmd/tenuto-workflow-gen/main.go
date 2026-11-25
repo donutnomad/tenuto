@@ -21,7 +21,7 @@ func main() {
 
 const usage = `usage: tenuto-workflow-gen generate [flags] <pkgdir>...
 
-从 <pkgdir> 里的 @Workflow/@Activity 注解生成 workflow.json / activities.json，
+从 <pkgdir> 里的 @Workflow/@Activity 注解生成 workflow.json，
 并写出契约桥文件 zz_<pkg>_contract_gen.go。
 
 flags:
@@ -139,23 +139,14 @@ func generatePackage(ctx context.Context, dir string, options generateOptions) (
 	return result, nil
 }
 
-// writeArtifacts 写出两份 JSON 产物与打包文件；内容相同时不重写。
+// writeArtifacts 写出 workflow.json 与打包文件；内容相同时不重写。
 func writeArtifacts(result sdkgen.PackageResult, stdout io.Writer) error {
-	files := []struct {
-		name  string
-		value any
-	}{
-		{artifact.WorkflowFile, result.Workflow},
-		{artifact.ActivitiesFile, artifact.Manifest(result.Activities)},
+	data, err := marshalJSON(result.Workflow)
+	if err != nil {
+		return fmt.Errorf("%s: %w", artifact.WorkflowFile, err)
 	}
-	for _, file := range files {
-		data, err := marshalJSON(file.value)
-		if err != nil {
-			return fmt.Errorf("%s: %w", file.name, err)
-		}
-		if err := writeIfChanged(filepath.Join(result.Dir, file.name), data, stdout); err != nil {
-			return err
-		}
+	if err := writeIfChanged(filepath.Join(result.Dir, artifact.WorkflowFile), data, stdout); err != nil {
+		return err
 	}
 	// 打包文件把 workflow.json embed 进二进制；作者构建后启动即携带定义。
 	if err := writeIfChanged(result.Embedded.Path, result.Embedded.Content, stdout); err != nil {

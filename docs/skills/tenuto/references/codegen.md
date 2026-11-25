@@ -118,8 +118,7 @@ make build-example    # 先生成再构建示例二进制
 | --- | --- |
 | `zz_<pkg>_contract_gen.go` | 每个契约包的 `CallX` 桥、签名断言；有本地实现时含 `RegisterActivities(registry *activity.Registry) error` |
 | `zz_<pkg>_artifacts_gen.go` | embed `workflow.json`，导出 `WorkflowDefinition() registration.Definition` |
-| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → 类型、队列、契约指纹）、`policy`、`version` |
-| `activities.json` | Activity 清单：`type`、`version`、输入输出 wire 指纹、`queue`、`symbol` |
+| `workflow.json` | Runtime 接受的 WorkflowConfig：`program`（WLang 程序）、`activities`（符号 → `type`、`task_queue`、`version`、输入输出 wire 指纹）、`policy`、`version` |
 
 只含 `@Activity` 的包目录只生成 `zz_<pkg>_contract_gen.go`。内容相同时不重写文件；同一份源码在不同 checkout 得到相同的内容 hash。全部产物提交进版本库，全部由生成器维护。
 
@@ -161,7 +160,7 @@ paid, err := CallCharge(ctx, in, workflow.ActivityOptions{StartToCloseTimeout: 3
 
 ## 契约与 wire 指纹
 
-`activities.json` 的 `input` / `output` 是 `wire:<hash>`，由 JSON 字段名、字段类型、`omitempty`、嵌套结构计算，与 Go 包名和类型名无关。Worker 侧 `activity.ContractOf[In, Out](type, version)` 用同一算法。两侧 DTO 可以各自定义，wire 结构相同则指纹相同。增加一个字段（即使 `omitempty`）指纹就变。
+`workflow.json` 的 `activities` 里 `input` / `output` 是 `wire:<hash>`，由 JSON 字段名、字段类型、`omitempty`、嵌套结构计算，与 Go 包名和类型名无关。Worker 侧 `activity.ContractOf[In, Out](type, version)` 用同一算法。两侧 DTO 可以各自定义，wire 结构相同则指纹相同。增加一个字段（即使 `omitempty`）指纹就变。
 
 wire 支持的类型：字符串、布尔、定宽整数与 `int`、浮点、指针、slice、定长数组、字符串 key 的 map、struct、空接口，以及由它们组成的具名类型与递归类型。
 

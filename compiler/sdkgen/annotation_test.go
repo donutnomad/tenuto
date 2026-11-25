@@ -143,7 +143,7 @@ func TestGenerateRewritesBridgeCalls(t *testing.T) {
 		output  string
 		symbol  string
 	}{}
-	for _, ref := range result.Activities {
+	for _, ref := range result.Workflow.Activities {
 		byType[ref.Type] = struct {
 			queue   string
 			version string
@@ -169,7 +169,7 @@ func TestGenerateRewritesBridgeCalls(t *testing.T) {
 	for _, expected := range cases {
 		got, ok := byType[expected.activityType]
 		if !ok {
-			t.Fatalf("activities 清单缺少 %s: %+v", expected.activityType, result.Activities)
+			t.Fatalf("activities 缺少 %s: %+v", expected.activityType, result.Workflow.Activities)
 		}
 		if got.queue != expected.queue || got.version != expected.version || got.symbol != expected.symbol {
 			t.Fatalf("%s 的 queue/version/symbol = %s/%s/%s，期望 %s/%s/%s",

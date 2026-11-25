@@ -124,7 +124,7 @@ func TestGenerateRejectsDirectActivityCall(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "CallCharge") {
 		t.Fatalf("generate error = %v, want direct-call diagnostic naming CallCharge", err)
 	}
-	for _, name := range []string{"workflow.json", "activities.json"} {
+	for _, name := range []string{"workflow.json"} {
 		if _, statErr := os.Stat(filepath.Join(dir, name)); statErr == nil {
 			t.Fatalf("%s must not be written when generation fails", name)
 		}
@@ -250,22 +250,24 @@ func TestGenerateIsIdempotent(t *testing.T) {
 	if !strings.Contains(second, "up-to-date ") {
 		t.Fatalf("二次生成应报告 up-to-date:\n%s", second)
 	}
-	for _, name := range []string{"workflow.json", "activities.json"} {
+	for _, name := range []string{"workflow.json"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Fatalf("缺少产物 %s: %v", name, err)
 		}
 	}
-	// WLang 程序只放在 workflow.json 的 program 字段里，不单独写文件。
-	if _, err := os.Stat(filepath.Join(dir, "wlang.json")); !os.IsNotExist(err) {
-		t.Fatalf("不应写出 wlang.json: %v", err)
+	// 程序与 Activity 契约都只放在 workflow.json 里，不单独写文件。
+	for _, name := range []string{"wlang.json", "activities.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("不应写出 %s: %v", name, err)
+		}
 	}
 	loaded, err := artifact.LoadDir(dir)
 	if err != nil {
 		t.Fatalf("产物加载失败: %v", err)
 	}
-	if loaded.Workflow.ID != "orders-demo" || len(loaded.Workflow.Program.Program) == 0 || len(loaded.Activities) != 6 {
+	if loaded.Workflow.ID != "orders-demo" || len(loaded.Workflow.Program.Program) == 0 || len(loaded.Workflow.Activities) != 6 {
 		t.Fatalf("产物内容异常: id=%s program=%d activities=%d",
-			loaded.Workflow.ID, len(loaded.Workflow.Program.Program), len(loaded.Activities))
+			loaded.Workflow.ID, len(loaded.Workflow.Program.Program), len(loaded.Workflow.Activities))
 	}
 }
 
