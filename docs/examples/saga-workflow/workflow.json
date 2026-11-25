@@ -1,5 +1,5 @@
 {
-  "id": "saga-order",
+  "type": "saga-order",
   "name": "Saga Order",
   "policy": "auto_upgrade",
   "version": "v1",

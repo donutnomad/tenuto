@@ -25,7 +25,7 @@ func CounterWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 
-	result, err := GenerateFromSource(src, Options{WorkflowID: "counter-flow", FuncName: "CounterWorkflow", Filename: "counter.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "counter-flow", FuncName: "CounterWorkflow", Filename: "counter.go"})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -69,7 +69,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-			_, err := GenerateFromSource(src, Options{WorkflowID: "q", FuncName: "W", Filename: "q.go"})
+			_, err := GenerateFromSource(src, Options{WorkflowType: "q", FuncName: "W", Filename: "q.go"})
 			if err == nil {
 				t.Fatal("generation accepted a mis-shaped query handler")
 			}
@@ -106,7 +106,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 
 var _ context.Context
 `)
-			_, err := GenerateFromSource(src, Options{WorkflowID: "q", FuncName: "W", Filename: "q.go"})
+			_, err := GenerateFromSource(src, Options{WorkflowType: "q", FuncName: "W", Filename: "q.go"})
 			if err == nil || !strings.Contains(err.Error(), "workflow.Context") {
 				t.Fatalf("err = %v, want a workflow.Context shape error", err)
 			}

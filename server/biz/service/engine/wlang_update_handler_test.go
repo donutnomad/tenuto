@@ -54,7 +54,7 @@ func counterHandlerProgram(name string) *program.WorkflowConfig {
 		},
 	}
 	return &program.WorkflowConfig{
-		ID: "counter-wf",
+		Type: "counter-wf",
 		Program: program.NewWLangProgram([]any{
 			map[string]any{"let": map[string]any{"counter": map[string]any{"literal": map[string]any{"type": "int64", "value": "0"}}}},
 			map[string]any{"expr": map[string]any{"SetUpdateHandler": []any{
@@ -211,7 +211,7 @@ func TestSetUpdateHandler_HandlerReturnsError_CompletesWithFailure(t *testing.T)
 		},
 	}
 	nodes := &program.WorkflowConfig{
-		ID: "fail-wf",
+		Type: "fail-wf",
 		Program: program.NewWLangProgram([]any{
 			map[string]any{"expr": map[string]any{"SetUpdateHandler": []any{
 				map[string]any{"pkg": "workflow"},

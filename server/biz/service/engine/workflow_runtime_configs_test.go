@@ -30,7 +30,7 @@ func TestListWorkflowConfigs_SingleWorkflow(t *testing.T) {
 	server := newTestServer()
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "order-flow",
+		Type:    "order-flow",
 		Name:    "Order Flow",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
@@ -76,9 +76,9 @@ func TestListWorkflowConfigs_MultipleWorkflows(t *testing.T) {
 	server := newTestServer()
 
 	workflows := []program.WorkflowConfig{
-		{ID: "beta-flow", Name: "Beta", Program: programtest.Noop()},
-		{ID: "alpha-flow", Name: "Alpha", Program: programtest.Noop()},
-		{ID: "gamma-flow", Name: "Gamma", Program: programtest.Noop()},
+		{Type: "beta-flow", Name: "Beta", Program: programtest.Noop()},
+		{Type: "alpha-flow", Name: "Alpha", Program: programtest.Noop()},
+		{Type: "gamma-flow", Name: "Gamma", Program: programtest.Noop()},
 	}
 	for i := range workflows {
 		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &workflows[i]); err != nil {
@@ -108,10 +108,10 @@ func TestListWorkflowConfigs_NamespaceIsolation(t *testing.T) {
 	// Edge Case: 不同 namespace 的 workflow 互相隔离
 	server := newTestServer()
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-a", &program.WorkflowConfig{ID: "wf-a", Name: "A", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-a", &program.WorkflowConfig{Type: "wf-a", Name: "A", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-b", &program.WorkflowConfig{ID: "wf-b", Name: "B", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-b", &program.WorkflowConfig{Type: "wf-b", Name: "B", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -143,7 +143,7 @@ func TestListWorkflowConfigs_MultipleVersions(t *testing.T) {
 	server := newTestServer()
 
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "versioned-flow",
+		Type:    "versioned-flow",
 		Name:    "V1",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
@@ -153,7 +153,7 @@ func TestListWorkflowConfigs_MultipleVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "versioned-flow",
+		Type:    "versioned-flow",
 		Name:    "V2",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{

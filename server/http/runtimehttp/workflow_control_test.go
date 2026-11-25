@@ -22,7 +22,7 @@ func TestWorkflowControlHTTPRoundTrip(t *testing.T) {
 	defer httpServer.Close()
 	ctx := context.Background()
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "control-http", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "control-http", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := startedRunID(server.StartWorkflow(ctx, "default", "control-http", "control-http", "", nil)); err != nil {

@@ -95,7 +95,7 @@ func TestResetWorkflow_ConcurrentSignal_FollowsNewCurrent(t *testing.T) {
 	ctx := context.Background()
 	svc, server, mgr := newResetLeaseRuntime(t)
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-reset-conc", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-reset-conc", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 

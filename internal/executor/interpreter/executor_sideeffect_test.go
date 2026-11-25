@@ -33,9 +33,9 @@ import (
 func compileWLangSource(t *testing.T, src []byte, workflowID, funcName, filename string) *program.WorkflowConfig {
 	t.Helper()
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: workflowID,
-		FuncName:   funcName,
-		Filename:   filename,
+		WorkflowType: workflowID,
+		FuncName:     funcName,
+		Filename:     filename,
 	})
 	if err != nil {
 		t.Fatal(err)

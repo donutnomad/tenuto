@@ -34,7 +34,7 @@ func W(ctx wf.Context, input map[string]any) (map[string]any, error) {
 	return map[string]any{"length": info.GetCurrentHistoryLength(), "id": out["id"]}, nil
 }
 `
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "alias-run", FuncName: "W", Filename: "alias.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "alias-run", FuncName: "W", Filename: "alias.go"})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -94,7 +94,7 @@ func W(ctx wf.Context, input map[string]any) error {
 	return wf.Sleep(ctx, 0)
 }
 `
-	_, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "alias-conflict", FuncName: "W", Filename: "alias.go"})
+	_, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "alias-conflict", FuncName: "W", Filename: "alias.go"})
 	if err == nil || !strings.Contains(err.Error(), "alias.go:6:") || !strings.Contains(err.Error(), "标识符 workflow") {
 		t.Fatalf("err = %v, want a diagnostic at alias.go:6", err)
 	}

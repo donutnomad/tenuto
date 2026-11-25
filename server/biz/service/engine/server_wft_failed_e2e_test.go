@@ -36,7 +36,7 @@ func E2EGuardFlow(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowID: "wf-e2e-guard", FuncName: "E2EGuardFlow", Filename: "e2e_guard_flow.go"})
+	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: "wf-e2e-guard", FuncName: "E2EGuardFlow", Filename: "e2e_guard_flow.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

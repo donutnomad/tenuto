@@ -23,7 +23,7 @@ func typedEntryWorkflow(id string) *program.WorkflowConfig {
 	d.Fingerprint = wlangtypes.DescriptorFingerprint(d)
 
 	return &program.WorkflowConfig{
-		ID: id,
+		Type: id,
 		Program: program.WLangProgram{
 			Schema:           program.WLangProgramSchemaV2,
 			Lang:             program.WLangLanguageV1,
@@ -75,7 +75,7 @@ func TestCheckEntryInputAcceptsMatchingInput(t *testing.T) {
 // （标量入参、无入参）不受影响，任意载荷都放行。
 func TestCheckEntryInputSkipsUntypedWorkflow(t *testing.T) {
 	untyped := &program.WorkflowConfig{
-		ID: "child-untyped",
+		Type: "child-untyped",
 		Program: program.WLangProgram{
 			Program: []any{map[string]any{"return": map[string]any{"literal": map[string]any{"type": "null"}}}},
 		},

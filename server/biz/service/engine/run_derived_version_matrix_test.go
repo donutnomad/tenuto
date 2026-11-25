@@ -27,10 +27,10 @@ import (
 func registerGeneratedWorkflowTuned(t *testing.T, server *engine.Server, workflowID, source, policy, name string, tune func(*program.WorkflowConfig)) definition.WorkflowConfigRef {
 	t.Helper()
 	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{
-		WorkflowID: workflowID,
-		Name:       name,
-		FuncName:   "Flow",
-		Filename:   "flow.go",
+		WorkflowType: workflowID,
+		Name:         name,
+		FuncName:     "Flow",
+		Filename:     "flow.go",
 	})
 	if err != nil {
 		t.Fatal(err)

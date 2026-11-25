@@ -24,7 +24,7 @@ func OrderWorkflow(ctx workflow.Context, input map[string]any) error {
 	var reserve map[string]any
 	return workflow.ExecuteActivity(ctx, activities.ReserveInventory, map[string]any{"order_id": input["order_id"]}).Get(ctx, &reserve)
 }
-`), sdkgen.Options{WorkflowID: "order-flow", FuncName: "OrderWorkflow", Filename: "order_workflow.go"})
+`), sdkgen.Options{WorkflowType: "order-flow", FuncName: "OrderWorkflow", Filename: "order_workflow.go"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestWLangRuntimeUsesExecutionContext(t *testing.T) {
 	cancel()
 
 	nodes := &programpkg.WorkflowConfig{
-		ID: "program",
+		Type: "program",
 		Program: programpkg.NewWLangProgram([]any{
 			map[string]any{"let": map[string]any{"ok": map[string]any{"literal": map[string]any{"type": "boolean", "value": true}}}},
 		}),
@@ -92,9 +92,9 @@ import (
 	}
 	`)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-order",
-		FuncName:   "OrderWorkflow",
-		Filename:   "order_workflow.go",
+		WorkflowType: "sdk-order",
+		FuncName:     "OrderWorkflow",
+		Filename:     "order_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,9 +135,9 @@ func RoutedWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-routed-order",
-		FuncName:   "RoutedWorkflow",
-		Filename:   "routed_order_workflow.go",
+		WorkflowType: "sdk-routed-order",
+		FuncName:     "RoutedWorkflow",
+		Filename:     "routed_order_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -173,9 +173,9 @@ func PaymentWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-payment",
-		FuncName:   "PaymentWorkflow",
-		Filename:   "payment_workflow.go",
+		WorkflowType: "sdk-payment",
+		FuncName:     "PaymentWorkflow",
+		Filename:     "payment_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -221,9 +221,9 @@ func TwoPaymentsWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-two-payments",
-		FuncName:   "TwoPaymentsWorkflow",
-		Filename:   "two_payments_workflow.go",
+		WorkflowType: "sdk-two-payments",
+		FuncName:     "TwoPaymentsWorkflow",
+		Filename:     "two_payments_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -269,9 +269,9 @@ import workflow "github.com/donutnomad/tenuto/sdk/workflow"
 	}
 	`)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-risk",
-		FuncName:   "RiskWorkflow",
-		Filename:   "risk_workflow.go",
+		WorkflowType: "sdk-risk",
+		FuncName:     "RiskWorkflow",
+		Filename:     "risk_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -335,9 +335,9 @@ func TimerWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-timer",
-		FuncName:   "TimerWorkflow",
-		Filename:   "timer_workflow.go",
+		WorkflowType: "sdk-timer",
+		FuncName:     "TimerWorkflow",
+		Filename:     "timer_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -389,9 +389,9 @@ func VersionedWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-versioned",
-		FuncName:   "VersionedWorkflow",
-		Filename:   "versioned_workflow.go",
+		WorkflowType: "sdk-versioned",
+		FuncName:     "VersionedWorkflow",
+		Filename:     "versioned_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -454,9 +454,9 @@ func DeterministicWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-deterministic",
-		FuncName:   "DeterministicWorkflow",
-		Filename:   "deterministic_workflow.go",
+		WorkflowType: "sdk-deterministic",
+		FuncName:     "DeterministicWorkflow",
+		Filename:     "deterministic_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -558,9 +558,9 @@ func ParentWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-parent",
-		FuncName:   "ParentWorkflow",
-		Filename:   "parent_workflow.go",
+		WorkflowType: "sdk-parent",
+		FuncName:     "ParentWorkflow",
+		Filename:     "parent_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -618,9 +618,9 @@ func ParentWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-parent-policy",
-		FuncName:   "ParentWorkflow",
-		Filename:   "parent_policy_workflow.go",
+		WorkflowType: "sdk-parent-policy",
+		FuncName:     "ParentWorkflow",
+		Filename:     "parent_policy_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -652,9 +652,9 @@ func RollingWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "sdk-rolling",
-		FuncName:   "RollingWorkflow",
-		Filename:   "rolling_workflow.go",
+		WorkflowType: "sdk-rolling",
+		FuncName:     "RollingWorkflow",
+		Filename:     "rolling_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)

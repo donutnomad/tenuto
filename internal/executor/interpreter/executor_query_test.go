@@ -29,7 +29,7 @@ type queryReplayResult struct {
 // ReplayForQuery/queryReplay 语义（TC-Q2/Q3/Q4/Q7）。
 func queryViaReplay(t *testing.T, src string, events []history.Event, name string, input map[string]any) queryReplayResult {
 	t.Helper()
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "probe-query", FuncName: "W", Filename: "w.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "probe-query", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}
@@ -88,7 +88,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 	return workflow.WaitSignal(ctx, "stop").Get(ctx, &stop)
 }
 `
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "probe-query", FuncName: "W", Filename: "w.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "probe-query", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}
@@ -446,7 +446,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 			},
 		}
 		nodes := &program.WorkflowConfig{
-			ID: "handler-uuid",
+			Type: "handler-uuid",
 			Program: program.NewWLangProgram([]any{
 				map[string]any{"expr": map[string]any{"SetUpdateHandler": []any{
 					map[string]any{"pkg": "workflow"},

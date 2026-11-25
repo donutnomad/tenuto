@@ -39,7 +39,7 @@ func ValidateWorkflowConfig(workflow *program.WorkflowConfig) error {
 	if workflow == nil {
 		return fmt.Errorf("workflow config is nil")
 	}
-	if workflow.ID == "" {
+	if workflow.Type == "" {
 		return protocol.InvalidRequestf("workflow id is empty")
 	}
 	if err := workflow.Program.ValidateArtifact(); err != nil {

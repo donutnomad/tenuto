@@ -69,7 +69,7 @@ func TestAutoUpgradeTargetConflictPauses(t *testing.T) {
 		t.Fatal(err)
 	}
 	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{
-		ID: "target-conflict", Name: "A",
+		Type: "target-conflict", Name: "A",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge": {Symbol: "charge", Type: "payments.charge", TaskQueue: "payments"},
@@ -89,7 +89,7 @@ func TestAutoUpgradeTargetConflictPauses(t *testing.T) {
 	}
 	// 新内容引入库存 Activity，固定 target 只承接支付，不能自动换 worker。
 	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{
-		ID: "target-conflict", Name: "B-with-inventory",
+		Type: "target-conflict", Name: "B-with-inventory",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge":  {Symbol: "charge", Type: "payments.charge", TaskQueue: "payments"},
@@ -121,7 +121,7 @@ func TestAutoUpgradeTargetConflictPauses(t *testing.T) {
 	}
 
 	refC, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{
-		ID: "target-conflict", Name: "C-compatible",
+		Type: "target-conflict", Name: "C-compatible",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge": {Symbol: "charge", Type: "payments.charge", TaskQueue: "payments"},
@@ -175,7 +175,7 @@ func TestPollDropsWorkflowTaskWhenSelectionPauses(t *testing.T) {
 		t.Fatal(err)
 	}
 	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{
-		ID: "poll-conflict", Name: "A",
+		Type: "poll-conflict", Name: "A",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge": {Symbol: "charge", Type: "payments.charge", TaskQueue: "payments"},
@@ -194,7 +194,7 @@ func TestPollDropsWorkflowTaskWhenSelectionPauses(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{
-		ID: "poll-conflict", Name: "B-inventory",
+		Type: "poll-conflict", Name: "B-inventory",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge":  {Symbol: "charge", Type: "payments.charge", TaskQueue: "payments"},
@@ -252,7 +252,7 @@ var errConfigErrorRecoverProbe = errors.New("config error recovery probe")
 // 复用同一 open WFT 时会被 Dispatched 去重门控挡住，恢复变成静默 no-op。
 func TestConfigErrorAckReleasesDispatchForSetPolicyRecovery(t *testing.T) {
 	server := newTestServer()
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "config-error-recover-flow", Name: "A", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "config-error-recover-flow", Name: "A", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(testContext(), "", "config-error-recover-flow", "config-error-recover-flow", "", nil))

@@ -27,7 +27,7 @@ func TestResetReplaysSelectedTaskPreservingPriorActivity(t *testing.T) {
 			if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{Identity: "B", BuildID: "v1", TaskQueues: []string{"q"}, ActivityTypes: []string{"probe"}}); err != nil {
 				t.Fatal(err)
 			}
-			_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "reset-" + boundary, TargetWorkerIdentity: "B"},
+			_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "reset-" + boundary, TargetWorkerIdentity: "B"},
 				sdkgentest.Step{Type: "probe", Options: `StartToCloseTimeout: time.Minute`},
 				sdkgentest.Step{Type: "probe", Options: `StartToCloseTimeout: time.Minute`},
 			))
@@ -144,7 +144,7 @@ func TestResetPendingWorkPreservesCurrentRun(t *testing.T) {
 			mgr := memory.NewExecutionManager()
 			server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: memory.NewTaskQueue(16), ActivityRouter: memory.NewActivityQueueRouter(16)})
 			defer server.Stop()
-			if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "pending-" + kind, Program: programtest.Noop()}); err != nil {
+			if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "pending-" + kind, Program: programtest.Noop()}); err != nil {
 				t.Fatal(err)
 			}
 			base, err := startedRunID(server.StartWorkflow(ctx, "", "pending-"+kind, "pending-"+kind, "", nil))

@@ -304,10 +304,10 @@ func LinearFlow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	linearResult, err := sdkgen.GenerateFromSource(linearSrc, sdkgen.Options{
-		WorkflowID: "demo-cross-app-flow",
-		Name:       "Linear Flow",
-		FuncName:   "LinearFlow",
-		Filename:   "linear_flow.go",
+		WorkflowType: "demo-cross-app-flow",
+		Name:         "Linear Flow",
+		FuncName:     "LinearFlow",
+		Filename:     "linear_flow.go",
 	})
 	if err != nil {
 		log.Fatalf("generate linear wlang workflow: %v", err)
@@ -369,10 +369,10 @@ func AutoSweep(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	autoSweepResult, err := sdkgen.GenerateFromSource(autoSweepSrc, sdkgen.Options{
-		WorkflowID: "demo-auto-sweep",
-		Name:       "Auto Sweep (IF + FOREACH)",
-		FuncName:   "AutoSweep",
-		Filename:   "auto_sweep.go",
+		WorkflowType: "demo-auto-sweep",
+		Name:         "Auto Sweep (IF + FOREACH)",
+		FuncName:     "AutoSweep",
+		Filename:     "auto_sweep.go",
 	})
 	if err != nil {
 		log.Fatalf("generate auto-sweep wlang workflow: %v", err)
@@ -402,10 +402,10 @@ func BulkActivityLoop(ctx workflow.Context, input map[string]any) error {
 }
 `, strings.Join(bulkWallets, ",")))
 	bulkActivityResult, err := sdkgen.GenerateFromSource(bulkActivitySrc, sdkgen.Options{
-		WorkflowID: "demo-activity-bulk-loop",
-		Name:       "Bulk Activity Loop (240 calls)",
-		FuncName:   "BulkActivityLoop",
-		Filename:   "bulk_activity_loop.go",
+		WorkflowType: "demo-activity-bulk-loop",
+		Name:         "Bulk Activity Loop (240 calls)",
+		FuncName:     "BulkActivityLoop",
+		Filename:     "bulk_activity_loop.go",
 	})
 	if err != nil {
 		log.Fatalf("generate bulk activity workflow: %v", err)
@@ -446,10 +446,10 @@ func OrderWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	wlangResult, err := sdkgen.GenerateFromSource(wlangSrc, sdkgen.Options{
-		WorkflowID: "demo-wlang-order",
-		Name:       "Order Processing (wlang)",
-		FuncName:   "OrderWorkflow",
-		Filename:   "order_workflow.go",
+		WorkflowType: "demo-wlang-order",
+		Name:         "Order Processing (wlang)",
+		FuncName:     "OrderWorkflow",
+		Filename:     "order_workflow.go",
 	})
 	if err != nil {
 		log.Fatalf("generate wlang workflow: %v", err)
@@ -459,10 +459,10 @@ func OrderWorkflow(ctx workflow.Context, input map[string]any) error {
 	// wf3High 复用同一份 wlang 源码，但注册成独立 workflowID：同一 workflowID 不允许
 	// 两个并存的 current run，Run 3（normal）与 Run 5（high-priority）必须分属不同 ID。
 	wlangHighResult, err := sdkgen.GenerateFromSource(wlangSrc, sdkgen.Options{
-		WorkflowID: "demo-wlang-order-high",
-		Name:       "Order Processing High Priority (wlang)",
-		FuncName:   "OrderWorkflow",
-		Filename:   "order_workflow_high.go",
+		WorkflowType: "demo-wlang-order-high",
+		Name:         "Order Processing High Priority (wlang)",
+		FuncName:     "OrderWorkflow",
+		Filename:     "order_workflow_high.go",
 	})
 	if err != nil {
 		log.Fatalf("generate high-priority wlang workflow: %v", err)
@@ -498,10 +498,10 @@ func ChildPayment(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	childPaymentResult, err := sdkgen.GenerateFromSource(childPaymentSrc, sdkgen.Options{
-		WorkflowID: "demo-child-payment",
-		Name:       "Child: Payment Processing",
-		FuncName:   "ChildPayment",
-		Filename:   "child_payment.go",
+		WorkflowType: "demo-child-payment",
+		Name:         "Child: Payment Processing",
+		FuncName:     "ChildPayment",
+		Filename:     "child_payment.go",
 	})
 	if err != nil {
 		log.Fatalf("generate child-payment wlang workflow: %v", err)
@@ -543,10 +543,10 @@ func OrderWithPayment(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	parentResult, err := sdkgen.GenerateFromSource(parentSrc, sdkgen.Options{
-		WorkflowID: "demo-parent-with-child",
-		Name:       "Order + Child Payment (wlang)",
-		FuncName:   "OrderWithPayment",
-		Filename:   "order_with_payment.go",
+		WorkflowType: "demo-parent-with-child",
+		Name:         "Order + Child Payment (wlang)",
+		FuncName:     "OrderWithPayment",
+		Filename:     "order_with_payment.go",
 	})
 	if err != nil {
 		log.Fatalf("generate parent wlang workflow: %v", err)
@@ -584,10 +584,10 @@ func LongRunning(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	longRunningResult, err := sdkgen.GenerateFromSource(longRunningSrc, sdkgen.Options{
-		WorkflowID: "demo-long-running",
-		Name:       "Long Running (5min activity)",
-		FuncName:   "LongRunning",
-		Filename:   "long_running.go",
+		WorkflowType: "demo-long-running",
+		Name:         "Long Running (5min activity)",
+		FuncName:     "LongRunning",
+		Filename:     "long_running.go",
 	})
 	if err != nil {
 		log.Fatalf("generate long-running wlang workflow: %v", err)
@@ -627,10 +627,10 @@ func FlakySettlement(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	flakyResult, err := sdkgen.GenerateFromSource(flakySrc, sdkgen.Options{
-		WorkflowID: "demo-flaky-retry",
-		Name:       "Flaky Settlement (retry demo)",
-		FuncName:   "FlakySettlement",
-		Filename:   "flaky_settlement.go",
+		WorkflowType: "demo-flaky-retry",
+		Name:         "Flaky Settlement (retry demo)",
+		FuncName:     "FlakySettlement",
+		Filename:     "flaky_settlement.go",
 	})
 	if err != nil {
 		log.Fatalf("generate flaky wlang workflow: %v", err)
@@ -665,10 +665,10 @@ func LongRunningChild(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	longChildResult, err := sdkgen.GenerateFromSource(longChildSrc, sdkgen.Options{
-		WorkflowID: "demo-long-child",
-		Name:       "Child: Long Running Task",
-		FuncName:   "LongRunningChild",
-		Filename:   "long_child.go",
+		WorkflowType: "demo-long-child",
+		Name:         "Child: Long Running Task",
+		FuncName:     "LongRunningChild",
+		Filename:     "long_child.go",
 	})
 	if err != nil {
 		log.Fatalf("generate long-child wlang workflow: %v", err)
@@ -709,10 +709,10 @@ func LongParentWithChild(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	longParentResult, err := sdkgen.GenerateFromSource(longParentSrc, sdkgen.Options{
-		WorkflowID: "demo-long-parent-child",
-		Name:       "Long Parent + Child (wlang)",
-		FuncName:   "LongParentWithChild",
-		Filename:   "long_parent_with_child.go",
+		WorkflowType: "demo-long-parent-child",
+		Name:         "Long Parent + Child (wlang)",
+		FuncName:     "LongParentWithChild",
+		Filename:     "long_parent_with_child.go",
 	})
 	if err != nil {
 		log.Fatalf("generate long parent wlang workflow: %v", err)
@@ -771,10 +771,10 @@ func FanOutBalances(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	fanoutResult, err := sdkgen.GenerateFromSource(fanoutSrc, sdkgen.Options{
-		WorkflowID: "demo-go-fanout",
-		Name:       "workflow.Go Fan-Out (concurrent balances)",
-		FuncName:   "FanOutBalances",
-		Filename:   "fanout_balances.go",
+		WorkflowType: "demo-go-fanout",
+		Name:         "workflow.Go Fan-Out (concurrent balances)",
+		FuncName:     "FanOutBalances",
+		Filename:     "fanout_balances.go",
 	})
 	if err != nil {
 		log.Fatalf("generate fan-out workflow: %v", err)
@@ -830,10 +830,10 @@ func TwoLaneReserveSign(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	multiStepResult, err := sdkgen.GenerateFromSource(multiStepSrc, sdkgen.Options{
-		WorkflowID: "demo-go-multistep-lane",
-		Name:       "workflow.Go Multi-Step Lanes (reserve→sign per lane)",
-		FuncName:   "TwoLaneReserveSign",
-		Filename:   "two_lane_reserve_sign.go",
+		WorkflowType: "demo-go-multistep-lane",
+		Name:         "workflow.Go Multi-Step Lanes (reserve→sign per lane)",
+		FuncName:     "TwoLaneReserveSign",
+		Filename:     "two_lane_reserve_sign.go",
 	})
 	if err != nil {
 		log.Fatalf("generate multi-step lane workflow: %v", err)
@@ -872,10 +872,10 @@ func LoopFanOutBalances(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	loopFanoutResult, err := sdkgen.GenerateFromSource(loopFanoutSrc, sdkgen.Options{
-		WorkflowID: "demo-go-loop-fanout",
-		Name:       "workflow.Go Loop Fan-Out",
-		FuncName:   "LoopFanOutBalances",
-		Filename:   "loop_fanout_balances.go",
+		WorkflowType: "demo-go-loop-fanout",
+		Name:         "workflow.Go Loop Fan-Out",
+		FuncName:     "LoopFanOutBalances",
+		Filename:     "loop_fanout_balances.go",
 	})
 	if err != nil {
 		log.Fatalf("generate loop fan-out workflow: %v", err)
@@ -903,20 +903,20 @@ func TraceSequentialChild(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	traceSequentialResult, err := sdkgen.GenerateFromSource(traceSequentialSrc, sdkgen.Options{
-		WorkflowID: "demo-trace-sequential-child",
-		Name:       "Trace Suite: Sequential Child",
-		FuncName:   "TraceSequentialChild",
-		Filename:   "trace_sequential_child.go",
+		WorkflowType: "demo-trace-sequential-child",
+		Name:         "Trace Suite: Sequential Child",
+		FuncName:     "TraceSequentialChild",
+		Filename:     "trace_sequential_child.go",
 	})
 	if err != nil {
 		log.Fatalf("generate trace sequential child: %v", err)
 	}
 	wfTraceSequentialChild := traceSequentialResult.Workflow
 	tracePaymentResult, err := sdkgen.GenerateFromSource(childPaymentSrc, sdkgen.Options{
-		WorkflowID: "demo-trace-payment-child",
-		Name:       "Trace Suite: Payment Child",
-		FuncName:   "ChildPayment",
-		Filename:   "trace_payment_child.go",
+		WorkflowType: "demo-trace-payment-child",
+		Name:         "Trace Suite: Payment Child",
+		FuncName:     "ChildPayment",
+		Filename:     "trace_payment_child.go",
 	})
 	if err != nil {
 		log.Fatalf("generate trace payment child: %v", err)
@@ -964,10 +964,10 @@ func TraceCAN(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	traceCANResult, err := sdkgen.GenerateFromSource(traceCANSrc, sdkgen.Options{
-		WorkflowID: "demo-trace-can-child",
-		Name:       "Trace Suite: CAN Child",
-		FuncName:   "TraceCAN",
-		Filename:   "trace_can_child.go",
+		WorkflowType: "demo-trace-can-child",
+		Name:         "Trace Suite: CAN Child",
+		FuncName:     "TraceCAN",
+		Filename:     "trace_can_child.go",
 	})
 	if err != nil {
 		log.Fatalf("generate trace CAN child workflow: %v", err)
@@ -980,10 +980,10 @@ func TraceCAN(ctx workflow.Context, input map[string]any) error {
 		"demo-trace-can-root",
 	))
 	traceCANRootResult, err := sdkgen.GenerateFromSource(traceCANRootSrc, sdkgen.Options{
-		WorkflowID: "demo-trace-can-root",
-		Name:       "Trace Suite: Root CAN",
-		FuncName:   "TraceCAN",
-		Filename:   "trace_can_root.go",
+		WorkflowType: "demo-trace-can-root",
+		Name:         "Trace Suite: Root CAN",
+		FuncName:     "TraceCAN",
+		Filename:     "trace_can_root.go",
 	})
 	if err != nil {
 		log.Fatalf("generate trace CAN root workflow: %v", err)
@@ -1025,10 +1025,10 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	traceSuiteParentResult, err := sdkgen.GenerateFromSource(traceSuiteParentSrc, sdkgen.Options{
-		WorkflowID: "demo-trace-child-debug-suite",
-		Name:       "Trace Child Debug Suite",
-		FuncName:   "TraceChildDebugSuite",
-		Filename:   "trace_child_debug_suite.go",
+		WorkflowType: "demo-trace-child-debug-suite",
+		Name:         "Trace Child Debug Suite",
+		FuncName:     "TraceChildDebugSuite",
+		Filename:     "trace_child_debug_suite.go",
 	})
 	if err != nil {
 		log.Fatalf("generate trace child debug suite: %v", err)
@@ -1052,7 +1052,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	} {
 		definition, err := definitionOf(wf)
 		if err != nil {
-			log.Fatalf("encode workflow %s: %v", wf.ID, err)
+			log.Fatalf("encode workflow %s: %v", wf.Type, err)
 		}
 		definitions = append(definitions, definition)
 	}
@@ -1095,7 +1095,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	// ── 3. Start demo workflow runs ──
 
 	// Run 1: simple linear
-	runID1, err := startRun(ctx, c, wf1.ID, map[string]any{"order_id": "order-1001"})
+	runID1, err := startRun(ctx, c, wf1.Type, map[string]any{"order_id": "order-1001"})
 	if err != nil {
 		log.Fatalf("start workflow: %v", err)
 	}
@@ -1103,7 +1103,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("linear workflow run started: %s", runID1)
 
 	// Run 2: complex with branches
-	runID2, err := startRun(ctx, c, wf2.ID, map[string]any{
+	runID2, err := startRun(ctx, c, wf2.Type, map[string]any{
 		"wallet_1":    "0xAAA111",
 		"wallet_2":    "0xBBB222",
 		"token":       "ETH",
@@ -1118,7 +1118,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("auto-sweep workflow run started: %s", runID2)
 	log.Printf("TRACE_LOOP_ACTIVITY_URL=http://localhost:7401/demo/runs/%s/trace", runID2)
 
-	runBulkActivity, err := startRun(ctx, c, wfBulkActivity.ID, map[string]any{})
+	runBulkActivity, err := startRun(ctx, c, wfBulkActivity.Type, map[string]any{})
 	if err != nil {
 		log.Fatalf("start bulk activity workflow: %v", err)
 	}
@@ -1126,7 +1126,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("TRACE_BULK_ACTIVITY_URL=http://localhost:7401/demo/runs/%s/trace", runBulkActivity)
 
 	// Run 3: wlang workflow (debugger demo, priority=normal → if false)
-	runID3, err := startRun(ctx, c, wf3.ID, map[string]any{"order_id": "order-2001"})
+	runID3, err := startRun(ctx, c, wf3.Type, map[string]any{"order_id": "order-2001"})
 	if err != nil {
 		log.Fatalf("start wlang workflow: %v", err)
 	}
@@ -1134,7 +1134,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("wlang workflow run started: %s", runID3)
 
 	// Run 4: parent with child workflow
-	runID4, err := startRun(ctx, c, wf4.ID, map[string]any{
+	runID4, err := startRun(ctx, c, wf4.Type, map[string]any{
 		"order_id": "order-3001",
 		"amount":   250.0,
 		"method":   "credit_card",
@@ -1147,7 +1147,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("parent+child workflow run started: %s", runID4)
 
 	// Run 5: wlang workflow with is_high_priority=true (if true branch) — 用独立 workflowID 避免 current run 冲突
-	runID5, err := startRun(ctx, c, wf3High.ID, map[string]any{
+	runID5, err := startRun(ctx, c, wf3High.Type, map[string]any{
 		"order_id":         "order-2002",
 		"is_high_priority": true,
 	})
@@ -1167,7 +1167,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("long-running workflow run started: %s (will stay running ~5min)", runID6)
 
 	// Run: flaky workflow (settle activity fails twice then succeeds — demonstrates retry attempts)
-	runFlaky, err := startRun(ctx, c, wfFlaky.ID, map[string]any{"order_id": "order-flaky-1"})
+	runFlaky, err := startRun(ctx, c, wfFlaky.Type, map[string]any{"order_id": "order-flaky-1"})
 	if err != nil {
 		log.Fatalf("start flaky workflow: %v", err)
 	}
@@ -1175,7 +1175,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("flaky retry workflow run started: %s", runFlaky)
 
 	// Run 7: parent with long-running child (stays running for cancel/terminate/reset testing)
-	runID7, err := startRun(ctx, c, wfLongParent.ID, map[string]any{"order_id": "order-long-2"})
+	runID7, err := startRun(ctx, c, wfLongParent.Type, map[string]any{"order_id": "order-long-2"})
 	if err != nil {
 		log.Fatalf("start long parent+child workflow: %v", err)
 	}
@@ -1183,7 +1183,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("long parent+child workflow run started: %s (will stay running ~5min)", runID7)
 
 	// Run: workflow.Go fan-out（3 条 lane 并发查余额）
-	runFanout, err := startRun(ctx, c, wfFanout.ID, map[string]any{"order_id": "order-fanout-1"})
+	runFanout, err := startRun(ctx, c, wfFanout.Type, map[string]any{"order_id": "order-fanout-1"})
 	if err != nil {
 		log.Fatalf("start fan-out workflow: %v", err)
 	}
@@ -1191,7 +1191,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("workflow.Go fan-out run started: %s", runFanout)
 
 	// Run: workflow.Go 多步 lane（每条 lane 内 reserve→sign 顺序链，兄弟 lane 并行）
-	runMultiStep, err := startRun(ctx, c, wfMultiStep.ID, map[string]any{"order_id": "order-multistep-1"})
+	runMultiStep, err := startRun(ctx, c, wfMultiStep.Type, map[string]any{"order_id": "order-multistep-1"})
 	if err != nil {
 		log.Fatalf("start multi-step lane workflow: %v", err)
 	}
@@ -1199,7 +1199,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("workflow.Go multi-step lane run started: %s", runMultiStep)
 
 	// Run: for 循环每轮启动一条 workflow.Go lane。
-	runLoopFanout, err := startRun(ctx, c, wfLoopFanout.ID, map[string]any{
+	runLoopFanout, err := startRun(ctx, c, wfLoopFanout.Type, map[string]any{
 		"wallet_1": "0xLOOP1",
 		"wallet_2": "0xLOOP2",
 		"wallet_3": "0xLOOP3",
@@ -1213,7 +1213,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("TRACE_LOOP_GO_URL=http://localhost:7401/demo/runs/%s/trace", runLoopFanout)
 
 	// Run: complete Trace child suite (payment child + sequential child + CAN child).
-	runTraceSuite, err := startRun(ctx, c, wfTraceSuiteParent.ID, map[string]any{"order_id": "order-trace-suite-1"})
+	runTraceSuite, err := startRun(ctx, c, wfTraceSuiteParent.Type, map[string]any{"order_id": "order-trace-suite-1"})
 	if err != nil {
 		log.Fatalf("start trace child debug suite: %v", err)
 	}
@@ -1221,7 +1221,7 @@ func TraceChildDebugSuite(ctx workflow.Context, input map[string]any) error {
 	log.Printf("TRACE_TEST_URL=http://localhost:7401/demo/runs/%s/trace", runTraceSuite)
 
 	// Run: root ContinueAsNew path, useful for testing Segment navigation without a Parent boundary.
-	runTraceCANRoot, err := startRun(ctx, c, wfTraceCANRoot.ID, map[string]any{"order_id": "order-trace-can-root-1"})
+	runTraceCANRoot, err := startRun(ctx, c, wfTraceCANRoot.Type, map[string]any{"order_id": "order-trace-can-root-1"})
 	if err != nil {
 		log.Fatalf("start trace CAN root workflow: %v", err)
 	}

@@ -29,7 +29,7 @@ func TestExecutionTimeoutNotResetOnContinueAsNew(t *testing.T) {
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:          programtest.Noop(),
-		ID:               "wf-exec-timeout-can",
+		Type:             "wf-exec-timeout-can",
 		ExecutionTimeout: "500ms",
 	})
 
@@ -92,7 +92,7 @@ func TestRunTimeoutResetsOnContinueAsNew(t *testing.T) {
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:    programtest.Noop(),
-		ID:         "wf-run-timeout-reset",
+		Type:       "wf-run-timeout-reset",
 		RunTimeout: "1m",
 	})
 
@@ -164,7 +164,7 @@ func TestRunTimeoutTriggersFailure(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:    programtest.Noop(),
-		ID:         "wf-run-timeout-fail",
+		Type:       "wf-run-timeout-fail",
 		RunTimeout: "30s",
 	})
 
@@ -196,7 +196,7 @@ func TestBothTimeoutsRunTimeoutWins(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:          programtest.Noop(),
-		ID:               "wf-both-timeouts",
+		Type:             "wf-both-timeouts",
 		ExecutionTimeout: "10m",
 		RunTimeout:       "1m",
 	})
@@ -223,7 +223,7 @@ func TestExecutionTimeoutTriggersFailure(t *testing.T) {
 	server, clk := newFakeClockServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	defer server.Stop()
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-exec-timeout-fail", ExecutionTimeout: "2m", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-exec-timeout-fail", ExecutionTimeout: "2m", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(ctx, "", "wf-exec-timeout-fail", "wf-exec-timeout-fail", "", nil))
@@ -250,7 +250,7 @@ func TestNoTimeoutConfigured(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-no-timeout",
+		Type:    "wf-no-timeout",
 	})
 
 	if err != nil {
@@ -285,7 +285,7 @@ func TestTimersCleanedUpOnCompletion(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:          programtest.Noop(),
-		ID:               "wf-timer-cleanup",
+		Type:             "wf-timer-cleanup",
 		ExecutionTimeout: "10s",
 		RunTimeout:       "10s",
 	})
@@ -337,7 +337,7 @@ func TestRunTimeoutGreaterThanExecutionTimeoutReject(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:          programtest.Noop(),
-		ID:               "wf-reject-timeout",
+		Type:             "wf-reject-timeout",
 		ExecutionTimeout: "10s",
 		RunTimeout:       "20s",
 	})
@@ -356,7 +356,7 @@ func TestTimeoutTypeInFailedEvent(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-timeout-type",
+		Type:    "wf-timeout-type",
 	})
 
 	if err != nil {

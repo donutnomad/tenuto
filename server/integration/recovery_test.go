@@ -26,7 +26,7 @@ func TestWorkflowTaskReplaysAfterEngineRestartFromPersistedConfig(t *testing.T) 
 	workflowTasks := memory.NewTaskQueue(16)
 	activityTasks := memory.NewActivityQueueRouter(16)
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "restart-replay"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "restart-replay"},
 		sdkgentest.Step{Type: "complete", Options: `StartToCloseTimeout: time.Minute`},
 	)
 
@@ -34,7 +34,7 @@ func TestWorkflowTaskReplaysAfterEngineRestartFromPersistedConfig(t *testing.T) 
 	if _, err := creator.RegisterWorkflow(wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := creator.Run(ctx, wf.ID, nil)
+	runID, err := creator.Run(ctx, wf.Type, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestActivityWorkerRouteRestoresAfterWorkflowAppRestart(t *testing.T) {
 	recoveredServer := assembly.NewServer(assembly.Options{Stores: openStores(), WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
 	defer recoveredServer.Stop()
 
-	ref, err := recoveredServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "route-restore"},
+	ref, err := recoveredServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "route-restore"},
 		sdkgentest.Step{Type: "custodian.Capture", Options: `StartToCloseTimeout: time.Minute`},
 	))
 	if err != nil {
@@ -131,7 +131,7 @@ func TestRetryContinuesAfterEngineRestart(t *testing.T) {
 	})
 
 	first := assembly.NewEngine(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks}, firstRegistry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "restart-retry"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "restart-retry"},
 		sdkgentest.Step{Type: "sometimes_fails", Options: `StartToCloseTimeout: time.Minute, RetryPolicy: workflow.RetryPolicy{MaxAttempts: 2, InitialInterval: 250 * time.Millisecond, BackoffCoefficient: 1}`},
 	)
 
@@ -139,7 +139,7 @@ func TestRetryContinuesAfterEngineRestart(t *testing.T) {
 	if _, err := first.RegisterWorkflow(wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := first.Run(ctx, wf.ID, nil)
+	runID, err := first.Run(ctx, wf.Type, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,13 +177,13 @@ func TestScheduleToStartTimeoutRecoversAfterServerRestart(t *testing.T) {
 	activityTasks := memory.NewActivityQueueRouter(16)
 	server := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
 	registerActivityRoutes(t, server, "never_started")
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "restart-schedule-to-start-timeout"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "restart-schedule-to-start-timeout"},
 		sdkgentest.Step{Type: "never_started", Options: `ScheduleToStartTimeout: 50 * time.Millisecond, StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,13 +218,13 @@ func TestHeartbeatTimeoutRecoversAfterServerRestart(t *testing.T) {
 	activityTasks := memory.NewActivityQueueRouter(16)
 	server := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
 	registerActivityRoutes(t, server, "needs_heartbeat")
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "restart-heartbeat-timeout"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "restart-heartbeat-timeout"},
 		sdkgentest.Step{Type: "needs_heartbeat", Options: `StartToCloseTimeout: time.Minute, HeartbeatTimeout: 50 * time.Millisecond`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,13 +269,13 @@ func TestStartToCloseTimeoutRecoversAfterServerRestart(t *testing.T) {
 	activityTasks := memory.NewActivityQueueRouter(16)
 	server := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
 	registerActivityRoutes(t, server, "slow_activity")
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "restart-start-to-close-timeout"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "restart-start-to-close-timeout"},
 		sdkgentest.Step{Type: "slow_activity", Options: `StartToCloseTimeout: 50 * time.Millisecond`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,13 +315,13 @@ func TestWorkflowExecutionTimeoutRecoversAfterServerRestart(t *testing.T) {
 	workflowTasks := memory.NewTaskQueue(16)
 	activityTasks := memory.NewActivityQueueRouter(16)
 	server := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "restart-workflow-timeout", ExecutionTimeout: "50ms"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "restart-workflow-timeout", ExecutionTimeout: "50ms"},
 		sdkgentest.Step{Type: "pending_activity", Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

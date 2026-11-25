@@ -31,7 +31,7 @@ func TestServerStartRetryRunNoDeadlockUnderSingleConn(t *testing.T) {
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-deadlock",
+		Type:    "wf-retry-deadlock",
 		Name:    "wf-retry-deadlock",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        3,

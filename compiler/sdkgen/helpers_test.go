@@ -98,7 +98,7 @@ func W(ctx workflow.Context, input map[string]any) (map[string]any, error) {
 
 func generateHelperWorkflow(t *testing.T, src string) *program.WorkflowConfig {
 	t.Helper()
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "helper-flow", FuncName: "W", Filename: "w.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "helper-flow", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -290,7 +290,7 @@ import (
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			src := header + tc.decls + "\nfunc W(ctx workflow.Context, input map[string]any) (int, error) {\n\t" + tc.body + "\n}\n"
-			_, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "reject", FuncName: "W", Filename: "w.go"})
+			_, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "reject", FuncName: "W", Filename: "w.go"})
 			if err == nil {
 				t.Fatal("want generation error")
 			}

@@ -48,7 +48,8 @@ type LengthOutput struct {
 | `type` | 是 | Activity Type，Workflow 调度和 Worker 注册共用的稳定名称 |
 | `queue` | 否 | Activity Task Queue；省略时定义不声明队列，由 Server 按 Worker 的登记选择（Worker 在 `ActivityTaskQueues` 上提供它，不写时是 `default`），见[Activity 的队列如何决定](/operations/namespaces-task-queues#activity-的队列如何决定) |
 | `version` | 否 | 契约版本标签；Worker 上报的版本与它逐字对照 |
-| `remote` | 否 | `true` 表示实现位于其他 Worker，只能标在命名函数类型上 |
+
+实现位于其他服务的 Activity 用 `@RemoteActivity` 标在命名函数类型上，key 与 `@Activity` 相同，见下文「远程 Activity 契约」。
 
 `@Workflow` 编排、`@Activity` 实现与 DTO 可以放在同一个包的多个文件里。完整的注解规则见 [注解与代码生成](/develop/code-generation)。
 
@@ -126,7 +127,7 @@ activity.RegisterActivity(registry, "activities.CheckBalance", "", CheckBalance)
 实现位于另一个进程或另一个团队的 Activity，用命名函数类型声明契约：
 
 ```go
-// @Activity(type="payments.settle",queue="payments",version=v1,remote=true)
+// @RemoteActivity(type="payments.settle",queue="payments",version=v1)
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 ```
 
@@ -160,7 +161,7 @@ activityWorker, err := worker.New(c, worker.Options{
 })
 ```
 
-Worker 在 `Start` 时把 registry 里的全部契约随路由一起上报。`remote=true` 的契约没有本地实现，不进入 `RegisterActivities`。
+Worker 在 `Start` 时把 registry 里的全部契约随路由一起上报。`@RemoteActivity` 契约没有本地实现，不进入 `RegisterActivities`。
 
 `ActivityTaskQueues` 为空时，Worker 拉取 registry 里登记的队列：生成的 `RegisterActivities` 带上注解里的 `queue`，手写登记用 `activity.RegisterActivityOnQueue`；有不带队列的 Activity（`activity.RegisterActivity`、`reg.Register`）时再加上 `default`。显式设置 `ActivityTaskQueues` 时必须包含 registry 登记的每个队列，否则 `worker.New` 返回错误；可以额外列出别的队列，例如 Workflow 用 `ActivityOptions.TaskQueue` 改派的队列。
 

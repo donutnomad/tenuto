@@ -64,7 +64,7 @@ func TestEngineRunsThroughRealTaskQ(t *testing.T) {
 		return m{"charged": input["amount"]}, nil
 	})
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-order"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-order"},
 		sdkgentest.Step{Type: "load_order", Options: `StartToCloseTimeout: time.Minute`},
 		sdkgentest.Step{Type: "charge_card", Input: `map[string]any{"amount": out0["amount"]}`, Options: `StartToCloseTimeout: time.Minute`},
 	)
@@ -75,7 +75,7 @@ func TestEngineRunsThroughRealTaskQ(t *testing.T) {
 	if _, err := eng.RegisterWorkflow(wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := eng.Run(ctx, wf.ID, m{"order_id": "o-1"})
+	runID, err := eng.Run(ctx, wf.Type, m{"order_id": "o-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,14 +128,14 @@ func TestSeparateWorkerRegistersActivitiesAndRunsThroughRealTaskQ(t *testing.T) 
 	worker.Start(ctx)
 	defer worker.Stop()
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "separate-taskq-worker"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "separate-taskq-worker"},
 		sdkgentest.Step{Type: "capture", Input: `map[string]any{"value": "from-taskq"}`, Options: `StartToCloseTimeout: time.Minute`},
 	)
 
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestTaskQAppWorkersConsumeRoutedActivityQueues(t *testing.T) {
 		"wallets":   "activity-wallets",
 	})})
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-app-worker-routing"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-app-worker-routing"},
 		sdkgentest.Step{Type: "custodian.Capture", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "custodian"`},
 		sdkgentest.Step{Type: "wallets.Sign", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "wallets"`},
 	)
@@ -212,7 +212,7 @@ func TestTaskQAppWorkersConsumeRoutedActivityQueues(t *testing.T) {
 	defer walletsWorker.Stop()
 	defer server.Stop()
 
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestTaskQAppWorkerReportsActivityResultThroughRuntimeHTTPAPI(t *testing.T) 
 	}
 	defer c.Close()
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-runtime-api-result-reporting"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-runtime-api-result-reporting"},
 		sdkgentest.Step{Type: "custodian.Capture", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "custodian"`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
@@ -280,7 +280,7 @@ func TestTaskQAppWorkerReportsActivityResultThroughRuntimeHTTPAPI(t *testing.T) 
 	defer appWorker.Stop()
 	defer server.Stop()
 
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,9 +331,9 @@ func GeneratedWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{
-		WorkflowID: "generated-taskq-flow",
-		FuncName:   "GeneratedWorkflow",
-		Filename:   "generated_workflow.go",
+		WorkflowType: "generated-taskq-flow",
+		FuncName:     "GeneratedWorkflow",
+		Filename:     "generated_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -357,7 +357,7 @@ func GeneratedWorkflow(ctx workflow.Context, input map[string]any) error {
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", m{"order_id": "o-generated"}))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", m{"order_id": "o-generated"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,14 +394,14 @@ func TestTaskQRetryContinuesAfterServerWorkerRestart(t *testing.T) {
 	firstWorker := assembly.NewWorker(firstServer, firstRegistry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
 	firstWorker.Start(ctx)
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-retry-restart"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-retry-restart"},
 		sdkgentest.Step{Type: "sometimes_fails", Options: `StartToCloseTimeout: time.Minute, RetryPolicy: workflow.RetryPolicy{MaxAttempts: 2, InitialInterval: 250 * time.Millisecond, BackoffCoefficient: 1}`},
 	)
 
 	if _, err := firstServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,13 +448,13 @@ func TestTaskQScheduledActivityKeepsRetryPolicyAfterServerRestart(t *testing.T) 
 	workflowStore := newMySQLWorkflowStore(t)
 
 	firstServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-scheduled-retry-restart"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-scheduled-retry-restart"},
 		sdkgentest.Step{Type: "sometimes_fails", Options: `StartToCloseTimeout: time.Minute, RetryPolicy: workflow.RetryPolicy{MaxAttempts: 2, InitialInterval: 10 * time.Millisecond, BackoffCoefficient: 1}`},
 	)
 	if _, err := firstServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,13 +519,13 @@ func TestTaskQRecoversOpenWorkflowTaskWhoseDispatchFailed(t *testing.T) {
 	activityRouter := h.activityRouter(t, nil)
 	workflowQueue := taskq.NewQueue(workflowFE)
 	firstServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(workflowFE), ActivityRouter: activityRouter})
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-lost-workflow-task"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-lost-workflow-task"},
 		sdkgentest.Step{Type: "capture", Input: `map[string]any{"value": "from-workflow-recovery"}`, Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := firstServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,13 +592,13 @@ func TestTaskQRecoversOpenActivityWhoseDispatchFailed(t *testing.T) {
 	workflowQueue := taskq.NewQueue(workflowFE)
 	firstServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(workflowFE), ActivityRouter: activityRouter})
 	registerActivityRoutes(t, firstServer, "capture")
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-lost-activity"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-lost-activity"},
 		sdkgentest.Step{Type: "capture", Input: `map[string]any{"value": "from-recovery"}`, Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := firstServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -685,7 +685,7 @@ func TestTaskQCompensationContinuesAfterServerWorkerRestart(t *testing.T) {
 	if _, err := firstServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(firstServer.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -770,13 +770,13 @@ func TestTaskQSkipsQueuedActivityAfterWorkflowTerminated(t *testing.T) {
 	workflowQueue := taskq.NewQueue(workflowFE)
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(workflowFE), ActivityRouter: activityRouter})
 	registerActivityRoutes(t, server, "must_skip")
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-terminal-skip"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-terminal-skip"},
 		sdkgentest.Step{Type: "must_skip", Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -832,13 +832,13 @@ func TestTaskQSkipsClosedActivityDuplicateByEventHistory(t *testing.T) {
 	workflowQueue := taskq.NewQueue(workflowFE)
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(workflowFE), ActivityRouter: activityRouter})
 	registerActivityRoutes(t, server, "must_skip")
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-closed-activity-skip"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-closed-activity-skip"},
 		sdkgentest.Step{Type: "must_skip", Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -908,13 +908,13 @@ func TestTaskQSkipsStartedActivityDuplicate(t *testing.T) {
 	registerActivityRoutes(t, server, "must_skip")
 	defer server.Stop()
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-started-activity-skip"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-started-activity-skip"},
 		sdkgentest.Step{Type: "must_skip", Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -997,13 +997,13 @@ func TestTaskQDuplicateWorkflowTaskDoesNotDoubleScheduleActivity(t *testing.T) {
 	defer worker.Stop()
 	defer server.Stop()
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-duplicate-workflow-task"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-duplicate-workflow-task"},
 		sdkgentest.Step{Type: "blocked", Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1046,7 +1046,7 @@ func TestTaskQWorkflowTaskTimeoutRequeuesAndCompletesWithNewWorker(t *testing.T)
 	firstServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(workflowFE), ActivityRouter: activityRouter})
 
 	const activityCount = 5000
-	wf := sdkgentest.Loop(t, &program.WorkflowConfig{ID: "taskq-workflow-task-timeout"}, "already_done", activityCount)
+	wf := sdkgentest.Loop(t, &program.WorkflowConfig{Type: "taskq-workflow-task-timeout"}, "already_done", activityCount)
 	ref, err := firstServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf)
 	if err != nil {
 		t.Fatal(err)

@@ -17,7 +17,7 @@ type Input struct {
 	OrderID string `json:"order_id"`
 }
 
-// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v1)
+// @Workflow(type="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v1)
 func Lifecycle(ctx workflow.Context, in Input) (activities.NotifyOutput, error) {
 	// v1 记录 change marker（3..4）：新执行写入 4，后续版本提高 maxSupported 时旧历史读回 4。
 	version := workflow.GetVersion(ctx, "charge-policy", 3, 4)

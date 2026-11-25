@@ -36,7 +36,7 @@ Tenuto 有三层互相独立的版本机制：
 | `pinned` | Run 固定启动时的内容，只有显式迁移才切换 |
 
 ```go
-// @Workflow(id="order-flow",policy=pinned,version=v3)
+// @Workflow(type="order-flow",policy=pinned,version=v3)
 func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error)
 ```
 
@@ -169,7 +169,7 @@ Activity 内部实现可以常规发布；它的输入输出结构和错误 Type
 
 | 可以改 | 保持不变 |
 | --- | --- |
-| 包名、包路径（移动目录） | `@Workflow(id=...)` |
+| 包名、包路径（移动目录） | `@Workflow(type=...)` |
 | Go 类型名、Go 字段名（`json` tag 不变） | `@Activity(type=...)` |
 | Workflow 函数名、Activity 函数名 | JSON 字段名（`json` tag） |
 | | JSON 字段的类型 |
@@ -181,7 +181,7 @@ Activity 内部实现可以常规发布；它的输入输出结构和错误 Type
 - 重放比较命令种类、ID 与 ActivityType，不比较 Go 名字。Activity 契约指纹由 JSON 字段名与类型算出，改名前后相同，新旧 build 互相承接 Activity。
 - Execution Cache Key 含内容版本：换到新 Program 的 Run 在这个 Worker 上按完整 History 恢复一次，以新的 Key 入缓存。
 
-改 `@Workflow(id)` 等于新建另一个 Workflow，存量 Run 不会换到它；改 `@Activity(type)` 让重放的 ActivityType 失配（见下文「需要版本保护的变化」）。
+改 `@Workflow(type)` 等于新建另一个 Workflow，存量 Run 不会换到它；改 `@Activity(type)` 让重放的 ActivityType 失配（见下文「需要版本保护的变化」）。
 
 改 JSON 字段名（如 `json:"order_id"` 改成 `json:"orderId"`）会改变 Activity 契约指纹，并且旧载荷不再对应新字段：
 

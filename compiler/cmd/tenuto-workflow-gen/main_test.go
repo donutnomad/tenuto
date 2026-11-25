@@ -265,9 +265,9 @@ func TestGenerateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("产物加载失败: %v", err)
 	}
-	if loaded.Workflow.ID != "orders-demo" || len(loaded.Workflow.Program.Program) == 0 || len(loaded.Workflow.Activities) != 6 {
+	if loaded.Workflow.Type != "orders-demo" || len(loaded.Workflow.Program.Program) == 0 || len(loaded.Workflow.Activities) != 6 {
 		t.Fatalf("产物内容异常: id=%s program=%d activities=%d",
-			loaded.Workflow.ID, len(loaded.Workflow.Program.Program), len(loaded.Workflow.Activities))
+			loaded.Workflow.Type, len(loaded.Workflow.Program.Program), len(loaded.Workflow.Activities))
 	}
 }
 

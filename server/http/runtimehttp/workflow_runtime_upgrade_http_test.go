@@ -47,14 +47,14 @@ func TestArtifactsAndSetPolicyHTTP(t *testing.T) {
 
 	register := postPath(t, httpServer.URL, "/runtime/workflow/register", map[string]any{
 		"namespace": "default",
-		"workflow":  program.WorkflowConfig{ID: "http-flow", Name: "A", Policy: "auto_upgrade", Program: programtest.Noop()},
+		"workflow":  program.WorkflowConfig{Type: "http-flow", Name: "A", Policy: "auto_upgrade", Program: programtest.Noop()},
 	})
 	if register.StatusCode != http.StatusOK {
 		t.Fatalf("register status = %d", register.StatusCode)
 	}
 	artifact := postPath(t, httpServer.URL, "/runtime/workflow/artifacts", map[string]any{
 		"namespace": "default",
-		"workflow":  program.WorkflowConfig{ID: "http-flow", Name: "artifact", Policy: "auto_upgrade", Program: programtest.Noop()},
+		"workflow":  program.WorkflowConfig{Type: "http-flow", Name: "artifact", Policy: "auto_upgrade", Program: programtest.Noop()},
 	})
 	if artifact.StatusCode != http.StatusOK {
 		t.Fatalf("artifacts status = %d", artifact.StatusCode)

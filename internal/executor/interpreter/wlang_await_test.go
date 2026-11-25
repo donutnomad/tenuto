@@ -39,7 +39,7 @@ func awaitReadyProgram() *program.WorkflowConfig {
 		},
 	}
 	return &program.WorkflowConfig{
-		ID: "await-wf",
+		Type: "await-wf",
 		Program: program.NewWLangProgram([]any{
 			map[string]any{"let": map[string]any{"ready": map[string]any{"literal": map[string]any{"type": "boolean", "value": "false"}}}},
 			map[string]any{"let": map[string]any{"sig": map[string]any{"zero": "map<string,any>"}}},
@@ -92,7 +92,7 @@ func awaitInlineProgram(ready bool) *program.WorkflowConfig {
 		},
 	}
 	return &program.WorkflowConfig{
-		ID: "await-inline-wf",
+		Type: "await-inline-wf",
 		Program: program.NewWLangProgram([]any{
 			map[string]any{"let": map[string]any{"ready": map[string]any{"literal": map[string]any{"type": "boolean", "value": readyVal}}}},
 			map[string]any{"expr": map[string]any{"Await": []any{

@@ -6,7 +6,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// @Workflow(id="splitpkg-flow",name="Split Package Flow",policy=auto_upgrade,version=v1)
+// @Workflow(type="splitpkg-flow",name="Split Package Flow",policy=auto_upgrade,version=v1)
 func SplitFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	// 第二次 `out, err :=` 里 err 已在作用域中：重写必须保留 Go 语义（err 用 =），
 	// 否则重写产物的整包类型检查失败，跨文件的 activity marker 会退化成变量。

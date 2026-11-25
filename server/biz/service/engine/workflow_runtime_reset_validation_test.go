@@ -46,7 +46,7 @@ func TestResetRejectedByPendingChildKeepsRunRunning(t *testing.T) {
 func TestResetWithoutResetPointIsRejected(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-reset-no-type", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-reset-no-type", Program: programtest.Noop()})
 
 	newRunID, err := srv.ResetWorkflow(ctx, execution.ResetWorkflowRequest{RunID: runID, Reason: "retry"})
 	if err == nil || !strings.Contains(err.Error(), "reset_type") {
@@ -63,7 +63,7 @@ func TestResetWithoutResetPointIsRejected(t *testing.T) {
 // Error Case: 批量 reset 不带 reset_type → 整个批量操作被拒绝，不处理任何 run，不落操作记录。
 func TestStartBatchOperation_ResetWithoutTypeIsRejected(t *testing.T) {
 	srv, mgr := newServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-batch-reset-no-type", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-batch-reset-no-type", Program: programtest.Noop()})
 
 	op, err := driveBatch(srv, batches.StartRequest{
 		Type: batch.TypeEnums.Reset, Filter: execution.RunListFilter{RunIDs: []string{runID}},

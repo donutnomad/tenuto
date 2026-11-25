@@ -32,7 +32,7 @@ func TestRemoteWorkerStickyExecutionUsesIncrementalHTTPProtocol(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "remote-sticky-two-activities"},
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "remote-sticky-two-activities"},
 		sdkgentest.Step{Type: "activity.first", Options: `StartToCloseTimeout: time.Minute`},
 		sdkgentest.Step{Type: "activity.second", Options: `StartToCloseTimeout: time.Minute`},
 	)); err != nil {

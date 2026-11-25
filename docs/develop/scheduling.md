@@ -34,7 +34,7 @@ scheduleID := handle.GetID() // 由 Server 生成
 
 | 字段 | 必填 | 含义 |
 | --- | --- | --- |
-| `WorkflowType` | 是 | 要启动的 Workflow Type，即 `@Workflow` 的 `id`（HTTP 字段 `workflow_type`） |
+| `WorkflowType` | 是 | 要启动的 Workflow Type，即 `@Workflow` 的 `type`（HTTP 字段 `workflow_type`） |
 | `CronExpression` | 是 | 5 段 cron 表达式 |
 | `TimeZone` | 否 | IANA 时区名，例如 `Asia/Shanghai`；空值为 UTC |
 | `Args` | 否 | 至多一个，编码成 JSON 对象作为每次启动的 Workflow 输入 |

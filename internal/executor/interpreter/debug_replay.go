@@ -35,7 +35,7 @@ func ReplayWLangForDebug(
 
 	activities := make(map[string]program.ActivityRef)
 	collectDebugSymbols(artifact.Program, activities)
-	workflow := &program.WorkflowConfig{ID: "debug-replay", Program: artifact, Activities: activities}
+	workflow := &program.WorkflowConfig{Type: "debug-replay", Program: artifact, Activities: activities}
 	replay := NewWorkflowExecutorWithContext(ctx, workflow, events)
 	replay.stepHook = onStep
 	if len(effectHooks) > 0 && effectHooks[0] != nil {

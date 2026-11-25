@@ -82,7 +82,7 @@ func newShutdownHarness(t *testing.T, options string) (*shutdownHarness, string)
 	t.Cleanup(server.Stop)
 	registerActivityRoutes(t, server, shutdownActivityType)
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "worker-shutdown-" + t.Name()},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "worker-shutdown-" + t.Name()},
 		sdkgentest.Step{Type: shutdownActivityType, Options: options})
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func newShutdownHarness(t *testing.T, options string) (*shutdownHarness, string)
 	t.Cleanup(workflowWorker.Stop)
 
 	h := &shutdownHarness{server: server, queues: queues, runtime: &countingActivityRuntime{API: engine.NewActivityRuntimeService(server)}, workflow: workflowWorker}
-	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,7 @@ func TestWorkflowRuntimeDispatchPendingTasksRecoversHistoryOutbox(t *testing.T) 
 	server := assembleServer(mgr, workflowTasks, activityTasks)
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "wf-dispatch",
+		Type:    "wf-dispatch",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture", TaskQueue: "custodian"},
@@ -82,7 +82,7 @@ func TestWorkflowRuntimeDispatchPendingTasks(t *testing.T) {
 	activityTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, activityTasks)
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-dispatch-http", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-dispatch-http", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestWorkflowRuntimeRegistersActivityWorkerVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "wf-http-worker-version",
+		Type:    "wf-http-worker-version",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture"},

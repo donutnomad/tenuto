@@ -37,12 +37,12 @@ func ApprovalWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{
-		WorkflowID: "approval-workflow", FuncName: "ApprovalWorkflow", Filename: "approval.go",
+		WorkflowType: "approval-workflow", FuncName: "ApprovalWorkflow", Filename: "approval.go",
 	})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	node := &program.WorkflowConfig{ID: "approval", Program: generated.Workflow.Program}
+	node := &program.WorkflowConfig{Type: "approval", Program: generated.Workflow.Program}
 	accepted := history.NewWorkflowUpdateAcceptedEvent("create-record", "update-1", protocol.Payloads{})
 	accepted.ID = 2
 	commands, err := interpreter.NewWorkflowExecutor(node, []history.Event{
@@ -79,7 +79,7 @@ func MathWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{
-		WorkflowID: "math-workflow", FuncName: "MathWorkflow", Filename: "math.go",
+		WorkflowType: "math-workflow", FuncName: "MathWorkflow", Filename: "math.go",
 	})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
@@ -89,7 +89,7 @@ func MathWorkflow(ctx workflow.Context, input map[string]any) error {
 	accepted := history.NewWorkflowUpdateAcceptedEvent("sum", "update-sum", protocol.Payloads{left, right})
 	accepted.ID = 2
 	commands, err := interpreter.NewWorkflowExecutor(&program.WorkflowConfig{
-		ID: "math", Program: generated.Workflow.Program,
+		Type: "math", Program: generated.Workflow.Program,
 	}, []history.Event{history.NewWorkflowStartedEvent(nil, "", "", "math-1", "MathWorkflow", 0), accepted}).Execute()
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -119,7 +119,7 @@ func ApprovalWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{
-		WorkflowID: "approval-errors", FuncName: "ApprovalWorkflow", Filename: "approval_error.go",
+		WorkflowType: "approval-errors", FuncName: "ApprovalWorkflow", Filename: "approval_error.go",
 	})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
@@ -128,7 +128,7 @@ func ApprovalWorkflow(ctx workflow.Context, input map[string]any) error {
 	accepted := history.NewWorkflowUpdateAcceptedEvent("reject", "update-reject", protocol.Payloads{reason})
 	accepted.ID = 2
 	commands, err := interpreter.NewWorkflowExecutor(&program.WorkflowConfig{
-		ID: "approval-errors", Program: generated.Workflow.Program,
+		Type: "approval-errors", Program: generated.Workflow.Program,
 	}, []history.Event{history.NewWorkflowStartedEvent(nil, "", "", "approval-errors-1", "ApprovalWorkflow", 0), accepted}).Execute()
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -181,7 +181,7 @@ func ApprovalWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{
-		WorkflowID: "typed-activity-update", FuncName: "ApprovalWorkflow", Filename: "typed_activity.go",
+		WorkflowType: "typed-activity-update", FuncName: "ApprovalWorkflow", Filename: "typed_activity.go",
 	})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
@@ -246,7 +246,7 @@ func TraceWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{
-		WorkflowID: "typed-trace", FuncName: "TraceWorkflow", Filename: "typed_trace.go",
+		WorkflowType: "typed-trace", FuncName: "TraceWorkflow", Filename: "typed_trace.go",
 	})
 	if err != nil {
 		t.Fatalf("generate: %v", err)

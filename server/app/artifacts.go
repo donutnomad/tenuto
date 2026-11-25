@@ -118,7 +118,7 @@ func loadWorkflowArtifact(path string) (*program.WorkflowConfig, error) {
 	if err := json.Unmarshal(data, &workflow); err != nil {
 		return nil, fmt.Errorf("workflow artifact %s: %w", path, err)
 	}
-	if workflow.ID == "" {
+	if workflow.Type == "" {
 		return nil, fmt.Errorf("workflow artifact %s: workflow id is empty", path)
 	}
 	return &workflow, nil

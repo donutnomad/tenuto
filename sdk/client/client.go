@@ -64,7 +64,7 @@ type RetryOptions struct {
 // Client 是应用代码启动、交互与管理 Workflow 的入口，对应 Temporal Go SDK 的 client.Client。
 // 全部方法可以并发调用，并在 ctx 取消或到期时返回。
 type Client interface {
-	// ExecuteWorkflow 启动一个 Workflow 并返回它的 WorkflowRun。workflowType 是 `@Workflow(id=...)` 声明的
+	// ExecuteWorkflow 启动一个 Workflow 并返回它的 WorkflowRun。workflowType 是 `@Workflow(type=...)` 声明的
 	// Workflow Type；args 至多一个，编码成 JSON 对象（结构体或 map）作为 Workflow 的输入。
 	// 同一 Workflow ID 的 Run 仍在运行时返回 ErrWorkflowExecutionAlreadyStarted；上一个 Run 已结束时启动新 Run。
 	ExecuteWorkflow(ctx context.Context, options StartWorkflowOptions, workflowType string, args ...any) (WorkflowRun, error)

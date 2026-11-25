@@ -1,5 +1,5 @@
 {
-  "id": "startup-greeting",
+  "type": "startup-greeting",
   "name": "Startup Greeting",
   "policy": "auto_upgrade",
   "version": "v1",

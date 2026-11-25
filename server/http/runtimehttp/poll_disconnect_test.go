@@ -46,7 +46,7 @@ func TestWorkflowTaskPolledAfterDisconnectIsReturnedAtOnce(t *testing.T) {
 	workflowTasks := newRuntimeHTTPTestQueue()
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: workflowTasks, ActivityRouter: newRuntimeHTTPTestQueue().activities()})
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID: "disconnect-workflow",
+		Type: "disconnect-workflow",
 		Program: programpkg.WLangProgram{
 			Schema:           programpkg.WLangProgramSchemaV2,
 			Lang:             programpkg.WLangLanguageV1,

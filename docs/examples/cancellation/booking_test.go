@@ -28,7 +28,7 @@ func TestBookTripReleasesSeatWhenCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	generated, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowID: "book-trip", FuncName: "BookTrip", Filename: "booking.go"})
+	generated, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: "book-trip", FuncName: "BookTrip", Filename: "booking.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

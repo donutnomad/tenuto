@@ -15,7 +15,7 @@ status: Stable
 | 整体结构 | [0](#问题-0-tenuto-由哪几部分组成-一个-run-是怎么跑完的) |
 | 生成与部署 | [12 生成产物](#问题-12-生成器产出哪些-json-为什么先用-go-定义-再生成-json-最后用-json-注册到-server)、[13 独立 Server](#问题-13-要单独运行一个-tenuto-server-吗)、[21 谁执行 Workflow Task](#问题-21-workflow-task-由谁执行-server-内嵌的-worker-还是业务进程) |
 | 版本与升级 | [1](#问题-1-activity-注解里的-type-和-version-有什么作用-同一个-type-把-version-从-v1-改到-v2-有什么影响)–[9](#问题-9-workflow-version-只是给人看的吗-可以不改-version、只改内部编排并用-getversion-做兼容吗) |
-| 队列与路由 | [14](#问题-14-activity-的-queue-由谁决定-activity-不写-queue-会报错吗)–[19](#问题-19-activity-remote-true-的作用是什么) |
+| 队列与路由 | [14](#问题-14-activity-的-queue-由谁决定-activity-不写-queue-会报错吗)–[19](#问题-19-remoteactivity-的作用是什么) |
 | BuildID | [20](#问题-20-buildid-是什么-在哪里起作用、填在哪里、不填会怎样) |
 | 可靠性与排障 | [10 幂等 Key](#问题-10-activity-因故障被重复调用-内部用什么构造幂等-key-同一个订单上有很多操作-key-不能只按订单-id)、[11 取消](#问题-11-取消一个-workflow-时-workflow-代码能收到通知并做补偿吗-正在执行的-activity-会怎样)、[22 Run 卡住怎么查](#问题-22-run-卡住了-blocked、暂停、一直不结束-按什么顺序排查)、[23 Activity 会不会重复执行](#问题-23-worker-崩溃或-server-重启时-activity-会不会重复执行) |
 
@@ -35,7 +35,7 @@ status: Stable
 
 一个 Run 的过程：
 
-1. Client 用 Workflow Type（`@Workflow` 的 `id`）和 Workflow ID 启动 Run，Server 写入 History，产生第一个 Workflow Task。
+1. Client 用 Workflow Type（`@Workflow` 的 `type`）和 Workflow ID 启动 Run，Server 写入 History，产生第一个 Workflow Task。
 2. Workflow Worker 领取它，按 History 重放程序；程序走到 `CallX` 时产生「调度 Activity」命令。
 3. Server 为命令确定队列（问题 14），确认有在线 Worker 的契约满足定义的声明，把 Activity Task 投到队列，写 `ActivityScheduled`。
 4. Activity Worker 领取任务，Server 再按领取者的契约核对一次，执行业务函数，结果写进 History。
@@ -602,7 +602,7 @@ Terminate 仍然立即关闭 Run，不运行 Workflow 代码。完整说明见 [
 
 ## 问题 12：生成器产出哪些 JSON？为什么先用 Go 定义，再生成 JSON，最后用 JSON 注册到 Server？
 
-**每个 Workflow 包只产出一个 JSON：`workflow.json`。它是 Server 接受的 Workflow 定义，包含编译后的 WLang 程序 `program`、调用的 Activity 契约 `activities`，以及 `id`、`name`、`policy`、`version`。生成的 `zz_<pkg>_artifacts_gen.go` 用 `//go:embed` 把它打进二进制，`WorkflowDefinition()` 在 Worker 启动时把它登记到 Server。**
+**每个 Workflow 包只产出一个 JSON：`workflow.json`。它是 Server 接受的 Workflow 定义，包含编译后的 WLang 程序 `program`、调用的 Activity 契约 `activities`，以及 `type`、`name`、`policy`、`version`。生成的 `zz_<pkg>_artifacts_gen.go` 用 `//go:embed` 把它打进二进制，`WorkflowDefinition()` 在 Worker 启动时把它登记到 Server。**
 
 | 产物 | 内容 | 运行时 |
 | --- | --- | --- |
@@ -643,7 +643,7 @@ Server 调度一个 Activity 时按顺序取队列，取到的队列写进 Histo
 2. `@Activity(queue=...)`：写进 `workflow.json`，生成的 `RegisterActivities` 用 `activity.RegisterActivityOnQueue` 连同队列一起登记。
 3. 都没写：定义不声明队列，Server 在路由目录里选。目录是在线 Worker 上报的「拉取的队列 × 登记的 Activity 类型」；先排除契约与定义不一致的路由，再优先默认路由（`ActivityWorkerVersionDefault`），再按权重（`server/biz/domain/dispatch/activity_routes.go` 的 `ResolveActivityRoute`）。
 
-`@Workflow` 没有 `queue` 参数，写了会在生成时报 `file:line`（`compiler/sdkgen/annotation.go` 的 `toWorkflowAnnotation`）。Workflow Task 不分队列，由 Server 派给任意 Workflow Worker。
+Workflow Task 不分队列，由 Server 派给任意 Workflow Worker。
 
 Worker 一侧（`sdk/worker/worker.go` 的 `activityTaskQueues`）：
 
@@ -664,7 +664,7 @@ Tenuto 的对应做法：
 | --- | --- | --- |
 | Activity 不写 queue | 投到 Workflow 的队列 | 由执行它的 Worker 决定，Server 按登记选路 |
 | 调用处覆盖 | `ActivityOptions.TaskQueue` | 同左 |
-| 跨服务调用 | 调用处写对方队列名，或用 Nexus | `remote=true` 契约写在共享契约包里（问题 19），调用方用生成的 `CallX` |
+| 跨服务调用 | 调用处写对方队列名，或用 Nexus | `@RemoteActivity` 契约写在共享契约包里（问题 19），调用方用生成的 `CallX` |
 | 队列上没有能执行的 Worker | 投递后反复重试 | 调度前检查，不投递，Run Blocked 并说明原因 |
 
 ## 问题 15：Worker 的 `ActivityTaskQueues` 写了 `queue1`、`queue2`，没写 queue 的 Activity 投到哪个？两个 Worker 分别写 `queue1, queue2` 和 `queue2, queue1` 呢？
@@ -733,17 +733,17 @@ worker.Options{
 }
 ```
 
-## 问题 19：`@Activity(..., remote=true)` 的作用是什么？
+## 问题 19：`@RemoteActivity(...)` 的作用是什么？
 
 **声明一个实现不在本进程的 Activity，通常由另一个服务实现。它写在命名函数类型上，只描述契约。**
 
 ```go
 // examples/shop/contracts/contracts.go
-// @Activity(type="payments.charge",queue="payments",version=v1,remote=true)
+// @RemoteActivity(type="payments.charge",queue="payments",version=v1)
 type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)
 ```
 
-| | 普通 `@Activity` | `remote=true` |
+| | `@Activity` | `@RemoteActivity` |
 | --- | --- | --- |
 | 标注在 | 有函数体的实现函数 | 函数类型 |
 | `CallX` 调用桥 | 生成 | 生成，Workflow 里写 `contracts.CallCharge(ctx, in)` |

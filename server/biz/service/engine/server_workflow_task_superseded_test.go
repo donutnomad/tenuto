@@ -30,7 +30,7 @@ func startWorkflowTaskForTest(t *testing.T, mgr execution.ExecutionManager, runI
 func TestWorkflowTaskCompletion_FactAfterStartedSupersedesTask(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-superseded-task", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-superseded-task", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	startWorkflowTaskForTest(t, mgr, runID, wftID)
 	if _, err := mgr.Append(runID, "", "", history.NewWorkflowSignaledEvent("late", nil)); err != nil {
@@ -88,7 +88,7 @@ func TestWorkflowTaskCompletion_FactAfterStartedSupersedesTask(t *testing.T) {
 func TestWorkflowTaskCompletion_NoFactAfterStartedCommits(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-not-superseded-task", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-not-superseded-task", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	startWorkflowTaskForTest(t, mgr, runID, wftID)
 
@@ -109,7 +109,7 @@ func TestWorkflowTaskCompletion_NoFactAfterStartedCommits(t *testing.T) {
 func TestWorkflowTaskCompletion_UpdateAcceptedAfterStartedSupersedesTask(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-superseded-by-update", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-superseded-by-update", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	startWorkflowTaskForTest(t, mgr, runID, wftID)
 	if _, err := srv.UpdateWorkflow(ctx, "", "", runID, "place", "update-late", protocol.UpdateWaitStageEnums.Accepted, nil); err != nil {

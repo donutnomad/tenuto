@@ -47,7 +47,7 @@ func seedRunWithPendingState(t *testing.T, srv *Server, mgr execution.ExecutionM
 	// 种一个 pending（started）child：子 Run 已存在 → recovery 走"continue"路径（不重建），
 	// 数据源是 ChildWorkflowState 而非父 history。
 	childRunID := runID + "-child"
-	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "cross-recovery-child", Program: programtest.Noop()})
+	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "cross-recovery-child", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

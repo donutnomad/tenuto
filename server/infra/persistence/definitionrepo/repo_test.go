@@ -33,7 +33,7 @@ func TestContentVersionSharedAcrossRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	workflow := &program.WorkflowConfig{ID: "shared-flow", Name: "A", Version: "v1", Program: programtest.Noop()}
+	workflow := &program.WorkflowConfig{Type: "shared-flow", Name: "A", Version: "v1", Program: programtest.Noop()}
 	first, err := configs.SaveWorkflowConfigInNamespace("ns", workflow)
 	if err != nil {
 		t.Fatal(err)
@@ -137,8 +137,8 @@ func TestEnrollGormRules(t *testing.T) {
 		}
 	}
 
-	contentA := &program.WorkflowConfig{ID: "enroll-flow", Name: "A", Version: "v1", Program: programtest.Noop()}
-	contentB := &program.WorkflowConfig{ID: "enroll-flow", Name: "B", Version: "v1", Program: programtest.Noop()}
+	contentA := &program.WorkflowConfig{Type: "enroll-flow", Name: "A", Version: "v1", Program: programtest.Noop()}
+	contentB := &program.WorkflowConfig{Type: "enroll-flow", Name: "B", Version: "v1", Program: programtest.Noop()}
 
 	// 空服务首次登记 A：内容新建，latest 指向 A。
 	refA, activated, err := configs.EnrollWorkflowConfigInNamespace(namespace, contentA)
@@ -196,7 +196,7 @@ func TestEnrollGormRules(t *testing.T) {
 	assertActive(t, "enroll-flow", rollback.Version)
 
 	// 先 artifact-only（latest 为空），随后首次 startup 的 enroll 补激活同一内容。
-	artifactOnly := &program.WorkflowConfig{ID: "artifact-flow", Name: "A", Version: "v1", Program: programtest.Noop()}
+	artifactOnly := &program.WorkflowConfig{Type: "artifact-flow", Name: "A", Version: "v1", Program: programtest.Noop()}
 	registered, err := configs.SaveWorkflowConfigArtifactInNamespace(namespace, artifactOnly)
 	if err != nil {
 		t.Fatalf("register artifact: %v", err)
@@ -220,7 +220,7 @@ func TestEnrollGormRules(t *testing.T) {
 			t.Fatalf("计算内容版本: %v", err)
 		}
 		activating, err := configs.WorkflowConfigEnrollStateInNamespace(namespace, definition.WorkflowConfigRef{
-			Namespace: namespace, WorkflowID: workflow.ID, Version: version,
+			Namespace: namespace, WorkflowID: workflow.Type, Version: version,
 		})
 		if err != nil {
 			t.Fatalf("读取登记状态: %v", err)
@@ -230,10 +230,10 @@ func TestEnrollGormRules(t *testing.T) {
 	if state(contentA) {
 		t.Fatal("已存在内容 + 已有 latest 不应需要激活")
 	}
-	if !state(&program.WorkflowConfig{ID: "enroll-flow", Name: "C", Version: "v1", Program: programtest.Noop()}) {
+	if !state(&program.WorkflowConfig{Type: "enroll-flow", Name: "C", Version: "v1", Program: programtest.Noop()}) {
 		t.Fatal("新内容应需要激活")
 	}
-	pending := &program.WorkflowConfig{ID: "pending-flow", Name: "A", Version: "v1", Program: programtest.Noop()}
+	pending := &program.WorkflowConfig{Type: "pending-flow", Name: "A", Version: "v1", Program: programtest.Noop()}
 	if _, err := configs.SaveWorkflowConfigArtifactInNamespace(namespace, pending); err != nil {
 		t.Fatalf("register pending artifact: %v", err)
 	}
@@ -259,7 +259,7 @@ func rootBranch(t testing.TB, run *execution.Run) *execution.Run {
 func TestGetWorkflowConfigReadsEachContentVersionOnce(t *testing.T) {
 	database := mysqltest.NewDB(t)
 	configs := New(database)
-	ref, err := configs.SaveWorkflowConfigInNamespace("ns", &program.WorkflowConfig{ID: "cached-flow", Name: "A", Program: programtest.Noop()})
+	ref, err := configs.SaveWorkflowConfigInNamespace("ns", &program.WorkflowConfig{Type: "cached-flow", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

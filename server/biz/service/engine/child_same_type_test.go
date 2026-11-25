@@ -62,11 +62,11 @@ func completeChildrenAndExpectPropagation(t *testing.T, srv *Server, mgr executi
 // 一个父 Run 启动两个同类型的子 Workflow，两个都启动并完成。
 func TestSameTypeChildren_OneParentTwoChildrenBothComplete(t *testing.T) {
 	srv, mgr := newServerForTest(t)
-	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "same-type-child", Program: programtest.Noop()})
+	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "same-type-child", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentRunID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "same-type-parent", Program: programtest.Noop()})
+	parentRunID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "same-type-parent", Program: programtest.Noop()})
 	children := startChildrenOfType(t, srv, mgr, parentRunID, childRef.WorkflowID, "child_1", "child_2")
 
 	first, _ := mgr.Get(children[0])
@@ -88,12 +88,12 @@ func TestSameTypeChildren_OneParentTwoChildrenBothComplete(t *testing.T) {
 // 两个父 Run 各启动一个同类型的子 Workflow。
 func TestSameTypeChildren_TwoParentsOneChildEach(t *testing.T) {
 	srv, mgr := newServerForTest(t)
-	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "same-type-child-2p", Program: programtest.Noop()})
+	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "same-type-child-2p", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentA := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "same-type-parent-a", Program: programtest.Noop()})
-	parentB := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "same-type-parent-b", Program: programtest.Noop()})
+	parentA := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "same-type-parent-a", Program: programtest.Noop()})
+	parentB := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "same-type-parent-b", Program: programtest.Noop()})
 	childrenA := startChildrenOfType(t, srv, mgr, parentA, childRef.WorkflowID, "child_1")
 	childrenB := startChildrenOfType(t, srv, mgr, parentB, childRef.WorkflowID, "child_1")
 	completeChildrenAndExpectPropagation(t, srv, mgr, parentA, childrenA)
@@ -103,8 +103,8 @@ func TestSameTypeChildren_TwoParentsOneChildEach(t *testing.T) {
 // 子 Workflow 的类型同时有一个正在运行的顶层 Run：子 Run 照常启动，顶层 Run 仍是该 WorkflowID 的 current。
 func TestSameTypeChildren_TypeHasRunningTopLevelRun(t *testing.T) {
 	srv, mgr := newServerForTest(t)
-	topLevelRunID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "same-type-child-top", Program: programtest.Noop()})
-	parentRunID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "same-type-parent-top", Program: programtest.Noop()})
+	topLevelRunID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "same-type-child-top", Program: programtest.Noop()})
+	parentRunID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "same-type-parent-top", Program: programtest.Noop()})
 	children := startChildrenOfType(t, srv, mgr, parentRunID, "same-type-child-top", "child_1")
 
 	current, err := mgr.GetCurrentRunID("default", "same-type-child-top")
@@ -121,11 +121,11 @@ func TestSameTypeChildren_TypeHasRunningTopLevelRun(t *testing.T) {
 func TestReconcileRun_ChildStartFailureKeepsRemainingRecoverySteps(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newFailingServerForTest(t)
-	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "recover-child-start-error", Program: programtest.Noop()})
+	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "recover-child-start-error", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "recover-parent-child-start-error", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "recover-parent-child-start-error", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 
 	mgr.failOn(history.EventWorkflowStarted)

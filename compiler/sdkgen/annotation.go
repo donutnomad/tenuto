@@ -15,7 +15,7 @@ import (
 
 // workflowAnnotation 是 `@Workflow(...)` 的解析结果。
 type workflowAnnotation struct {
-	ID      string
+	Type    string // Workflow Type，写进 workflow.json 的 type
 	Name    string
 	Policy  string // 归一化后的策略，缺省 auto_upgrade
 	Version string
@@ -33,7 +33,7 @@ type activityAnnotation struct {
 
 // annotationEntry 是一条已解析的注解及其位置。
 type annotationEntry struct {
-	Kind   string // "Workflow" | "Activity"
+	Kind   string // "Workflow" | "Activity" | "RemoteActivity"
 	File   string
 	Line   int
 	Values map[string]string
@@ -42,8 +42,8 @@ type annotationEntry struct {
 func (a annotationEntry) pos() string { return fmt.Sprintf("%s:%d", a.File, a.Line) }
 
 var (
-	workflowAnnotationKeys = map[string]bool{"id": true, "name": true, "policy": true, "version": true}
-	activityAnnotationKeys = map[string]bool{"type": true, "queue": true, "version": true, "remote": true}
+	workflowAnnotationKeys = map[string]bool{"type": true, "name": true, "policy": true, "version": true}
+	activityAnnotationKeys = map[string]bool{"type": true, "queue": true, "version": true}
 )
 
 // parseAnnotationLine 解析一条注解行。text 是去掉注释前缀并 trim 过的内容。
@@ -57,7 +57,7 @@ func parseAnnotationLine(fset *token.FileSet, comment *ast.Comment) (annotationE
 		body = strings.TrimSpace(strings.TrimPrefix(raw, "//"))
 	case strings.HasPrefix(raw, "/*"):
 		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(raw, "/*"), "*/"))
-		if strings.HasPrefix(inner, "@Workflow(") || strings.HasPrefix(inner, "@Activity(") {
+		if strings.HasPrefix(inner, "@Workflow(") || strings.HasPrefix(inner, "@Activity(") || strings.HasPrefix(inner, "@RemoteActivity(") {
 			return entry, false, fmt.Errorf("%s: 注解必须写成 // 行注释", entry.pos())
 		}
 		return entry, false, nil
@@ -71,6 +71,9 @@ func parseAnnotationLine(fset *token.FileSet, comment *ast.Comment) (annotationE
 	case strings.HasPrefix(body, "@Activity("):
 		entry.Kind = "Activity"
 		body = strings.TrimPrefix(body, "@Activity(")
+	case strings.HasPrefix(body, "@RemoteActivity("):
+		entry.Kind = "RemoteActivity"
+		body = strings.TrimPrefix(body, "@RemoteActivity(")
 	default:
 		return entry, false, nil
 	}
@@ -186,25 +189,21 @@ func declarationAnnotations(fset *token.FileSet, docs ...*ast.CommentGroup) ([]a
 
 // toWorkflowAnnotation 校验 key 集合并归一化策略。
 func toWorkflowAnnotation(entry annotationEntry) (workflowAnnotation, error) {
-	// Activity 的 queue 是 Activity 自己的属性，不随 Workflow 继承。
-	if _, ok := entry.Values["queue"]; ok {
-		return workflowAnnotation{}, fmt.Errorf("%s: @Workflow 不接受 queue：Activity 的队列写在 @Activity(queue=...)，或不写、由执行它的 Worker 的 ActivityTaskQueues 决定", entry.pos())
-	}
 	if err := checkAnnotationKeys(entry, workflowAnnotationKeys); err != nil {
 		return workflowAnnotation{}, err
 	}
 	annotation := workflowAnnotation{
-		ID:      entry.Values["id"],
+		Type:    entry.Values["type"],
 		Name:    entry.Values["name"],
 		Policy:  entry.Values["policy"],
 		Version: entry.Values["version"],
 		Pos:     entry.pos(),
 	}
-	if annotation.ID == "" {
-		return workflowAnnotation{}, fmt.Errorf("%s: @Workflow 缺少 id", entry.pos())
+	if annotation.Type == "" {
+		return workflowAnnotation{}, fmt.Errorf("%s: @Workflow 缺少 type", entry.pos())
 	}
 	if annotation.Name == "" {
-		annotation.Name = annotation.ID
+		annotation.Name = annotation.Type
 	}
 	switch workflow.Policy(annotation.Policy) {
 	case "":
@@ -216,7 +215,7 @@ func toWorkflowAnnotation(entry annotationEntry) (workflowAnnotation, error) {
 	return annotation, nil
 }
 
-// toActivityAnnotation 校验 key 集合并解析 remote 布尔值。
+// toActivityAnnotation 解析 @Activity 与 @RemoteActivity：两者的 key 相同，Remote 取自注解名。
 func toActivityAnnotation(entry annotationEntry) (activityAnnotation, error) {
 	if err := checkAnnotationKeys(entry, activityAnnotationKeys); err != nil {
 		return activityAnnotation{}, err
@@ -225,17 +224,11 @@ func toActivityAnnotation(entry annotationEntry) (activityAnnotation, error) {
 		Type:    entry.Values["type"],
 		Queue:   entry.Values["queue"],
 		Version: entry.Values["version"],
+		Remote:  entry.Kind == "RemoteActivity",
 		Pos:     entry.pos(),
 	}
 	if annotation.Type == "" {
-		return activityAnnotation{}, fmt.Errorf("%s: @Activity 缺少 type", entry.pos())
-	}
-	if raw, exists := entry.Values["remote"]; exists {
-		value, err := strconv.ParseBool(raw)
-		if err != nil {
-			return activityAnnotation{}, fmt.Errorf("%s: @Activity remote=%q 不是布尔值", entry.pos(), raw)
-		}
-		annotation.Remote = value
+		return activityAnnotation{}, fmt.Errorf("%s: @%s 缺少 type", entry.pos(), entry.Kind)
 	}
 	return annotation, nil
 }

@@ -1,6 +1,6 @@
 // Package contracts 是 shop 三个服务之间的 Activity 契约：type、queue、version 与入参出参。
 //
-// 契约写成带 remote=true 的命名函数类型，不含实现。order-service 的 Workflow 通过生成的
+// 契约写成用 @RemoteActivity 标注的命名函数类型，不含实现。order-service 的 Workflow 通过生成的
 // CallXxx 调度它们；payment-service 与 warehouse-service 各自实现并在自己的队列上执行。
 // 三个进程只共享这个包，不互相链接实现代码。
 package contracts
@@ -28,7 +28,7 @@ type ReserveOutput struct {
 	ReservationID string `json:"reservation_id"`
 }
 
-// @Activity(type="warehouse.reserve",queue="warehouse",version=v1,remote=true)
+// @RemoteActivity(type="warehouse.reserve",queue="warehouse",version=v1)
 type ReserveRemote func(context.Context, ReserveInput) (ReserveOutput, error)
 
 type ReleaseInput struct {
@@ -41,7 +41,7 @@ type ReleaseOutput struct {
 	Released bool `json:"released"`
 }
 
-// @Activity(type="warehouse.release",queue="warehouse",version=v1,remote=true)
+// @RemoteActivity(type="warehouse.release",queue="warehouse",version=v1)
 type ReleaseRemote func(context.Context, ReleaseInput) (ReleaseOutput, error)
 
 type ShipInput struct {
@@ -54,7 +54,7 @@ type ShipOutput struct {
 	TrackingNo string `json:"tracking_no"`
 }
 
-// @Activity(type="warehouse.ship",queue="warehouse",version=v1,remote=true)
+// @RemoteActivity(type="warehouse.ship",queue="warehouse",version=v1)
 type ShipRemote func(context.Context, ShipInput) (ShipOutput, error)
 
 // ---------- payments 队列：payment-service 实现 ----------
@@ -68,5 +68,5 @@ type ChargeOutput struct {
 	PaymentID string `json:"payment_id"`
 }
 
-// @Activity(type="payments.charge",queue="payments",version=v1,remote=true)
+// @RemoteActivity(type="payments.charge",queue="payments",version=v1)
 type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)

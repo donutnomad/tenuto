@@ -67,7 +67,7 @@ func awaitDriverProgram() *program.WorkflowConfig {
 		},
 	}
 	return &program.WorkflowConfig{
-		ID: "await-driver-wf",
+		Type: "await-driver-wf",
 		Activities: map[string]program.ActivityRef{
 			"activities.CreateRecord": {Symbol: "activities.CreateRecord", Type: "activities.CreateRecord"},
 		},

@@ -1,5 +1,5 @@
 {
-  "id": "return-flow",
+  "type": "return-flow",
   "name": "Return Flow",
   "policy": "pinned",
   "version": "v2",

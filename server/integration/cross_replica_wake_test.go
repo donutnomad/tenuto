@@ -57,7 +57,7 @@ func TestCrossReplicaUpdateAndCloseWake(t *testing.T) {
 	replicaB := assembly.NewEngine(assembly.Options{Stores: stores(), WorkflowQueue: workflowTasks, ActivityRouter: activityTasks, TaskTokens: tokens},
 		activity.NewRegistry(), worker.WorkerOptions{WorkflowConcurrency: 2, ActivityConcurrency: 1})
 
-	generated, err := sdkgen.GenerateFromSource([]byte(crossReplicaUpdatesSrc), sdkgen.Options{WorkflowID: "cross-replica-updates", FuncName: "W", Filename: "w.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(crossReplicaUpdatesSrc), sdkgen.Options{WorkflowType: "cross-replica-updates", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

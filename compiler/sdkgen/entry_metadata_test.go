@@ -10,9 +10,9 @@ import (
 func generatedArtifact(t *testing.T, src, funcName string) program.WLangProgram {
 	t.Helper()
 	result, err := GenerateFromSource([]byte(src), Options{
-		WorkflowID: "entry-metadata-wf",
-		FuncName:   funcName,
-		Filename:   "workflow.go",
+		WorkflowType: "entry-metadata-wf",
+		FuncName:     funcName,
+		Filename:     "workflow.go",
 	})
 	if err != nil {
 		t.Fatalf("GenerateFromSource: %v", err)
@@ -114,7 +114,7 @@ type Item struct {
 type Code string
 
 func W(ctx workflow.Context, ` + tc.param + `) error { return nil }`
-			_, err := GenerateFromSource([]byte(src), Options{WorkflowID: "wf", FuncName: "W", Filename: "workflow.go"})
+			_, err := GenerateFromSource([]byte(src), Options{WorkflowType: "wf", FuncName: "W", Filename: "workflow.go"})
 			if err == nil {
 				t.Fatal("非 JSON object 入参应在生成时报错")
 			}
@@ -133,7 +133,7 @@ type Item struct {
 }
 
 func W(ctx workflow.Context, ` + param + `) error { return nil }`
-		if _, err := GenerateFromSource([]byte(src), Options{WorkflowID: "wf", FuncName: "W", Filename: "workflow.go"}); err != nil {
+		if _, err := GenerateFromSource([]byte(src), Options{WorkflowType: "wf", FuncName: "W", Filename: "workflow.go"}); err != nil {
 			t.Fatalf("%s 应通过生成: %v", param, err)
 		}
 	}

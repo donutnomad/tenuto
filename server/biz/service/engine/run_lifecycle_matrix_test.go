@@ -66,19 +66,19 @@ func TestWorkflowIDConflictThenTerminalReuse(t *testing.T) {
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	defer server.Stop()
 
-	wf := &program.WorkflowConfig{ID: "lifecycle-id-reuse", Program: programtest.Noop()}
+	wf := &program.WorkflowConfig{Type: "lifecycle-id-reuse", Program: programtest.Noop()}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	run1, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	run1, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil)); !errors.Is(err, execution.ErrCurrentRunConflict) {
+	if _, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil)); !errors.Is(err, execution.ErrCurrentRunConflict) {
 		t.Fatalf("second start while running = %v, want ErrCurrentRunConflict", err)
 	}
-	current, err := mgr.GetCurrentRunID(protocol.DefaultNamespace, wf.ID)
+	current, err := mgr.GetCurrentRunID(protocol.DefaultNamespace, wf.Type)
 	if err != nil || current != run1 {
 		t.Fatalf("current run = %q (err %v), want %q", current, err, run1)
 	}
@@ -88,14 +88,14 @@ func TestWorkflowIDConflictThenTerminalReuse(t *testing.T) {
 	}
 	waitForRunStatusWithinTest(t, mgr, run1, history.StatusTerminated, 2*time.Second)
 
-	run2, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	run2, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatalf("start after terminal status must be allowed: %v", err)
 	}
 	if run2 == run1 {
 		t.Fatal("reused run id; expected a new run")
 	}
-	current, err = mgr.GetCurrentRunID(protocol.DefaultNamespace, wf.ID)
+	current, err = mgr.GetCurrentRunID(protocol.DefaultNamespace, wf.Type)
 	if err != nil || current != run2 {
 		t.Fatalf("current run = %q (err %v), want %q", current, err, run2)
 	}
@@ -117,7 +117,7 @@ func TestRunTimeoutRetryCreatesRunWithInheritedLineage(t *testing.T) {
 
 	wf := &program.WorkflowConfig{
 		Program:          programtest.Noop(),
-		ID:               "lifecycle-run-timeout-retry",
+		Type:             "lifecycle-run-timeout-retry",
 		ExecutionTimeout: "5s",
 		RunTimeout:       "80ms",
 		RetryPolicy: &program.RetryPolicy{
@@ -130,7 +130,7 @@ func TestRunTimeoutRetryCreatesRunWithInheritedLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	run1ID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestRunTimeoutRetryCreatesRunWithInheritedLineage(t *testing.T) {
 		t.Fatal("execution deadline must be set")
 	}
 
-	run2 := waitForNewCurrentRun(t, mgr, protocol.DefaultNamespace, wf.ID, run1ID, 3*time.Second)
+	run2 := waitForNewCurrentRun(t, mgr, protocol.DefaultNamespace, wf.Type, run1ID, 3*time.Second)
 	if run2.Attempt != 2 {
 		t.Fatalf("retry attempt = %d, want 2", run2.Attempt)
 	}
@@ -164,7 +164,7 @@ func TestRunTimeoutRetryCreatesRunWithInheritedLineage(t *testing.T) {
 
 	// MaxAttempts=2：第二次超时不再派生新 Run。
 	run2 = waitForRunStatusWithinTest(t, mgr, run2.ID, history.StatusFailed, 3*time.Second)
-	final, err := mgr.GetCurrentRunID(protocol.DefaultNamespace, wf.ID)
+	final, err := mgr.GetCurrentRunID(protocol.DefaultNamespace, wf.Type)
 	if err != nil || final != run2.ID {
 		t.Fatalf("current run after max attempts = %q (err %v), want %q", final, err, run2.ID)
 	}
@@ -195,7 +195,7 @@ func TestContinueAsNewUsesActiveLatestAndInheritsLineage(t *testing.T) {
 
 	refA, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "lifecycle-can-latest", Name: "A", Policy: execution.RunPolicyPinned, ExecutionTimeout: "5s",
+		Type:    "lifecycle-can-latest", Name: "A", Policy: execution.RunPolicyPinned, ExecutionTimeout: "5s",
 	})
 
 	if err != nil {
@@ -214,7 +214,7 @@ func TestContinueAsNewUsesActiveLatestAndInheritsLineage(t *testing.T) {
 	}
 	refB, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      refA.WorkflowID, Name: "B", Policy: execution.RunPolicyPinned,
+		Type:    refA.WorkflowID, Name: "B", Policy: execution.RunPolicyPinned,
 	})
 
 	if err != nil {
@@ -260,7 +260,7 @@ func TestContinueAsNewVersionSelectionMatrix(t *testing.T) {
 
 			refA, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 				Program: programtest.Noop(),
-				ID:      "lifecycle-can-matrix-" + policy, Name: "A", Policy: policy, ExecutionTimeout: "5s",
+				Type:    "lifecycle-can-matrix-" + policy, Name: "A", Policy: policy, ExecutionTimeout: "5s",
 			})
 
 			if err != nil {
@@ -276,7 +276,7 @@ func TestContinueAsNewVersionSelectionMatrix(t *testing.T) {
 			}
 			refB, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 				Program: programtest.Noop(),
-				ID:      refA.WorkflowID, Name: "B", Policy: policy, ExecutionTimeout: "5s",
+				Type:    refA.WorkflowID, Name: "B", Policy: policy, ExecutionTimeout: "5s",
 			})
 
 			if err != nil {
@@ -321,7 +321,7 @@ func TestRunTimeoutFinalFailureRetryState(t *testing.T) {
 
 	wf := &program.WorkflowConfig{
 		Program:    programtest.Noop(),
-		ID:         "lifecycle-retry-state-diagnostic",
+		Type:       "lifecycle-retry-state-diagnostic",
 		RunTimeout: "1m",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts: 1, InitialInterval: "10s", BackoffCoefficient: 1,
@@ -330,7 +330,7 @@ func TestRunTimeoutFinalFailureRetryState(t *testing.T) {
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

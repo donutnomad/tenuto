@@ -23,7 +23,7 @@ func TestAppWorkersOnlyConsumeTheirActivityQueues(t *testing.T) {
 	activityQueues := memory.NewActivityQueueRouter(16)
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: workflowTasks, ActivityRouter: activityQueues})
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "app-worker-routing"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "app-worker-routing"},
 		sdkgentest.Step{Type: "custodian.Capture", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "custodian"`},
 		sdkgentest.Step{Type: "wallets.Sign", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "wallets"`},
 	)
@@ -70,7 +70,7 @@ func TestAppWorkersOnlyConsumeTheirActivityQueues(t *testing.T) {
 	defer walletsWorker.Stop()
 	defer server.Stop()
 
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

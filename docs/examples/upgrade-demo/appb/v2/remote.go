@@ -21,7 +21,7 @@ type ReserveOutput struct {
 	ServedBy      string `json:"served_by"`
 }
 
-// @Activity(type="fulfillment.reserve",queue="fulfillment",version=v1,remote=true)
+// @RemoteActivity(type="fulfillment.reserve",queue="fulfillment",version=v1)
 type ReserveRemote func(context.Context, ReserveInput) (ReserveOutput, error)
 
 type QuoteInput struct {
@@ -34,7 +34,7 @@ type QuoteOutput struct {
 	ServedBy string `json:"served_by"`
 }
 
-// @Activity(type="fulfillment.quote",queue="fulfillment",version=v2,remote=true)
+// @RemoteActivity(type="fulfillment.quote",queue="fulfillment",version=v2)
 type QuoteRemote func(context.Context, QuoteInput) (QuoteOutput, error)
 
 type ShipInput struct {
@@ -48,7 +48,7 @@ type ShipOutput struct {
 	ServedBy   string `json:"served_by"`
 }
 
-// @Activity(type="fulfillment.ship",queue="fulfillment",version=v1,remote=true)
+// @RemoteActivity(type="fulfillment.ship",queue="fulfillment",version=v1)
 type ShipRemote func(context.Context, ShipInput) (ShipOutput, error)
 
 type ShipV2Input struct {
@@ -64,5 +64,5 @@ type ShipV2Output struct {
 	ServedBy   string `json:"served_by"`
 }
 
-// @Activity(type="fulfillment.ship-v2",queue="fulfillment",version=v1,remote=true)
+// @RemoteActivity(type="fulfillment.ship-v2",queue="fulfillment",version=v1)
 type ShipV2Remote func(context.Context, ShipV2Input) (ShipV2Output, error)

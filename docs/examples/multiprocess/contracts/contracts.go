@@ -18,7 +18,7 @@ type CheckStockOutput struct {
 	Location string `json:"location"`
 }
 
-// @Activity(type="inventory.check",queue="inventory",version=v1,remote=true)
+// @RemoteActivity(type="inventory.check",queue="inventory",version=v1)
 type CheckStockRemote func(context.Context, CheckStockInput) (CheckStockOutput, error)
 
 // HoldStockInput 是库存占用入参。
@@ -32,7 +32,7 @@ type HoldStockOutput struct {
 	HoldID string `json:"hold_id"`
 }
 
-// @Activity(type="inventory.hold",queue="inventory",version=v1,remote=true)
+// @RemoteActivity(type="inventory.hold",queue="inventory",version=v1)
 type HoldStockRemote func(context.Context, HoldStockInput) (HoldStockOutput, error)
 
 // ReleaseHoldInput 是释放库存占用的入参，同时也是 HoldStock 的补偿路径。
@@ -47,7 +47,7 @@ type ReleaseHoldOutput struct {
 	Released bool `json:"released"`
 }
 
-// @Activity(type="inventory.release",queue="inventory",version=v1,remote=true)
+// @RemoteActivity(type="inventory.release",queue="inventory",version=v1)
 type ReleaseHoldRemote func(context.Context, ReleaseHoldInput) (ReleaseHoldOutput, error)
 
 // RiskReviewInput 是 v2 新增的风控审查入参。
@@ -61,7 +61,7 @@ type RiskReviewOutput struct {
 	Level string `json:"level"`
 }
 
-// @Activity(type="risk.review",queue="ledger",version=v1,remote=true)
+// @RemoteActivity(type="risk.review",queue="ledger",version=v1)
 type RiskReviewRemote func(context.Context, RiskReviewInput) (RiskReviewOutput, error)
 
 // SettleInput 是扣款结算入参。
@@ -76,7 +76,7 @@ type SettleOutput struct {
 	Settled bool   `json:"settled"`
 }
 
-// @Activity(type="ledger.settle",queue="ledger",version=v1,remote=true)
+// @RemoteActivity(type="ledger.settle",queue="ledger",version=v1)
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 
 // ChargeInput 是 v3 新增的金库扣款入参。
@@ -91,5 +91,5 @@ type ChargeOutput struct {
 	Remote   bool   `json:"remote"`
 }
 
-// @Activity(type="ledger.charge",queue="ledger",version=v1,remote=true)
+// @RemoteActivity(type="ledger.charge",queue="ledger",version=v1)
 type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)

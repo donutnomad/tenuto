@@ -49,7 +49,7 @@ func TestWorkflowPublishedBeforeActivityWorker(t *testing.T) {
 			server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: memory.NewExecutionManager()}, WorkflowQueue: memory.NewTaskQueue(16), ActivityRouter: engine.QueueActivityRouter{Queue: activities}})
 			t.Cleanup(server.Stop)
 			registerRouteWorker(t, server, "other", "other.Type")
-			if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "published-first"},
+			if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "published-first"},
 				sdkgentest.Step{Type: "activity.late", Options: `StartToCloseTimeout: time.Minute`},
 			)); err != nil {
 				t.Fatalf("publishing before the activity worker must succeed: %v", err)

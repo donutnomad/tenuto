@@ -206,7 +206,7 @@ func TestMemoryActivityQueueRouterPollsByNamespace(t *testing.T) {
 
 func namespaceWorkflowConfig(id string, value string) *program.WorkflowConfig {
 	return &program.WorkflowConfig{
-		ID:      id,
+		Type:    id,
 		Name:    value,
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{

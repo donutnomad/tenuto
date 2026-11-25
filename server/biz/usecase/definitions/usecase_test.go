@@ -38,7 +38,7 @@ func (r *fakeRoutes) RefreshActivityRoutes(time.Time) error {
 }
 
 func (r *fakeRoutes) ValidateWorkflowConfigInNamespace(namespace string, workflow *programpkg.WorkflowConfig) error {
-	r.calls = append(r.calls, "validate:"+namespace+"/"+workflow.ID)
+	r.calls = append(r.calls, "validate:"+namespace+"/"+workflow.Type)
 	return r.validateErr
 }
 
@@ -69,11 +69,11 @@ func newEnv() *testEnv {
 func TestRegisterWorkflowVersionsPerNamespace(t *testing.T) {
 	// Happy Path: 同一 workflow ID 在两个 namespace 各有自己的内容版本
 	env := newEnv()
-	first, err := env.usecase.RegisterWorkflowInNamespace("tenant-a", &programpkg.WorkflowConfig{ID: "payments", Name: "Payments A", Program: programtest.Noop()})
+	first, err := env.usecase.RegisterWorkflowInNamespace("tenant-a", &programpkg.WorkflowConfig{Type: "payments", Name: "Payments A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := env.usecase.RegisterWorkflowInNamespace("tenant-b", &programpkg.WorkflowConfig{ID: "payments", Name: "Payments B", Program: programtest.Noop()})
+	second, err := env.usecase.RegisterWorkflowInNamespace("tenant-b", &programpkg.WorkflowConfig{Type: "payments", Name: "Payments B", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestRegisterWorkflowRefreshesRoutesThenValidatesBeforePersisting(t *testing
 	wantErr := errors.New("route unavailable")
 	env.routes.validateErr = wantErr
 
-	if _, err := env.usecase.RegisterWorkflowInNamespace("tenant-a", &programpkg.WorkflowConfig{ID: "payments", Program: programtest.Noop()}); !errors.Is(err, wantErr) {
+	if _, err := env.usecase.RegisterWorkflowInNamespace("tenant-a", &programpkg.WorkflowConfig{Type: "payments", Program: programtest.Noop()}); !errors.Is(err, wantErr) {
 		t.Fatalf("register error = %v, want %v", err, wantErr)
 	}
 	if _, err := env.store.LatestWorkflowConfigRefInNamespace("tenant-a", "payments"); err == nil {
@@ -115,11 +115,11 @@ func TestRegisterWorkflowStopsOnRefreshError(t *testing.T) {
 	wantErr := errors.New("worker versions unavailable")
 	for name, register := range map[string]func(*definitions.UseCase) error{
 		"register": func(u *definitions.UseCase) error {
-			_, err := u.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", Program: programtest.Noop()})
+			_, err := u.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", Program: programtest.Noop()})
 			return err
 		},
 		"enroll": func(u *definitions.UseCase) error {
-			_, err := u.EnrollWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", Program: programtest.Noop()})
+			_, err := u.EnrollWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", Program: programtest.Noop()})
 			return err
 		},
 	} {
@@ -141,9 +141,9 @@ func TestRegisterWorkflowValidatesConfig(t *testing.T) {
 	for name, workflow := range map[string]*programpkg.WorkflowConfig{
 		"nil config":                            nil,
 		"empty id":                              {Name: "no id"},
-		"missing program":                       {ID: "payments"},
-		"invalid program":                       {ID: "payments", Program: programpkg.WLangProgram{Schema: "wlang/program/v1", Program: []any{map[string]any{"return": nil}}}},
-		"run timeout exceeds execution timeout": {ID: "payments", Program: programtest.Noop(), RunTimeout: "2h", ExecutionTimeout: "1h"},
+		"missing program":                       {Type: "payments"},
+		"invalid program":                       {Type: "payments", Program: programpkg.WLangProgram{Schema: "wlang/program/v1", Program: []any{map[string]any{"return": nil}}}},
+		"run timeout exceeds execution timeout": {Type: "payments", Program: programtest.Noop(), RunTimeout: "2h", ExecutionTimeout: "1h"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			env := newEnv()
@@ -175,7 +175,7 @@ func TestRegisterWorkflowTargetWorker(t *testing.T) {
 		// Happy Path: 目标 Worker 在该 namespace 在线时注册成功，配置保留目标
 		env := newEnv()
 		env.workers.workers = online
-		ref, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", TargetWorkerIdentity: "worker-a", Program: programtest.Noop()})
+		ref, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", TargetWorkerIdentity: "worker-a", Program: programtest.Noop()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -188,7 +188,7 @@ func TestRegisterWorkflowTargetWorker(t *testing.T) {
 		// Edge Case: Worker 的空 namespace 归入 default
 		env := newEnv()
 		env.workers.workers = online
-		if _, err := env.usecase.RegisterWorkflowInNamespace("", &programpkg.WorkflowConfig{ID: "payments", TargetWorkerIdentity: "worker-default", Program: programtest.Noop()}); err != nil {
+		if _, err := env.usecase.RegisterWorkflowInNamespace("", &programpkg.WorkflowConfig{Type: "payments", TargetWorkerIdentity: "worker-default", Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -196,7 +196,7 @@ func TestRegisterWorkflowTargetWorker(t *testing.T) {
 		// Error Case: 其他 namespace 的同名 Worker 不算在线
 		env := newEnv()
 		env.workers.workers = online
-		_, err := env.usecase.RegisterWorkflowInNamespace("other", &programpkg.WorkflowConfig{ID: "payments", TargetWorkerIdentity: "worker-a", Program: programtest.Noop()})
+		_, err := env.usecase.RegisterWorkflowInNamespace("other", &programpkg.WorkflowConfig{Type: "payments", TargetWorkerIdentity: "worker-a", Program: programtest.Noop()})
 		if err == nil || err.Error() != `target worker "worker-a" is offline or unknown in namespace "other"` {
 			t.Fatalf("error = %v", err)
 		}
@@ -207,7 +207,7 @@ func TestRegisterWorkflowTargetWorker(t *testing.T) {
 	t.Run("identity too long", func(t *testing.T) {
 		// Error Case: 超过 191 字符的目标在读取 Worker 列表之前被拒绝
 		env := newEnv()
-		_, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", TargetWorkerIdentity: strings.Repeat("w", 192), Program: programtest.Noop()})
+		_, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", TargetWorkerIdentity: strings.Repeat("w", 192), Program: programtest.Noop()})
 		if err == nil || err.Error() != "target_worker_identity exceeds 191 characters" {
 			t.Fatalf("error = %v", err)
 		}
@@ -219,14 +219,14 @@ func TestRegisterWorkflowTargetWorker(t *testing.T) {
 		// Error Case: 读取 Worker 列表失败时返回该错误
 		env := newEnv()
 		env.workers.err = errors.New("worker store unavailable")
-		if _, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", TargetWorkerIdentity: "worker-a", Program: programtest.Noop()}); !errors.Is(err, env.workers.err) {
+		if _, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", TargetWorkerIdentity: "worker-a", Program: programtest.Noop()}); !errors.Is(err, env.workers.err) {
 			t.Fatalf("error = %v", err)
 		}
 	})
 	t.Run("no target skips worker lookup", func(t *testing.T) {
 		// Edge Case: 未指定目标时不读取 Worker 列表
 		env := newEnv()
-		if _, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", Program: programtest.Noop()}); err != nil {
+		if _, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		if env.workers.calls != 0 {
@@ -238,13 +238,13 @@ func TestRegisterWorkflowTargetWorker(t *testing.T) {
 func TestRegisterWorkflowArtifactKeepsActive(t *testing.T) {
 	// Happy Path: artifact 登记保存内容版本，active 留在原版本，且不刷新也不校验路由
 	env := newEnv()
-	active, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", Name: "A", Program: programtest.Noop()})
+	active, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	env.routes.calls = nil
 	env.routes.validateErr = errors.New("route unavailable")
-	artifact, err := env.usecase.RegisterWorkflowArtifactInNamespace(" ns ", &programpkg.WorkflowConfig{ID: "payments", Name: "B", Program: programtest.Noop()})
+	artifact, err := env.usecase.RegisterWorkflowArtifactInNamespace(" ns ", &programpkg.WorkflowConfig{Type: "payments", Name: "B", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,12 +263,12 @@ func TestRegisterWorkflowArtifactKeepsActive(t *testing.T) {
 // Enroll 与 Register 共用同一个路由校验，失败必须发生在写 latest 之前。
 func TestEnrollRouteFailureKeepsLatest(t *testing.T) {
 	env := newEnv()
-	first, err := env.usecase.EnrollWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{ID: "payments", Name: "A", Program: programtest.Noop()})
+	first, err := env.usecase.EnrollWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{Type: "payments", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatalf("enroll A: %v", err)
 	}
 	env.routes.validateErr = errors.New("route unavailable")
-	if _, err := env.usecase.EnrollWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{ID: "payments", Name: "B", Program: programtest.Noop()}); err == nil {
+	if _, err := env.usecase.EnrollWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{Type: "payments", Name: "B", Program: programtest.Noop()}); err == nil {
 		t.Fatal("路由校验失败时应拒绝登记")
 	}
 	active, err := env.store.LatestWorkflowConfigRefInNamespace("tenant", "payments")
@@ -284,7 +284,7 @@ func TestEnrollRouteFailureKeepsLatest(t *testing.T) {
 // 只做静态校验，不因 Activity 路由缺失失败；新内容仍需路由校验。
 func TestReplaySkipsRouteCheck(t *testing.T) {
 	env := newEnv()
-	content := &programpkg.WorkflowConfig{ID: "payments", Name: "A", Program: programtest.Noop()}
+	content := &programpkg.WorkflowConfig{Type: "payments", Name: "A", Program: programtest.Noop()}
 	first, err := env.usecase.EnrollWorkflowInNamespace("tenant", content)
 	if err != nil {
 		t.Fatalf("首次登记: %v", err)
@@ -301,7 +301,7 @@ func TestReplaySkipsRouteCheck(t *testing.T) {
 	if got := strings.Join(env.routes.calls, ","); got != "refresh" {
 		t.Fatalf("重复登记的路由调用 = %q, want 只有 refresh", got)
 	}
-	if _, err := env.usecase.EnrollWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{ID: "payments", Name: "B", Program: programtest.Noop()}); err == nil {
+	if _, err := env.usecase.EnrollWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{Type: "payments", Name: "B", Program: programtest.Noop()}); err == nil {
 		t.Fatal("新内容应被路由校验拒绝")
 	}
 	active, err := env.store.LatestWorkflowConfigRefInNamespace("tenant", "payments")
@@ -316,7 +316,7 @@ func TestReplaySkipsRouteCheck(t *testing.T) {
 func TestEnrollRejectsOverlongTargetBeforeRefresh(t *testing.T) {
 	// Error Case: 目标超长时在刷新路由之前返回
 	env := newEnv()
-	_, err := env.usecase.EnrollWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", TargetWorkerIdentity: strings.Repeat("w", 192), Program: programtest.Noop()})
+	_, err := env.usecase.EnrollWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", TargetWorkerIdentity: strings.Repeat("w", 192), Program: programtest.Noop()})
 	if err == nil || err.Error() != "target_worker_identity exceeds 191 characters" {
 		t.Fatalf("error = %v", err)
 	}
@@ -334,7 +334,7 @@ func TestReplicasShareLatestVersion(t *testing.T) {
 	}
 	replicaA, replicaB := newReplica(), newReplica()
 
-	first, err := replicaA.RegisterWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{ID: "payments", Name: "A", Program: programtest.Noop()})
+	first, err := replicaA.RegisterWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{Type: "payments", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestReplicasShareLatestVersion(t *testing.T) {
 		t.Fatalf("active = %+v err=%v, want %+v", ref, err, first)
 	}
 
-	second, err := replicaB.EnrollWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{ID: "payments", Name: "B", Program: programtest.Noop()})
+	second, err := replicaB.EnrollWorkflowInNamespace("tenant", &programpkg.WorkflowConfig{Type: "payments", Name: "B", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestRegisterWorkflowJSON(t *testing.T) {
 	t.Run("enrolls decoded artifact", func(t *testing.T) {
 		// Happy Path: 返回内容版本，并激活首次出现的内容
 		env := newEnv()
-		workflow := &programpkg.WorkflowConfig{ID: "payments", Name: "A", Program: programtest.Noop()}
+		workflow := &programpkg.WorkflowConfig{Type: "payments", Name: "A", Program: programtest.Noop()}
 		data, err := json.Marshal(workflow)
 		if err != nil {
 			t.Fatal(err)
@@ -399,7 +399,7 @@ func TestRegisterWorkflowJSON(t *testing.T) {
 		env := newEnv()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if _, err := env.usecase.RegisterWorkflowJSON(ctx, "ns", []byte(`{"id":"payments"}`)); !errors.Is(err, context.Canceled) {
+		if _, err := env.usecase.RegisterWorkflowJSON(ctx, "ns", []byte(`{"type":"payments"}`)); !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v", err)
 		}
 		if refs, err := env.store.ListWorkflowConfigRefsInNamespace("ns"); err != nil || len(refs) != 0 {
@@ -413,7 +413,7 @@ func TestSetWorkflowWorkerTarget(t *testing.T) {
 		// Happy Path: 以 active 内容为基础发布带目标的新版本；原版本内容保持原样
 		env := newEnv()
 		env.workers.workers = []protocol.ActivityWorkerVersion{{Namespace: "ns", Identity: "worker-a"}}
-		original, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", Name: "A", Program: programtest.Noop()})
+		original, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", Name: "A", Program: programtest.Noop()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -445,7 +445,7 @@ func TestSetWorkflowWorkerTarget(t *testing.T) {
 	t.Run("offline target", func(t *testing.T) {
 		// Error Case: 目标离线时 active 保持原版本
 		env := newEnv()
-		original, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{ID: "payments", Program: programtest.Noop()})
+		original, err := env.usecase.RegisterWorkflowInNamespace("ns", &programpkg.WorkflowConfig{Type: "payments", Program: programtest.Noop()})
 		if err != nil {
 			t.Fatal(err)
 		}

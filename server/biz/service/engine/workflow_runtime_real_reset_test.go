@@ -50,7 +50,7 @@ func TestResetWorkflow_RealResetPath_WritesResetMarker(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-real-reset", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-real-reset", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	base, _, lastWFT := twoWFTCompletedRun(t, ctx, server, mgr, "wf-real-reset")
@@ -96,10 +96,10 @@ func TestResetWorkflow_FirstVsLast_DifferentTruncation(t *testing.T) {
 
 	// 两条 base 用独立 workflowID：同一 workflowID 至多一个 current/running（对标 Temporal），
 	// reset 后 current 切到新 run，无法再为同 workflowID 首次 start 第二条 base。
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-first-last-a", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-first-last-a", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-first-last-b", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-first-last-b", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +146,7 @@ func TestResetWorkflow_AtomicSuccess_AllThreePartsPresent(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-atomic-ok", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-atomic-ok", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	base, _, _ := twoWFTCompletedRun(t, ctx, server, mgr, "wf-atomic-ok")
@@ -196,7 +196,7 @@ func TestResetWorkflow_AtomicRollback_MarkerAppendFails_NothingPersisted(t *test
 	mgr := newFailingEventManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-atomic-rb", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-atomic-rb", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	base, _, _ := twoWFTCompletedRun(t, ctx, server, mgr, "wf-atomic-rb")

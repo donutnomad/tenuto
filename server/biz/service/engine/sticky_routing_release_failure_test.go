@@ -176,7 +176,7 @@ func TestStickyFallbackRedispatchesAfterStickyExpires(t *testing.T) {
 	clk := clocktest.NewFake(testClockStart)
 	server := assembleServerWithClock(mgr, queue, newTestTaskQueue(), clk)
 	t.Cleanup(server.Stop)
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "sticky-expiry", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "sticky-expiry", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", "sticky-expiry", "sticky-expiry", "", nil))

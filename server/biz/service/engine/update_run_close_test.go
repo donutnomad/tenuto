@@ -28,7 +28,7 @@ func TestUpdateFailsWhenRunCloses(t *testing.T) {
 			mgr := memory.NewExecutionManager()
 			srv, _ := newFakeClockServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 			t.Cleanup(srv.Stop)
-			ref, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "update-close-" + kind, Program: programtest.Noop()})
+			ref, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "update-close-" + kind, Program: programtest.Noop()})
 			if err != nil {
 				t.Fatal(err)
 			}

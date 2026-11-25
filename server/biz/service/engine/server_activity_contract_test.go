@@ -29,7 +29,7 @@ func wlangProgramForTest() program.WLangProgram {
 // contractWorkflowConfig 用 WLang Activities 映射声明 Activity 契约。
 func contractWorkflowConfig(id string, refs map[string]program.ActivityRef) *program.WorkflowConfig {
 	return &program.WorkflowConfig{
-		ID:         id,
+		Type:       id,
 		Program:    wlangProgramForTest(),
 		Activities: refs,
 	}
@@ -47,7 +47,7 @@ func startContractRunWithTarget(t testing.TB, mgr execution.ExecutionManager, se
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID := "run-" + wf.ID
+	runID := "run-" + wf.Type
 	run := &execution.Run{
 		ID:                    runID,
 		Namespace:             protocol.DefaultNamespace,
@@ -281,7 +281,7 @@ func TestSetWorkflowTargetRequiresAllStaticActivities(t *testing.T) {
 		t.Fatal(err)
 	}
 	// pay-worker 覆盖支付类 Activity，但缺库存队列能力 → 必须拒绝。
-	_, err := server.Definitions().SetWorkflowWorkerTarget(protocol.DefaultNamespace, wf.ID, "pay-worker")
+	_, err := server.Definitions().SetWorkflowWorkerTarget(protocol.DefaultNamespace, wf.Type, "pay-worker")
 	if err == nil {
 		t.Fatal("expected capability error for uncovered inventory activity")
 	}
@@ -292,7 +292,7 @@ func TestSetWorkflowTargetRequiresAllStaticActivities(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// 请求被拒绝后原配置保持无 target。
-	ref, err := server.activeWorkflowRefInNamespace(protocol.DefaultNamespace, wf.ID)
+	ref, err := server.activeWorkflowRefInNamespace(protocol.DefaultNamespace, wf.Type)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestSetWorkflowTargetRequiresAllStaticActivities(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().SetWorkflowWorkerTarget(protocol.DefaultNamespace, wf.ID, "all-worker"); err != nil {
+	if _, err := server.Definitions().SetWorkflowWorkerTarget(protocol.DefaultNamespace, wf.Type, "all-worker"); err != nil {
 		t.Fatalf("all-capable target must be accepted: %v", err)
 	}
 }
@@ -332,11 +332,11 @@ func TestSetWorkflowTargetRejectsOfflineIdentity(t *testing.T) {
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	_, err := server.Definitions().SetWorkflowWorkerTarget(protocol.DefaultNamespace, wf.ID, "ghost-worker")
+	_, err := server.Definitions().SetWorkflowWorkerTarget(protocol.DefaultNamespace, wf.Type, "ghost-worker")
 	if err == nil || !strings.Contains(err.Error(), "offline or unknown") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	ref, err := server.activeWorkflowRefInNamespace(protocol.DefaultNamespace, wf.ID)
+	ref, err := server.activeWorkflowRefInNamespace(protocol.DefaultNamespace, wf.Type)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func TestActivityQueueWithoutConsumerVersusMissingActivityType(t *testing.T) {
 	defer server.Stop()
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "inventory-two-stage",
+		Type:    "inventory-two-stage",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"reserve": {Symbol: "reserve", Type: "inventory.reserve.v2", TaskQueue: "inventory"},

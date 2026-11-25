@@ -24,7 +24,7 @@ func OrderWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 
-	result, err := GenerateFromSource(src, Options{WorkflowID: "order-flow", FuncName: "OrderWorkflow", Filename: "order_workflow.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "order-flow", FuncName: "OrderWorkflow", Filename: "order_workflow.go"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func OrderWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 
-	result, err := GenerateFromSource(src, Options{WorkflowID: "bare-future", FuncName: "OrderWorkflow", Filename: "bare_future.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "bare-future", FuncName: "OrderWorkflow", Filename: "bare_future.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

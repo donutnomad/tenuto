@@ -24,7 +24,7 @@ func TestWorkerTargetVersionAndOfflineRoute(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	original, err := s.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "targeted", Program: programtest.Noop(),
+	original, err := s.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "targeted", Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge": {Symbol: "charge", Type: "charge"},
 		}})
@@ -116,7 +116,7 @@ func TestFirstTargetDelivery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "first-target", TargetWorkerIdentity: "B", Program: programtest.Noop(),
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "first-target", TargetWorkerIdentity: "B", Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge": {Symbol: "charge", Type: "charge"},
 		}})
@@ -172,7 +172,7 @@ func TestFirstTargetDelivery(t *testing.T) {
 func TestCompletedRestart(t *testing.T) {
 	server := newTestServer()
 	defer server.Stop()
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "repeat", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "repeat", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	first, err := startedRunID(server.StartWorkflow(context.Background(), "", "repeat", "repeat", "", nil))

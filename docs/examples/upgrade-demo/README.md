@@ -4,7 +4,7 @@
 
 - **Server**：`tenuto-server`，Workflow 引擎与 HTTP API，不执行 Workflow Task。
 - **app-a（履约）**：自己的 Workflow `return-flow` 与五到七个 Activity，三个发布版本 `appa/v1`、`appa/v2`、`appa/v3`。
-- **app-b（订单）**：自己的 Workflow `order-flow` 与本地 Activity `orders.price`，用 `remote=true` 契约跨进程调用 app-a 的 Activity，两个发布版本 `appb/v1`、`appb/v2`。
+- **app-b（订单）**：自己的 Workflow `order-flow` 与本地 Activity `orders.price`，用 `@RemoteActivity` 契约跨进程调用 app-a 的 Activity，两个发布版本 `appb/v1`、`appb/v2`。
 
 Workflow Task 由 app-a 与 app-b 的 Worker 执行。一次实际运行的输出记录在同目录的 `RESULTS.md`。
 
@@ -90,15 +90,15 @@ w.Stop()
 
 `rel.activities` 与 `rel.workflow` 是生成的 `RegisterActivities` 与 `WorkflowDefinition`。app-b 的 `RegisterActivities` 只登记本地的 `orders.price`，远程契约只进入 Program 的声明，跨进程调用不需要额外的接入代码。
 
-客户端一侧（`scenario/env.go`）用 `sdk/client`：`ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: workflowID}, workflowType, input)` 启动 Run，Workflow Type 是 `@Workflow` 的 `id`，Workflow ID 是订单号或退货单号，所以同一个类型可以同时有多个在途 Run；`SignalWorkflow`、`QueryWorkflow`、`GetWorkflowHistory` 驱动与读取 Run，`UpdateWorkflowExecutionOptions` 修改单个 Run 的版本策略。「写法基础」里用 `UpdateWorkflow` 按 Workflow ID 发送 Update `place` / `open`，同步拿到 Handler 的返回值。Run 详情（`UpgradeError`、`ConfigError`、Program 内容版本）、在线 Worker 与已登记的 Program 是 Console 使用的运维端点，driver 直接按 `protocol/runtimeapi` 的类型请求它们。
+客户端一侧（`scenario/env.go`）用 `sdk/client`：`ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: workflowID}, workflowType, input)` 启动 Run，Workflow Type 是 `@Workflow` 的 `type`，Workflow ID 是订单号或退货单号，所以同一个类型可以同时有多个在途 Run；`SignalWorkflow`、`QueryWorkflow`、`GetWorkflowHistory` 驱动与读取 Run，`UpdateWorkflowExecutionOptions` 修改单个 Run 的版本策略。「写法基础」里用 `UpdateWorkflow` 按 Workflow ID 发送 Update `place` / `open`，同步拿到 Handler 的返回值。Run 详情（`UpgradeError`、`ConfigError`、Program 内容版本）、在线 Worker 与已登记的 Program 是 Console 使用的运维端点，driver 直接按 `protocol/runtimeapi` 的类型请求它们。
 
 ## 注解写法
 
 | 写法 | 位置 |
 |---|---|
 | `@Activity(type=...,queue=...,version=...)`，函数签名 `func(context.Context, In) (Out, error)` | `appa/v1/activities.go` |
-| `@Activity(...,remote=true)` 声明在函数类型上，DTO 由调用方自己定义 | `appb/v1/remote.go` |
-| `@Workflow(id=...,policy=...,version=...)` | `appa/v1/workflow.go`（`pinned`）、`appb/v1/workflow.go`（`auto_upgrade`） |
+| `@RemoteActivity(...)` 声明在函数类型上，DTO 由调用方自己定义 | `appb/v1/remote.go` |
+| `@Workflow(type=...,policy=...,version=...)` | `appa/v1/workflow.go`（`pinned`）、`appb/v1/workflow.go`（`auto_upgrade`） |
 | 生成的类型化调用 `CallPrice(ctx, in, opts)` 与 `ActivityOptions` / `RetryPolicy` | `appb/v1/workflow.go` |
 | 两个 Future 并行：`workflow.ExecuteActivity` 后分别 `Get` | `appb/v1/workflow.go` |
 | Signal 等待 `workflow.WaitSignal`；Signal 与 Timer 竞争：`workflow.Go` + `workflow.Sleep` + `workflow.Await` | `appa/v1/workflow.go`、`appb/v1/workflow.go` |

@@ -36,7 +36,7 @@ func newPolicyTree(t *testing.T, parentRunID string) *policyTree {
 	t.Helper()
 	srv, mgr := newServerForTest(t)
 	register := func(name string) string {
-		ref, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: name + "-flow-" + parentRunID, Program: programtest.Noop()})
+		ref, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: name + "-flow-" + parentRunID, Program: programtest.Noop()})
 		if err != nil {
 			t.Fatal(err)
 		}

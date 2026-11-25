@@ -23,7 +23,7 @@ func TestActivityTaskCarriesWorkflowIdentityAndTimes(t *testing.T) {
 	if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{Identity: "A", BuildID: "v1", TaskQueues: []string{"payments"}, ActivityTypes: []string{"charge"}}); err != nil {
 		t.Fatal(err)
 	}
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "order-flow", Program: programtest.Noop(),
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "order-flow", Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge": {Symbol: "charge", Type: "charge"},
 		}})

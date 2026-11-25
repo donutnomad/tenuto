@@ -39,7 +39,7 @@ func newUpdateWithStartTestEnv(t *testing.T, workflowID string) *updateWithStart
 	mgr := newFailingEventManager()
 	wfQueue := newTestTaskQueue()
 	server := assembleServer(mgr, wfQueue, newTestTaskQueue())
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: workflowID, Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: workflowID, Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	return &updateWithStartTestEnv{
@@ -236,8 +236,8 @@ func TestUpdateWithStartSeparatesWorkflowTypeAndExecutionID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.ID != "approval-workflow" {
-		t.Fatalf("loaded workflow = %q", loaded.ID)
+	if loaded.Type != "approval-workflow" {
+		t.Fatalf("loaded workflow = %q", loaded.Type)
 	}
 
 	sameRunID, _, err := env.runtime.UpdateWithStart(

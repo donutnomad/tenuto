@@ -48,7 +48,7 @@ func helper(x int) int { return x * 2 }
 
 func generateLowered(body string) (Result, error) {
 	src := lowerHeader + "func W(ctx workflow.Context, input map[string]any) (Out, error) {\n" + body + "\n}\n"
-	return GenerateFromSource([]byte(src), Options{WorkflowID: "lower", FuncName: "W", Filename: "w.go"})
+	return GenerateFromSource([]byte(src), Options{WorkflowType: "lower", FuncName: "W", Filename: "w.go"})
 }
 
 // 第 3 项与第 2 项：没有确定性语义的写法在生成期报错，错误信息带行号与替代写法。

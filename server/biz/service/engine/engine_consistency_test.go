@@ -83,7 +83,7 @@ func TestUpdateWorkflowRepeatOnClosedRunReturnsRecordedResult(t *testing.T) {
 	srv, mgr := newServerForTest(t)
 	ctx := context.Background()
 	const workflowID, updateID = "update-closed-flow", "up-closed"
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: workflowID, Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: workflowID, Program: programtest.Noop()})
 	update := func(runID, updateID string) (protocol.WorkflowUpdateResult, error) {
 		return srv.UpdateWorkflow(ctx, "", workflowID, runID, "set_priority", updateID, protocol.UpdateWaitStageEnums.Accepted, updateArgs(map[string]any{"priority": "high"}))
 	}
@@ -167,7 +167,7 @@ func TestCompleteWorkflowActivationAcksWhenStickyAssignmentFails(t *testing.T) {
 	mgr := &stickyAssignFailingManager{ExecutionManager: memory.NewExecutionManager()}
 	srv := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	t.Cleanup(srv.Stop)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "sticky-assign-fails", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "sticky-assign-fails", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	ctx := srv.WorkflowTaskContext(context.Background(), runID, wftID)
 	state, err := mgr.GetWorkflowExecutionState(runID)
@@ -219,7 +219,7 @@ func TestRedeliveredStartedWorkflowTaskKeepsProgramVersion(t *testing.T) {
 	srv := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 	t.Cleanup(srv.Stop)
 	ctx := context.Background()
-	refA, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "redeliver-flow", Name: "A", Program: programtest.Noop()})
+	refA, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "redeliver-flow", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestRedeliveredStartedWorkflowTaskKeepsProgramVersion(t *testing.T) {
 		t.Fatalf("first lease version = %q, want %q", first.Task.ProgramVersion, refA.Version)
 	}
 
-	refB, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "redeliver-flow", Name: "B", Program: programtest.Noop()})
+	refB, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "redeliver-flow", Name: "B", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestResetWorkflowReapplyFailureCreatesNoRun(t *testing.T) {
 	mgr := newFailingEventManager()
 	srv := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	t.Cleanup(srv.Stop)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "reset-reapply-fails", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "reset-reapply-fails", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	if err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, nil, ""); err != nil {
 		t.Fatal(err)

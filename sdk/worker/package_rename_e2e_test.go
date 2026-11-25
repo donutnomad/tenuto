@@ -33,7 +33,7 @@ import (
 // 只改包名的升级
 // ============================================
 // 测试策略:
-// - Happy Path: Workflow 与它的类型从包 order 移到 order222（@Workflow id、@Activity type、JSON 字段不变），
+// - Happy Path: Workflow 与它的类型从包 order 移到 order222（@Workflow type、@Activity type、JSON 字段不变），
 //   生成器产出新的内容版本；类型表的名字随包名改变，Activity 契约指纹不变
 // - Happy Path: 停在 Signal 上的 pinned Run 留在旧 Program 完成；auto_upgrade Run 之后的 Workflow Task 换到
 //   新 Program，用 order222 的类型表解码 order 写下的 History（Activity 结果、子 Workflow 结果、struct Signal）
@@ -95,7 +95,7 @@ func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{}, nil
 }
 
-// @Workflow(id="rename-order")
+// @Workflow(type="rename-order")
 func Order(ctx workflow.Context, in OrderInput) (Result, error) {
 	first, err := CallCharge(ctx, ChargeInput{OrderID: in.OrderID, Amount: in.Amount}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
 	if err != nil {
@@ -431,7 +431,7 @@ var renameChildConfig *program.WorkflowConfig
 func mustChild(t *testing.T) *program.WorkflowConfig {
 	t.Helper()
 	if renameChildConfig == nil {
-		child, err := sdkgen.GenerateFromSource([]byte(renameChildSrc), sdkgen.Options{WorkflowID: "rename-child", FuncName: "Child", Filename: "child.go"})
+		child, err := sdkgen.GenerateFromSource([]byte(renameChildSrc), sdkgen.Options{WorkflowType: "rename-child", FuncName: "Child", Filename: "child.go"})
 		if err != nil {
 			t.Fatal(err)
 		}

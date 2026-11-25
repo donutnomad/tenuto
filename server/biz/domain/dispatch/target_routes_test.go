@@ -17,7 +17,7 @@ func paymentsWorkflow(activities ...programpkg.ActivityRef) *programpkg.Workflow
 	for _, ref := range activities {
 		refs[ref.Symbol] = ref
 	}
-	return &programpkg.WorkflowConfig{ID: "payments", Program: programtest.Noop(), Activities: refs}
+	return &programpkg.WorkflowConfig{Type: "payments", Program: programtest.Noop(), Activities: refs}
 }
 
 func chargeActivity() programpkg.ActivityRef {
@@ -168,7 +168,7 @@ func TestResolveTargetedActivityRoute(t *testing.T) {
 // CheckDeclaredActivityContract 只在 Workflow 为该类型声明了契约时对照 Worker 的上报。
 func TestCheckDeclaredActivityContract(t *testing.T) {
 	declaring := &programpkg.WorkflowConfig{
-		ID: "contract",
+		Type: "contract",
 		Program: programpkg.WLangProgram{
 			Schema: programpkg.WLangProgramSchemaV2, Lang: programpkg.WLangLanguageV1,
 			Program: []any{map[string]any{"return": nil}}, HandlerABISchema: programpkg.WLangHandlerABISchemaV1,

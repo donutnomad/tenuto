@@ -8,12 +8,12 @@ status: Stable
 
 <FeatureStatus status="Stable" />
 
-Workflow Type 是部署稳定的名称，即 `@Workflow(id=...)` 的取值；Go 函数是本次构建中的实现。客户端按 Workflow Type 启动 Workflow，生成器把函数翻译成以这个 Type 登记的 Program。
+Workflow Type 是部署稳定的名称，即 `@Workflow(type=...)` 的取值；Go 函数是本次构建中的实现。客户端按 Workflow Type 启动 Workflow，生成器把函数翻译成以这个 Type 登记的 Program。
 
 ## Workflow Type
 
 ```go
-// @Workflow(id="orders.approval",version=v1)
+// @Workflow(type="orders.approval",version=v1)
 func Approval(ctx workflow.Context, in CreateInput) (CreateResult, error) { ... }
 ```
 

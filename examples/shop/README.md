@@ -81,7 +81,7 @@ curl -X POST localhost:8080/orders/<order_id>/delivered
 
 | 路径 | 内容 |
 | --- | --- |
-| `contracts/` | 跨服务 Activity 契约：`@Activity(..., remote=true)` 命名函数类型与入参出参 |
+| `contracts/` | 跨服务 Activity 契约：`@RemoteActivity(...)` 命名函数类型与入参出参 |
 | `orders/` | `place-order` Workflow、`orders.notify` Activity |
 | `payment/`、`warehouse/` | 两个服务的 Activity 实现，以订单号为幂等键 |
 | `cmd/*-service/` | 三个进程入口 |

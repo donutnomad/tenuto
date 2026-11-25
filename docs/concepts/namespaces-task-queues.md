@@ -36,7 +36,7 @@ Namespace 变更会影响 Run 查询、Task Queue 路由和客户端默认目标
 
 ## Task Queue
 
-Task Queue 决定 Activity Task 被哪一组 Worker 领取。Workflow Task 不分队列，由 Server 派给任意 Workflow Worker，`@Workflow` 没有 `queue` 参数。
+Task Queue 决定 Activity Task 被哪一组 Worker 领取。Workflow Task 不分队列，由 Server 派给任意 Workflow Worker。
 
 Activity 的队列是 Activity 自己的属性，有两种写法：
 

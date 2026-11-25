@@ -60,7 +60,7 @@ func lateRegisterProgram() *program.WorkflowConfig {
 		},
 	}
 	nodes := &program.WorkflowConfig{
-		ID: "late-register",
+		Type: "late-register",
 		Activities: map[string]program.ActivityRef{
 			"activities.Work": {Symbol: "activities.Work", Type: "activities.Work"},
 		},
@@ -107,7 +107,7 @@ func requireUnknownUpdate(t *testing.T, commands []history.Command, name, update
 // 而不是永久停在 Accepted；main 已返回，workflow 在同一批完成。
 func TestUpdateHandlerCoroutine_UnknownUpdate_Rejected(t *testing.T) {
 	nodes := &program.WorkflowConfig{
-		ID: "no-handler",
+		Type: "no-handler",
 		Program: program.NewWLangProgram([]any{
 			map[string]any{"let": map[string]any{"x": map[string]any{"literal": map[string]any{"type": "int64", "value": "1"}}}},
 		}),
@@ -269,7 +269,7 @@ func TestUpdateHandler_AddFutureInside_CrossBatch(t *testing.T) {
 		},
 	}
 	nodes := &program.WorkflowConfig{
-		ID: "handler-addfuture",
+		Type: "handler-addfuture",
 		Activities: map[string]program.ActivityRef{
 			"activities.Fetch": {Symbol: "activities.Fetch", Type: "activities.Fetch"},
 		},
@@ -332,7 +332,7 @@ func TestUpdateHandler_Failure_CompletesWithFailure(t *testing.T) {
 		},
 	}
 	nodes := &program.WorkflowConfig{
-		ID: "failing-handler",
+		Type: "failing-handler",
 		Program: program.NewWLangProgram([]any{
 			map[string]any{"expr": map[string]any{"SetUpdateHandler": []any{
 				map[string]any{"pkg": "workflow"},

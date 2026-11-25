@@ -7,13 +7,13 @@
 注解写在声明文档注释的 `//` 行里，形如 `@Kind(key=value,key="value")`：逗号分隔，值可带双引号也可不带。
 
 ```go
-// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
+// @Workflow(type="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error)
 
 // @Activity(type="lifecycle.charge",queue="lifecycle",version=v1)
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error)
 
-// @Activity(type="payments.settle",queue="payments",version=v1,remote=true)
+// @RemoteActivity(type="payments.settle",queue="payments",version=v1)
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 ```
 
@@ -21,8 +21,8 @@ type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 
 | key | 必填 | 含义 |
 | --- | --- | --- |
-| `id` | 是 | Workflow 定义 ID；启动 Run、Child、Continue-As-New、Schedule 都用它 |
-| `name` | 否 | 展示名，缺省等于 `id` |
+| `type` | 是 | Workflow Type；启动 Run、Child、Continue-As-New、Schedule 都用它 |
+| `name` | 否 | 展示名，缺省等于 `type` |
 | `policy` | 否 | `auto_upgrade`（缺省）或 `pinned`；其他值（包括 `auto`）报错 |
 | `version` | 否 | 作者声明的发布标签，写入 `workflow.json` 并参与内容 hash |
 
@@ -38,22 +38,21 @@ Workflow 函数规则：
 | key | 必填 | 含义 |
 | --- | --- | --- |
 | `type` | 是 | Activity Type：路由、注册、重放对照共用的身份 |
-| `queue` | 否 | Activity Task Queue；写了时 `workflow.json` 声明它，生成的 `RegisterActivities` 连同它一起登记；省略时由 Server 按 Worker 的登记选路（Worker 的 `ActivityTaskQueues`，不写时是 `default`）。`@Workflow` 没有 `queue` 参数 |
+| `queue` | 否 | Activity Task Queue；写了时 `workflow.json` 声明它，生成的 `RegisterActivities` 连同它一起登记；省略时由 Server 按 Worker 的登记选路（Worker 的 `ActivityTaskQueues`，不写时是 `default`） |
 | `version` | 否 | 契约版本标签，Server 只做逐字相等对照 |
-| `remote` | 否 | `true` 表示实现在别的 Worker；只能标在命名函数类型上 |
 
-两种形态：
+两种形态，key 相同（`type`、`queue`、`version`）：
 
 | 形态 | 写法 | 生成内容 |
 | --- | --- | --- |
-| 本地实现 | 注解标在包级函数上 | 桥 `CallX`、`activity.Caller` 与 `activity.Handler` 签名断言、进入 `RegisterActivities` |
-| 远程契约 | `remote=true` 标在 `type X func(context.Context, In) (Out, error)` 上 | 桥 `CallX` 与标记函数 `<类型名>Activity`（如 `SettleRemoteActivity`）；实现由拥有它的 Worker 用 `activity.RegisterActivity` 登记 |
+| 本地实现 | `@Activity` 标在包级函数上 | 桥 `CallX`、`activity.Caller` 与 `activity.Handler` 签名断言、进入 `RegisterActivities` |
+| 远程契约 | `@RemoteActivity` 标在 `type X func(context.Context, In) (Out, error)` 上 | 桥 `CallX` 与标记函数 `<类型名>Activity`（如 `SettleRemoteActivity`）；实现由拥有它的 Worker 用 `activity.RegisterActivityOnQueue` 登记 |
 
 约束：
 
 - 签名固定 `func(context.Context, In) (Out, error)`；`In` / `Out` 是 struct 或 `map[string]any`。
-- 实现是包级函数，方法被拒绝；命名函数类型必须声明 `remote=true`。
-- 一个声明只带一条 `@Activity`；同一批契约里 `type` 唯一、桥名唯一。
+- 实现是包级函数，方法被拒绝；命名函数类型用 `@RemoteActivity`，写 `@Activity` 报错。
+- 一个声明只带一条 `@Activity` 或 `@RemoteActivity`；同一批契约里 `type` 唯一、桥名唯一。
 
 ### 桥名
 
@@ -173,11 +172,11 @@ wire 支持的类型：字符串、布尔、定宽整数与 `int`、浮点、指
 | --- | --- |
 | `注解必须写成 // 行注释` | 把 `/* */` 里的注解改成 `//` |
 | `@Workflow 未知 key "..."` / `@Activity 未知 key "..."` / `key "..." 重复` | 只用上表的 key |
-| `@Workflow 缺少 id` / `@Activity 缺少 type` | 补必填项 |
+| `@Workflow 缺少 type` / `@Activity 缺少 type` | 补必填项 |
 | `@Workflow policy="..." 未知，支持 auto_upgrade、pinned` | 改成两者之一 |
 | `@Workflow 注解只能有一个，实际 N 个` | 一个包目录一个 Workflow，拆包 |
 | `@Workflow 函数不能是方法` / `@Activity 实现必须是普通函数，不能是方法` | 改成包级函数 |
-| `remote=true 只能标注命名函数类型` / `命名函数类型 X 必须声明 remote=true` | 按两种形态之一书写 |
+| `@RemoteActivity 只能标注命名函数类型` / `命名函数类型 X 是远端契约，用 @RemoteActivity 标注`  | 实现函数用 `@Activity`，命名函数类型用 `@RemoteActivity` |
 | `activity 契约必须有两个参数 (ctx, in)` / `第一个参数必须是 context.Context` / `必须返回 (out, error)` | 改成固定签名 |
 | `@Activity type="..." 的输入类型 X 不是 JSON object；Activity 的输入输出必须是 struct 或 map[string]any` | 包进 struct 字段 |
 | `Workflow W 的输入类型 X 不是 JSON object；Workflow 的输入必须是 struct（或其指针）或 map[string]any` | 包进 struct 字段 |

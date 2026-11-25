@@ -43,7 +43,7 @@ func TestAppWorkerReportsActivityResultThroughRuntimeHTTPAPI(t *testing.T) {
 	}
 	defer c.Close()
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "runtime-api-result-reporting"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "runtime-api-result-reporting"},
 		sdkgentest.Step{Type: "custodian.Capture", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "custodian"`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(namespace, wf); err != nil {
@@ -84,7 +84,7 @@ func TestAppWorkerReportsActivityResultThroughRuntimeHTTPAPI(t *testing.T) {
 	defer workflowWorker.Stop()
 	defer appWorker.Stop()
 
-	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: wf.ID}, wf.ID)
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: wf.Type}, wf.Type)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestAppWorkerReportsActivityFailureThroughRuntimeHTTPAPI(t *testing.T) {
 	}
 	defer c.Close()
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "runtime-api-failure-reporting"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "runtime-api-failure-reporting"},
 		sdkgentest.Step{Type: "custodian.Capture", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "custodian", RetryPolicy: workflow.RetryPolicy{MaxAttempts: 1}`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
@@ -154,7 +154,7 @@ func TestAppWorkerReportsActivityFailureThroughRuntimeHTTPAPI(t *testing.T) {
 	defer workflowWorker.Stop()
 	defer appWorker.Stop()
 
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

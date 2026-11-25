@@ -217,7 +217,7 @@ func (e *Env) waitCompleted(runID string) *runtimeapi.Run {
 	return e.waitRun(runID, "completed", func(run *runtimeapi.Run) bool { return run.Status == history.StatusCompleted })
 }
 
-// startRun 用 Start 启动一个 Run：workflowType 是 @Workflow 的 id，决定运行哪个定义；
+// startRun 用 Start 启动一个 Run：workflowType 是 @Workflow 的 type，决定运行哪个定义；
 // workflowID 是这次执行的业务 ID，同一个类型的多个 Run 靠它区分。
 func (e *Env) startRun(workflowType, workflowID string, input map[string]any) string {
 	run, err := e.sdk.ExecuteWorkflow(e.ctx(), client.StartWorkflowOptions{ID: workflowID}, workflowType, input)
@@ -274,7 +274,7 @@ func (e *Env) programAt(runID, contentVersion string) string {
 	var cfg program.WorkflowConfig
 	e.must(e.admin.post(e.ctx(), runtimeapi.WorkflowRuntimeGetConfigPath,
 		runtimeapi.WorkflowRuntimeRunRequest{Namespace: e.Namespace, RunID: runID, ProgramVersion: contentVersion}, &cfg))
-	return cfg.ID + " " + cfg.Version + " (" + short(contentVersion) + ")"
+	return cfg.Type + " " + cfg.Version + " (" + short(contentVersion) + ")"
 }
 
 func short(hash string) string {

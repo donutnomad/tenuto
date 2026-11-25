@@ -30,11 +30,11 @@ func startChildWorkflow(t *testing.T, srv *Server, mgr execution.ExecutionManage
 // openParentForChildWorkflow 注册 parent+child 配置、建 parent run 并打开一个 WFT，返回 WFT 与子 Workflow ID。
 func openParentForChildWorkflow(t *testing.T, srv *Server, mgr execution.ExecutionManager, parentRunID string) (int64, string) {
 	t.Helper()
-	parentRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "parent-flow-" + parentRunID, Program: programtest.Noop()})
+	parentRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "parent-flow-" + parentRunID, Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "child-flow-" + parentRunID, Program: programtest.Noop()})
+	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "child-flow-" + parentRunID, Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,8 +215,8 @@ func TestRecoverChildSkipsTerminal(t *testing.T) {
 // （state 是唯一权威）时，recovery 仍据 state 重建子 Run（证明读 state 而非扫父 history）。
 func TestRecoverChildReadsStateNotHistory(t *testing.T) {
 	srv, mgr := newServerForTest(t)
-	parentRef, _ := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "parent-only-state", Program: programtest.Noop()})
-	childRef, _ := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "child-only-state", Program: programtest.Noop()})
+	parentRef, _ := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "parent-only-state", Program: programtest.Noop()})
+	childRef, _ := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "child-only-state", Program: programtest.Noop()})
 	parent := &execution.Run{ID: "run-parent-only-state", WorkflowID: parentRef.WorkflowID, WorkflowType: parentRef.WorkflowID, WorkflowConfigVersion: parentRef.Version, Status: history.StatusRunning, CreatedAt: time.Now()}
 	_ = mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(parent)) })
 	// 只写 ChildWorkflowState（initiated），父 history 无任何 child 事件。

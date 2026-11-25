@@ -108,7 +108,7 @@ func TestDeclaredActivityContractsCollectsAllSymbols(t *testing.T) {
 		HandlerABISchema: programpkg.WLangHandlerABISchemaV1,
 	}
 	wf := &programpkg.WorkflowConfig{
-		ID:      "contract-branches",
+		Type:    "contract-branches",
 		Program: program,
 		Activities: map[string]programpkg.ActivityRef{
 			// 未选中的 GetVersion 分支同样参与声明。
@@ -137,7 +137,7 @@ func TestDeclaredActivityContractsCollectsAllSymbols(t *testing.T) {
 // 未声明契约的引用不进入索引，调度期因此完全不产生对照。
 func TestDeclaredActivityContractsSkipsUndeclaredRefs(t *testing.T) {
 	declared := DeclaredActivityContracts(&programpkg.WorkflowConfig{
-		ID:      "plain",
+		Type:    "plain",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"charge": {Symbol: "charge", Type: "payments.charge"},
@@ -151,7 +151,7 @@ func TestDeclaredActivityContractsSkipsUndeclaredRefs(t *testing.T) {
 // 领取时按领取 Worker 自己这个 build 的上报对照声明；同一 Identity 的其他 build 的上报不算数。
 func TestCheckClaimingWorkerContract(t *testing.T) {
 	declaring := func(version string) *programpkg.WorkflowConfig {
-		return &programpkg.WorkflowConfig{ID: "claim", Program: programtest.Noop(), Activities: map[string]programpkg.ActivityRef{
+		return &programpkg.WorkflowConfig{Type: "claim", Program: programtest.Noop(), Activities: map[string]programpkg.ActivityRef{
 			"charge": {Type: "payments.charge", TaskQueue: "payments", Version: version},
 		}}
 	}

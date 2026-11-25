@@ -105,11 +105,11 @@ func TestHistoryLimitCloseReportsFailureTypeToParent(t *testing.T) {
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: memory.NewTaskQueue(8), ActivityRouter: memory.NewActivityQueueRouter(8)})
 	engine.RegisterTestActivityWorker(t, server, "activity.first", "activity.second", "activity.any")
 	t.Cleanup(server.Stop)
-	childRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "history-limit-child", Program: programtest.Noop()})
+	childRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "history-limit-child", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "history-limit-parent", Program: programtest.Noop()})
+	parentRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "history-limit-parent", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

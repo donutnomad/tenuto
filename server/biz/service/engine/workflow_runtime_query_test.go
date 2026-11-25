@@ -33,7 +33,7 @@ func newQueryE2EEnv(t *testing.T, src, workflowID, funcName string) *queryE2EEnv
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: workflowID, FuncName: funcName, Filename: "q.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: workflowID, FuncName: funcName, Filename: "q.go"})
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}

@@ -302,7 +302,7 @@ func TestReplayMatch_UpdateHandler_RunSkipped(t *testing.T) {
 		},
 	}
 	nodes := &program.WorkflowConfig{
-		ID: "handler-uuid",
+		Type: "handler-uuid",
 		Program: program.NewWLangProgram([]any{
 			map[string]any{"expr": map[string]any{"SetUpdateHandler": []any{
 				map[string]any{"pkg": "workflow"},

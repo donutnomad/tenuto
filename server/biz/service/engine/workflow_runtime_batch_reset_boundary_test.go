@@ -33,7 +33,7 @@ import (
 // 用独立 workflowID：同一 workflowID 至多一个 current/running（对标 Temporal）。
 func batchResetRunWithWFTs(t *testing.T, ctx context.Context, svc *Server, mgr execution.ExecutionManager, wfID string, n int) string {
 	t.Helper()
-	if _, err := svc.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+	if _, err := svc.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(svc.StartWorkflow(ctx, "", wfID, wfID, "", nil))
@@ -226,7 +226,7 @@ func TestStartBatchOperation_BatchReset_EmptyMatch_NoPanic(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-batch-empty", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-batch-empty", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 

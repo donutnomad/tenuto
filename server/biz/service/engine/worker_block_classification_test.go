@@ -43,7 +43,7 @@ type blockClassifyWorkerAPI struct {
 
 func newBlockClassifyWorkerAPI(t *testing.T, src []byte, workflowID, funcName, filename string, replay bool) *blockClassifyWorkerAPI {
 	t.Helper()
-	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowID: workflowID, FuncName: funcName, Filename: filename})
+	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: workflowID, FuncName: funcName, Filename: filename})
 	if err != nil {
 		t.Fatal(err)
 	}

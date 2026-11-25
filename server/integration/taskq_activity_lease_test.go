@@ -68,13 +68,13 @@ func testRunningActivityIsNotRedelivered(t *testing.T) {
 	worker.Start(ctx)
 	defer worker.Stop()
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-slow-activity"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-slow-activity"},
 		sdkgentest.Step{Type: "slow_charge", Options: `StartToCloseTimeout: 30 * time.Second`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,13 +101,13 @@ func testRestartDoesNotDuplicateQueuedTasks(t *testing.T) {
 	store := newMySQLWorkflowStore(t)
 
 	first := newLeaseTestServer(t, h, store)
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-restart-no-duplicate"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-restart-no-duplicate"},
 		sdkgentest.Step{Type: "capture", Options: `StartToCloseTimeout: 30 * time.Second`},
 	)
 	if _, err := first.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(first.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(first.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,13 +188,13 @@ func testVanishedWorkerAttemptRetries(t *testing.T) {
 	defer server.Stop()
 	registerActivityRoutes(t, server, "charge")
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-vanished-worker"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-vanished-worker"},
 		sdkgentest.Step{Type: "charge", Options: `StartToCloseTimeout: time.Second, RetryPolicy: workflow.RetryPolicy{MaxAttempts: 2, InitialInterval: 10 * time.Millisecond, BackoffCoefficient: 1}`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

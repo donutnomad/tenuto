@@ -22,7 +22,7 @@ func TestHistoryEventTimestampsComeFromServerClock(t *testing.T) {
 	t.Cleanup(server.Stop)
 
 	const workflowID = "event-clock"
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: workflowID, Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: workflowID, Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", workflowID, workflowID, "", nil))

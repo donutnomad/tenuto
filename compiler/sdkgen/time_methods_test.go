@@ -27,7 +27,7 @@ func W(ctx workflow.Context, input map[string]any) (map[string]any, error) {
 	` + body + `
 }
 `
-		return sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "time-methods", FuncName: "W", Filename: "w.go"})
+		return sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "time-methods", FuncName: "W", Filename: "w.go"})
 	}
 
 	rejected := []struct {

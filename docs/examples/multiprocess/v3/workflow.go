@@ -31,7 +31,7 @@ type OrderOutput struct {
 	Note    string `json:"note"`
 }
 
-// @Workflow(id="order-flow",name="Multiprocess Order Flow",policy=auto_upgrade,version=v3)
+// @Workflow(type="order-flow",name="Multiprocess Order Flow",policy=auto_upgrade,version=v3)
 func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	workflow.GetVersion(ctx, "order-flow-changes", 7, 7)
 	stock, err := contracts.CallCheck(ctx, contracts.CheckStockInput{OrderID: in.OrderID, Amount: in.Amount}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})

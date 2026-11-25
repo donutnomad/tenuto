@@ -17,7 +17,7 @@
 //	var out OrderOutput
 //	err = run.Get(ctx, &out)
 //
-// Workflow 由 `@Workflow(id=...)` 声明的 Workflow Type 寻址。Workflow 的输入与结果、Signal 与 Query 的参数、
+// Workflow 由 `@Workflow(type=...)` 声明的 Workflow Type 寻址。Workflow 的输入与结果、Signal 与 Query 的参数、
 // Query 的结果是 JSON 对象（结构体或 map）；Update 的参数与结果按 json/plain-v1 逐个编码。
 //
 // 错误：Server 应答映射成 *ServiceError，errors.Is 可匹配 ErrNotFound、ErrWorkflowExecutionAlreadyStarted 等

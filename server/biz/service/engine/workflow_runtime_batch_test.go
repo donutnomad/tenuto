@@ -38,7 +38,7 @@ func TestStartBatchOperation_Cancel(t *testing.T) {
 	runIDs := make([]string, 3)
 	for i := range 3 {
 		wfID := fmt.Sprintf("wf-batch-%d", i)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		id, err := startedRunID(server.StartWorkflow(ctx, "", wfID, wfID, "", nil))
@@ -108,7 +108,7 @@ func TestStartBatchOperation_Terminate(t *testing.T) {
 	runIDs := make([]string, 2)
 	for i := range 2 {
 		wfID := fmt.Sprintf("wf-term-%d", i)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		id, err := startedRunID(server.StartWorkflow(ctx, "", wfID, wfID, "", nil))
@@ -155,7 +155,7 @@ func TestBatchTerminateCountsClosedRunsAsSkipped(t *testing.T) {
 	runIDs := make([]string, 3)
 	for i := range 3 {
 		wfID := fmt.Sprintf("wf-term-skip-%d", i)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		id, err := startedRunID(server.StartWorkflow(ctx, "", wfID, wfID, "", nil))
@@ -189,7 +189,7 @@ func TestGetBatchOperation(t *testing.T) {
 	ctx := context.Background()
 	server := newTestServer()
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-get-batch", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-get-batch", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := server.StartWorkflow(ctx, "", "wf-get-batch", "wf-get-batch", "", nil); err != nil {
@@ -242,7 +242,7 @@ func TestListBatchOperations(t *testing.T) {
 	// 批量过滤改用 namespace+status。
 	for i := range 2 {
 		wfID := fmt.Sprintf("wf-list-batch-%d", i)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := server.StartWorkflow(ctx, "", wfID, wfID, "", nil); err != nil {
@@ -260,7 +260,7 @@ func TestListBatchOperations(t *testing.T) {
 
 	for i := range 2 {
 		wfID := fmt.Sprintf("wf-list-batch-%d", i+2)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := server.StartWorkflow(ctx, "", wfID, wfID, "", nil); err != nil {
@@ -303,7 +303,7 @@ func TestResetWorkflow_Success(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-reset", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-reset", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(ctx, "", "wf-reset", "wf-reset", "", map[string]any{"key": "val"}))
@@ -344,7 +344,7 @@ func TestResetWorkflow_StillRunning(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-reset-run", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-reset-run", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(ctx, "", "wf-reset-run", "wf-reset-run", "", nil))
@@ -452,13 +452,13 @@ func TestListNamespaces(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-x", &program.WorkflowConfig{ID: "wf-x", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-x", &program.WorkflowConfig{Type: "wf-x", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-y", &program.WorkflowConfig{ID: "wf-y1", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-y", &program.WorkflowConfig{Type: "wf-y1", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-y", &program.WorkflowConfig{ID: "wf-y2", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns-y", &program.WorkflowConfig{Type: "wf-y2", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 

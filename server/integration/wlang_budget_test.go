@@ -58,7 +58,7 @@ func TestOversizedStringFailsRunAndEngineKeepsRunning(t *testing.T) {
 		if _, err := eng.RegisterWorkflow(wf); err != nil {
 			t.Fatal(err)
 		}
-		runID, err := eng.Run(ctx, wf.ID, nil)
+		runID, err := eng.Run(ctx, wf.Type, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,7 +95,7 @@ func TestOversizedStringFailsRunAndEngineKeepsRunning(t *testing.T) {
 	if _, err := eng.RegisterWorkflow(wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := eng.Run(ctx, wf.ID, nil)
+	runID, err := eng.Run(ctx, wf.Type, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ import (
 
 func W(ctx workflow.Context, input map[string]any) error {`+body+`
 }
-`), sdkgen.Options{WorkflowID: id, FuncName: "W", Filename: "w.go"})
+`), sdkgen.Options{WorkflowType: id, FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

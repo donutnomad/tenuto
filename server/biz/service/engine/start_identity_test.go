@@ -103,7 +103,7 @@ func TestSignalWithStartStartsNewRunAfterTerminalCurrent(t *testing.T) {
 // 复用进行中的 Run 时，请求的 Workflow Type 必须与它一致。
 func TestSignalWithStartRejectsOtherWorkflowType(t *testing.T) {
 	env := newUpdateWithStartTestEnv(t, "wf-sws-type-a")
-	if _, err := env.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-sws-type-b", Program: programtest.Noop()}); err != nil {
+	if _, err := env.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-sws-type-b", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -156,7 +156,7 @@ func TestUpdateWithStartRetryAfterRunEndedReturnsRecordedUpdate(t *testing.T) {
 func TestWithStartUsesActiveProgram(t *testing.T) {
 	env := newUpdateWithStartTestEnv(t, "wf-active-program")
 	ctx := context.Background()
-	active, err := env.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-active-program", Name: "Active", Program: programtest.Noop()})
+	active, err := env.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-active-program", Name: "Active", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

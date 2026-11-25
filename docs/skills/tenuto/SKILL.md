@@ -36,7 +36,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
    type SayHelloInput struct{ Name string `json:"name"` }
    type SayHelloOutput struct{ Message string `json:"message"` }
 
-   // @Workflow(id="startup-greeting",name="Startup Greeting",policy=auto_upgrade,version=v1)
+   // @Workflow(type="startup-greeting",name="Startup Greeting",policy=auto_upgrade,version=v1)
    func Greet(ctx workflow.Context, in GreetInput) (GreetOutput, error) {
        out, err := CallSayHello(ctx, SayHelloInput{Name: in.Name},
            workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second})
@@ -177,7 +177,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - 旧 build 下线前先排空只有它满足契约的 Activity（`pinned` 在旧 Program 上的 Run）：下线之后这些任务留在队列里被新 build 反复拒绝，直到旧 build 回来或 `ScheduleToStartTimeout` 到期。契约不变的发布没有这个限制。
 - 取消按 Temporal 语义交给 Workflow 代码：根 Context 被取消，已取消 ctx 上的 Activity / `Sleep` / 子 Workflow 返回取消错误，代码继续运行。补偿发在 `workflow.NewDisconnectedContext(ctx)` 上；返回取消错误 → `cancelled`，返回 nil → `completed`。局部取消用 `workflow.WithCancel`。
 - 内置认证缺省关闭：`WORKFLOW_HTTP_AUTH_TOKEN`（或 `_FILE`，逗号分隔多个用于轮换，每个至少 16 字节）让 `/runtime/*` 与 `/admin/*` 要求 `Authorization: Bearer`，缺失或不对时 401；`WORKFLOW_HTTP_TLS_CLIENT_CA_FILE` 在握手阶段要求客户端证书（需同时配服务端证书），探针改用明文的 `WORKFLOW_HEALTH_ADDR`。`/health/*` 不校验，pprof 监听不校验。SDK 用 `client.Options.AuthToken` / `TLS`（Worker 沿用 Client），401 返回 `client.ErrUnauthenticated` 且不重试；Console 用服务端变量 `TENUTO_SERVER_AUTH_TOKEN`、`TENUTO_SERVER_TLS_*`，自身没有登录，对外开放时放在 SSO 之后，token 缺失或不对时页面提示 `Tenuto Server rejected the Console's credentials (HTTP 401).`；`tenuto-workflow-gen -url` 用环境变量 `TENUTO_AUTH_TOKEN`。认证不授权：通过认证的调用方可以读写全部 Namespace、登记 Program、冒充 Worker、调用 `/admin/partitions`（分区数只增不减，上限 1024），按调用方分权在网关按 `docs/deploy/security.md` 的路径分组做。所有 POST 必须带 `Content-Type: application/json`，否则 415；Run List 的 `limit` 最大 1000。WLang 限制单个字符串 16 MiB、数组 10 万元素、map 10 万键，超出时 Run 以 `[E_BUDGET]` 失败、副本照常运行；上限针对单个值，只登记受信流水线构建的 Program。构建 Server 用 `go.mod` 指定的 `toolchain go1.27.4`（修复 `net/http` 的 GO-2026-6859 等标准库公告），`GOTOOLCHAIN=local` 的环境自备 1.27.4 或更高。
-- 启动时 Workflow Type（`@Workflow(id=...)`）与 Workflow ID 是两个参数。同一 Namespace + Workflow ID 同时只有一个活跃 Run，再次 `StartWorkflow` 返回 `current run conflict`；同一定义并行多个实例就给每个实例不同的 Workflow ID，或留空让 SDK 生成。
+- 启动时 Workflow Type（`@Workflow(type=...)`）与 Workflow ID 是两个参数。同一 Namespace + Workflow ID 同时只有一个活跃 Run，再次 `StartWorkflow` 返回 `current run conflict`；同一定义并行多个实例就给每个实例不同的 Workflow ID，或留空让 SDK 生成。
 
 ## 我要做 X
 
@@ -251,7 +251,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | 生成器：`CallX(ctx, in) 没有设置 StartToCloseTimeout 或 ScheduleToCloseTimeout` | Activity 调用没有关闭超时 | 传 `workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}` |
 | 生成器：`@Activity type="..." 的输入类型 ... 不是 JSON object` | Activity I/O 不是 struct 或 `map[string]any` | 包进 struct 字段 |
 | 生成器：`Workflow W 的输入类型 ... 不是 JSON object` | Workflow 入参是标量、切片或 `any` | 包进 struct 字段，或用 `map[string]any` |
-| 生成器：`@Workflow policy="auto" 未知，支持 auto_upgrade、pinned`、`未知 key`、`缺少 id` / `缺少 type`、`注解必须写成 // 行注释`、`@Workflow 注解只能有一个` | 注解写法错误 | 按 `references/codegen.md` 的 key 表修正 |
+| 生成器：`@Workflow policy="auto" 未知，支持 auto_upgrade、pinned`、`未知 key`、`缺少 type`、`注解必须写成 // 行注释`、`@Workflow 注解只能有一个` | 注解写法错误 | 按 `references/codegen.md` 的 key 表修正 |
 | 生成器：`activity ... 的 marker ... 是变量引用 ... 而不是函数符号` | Activity 函数名在 Workflow 函数体内被同名局部变量遮蔽，或包没通过类型检查 | 改局部变量名；先让包编译通过 |
 | Reset 返回 400：`reset requires reset_type (first_workflow_task or last_workflow_task) or reset_event_id` | 没有给重置点 | 二选一提供，见 `references/operations.md` |
 | Runtime API 返回 503 `service temporarily unavailable`（SDK 重试用尽后是 `client.ErrUnavailable`），Server 日志 WARN `runtime http request failed: dependency temporarily unavailable`，`err` 是 `Error 1040: Too many connections` 等 | MySQL 连接数打满、锁等待超时、死锁、连接中断或 matching 分区换主；连接数打满通常是 `副本数 × 2 × WORKFLOW_DB_MAX_OPEN_CONNS` 超过了 MySQL `max_connections` | 调低 `WORKFLOW_DB_MAX_OPEN_CONNS` 或调高 `max_connections`；Reset、Schedule Create / Trigger、批量操作启动得到的是 502，先读状态确认再重发，见 `references/operations.md` |
@@ -267,7 +267,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | `examples/shop/` | 独立 Go 模块的业务 demo：order / payment / warehouse 三个服务进程 + Server，remote 契约包、Saga 补偿、幂等重试、Signal + 持久 Timer、Query、Blocked 恢复；`run-demo.sh` 用内存后端一键运行 |
 | `docs/examples/startup-workflow/` | 最短路径：一个 Workflow、一个 Activity、`worker/main.go` 双 Worker 启动与自动登记 |
 | `docs/examples/saga-workflow/` | 显式逆序补偿、`ActivityOptions` 重试、`IsApplicationError` 分支、`ApplicationErrorDetail`、Workflow / Activity / DTO 分文件 |
-| `docs/examples/versioned-workflow/` | `GetVersion` 分支（v1 → v2）、跨包 Activity、`remote=true` 契约、用旧 History 重放新 Program 的测试、`curl` 注册与启动流程 |
+| `docs/examples/versioned-workflow/` | `GetVersion` 分支（v1 → v2）、跨包 Activity、`@RemoteActivity` 契约、用旧 History 重放新 Program 的测试、`curl` 注册与启动流程 |
 | `docs/examples/multiprocess/` | Server + 两个 Activity 进程经 HTTP 协作，remote 契约包共享，v1 → v2 → v3 发布与不兼容升级的观察（`run-demo.sh` 需要本机 MySQL） |
 | `docs/examples/messaging/` | Update Handler、Query Handler 与 `sdk/client` 调用端的最小片段 |
 | `docs/examples/upgrade-demo/` | 升级演练；内容以该目录自带的说明为准 |

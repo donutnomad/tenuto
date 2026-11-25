@@ -77,7 +77,7 @@ func (f *recordingWorkflowAPI) HandleWorkflowTaskFailed(context.Context, string,
 
 func testWorkflowDefinition() registration.Definition {
 	return registration.Definition{FS: fstest.MapFS{
-		"workflow.json": &fstest.MapFile{Data: []byte(`{"id":"startup-flow"}`)},
+		"workflow.json": &fstest.MapFile{Data: []byte(`{"type":"startup-flow"}`)},
 	}}
 }
 

@@ -55,8 +55,8 @@ func assertNoActive(t *testing.T, repo definition.ConfigRepository, namespace, w
 
 func testSaveActivatesContentVersion(t *testing.T, repo definition.ConfigRepository) {
 	// Happy Path: Version 是内容 hash；同内容重复保存得到同一引用；每次保存都把 active 指向本次内容。
-	contentA := &programpkg.WorkflowConfig{ID: "flow", Name: "A", Version: "v1"}
-	contentB := &programpkg.WorkflowConfig{ID: "flow", Name: "B", Version: "v1"}
+	contentA := &programpkg.WorkflowConfig{Type: "flow", Name: "A", Version: "v1"}
+	contentB := &programpkg.WorkflowConfig{Type: "flow", Name: "B", Version: "v1"}
 	first, err := repo.SaveWorkflowConfigInNamespace("ns", contentA)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func testSaveActivatesContentVersion(t *testing.T, repo definition.ConfigReposit
 	if err != nil {
 		t.Fatalf("pinned content is unreadable after publishing a new version: %v", err)
 	}
-	if loaded.ID != "flow" || loaded.Name != "A" || loaded.Version != "v1" {
+	if loaded.Type != "flow" || loaded.Name != "A" || loaded.Version != "v1" {
 		t.Fatalf("loaded content = %+v", loaded)
 	}
 	if got := mustVersion(t, loaded); got != first.Version {
@@ -103,7 +103,7 @@ func testSaveActivatesContentVersion(t *testing.T, repo definition.ConfigReposit
 
 func testArtifactKeepsActive(t *testing.T, repo definition.ConfigRepository) {
 	// Happy Path: artifact 登记只保存内容版本，active 保持原值。
-	artifact := &programpkg.WorkflowConfig{ID: "flow", Name: "artifact"}
+	artifact := &programpkg.WorkflowConfig{Type: "flow", Name: "artifact"}
 	ref, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", artifact)
 	if err != nil {
 		t.Fatal(err)
@@ -116,11 +116,11 @@ func testArtifactKeepsActive(t *testing.T, repo definition.ConfigRepository) {
 		t.Fatalf("artifact content: %v", err)
 	}
 
-	active, err := repo.SaveWorkflowConfigInNamespace("ns", &programpkg.WorkflowConfig{ID: "flow", Name: "active"})
+	active, err := repo.SaveWorkflowConfigInNamespace("ns", &programpkg.WorkflowConfig{Type: "flow", Name: "active"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", &programpkg.WorkflowConfig{ID: "flow", Name: "later artifact"}); err != nil {
+	if _, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", &programpkg.WorkflowConfig{Type: "flow", Name: "later artifact"}); err != nil {
 		t.Fatal(err)
 	}
 	assertActive(t, repo, "ns", "flow", active.Version)
@@ -129,8 +129,8 @@ func testArtifactKeepsActive(t *testing.T, repo definition.ConfigRepository) {
 func testEnrollActivation(t *testing.T, repo definition.ConfigRepository) {
 	// Happy Path: 新内容首次出现时激活；已存在内容重复登记时 active 保持原值；
 	// active 为空时登记已存在内容会补激活。
-	contentA := &programpkg.WorkflowConfig{ID: "enroll-flow", Name: "A", Version: "v1"}
-	contentB := &programpkg.WorkflowConfig{ID: "enroll-flow", Name: "B", Version: "v1"}
+	contentA := &programpkg.WorkflowConfig{Type: "enroll-flow", Name: "A", Version: "v1"}
+	contentB := &programpkg.WorkflowConfig{Type: "enroll-flow", Name: "B", Version: "v1"}
 
 	refA, activated, err := repo.EnrollWorkflowConfigInNamespace("ns", contentA)
 	if err != nil {
@@ -159,7 +159,7 @@ func testEnrollActivation(t *testing.T, repo definition.ConfigRepository) {
 	}
 	assertActive(t, repo, "ns", "enroll-flow", refB.Version)
 
-	artifactOnly := &programpkg.WorkflowConfig{ID: "artifact-flow", Name: "A", Version: "v1"}
+	artifactOnly := &programpkg.WorkflowConfig{Type: "artifact-flow", Name: "A", Version: "v1"}
 	registered, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", artifactOnly)
 	if err != nil {
 		t.Fatalf("register artifact: %v", err)
@@ -180,14 +180,14 @@ func testEnrollState(t *testing.T, repo definition.ConfigRepository) {
 	state := func(workflow *programpkg.WorkflowConfig) bool {
 		t.Helper()
 		activating, err := repo.WorkflowConfigEnrollStateInNamespace("ns", definition.WorkflowConfigRef{
-			Namespace: "ns", WorkflowID: workflow.ID, Version: mustVersion(t, workflow),
+			Namespace: "ns", WorkflowID: workflow.Type, Version: mustVersion(t, workflow),
 		})
 		if err != nil {
 			t.Fatalf("enroll state: %v", err)
 		}
 		return activating
 	}
-	active := &programpkg.WorkflowConfig{ID: "flow", Name: "A"}
+	active := &programpkg.WorkflowConfig{Type: "flow", Name: "A"}
 	if !state(active) {
 		t.Fatal("unknown content must report activating")
 	}
@@ -197,10 +197,10 @@ func testEnrollState(t *testing.T, repo definition.ConfigRepository) {
 	if state(active) {
 		t.Fatal("stored content with an active version must not report activating")
 	}
-	if !state(&programpkg.WorkflowConfig{ID: "flow", Name: "B"}) {
+	if !state(&programpkg.WorkflowConfig{Type: "flow", Name: "B"}) {
 		t.Fatal("new content must report activating")
 	}
-	pending := &programpkg.WorkflowConfig{ID: "pending-flow", Name: "A"}
+	pending := &programpkg.WorkflowConfig{Type: "pending-flow", Name: "A"}
 	if _, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", pending); err != nil {
 		t.Fatal(err)
 	}
@@ -220,11 +220,11 @@ func testMissingConfig(t *testing.T, repo definition.ConfigRepository) {
 
 func testConfigNamespaceIsolation(t *testing.T, repo definition.ConfigRepository) {
 	// Edge Case: 同一 workflow ID 在两个 namespace 各自保存内容与 active；空 namespace 归入 default。
-	refA, err := repo.SaveWorkflowConfigInNamespace("tenant-a", &programpkg.WorkflowConfig{ID: "payments", Name: "A"})
+	refA, err := repo.SaveWorkflowConfigInNamespace("tenant-a", &programpkg.WorkflowConfig{Type: "payments", Name: "A"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	refB, err := repo.SaveWorkflowConfigInNamespace("tenant-b", &programpkg.WorkflowConfig{ID: "payments", Name: "B"})
+	refB, err := repo.SaveWorkflowConfigInNamespace("tenant-b", &programpkg.WorkflowConfig{Type: "payments", Name: "B"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func testConfigNamespaceIsolation(t *testing.T, repo definition.ConfigRepository
 		t.Fatalf("tenant-a content read through tenant-b: err=%v", err)
 	}
 
-	refDefault, err := repo.SaveWorkflowConfigInNamespace("", &programpkg.WorkflowConfig{ID: "payments", Name: "D"})
+	refDefault, err := repo.SaveWorkflowConfigInNamespace("", &programpkg.WorkflowConfig{Type: "payments", Name: "D"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,29 +251,29 @@ func testConfigNamespaceIsolation(t *testing.T, repo definition.ConfigRepository
 
 func testListRefs(t *testing.T, repo definition.ConfigRepository) {
 	// Happy Path: List 返回 namespace 内全部内容版本，Active 返回每个 workflow 的 active 引用。
-	a1, err := repo.SaveWorkflowConfigInNamespace("ns", &programpkg.WorkflowConfig{ID: "a", Name: "1"})
+	a1, err := repo.SaveWorkflowConfigInNamespace("ns", &programpkg.WorkflowConfig{Type: "a", Name: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// 保存时间精确到毫秒；隔开两次保存，同一 workflow 内的先后由保存时间决定。
 	time.Sleep(2 * time.Millisecond)
-	a2, err := repo.SaveWorkflowConfigInNamespace("ns", &programpkg.WorkflowConfig{ID: "a", Name: "2"})
+	a2, err := repo.SaveWorkflowConfigInNamespace("ns", &programpkg.WorkflowConfig{Type: "a", Name: "2"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b1, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", &programpkg.WorkflowConfig{ID: "b", Name: "1"})
+	b1, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", &programpkg.WorkflowConfig{Type: "b", Name: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.SaveWorkflowConfigInNamespace("other", &programpkg.WorkflowConfig{ID: "a", Name: "other"}); err != nil {
+	if _, err := repo.SaveWorkflowConfigInNamespace("other", &programpkg.WorkflowConfig{Type: "a", Name: "other"}); err != nil {
 		t.Fatal(err)
 	}
 
-	c1, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", &programpkg.WorkflowConfig{ID: "c", Name: "1"})
+	c1, err := repo.SaveWorkflowConfigArtifactInNamespace("ns", &programpkg.WorkflowConfig{Type: "c", Name: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.SaveWorkflowConfigInNamespace("ns", &programpkg.WorkflowConfig{ID: "c", Name: "1"}); err != nil {
+	if _, err := repo.SaveWorkflowConfigInNamespace("ns", &programpkg.WorkflowConfig{Type: "c", Name: "1"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -302,7 +302,7 @@ func assertRefs(t *testing.T, label string, got []definition.WorkflowConfigRef, 
 // testSavedContentIsDetached：保存后调用方改动自己的对象，读到的仍是保存时的内容；重复读取得到同一份内容。
 func testSavedContentIsDetached(t *testing.T, repo definition.ConfigRepository) {
 	input := &programpkg.WorkflowConfig{
-		ID: "flow", Name: "saved",
+		Type: "flow", Name: "saved",
 		Activities: map[string]programpkg.ActivityRef{"Charge": {Type: "charge", TaskQueue: "payments"}},
 	}
 	ref, err := repo.SaveWorkflowConfigInNamespace("ns", input)

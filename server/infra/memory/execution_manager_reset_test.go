@@ -72,7 +72,7 @@ func TestMemoryResetWorkflow_RealResetPath_WritesResetMarker(t *testing.T) {
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: memory.NewTaskQueue(16), ActivityRouter: memory.NewActivityQueueRouter(16)})
 	defer server.Stop()
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-mem-real-reset", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-mem-real-reset", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	base, _, lastWFT := twoWFTCompletedRun(t, ctx, server, mgr, "wf-mem-real-reset")
@@ -129,10 +129,10 @@ func TestMemoryResetWorkflow_FirstVsLast_DifferentTruncation(t *testing.T) {
 
 	// 两个 base run 用独立 workflowID：同一 workflowID 至多一个 current（对标 Temporal），
 	// 第二个 StartWorkflow 同 workflowID 会与首个 current 冲突。
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-mem-first-last-a", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-mem-first-last-a", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-mem-first-last-b", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-mem-first-last-b", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 

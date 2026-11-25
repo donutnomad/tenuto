@@ -1,5 +1,5 @@
 {
-  "id": "place-order",
+  "type": "place-order",
   "name": "Place Order",
   "policy": "auto_upgrade",
   "version": "v1",

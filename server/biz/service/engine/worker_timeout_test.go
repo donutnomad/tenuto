@@ -58,7 +58,7 @@ type timeoutWorkerAPI struct {
 // newTimeoutWorkerAPI 构造一个顺序执行 activityCount 个 Activity 的 Workflow 与全部完成的历史：
 // 重放它所需的时间远超测试给的 Workflow Task 超时。
 func newTimeoutWorkerAPI(t *testing.T, activityCount int) *timeoutWorkerAPI {
-	wf := sdkgentest.Loop(t, &program.WorkflowConfig{ID: "wf-timeout"}, "noop", activityCount)
+	wf := sdkgentest.Loop(t, &program.WorkflowConfig{Type: "wf-timeout"}, "noop", activityCount)
 	events := []history.Event{history.NewWorkflowStartedEvent(map[string]any{"request_id": "r-1"}, "", "", "", "", 0)}
 	for i := 0; i < activityCount; i++ {
 		stepID := fmt.Sprintf("#a%d", i+1)

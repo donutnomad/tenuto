@@ -1,5 +1,5 @@
 {
-  "id": "order-flow",
+  "type": "order-flow",
   "name": "Multiprocess Order Flow",
   "policy": "auto_upgrade",
   "version": "v3",

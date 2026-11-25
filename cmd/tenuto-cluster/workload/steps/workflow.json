@@ -1,5 +1,5 @@
 {
-  "id": "cluster-steps",
+  "type": "cluster-steps",
   "name": "Cluster Steps",
   "policy": "auto_upgrade",
   "version": "v1",

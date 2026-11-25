@@ -34,7 +34,7 @@ func TestRealTaskQActivityWorkersOfAnyBuildServeTheQueue(t *testing.T) {
 	workflowStore := newMySQLWorkflowStore(t)
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, map[string]string{"payments": "activity-payments"})})
 	defer server.Stop()
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "taskq-build-routing-workers"},
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "taskq-build-routing-workers"},
 		sdkgentest.Step{Type: "payments.Targeted", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "payments"`},
 		sdkgentest.Step{Type: "payments.Untargeted", Options: `StartToCloseTimeout: time.Minute, TaskQueue: "payments"`},
 	)); err != nil {
@@ -299,7 +299,7 @@ func waitUntil(t *testing.T, deadline time.Time) {
 func registerStickyWorkflow(t *testing.T, server *engine.Server, workflowID string) {
 	t.Helper()
 	registerActivityRoutes(t, server, "activity.first", "activity.second")
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{ID: workflowID},
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: workflowID},
 		sdkgentest.Step{Type: "activity.first", Options: `StartToCloseTimeout: time.Minute`},
 		sdkgentest.Step{Type: "activity.second", Options: `StartToCloseTimeout: time.Minute`},
 	)); err != nil {

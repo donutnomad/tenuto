@@ -253,10 +253,10 @@ func registerGeneratedWorkflow(t *testing.T, server *engine.Server, workflowID, 
 func registerGeneratedWorkflowNamed(t *testing.T, server *engine.Server, workflowID, source, policy, name string) definition.WorkflowConfigRef {
 	t.Helper()
 	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{
-		WorkflowID: workflowID,
-		Name:       name,
-		FuncName:   "Flow",
-		Filename:   "flow.go",
+		WorkflowType: workflowID,
+		Name:         name,
+		FuncName:     "Flow",
+		Filename:     "flow.go",
 	})
 	if err != nil {
 		t.Fatal(err)

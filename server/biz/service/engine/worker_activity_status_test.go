@@ -51,7 +51,7 @@ func TestWorkerSkipsActivityTaskForTerminalRun(t *testing.T) {
 func TestWorkerSkipsWorkflowTaskForTerminalRun(t *testing.T) {
 	api := &activityStatusAPI{
 		status: history.StatusCompleted,
-		wf:     &program.WorkflowConfig{ID: "already-done", Program: programtest.Noop()},
+		wf:     &program.WorkflowConfig{Type: "already-done", Program: programtest.Noop()},
 	}
 	worker := assembleWorker(api, wfsdk.NewRegistry(), worker.WorkerOptions{})
 
@@ -71,7 +71,7 @@ func TestWorkerSkipsWorkflowTaskForTerminalRun(t *testing.T) {
 func TestWorkerSkipsClosedWorkflowTask(t *testing.T) {
 	api := &activityStatusAPI{
 		status: history.StatusRunning,
-		wf:     &program.WorkflowConfig{ID: "closed-task", Program: programtest.Noop()},
+		wf:     &program.WorkflowConfig{Type: "closed-task", Program: programtest.Noop()},
 		events: []history.Event{
 			{ID: 10, WorkflowTaskScheduled: &history.WorkflowTaskScheduledEvent{}},
 			{WorkflowTaskCompleted: &history.WorkflowTaskCompletedEvent{ScheduledEventID: 10}},

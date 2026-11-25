@@ -25,7 +25,7 @@ type Contract struct {
 	Type       string // 注解 type，如 payments.charge
 	Queue      string // 注解 queue；空表示定义不声明队列，由 Server 按 Worker 的登记选路
 	Version    string // 注解 version
-	Remote     bool   // remote=true：契约是命名函数类型，实现不在本仓
+	Remote     bool   // @RemoteActivity：契约是命名函数类型，实现在别的进程
 	Input      string // 输入类型的源码文本（契约包内的写法，如 ChargeInput）
 	Output     string // 输出类型的源码文本
 	// InputExpr/OutputExpr 是同一类型的 AST，跨包重写时用于按 import 别名重新限定。
@@ -38,6 +38,14 @@ type Contract struct {
 	CallName   string // 生成的桥名，如 CallCharge
 	MarkerName string // 稳定 marker 名：实现函数名，或 remote 契约的 <Type>Activity 标记函数
 	Pos        string // file:line
+}
+
+// annotationName 是声明这个契约的注解名，用在错误信息里。
+func (c Contract) annotationName() string {
+	if c.Remote {
+		return "@RemoteActivity"
+	}
+	return "@Activity"
 }
 
 // markerExpr 是 marker 在 Go 源码里的写法：同包裸标识符，跨包带 import 别名。
@@ -166,7 +174,7 @@ func scanContracts(dir string, module moduleInfo) ([]Contract, []string, error) 
 		}
 		for _, contract := range found {
 			if previous, exists := types[contract.Type]; exists {
-				return nil, nil, fmt.Errorf("%s: @Activity type=%q 重复声明（另一处在 %s）", contract.Pos, contract.Type, previous)
+				return nil, nil, fmt.Errorf("%s: %s type=%q 重复声明（另一处在 %s）", contract.Pos, contract.annotationName(), contract.Type, previous)
 			}
 			types[contract.Type] = contract.Pos
 			if previous, exists := callNames[contract.CallName]; exists {
@@ -213,8 +221,8 @@ func requireObjectType(contract Contract, side, source string, expr ast.Expr) er
 	if isStringAnyMap(expr) {
 		return nil
 	}
-	return fmt.Errorf("%s: @Activity type=%q 的%s类型 %s 不是 JSON object；Activity 的输入输出必须是 struct 或 map[string]any，单个值请包进 struct 的字段",
-		contract.Pos, contract.Type, side, source)
+	return fmt.Errorf("%s: %s type=%q 的%s类型 %s 不是 JSON object；Activity 的输入输出必须是 struct 或 map[string]any，单个值请包进 struct 的字段",
+		contract.Pos, contract.annotationName(), contract.Type, side, source)
 }
 
 // fileContracts 提取单个文件里的 activity 契约。structs 是该包已收集的结构体定义。
@@ -231,18 +239,18 @@ func fileContracts(fset *token.FileSet, file *ast.File, src []byte, pkgDir, pkgN
 				continue
 			}
 			if len(entries) > 1 {
-				return nil, fmt.Errorf("%s: 一个声明只能带一条 @Activity 注解", entries[1].pos())
+				return nil, fmt.Errorf("%s: 一个声明只能带一条 @Activity / @RemoteActivity 注解", entries[1].pos())
 			}
 			entry := entries[0]
+			if entry.Kind == "RemoteActivity" {
+				return nil, fmt.Errorf("%s: @RemoteActivity 只能标注命名函数类型（type X func(...)）；有函数体的实现用 @Activity", entry.pos())
+			}
 			if entry.Kind != "Activity" {
 				continue
 			}
 			annotation, err := toActivityAnnotation(entry)
 			if err != nil {
 				return nil, err
-			}
-			if annotation.Remote {
-				return nil, fmt.Errorf("%s: remote=true 只能标注命名函数类型（type X func(...)），不能标注有函数体的实现", entry.pos())
 			}
 			if declaration.Recv != nil {
 				return nil, fmt.Errorf("%s: @Activity 实现必须是普通函数，不能是方法", entry.pos())
@@ -290,18 +298,18 @@ func fileContracts(fset *token.FileSet, file *ast.File, src []byte, pkgDir, pkgN
 					continue
 				}
 				if len(entries) > 1 {
-					return nil, fmt.Errorf("%s: 一个声明只能带一条 @Activity 注解", entries[1].pos())
+					return nil, fmt.Errorf("%s: 一个声明只能带一条 @Activity / @RemoteActivity 注解", entries[1].pos())
 				}
 				entry := entries[0]
-				if entry.Kind != "Activity" {
+				if entry.Kind == "Activity" {
+					return nil, fmt.Errorf("%s: @Activity 只能标注有函数体的包级函数；类型 %s 上的远端契约用 @RemoteActivity 标注命名函数类型", entry.pos(), typeSpec.Name.Name)
+				}
+				if entry.Kind != "RemoteActivity" {
 					continue
 				}
 				annotation, err := toActivityAnnotation(entry)
 				if err != nil {
 					return nil, err
-				}
-				if !annotation.Remote {
-					return nil, fmt.Errorf("%s: 命名函数类型 %s 必须声明 remote=true", entry.pos(), typeSpec.Name.Name)
 				}
 				funcType, ok := typeSpec.Type.(*ast.FuncType)
 				if !ok {
@@ -428,7 +436,7 @@ func bridgeCallName(activityType, pos string) (string, error) {
 	segment := activityBaseSegment(activityType)
 	base, err := exportedName(segment)
 	if err != nil {
-		return "", fmt.Errorf("%s: @Activity type=%q 无法派生 Go 标识符: %w", pos, activityType, err)
+		return "", fmt.Errorf("%s: Activity type=%q 无法派生 Go 标识符: %w", pos, activityType, err)
 	}
 	return "Call" + base, nil
 }

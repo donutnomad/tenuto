@@ -58,10 +58,10 @@ func (s *DefinitionRepository) SaveWorkflowConfigInNamespace(namespace string, w
 		return definition.WorkflowConfigRef{}, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.ID, Version: version}
+	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.Type, Version: version}
 	s.mu.Lock()
 	s.putConfigLocked(ref, cloned)
-	s.latest[definitionKey(namespace, wf.ID)] = ref
+	s.latest[definitionKey(namespace, wf.Type)] = ref
 	s.mu.Unlock()
 	return ref, nil
 }
@@ -76,7 +76,7 @@ func (s *DefinitionRepository) SaveWorkflowConfigArtifactInNamespace(namespace s
 		return definition.WorkflowConfigRef{}, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.ID, Version: version}
+	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.Type, Version: version}
 	s.mu.Lock()
 	s.putConfigLocked(ref, cloned)
 	s.mu.Unlock()
@@ -106,8 +106,8 @@ func (s *DefinitionRepository) EnrollWorkflowConfigInNamespace(namespace string,
 		return definition.WorkflowConfigRef{}, false, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.ID, Version: version}
-	key := definitionKey(namespace, wf.ID)
+	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.Type, Version: version}
+	key := definitionKey(namespace, wf.Type)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, exists := s.configs[ref]

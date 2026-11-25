@@ -19,5 +19,5 @@ type SettleOutput struct {
 	Settled bool   `json:"settled"`
 }
 
-// @Activity(type="payments.settle",queue="payments",version=v1,remote=true)
+// @RemoteActivity(type="payments.settle",queue="payments",version=v1)
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)

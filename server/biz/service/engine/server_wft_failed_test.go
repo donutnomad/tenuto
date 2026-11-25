@@ -130,7 +130,7 @@ func TestRecoveryReschedulesRunningRunWithoutOpenWFT(t *testing.T) {
 	server.wftBackoffBase = time.Millisecond
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "wf-recover-block",
+		Type:    "wf-recover-block",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"step-1": {Symbol: "step-1", Type: "work"},

@@ -57,7 +57,7 @@ const testWorkflowTaskTimeout = 30 * time.Second
 // startPolledWorkflowTask 启动一个 Run 并以声明了 testWorkflowTaskTimeout 的 Worker 领取它的首个 WFT。
 func startPolledWorkflowTask(t *testing.T, server *Server, workflowID string) (string, protocol.TaskLease) {
 	t.Helper()
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: workflowID, Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: workflowID, Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", workflowID, workflowID, "", nil))

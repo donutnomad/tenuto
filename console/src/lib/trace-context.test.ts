@@ -24,7 +24,7 @@ function run(overrides: Partial<Run> = {}): Run {
 }
 
 const config: WorkflowConfig = {
-  id: "flow",
+  type: "flow",
   name: "flow",
   program: { schema: "wlang/program/v2", lang: "wflang/v1", program: [] },
 }
@@ -39,7 +39,7 @@ describe("getWlangProgram", () => {
       types: { "example.Result": { id: "example.Result", kind: "record" } },
       handler_abi_schema: "workflow/update-handler-abi/v1",
     }
-    const typed: WorkflowConfig = { id: "typed", name: "typed", program: artifact }
+    const typed: WorkflowConfig = { type: "typed", name: "typed", program: artifact }
     expect(JSON.parse(getWlangProgram(typed))).toEqual(artifact)
   })
 })

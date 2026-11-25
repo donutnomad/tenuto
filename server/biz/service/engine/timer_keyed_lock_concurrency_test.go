@@ -37,7 +37,7 @@ func TestTimerKeyedLock_UserTimerFired_ConcurrentWithSignal_Serialized(t *testin
 	srv := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	t.Cleanup(srv.Stop)
 
-	ref, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-timer-signal", Program: programtest.Noop()})
+	ref, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-timer-signal", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestTimerKeyedLock_WorkflowTimeout_NoReentrantDeadlock(t *testing.T) {
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	t.Cleanup(server.Stop)
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-timer-wftimeout", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-timer-wftimeout", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestTimerKeyedLock_RunTimeout_WithRetry_NoReentrantDeadlock(t *testing.T) {
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:     programtest.Noop(),
-		ID:          "wf-timer-runtimeout-retry",
+		Type:        "wf-timer-runtimeout-retry",
 		RetryPolicy: &program.RetryPolicy{MaxAttempts: 3, InitialInterval: "10ms"},
 	})
 

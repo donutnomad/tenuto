@@ -92,7 +92,7 @@ func PlaceOrder(ctx workflow.Context, input map[string]any) (map[string]any, err
 
 // orderWorkflowDefinition 代替生成代码里的 WorkflowDefinition()：从源码生成 place-order 并包装成定义。
 func orderWorkflowDefinition() registration.Definition {
-	generated, err := sdkgen.GenerateFromSource([]byte(orderWorkflowSrc), sdkgen.Options{WorkflowID: "place-order", FuncName: "PlaceOrder", Filename: "orders.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(orderWorkflowSrc), sdkgen.Options{WorkflowType: "place-order", FuncName: "PlaceOrder", Filename: "orders.go"})
 	if err != nil {
 		log.Fatal(err)
 	}

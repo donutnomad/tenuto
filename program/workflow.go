@@ -13,7 +13,7 @@ import (
 // WorkflowConfig 是登记到服务端的 Workflow：一段 WLang 程序、程序引用的 Activity，以及运行期策略。
 type WorkflowConfig struct {
 	TargetWorkerIdentity string `json:"target_worker_identity,omitempty"`
-	ID                   string `json:"id"`
+	Type                 string `json:"type"`
 	Name                 string `json:"name"`
 	// Policy 是定义声明的版本策略：AutoUpgrade（缺省）或 Pinned。
 	Policy string `json:"policy,omitempty"`

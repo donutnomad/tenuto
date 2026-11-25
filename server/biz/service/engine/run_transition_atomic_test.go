@@ -121,7 +121,7 @@ func TestTerminalCommandCommitsEventWithRunStatus(t *testing.T) {
 			ctx := context.Background()
 			mgr := newTxFaultManager()
 			workflowID := "terminal-atomic-" + test.name
-			server, _ := newAtomicTestServer(t, mgr, &program.WorkflowConfig{ID: workflowID, Program: programtest.Noop()})
+			server, _ := newAtomicTestServer(t, mgr, &program.WorkflowConfig{Type: workflowID, Program: programtest.Noop()})
 			runID, err := startedRunID(server.StartWorkflow(ctx, "", workflowID, workflowID, "", nil))
 			if err != nil {
 				t.Fatal(err)
@@ -161,7 +161,7 @@ func TestTerminalCommandCommitsEventWithRunStatus(t *testing.T) {
 func TestContinueAsNewClosesOldRunWithContinuedRun(t *testing.T) {
 	ctx := context.Background()
 	mgr := newTxFaultManager()
-	server, _ := newAtomicTestServer(t, mgr, &program.WorkflowConfig{ID: "can-atomic", Program: programtest.Noop()})
+	server, _ := newAtomicTestServer(t, mgr, &program.WorkflowConfig{Type: "can-atomic", Program: programtest.Noop()})
 	runID, err := startedRunID(server.StartWorkflow(ctx, "", "can-atomic", "can-atomic", "", nil))
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ func TestContinueAsNewClosesOldRunWithContinuedRun(t *testing.T) {
 func TestChildRunCommitsWithParentStartedState(t *testing.T) {
 	ctx := context.Background()
 	mgr := newTxFaultManager()
-	server, _ := newAtomicTestServer(t, mgr, &program.WorkflowConfig{ID: "child-atomic-parent", Program: programtest.Noop()}, &program.WorkflowConfig{ID: "child-atomic-child", Program: programtest.Noop()})
+	server, _ := newAtomicTestServer(t, mgr, &program.WorkflowConfig{Type: "child-atomic-parent", Program: programtest.Noop()}, &program.WorkflowConfig{Type: "child-atomic-child", Program: programtest.Noop()})
 	parentRunID, err := startedRunID(server.StartWorkflow(ctx, "", "child-atomic-parent", "child-atomic-parent", "", nil))
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +251,7 @@ func TestChildRunCommitsWithParentStartedState(t *testing.T) {
 func TestSetRunPolicyCommitsPolicyWithResumeClose(t *testing.T) {
 	ctx := context.Background()
 	mgr := newTxFaultManager()
-	server, _ := newAtomicTestServer(t, mgr, &program.WorkflowConfig{ID: "policy-atomic", Program: programtest.Noop()})
+	server, _ := newAtomicTestServer(t, mgr, &program.WorkflowConfig{Type: "policy-atomic", Program: programtest.Noop()})
 	runID, err := startedRunID(server.StartWorkflow(ctx, "", "policy-atomic", "policy-atomic", "", nil))
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestWorkflowTaskFailureCommitsWithUpgradeDiagnostic(t *testing.T) {
 // 执行截止时间与 Run 截止时间随新 Run 一起写入，不在启动之后另写一次。
 func TestStartWritesRunDeadlinesWithRun(t *testing.T) {
 	mgr := newTxFaultManager()
-	server, clk := newAtomicTestServer(t, mgr, &program.WorkflowConfig{ID: "deadline-atomic", ExecutionTimeout: "1h", RunTimeout: "10m", Program: programtest.Noop()})
+	server, clk := newAtomicTestServer(t, mgr, &program.WorkflowConfig{Type: "deadline-atomic", ExecutionTimeout: "1h", RunTimeout: "10m", Program: programtest.Noop()})
 	// 启动之后不允许再写 Run：截止时间必须已经在建 Run 的事务里。
 	mgr.setFault(failUpdateRun)
 	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", "deadline-atomic", "deadline-atomic", "", nil))

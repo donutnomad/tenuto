@@ -19,7 +19,7 @@ func W(ctx workflow.Context, input map[string]any) map[string]any {
 	}
 }
 `
-	result, err := GenerateFromSource([]byte(source), Options{WorkflowID: "workflow-info", FuncName: "W", Filename: "workflow_info.go"})
+	result, err := GenerateFromSource([]byte(source), Options{WorkflowType: "workflow-info", FuncName: "W", Filename: "workflow_info.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

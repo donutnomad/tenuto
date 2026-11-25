@@ -24,7 +24,7 @@ func TestRunAddressedRequestsEnforceNamespace(t *testing.T) {
 		ActivityRouter: memory.NewActivityQueueRouter(16),
 	})
 	t.Cleanup(server.Stop)
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("tenant-a", &program.WorkflowConfig{ID: "scoped", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("tenant-a", &program.WorkflowConfig{Type: "scoped", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	run, err := server.StartWorkflow(ctx, "tenant-a", "scoped", "scoped-1", "", nil)

@@ -26,7 +26,7 @@ import (
 // 用独立 workflowID：同一 workflowID 至多一个 current/running（对标 Temporal）。
 func batchResetRun(t *testing.T, ctx context.Context, svc *Server, mgr execution.ExecutionManager, wfID string) string {
 	t.Helper()
-	if _, err := svc.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+	if _, err := svc.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(svc.StartWorkflow(ctx, "", wfID, wfID, "", nil))

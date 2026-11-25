@@ -35,7 +35,7 @@ nondeterministic workflow: extra replay command <...>
 
 ## 改包名、类型名与函数名
 
-可以改：包名与包路径、Go 类型名、Go 字段名（`json` tag 不变）、Workflow 与 Activity 的函数名。保持不变：`@Workflow(id)`、`@Activity(type)`、JSON 字段名、JSON 字段类型。
+可以改：包名与包路径、Go 类型名、Go 字段名（`json` tag 不变）、Workflow 与 Activity 的函数名。保持不变：`@Workflow(type)`、`@Activity(type)`、JSON 字段名、JSON 字段类型。
 
 - 类型表的名字是 `<import path>.<类型名>`，Activity 符号是 `<包名>.<函数名>`：改名产出新的内容版本。`pinned` Run 留在旧 Program；`auto_upgrade` Run 下一个 Workflow Task 换到新 Program，用新类型表解码 History 里的 JSON 载荷，结果不变。
 - Activity 契约指纹只由 JSON 字段名与类型算出，改名前后相同，新旧 build 互相承接。
@@ -88,7 +88,7 @@ nondeterministic workflow: extra replay command <...>
 注解只接受 `auto_upgrade` 与 `pinned` 两个值。
 
 ```go
-// @Workflow(id="order-flow",policy=pinned,version=v3)
+// @Workflow(type="order-flow",policy=pinned,version=v3)
 func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error)
 ```
 

@@ -50,7 +50,7 @@ type OrderOutput struct {
 	ConfirmedBy   string `json:"confirmed_by"`
 }
 
-// @Workflow(id="place-order",name="Place Order",policy=auto_upgrade,version=v1)
+// @Workflow(type="place-order",name="Place Order",policy=auto_upgrade,version=v1)
 func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	out := OrderOutput{OrderID: in.OrderID}
 	stage := "reserving"

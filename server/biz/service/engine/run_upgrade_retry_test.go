@@ -21,11 +21,11 @@ func TestRecoverFailedAutoUpgradeAttemptRetriesLatest(t *testing.T) {
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	server.wftBackoffBase = time.Millisecond
 
-	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "recover-upgrade-flow", Name: "A", Program: programtest.Noop()})
+	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "recover-upgrade-flow", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	refB, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "recover-upgrade-flow", Name: "B", Program: programtest.Noop()})
+	refB, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "recover-upgrade-flow", Name: "B", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

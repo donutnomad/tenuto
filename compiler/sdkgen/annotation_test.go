@@ -187,8 +187,8 @@ func TestGenerateRewritesBridgeCalls(t *testing.T) {
 	if result.Workflow.Policy != "auto_upgrade" || result.Workflow.Version != "v2" {
 		t.Fatalf("WorkflowConfig policy/version = %q/%q，期望 auto_upgrade/v2", result.Workflow.Policy, result.Workflow.Version)
 	}
-	if result.Workflow.ID != "orders-demo" {
-		t.Fatalf("workflow id = %q", result.Workflow.ID)
+	if result.Workflow.Type != "orders-demo" {
+		t.Fatalf("workflow id = %q", result.Workflow.Type)
 	}
 }
 
@@ -279,19 +279,19 @@ func TestScanReportsAnnotationErrors(t *testing.T) {
 
 import workflow "github.com/donutnomad/tenuto/sdk/workflow"
 
-// @Workflow(id="bad",name="Bad"
+// @Workflow(type="bad",name="Bad"
 func W(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{"workflow.go:5", "缺少右括号"},
 		},
 		{
-			name: "缺少 id",
+			name: "缺少 type",
 			source: `package bad
 
 import workflow "github.com/donutnomad/tenuto/sdk/workflow"
 
 // @Workflow(name="Bad")
 func W(ctx workflow.Context) error { return nil }`,
-			wantErr: []string{"workflow.go:5", "缺少 id"},
+			wantErr: []string{"workflow.go:5", "缺少 type"},
 		},
 		{
 			name: "未知 key",
@@ -299,19 +299,9 @@ func W(ctx workflow.Context) error { return nil }`,
 
 import workflow "github.com/donutnomad/tenuto/sdk/workflow"
 
-// @Workflow(id="bad",retry=3)
+// @Workflow(type="bad",retry=3)
 func W(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{"workflow.go:5", `未知 key "retry"`},
-		},
-		{
-			name: "@Workflow 不接受 queue",
-			source: `package bad
-
-import workflow "github.com/donutnomad/tenuto/sdk/workflow"
-
-// @Workflow(id="bad",queue="orders")
-func W(ctx workflow.Context) error { return nil }`,
-			wantErr: []string{"workflow.go:5", "@Workflow 不接受 queue", "@Activity(queue=...)"},
 		},
 		{
 			name: "未知 policy",
@@ -319,7 +309,7 @@ func W(ctx workflow.Context) error { return nil }`,
 
 import workflow "github.com/donutnomad/tenuto/sdk/workflow"
 
-// @Workflow(id="bad",policy=latest)
+// @Workflow(type="bad",policy=latest)
 func W(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{"workflow.go:5", `policy="latest" 未知`},
 		},
@@ -329,7 +319,7 @@ func W(ctx workflow.Context) error { return nil }`,
 
 import workflow "github.com/donutnomad/tenuto/sdk/workflow"
 
-// @Workflow(id "bad")
+// @Workflow(type "bad")
 func W(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{"workflow.go:5", "不是 key=value 形式"},
 		},
@@ -343,15 +333,15 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// @Activity(type="bad.act",remote=true)
+// @RemoteActivity(type="bad.act")
 func A(ctx context.Context, in int64) (int64, error) { return in, nil }
 
-// @Workflow(id="bad")
+// @Workflow(type="bad")
 func W(ctx workflow.Context) error { return nil }`,
-			wantErr: []string{"workflow.go:9", "remote=true 只能标注命名函数类型"},
+			wantErr: []string{"workflow.go:9", "@RemoteActivity 只能标注命名函数类型"},
 		},
 		{
-			name: "命名函数类型缺少 remote",
+			name: "命名函数类型用了 @Activity",
 			source: `package bad
 
 import (
@@ -363,9 +353,9 @@ import (
 // @Activity(type="bad.act")
 type ARemote func(context.Context, int64) (int64, error)
 
-// @Workflow(id="bad")
+// @Workflow(type="bad")
 func W(ctx workflow.Context) error { return nil }`,
-			wantErr: []string{"workflow.go:9", "必须声明 remote=true"},
+			wantErr: []string{"workflow.go:9", "用 @RemoteActivity 标注"},
 		},
 		{
 			name: "activity 签名不符合 ABI",
@@ -380,7 +370,7 @@ import (
 // @Activity(type="bad.act")
 func A(ctx context.Context, in int64) int64 { return in }
 
-// @Workflow(id="bad")
+// @Workflow(type="bad")
 func W(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{"workflow.go:9", "必须返回 (out, error)"},
 		},
@@ -400,7 +390,7 @@ func A(ctx context.Context, in int64) (int64, error) { return in, nil }
 // @Activity(type="bad.act")
 func B(ctx context.Context, in int64) (int64, error) { return in, nil }
 
-// @Workflow(id="bad")
+// @Workflow(type="bad")
 func W(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{`@Activity type="bad.act" 重复声明`},
 		},
@@ -422,7 +412,7 @@ func A(ctx context.Context, in int64) (int64, error) { return in, nil }
 // @Activity(type="bad.act",version=v2)
 func B(ctx context.Context, in int64) (int64, error) { return in, nil }
 
-// @Workflow(id="bad")
+// @Workflow(type="bad")
 func W(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{`@Activity type="bad.act" 重复声明`},
 		},
@@ -432,10 +422,10 @@ func W(ctx workflow.Context) error { return nil }`,
 
 import workflow "github.com/donutnomad/tenuto/sdk/workflow"
 
-// @Workflow(id="dup")
+// @Workflow(type="dup")
 func W1(ctx workflow.Context) error { return nil }
 
-// @Workflow(id="dup")
+// @Workflow(type="dup")
 func W2(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{"@Workflow 注解只能有一个"},
 		},

@@ -42,7 +42,7 @@ func SelectorWorkflow(ctx workflow.Context) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "sel-flow", FuncName: "SelectorWorkflow", Filename: "sel_workflow.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "sel-flow", FuncName: "SelectorWorkflow", Filename: "sel_workflow.go"})
 	if err != nil {
 		t.Fatalf("expected selector ops to transpile, got error: %v", err)
 	}
@@ -86,7 +86,7 @@ func ChainedSelectorWorkflow(ctx workflow.Context) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "chained-sel", FuncName: "ChainedSelectorWorkflow", Filename: "chained_sel.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "chained-sel", FuncName: "ChainedSelectorWorkflow", Filename: "chained_sel.go"})
 	if err != nil {
 		t.Fatalf("expected chained selector ops to transpile, got error: %v", err)
 	}
@@ -123,7 +123,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "sel-fut", FuncName: "W", Filename: "w.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "sel-fut", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatalf("AddFuture 应放行翻译（future 经 AddFuture 即视为 used），got error: %v", err)
 	}
@@ -159,7 +159,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "sel-fut-inline", FuncName: "W", Filename: "w.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "sel-fut-inline", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatalf("内联 ExecuteActivity 作 AddFuture 第 2 参应放行翻译, got err: %v", err)
 	}
@@ -188,7 +188,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "sel-fut-slice", FuncName: "W", Filename: "w.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "sel-fut-slice", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

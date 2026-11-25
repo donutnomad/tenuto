@@ -67,7 +67,7 @@ func TestResetRunningRun_InflightActivityCallbackDroppedAfterTerminate(t *testin
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	defer server.Stop()
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-running-reset", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-running-reset", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 

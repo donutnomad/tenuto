@@ -441,7 +441,7 @@ export interface Attempt {
 // WorkflowConfig 对应 program.WorkflowConfig：登记的 Workflow 是一段 WLang 程序与它引用的 Activity。
 export interface WorkflowConfig {
   target_worker_identity?: string
-  id: string
+  type: string
   name: string
   policy?: string
   version?: string

@@ -68,7 +68,7 @@ func TestActivityIDReachesHistoryAndActivityInfo(t *testing.T) {
 	}
 	defer c.Close()
 
-	generated, err := sdkgen.GenerateFromSource([]byte(activityIDWorkflowSrc), sdkgen.Options{WorkflowID: "settle", FuncName: "Settle", Filename: "orders.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(activityIDWorkflowSrc), sdkgen.Options{WorkflowType: "settle", FuncName: "Settle", Filename: "orders.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

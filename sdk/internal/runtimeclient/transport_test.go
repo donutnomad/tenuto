@@ -32,7 +32,7 @@ func TestWorkflowRuntimeClientRegistersWorkflowJSON(t *testing.T) {
 	defer server.Close()
 
 	var registrar registration.Registrar = NewWorkflowRuntimeHTTPClient(server.URL, nil, RuntimeHTTPClientOptions{})
-	version, err := registrar.RegisterWorkflowJSON(context.Background(), "orders", []byte(`{"id":"order-flow"}`))
+	version, err := registrar.RegisterWorkflowJSON(context.Background(), "orders", []byte(`{"type":"order-flow"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestWorkflowRuntimeClientRegistersWorkflowJSON(t *testing.T) {
 	if err := json.Unmarshal(request.Workflow, &workflow); err != nil {
 		t.Fatal(err)
 	}
-	if version != "version-1" || request.Namespace != "orders" || workflow.ID != "order-flow" || !request.ActivateIfNew {
+	if version != "version-1" || request.Namespace != "orders" || workflow.Type != "order-flow" || !request.ActivateIfNew {
 		t.Fatalf("version = %q, request = %+v", version, request)
 	}
 }

@@ -35,7 +35,7 @@ type cancelSim struct {
 
 func newCancelSim(t *testing.T, src string) *cancelSim {
 	t.Helper()
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "cancel-wf", FuncName: "W", Filename: "w.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "cancel-wf", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}

@@ -128,7 +128,7 @@ func (u *UseCase) EnrollWorkflowInNamespace(namespace string, workflow *programp
 		return definition.WorkflowConfigRef{}, err
 	}
 	activating, err := u.configs.WorkflowConfigEnrollStateInNamespace(namespace, definition.WorkflowConfigRef{
-		Namespace: namespace, WorkflowID: workflow.ID, Version: version,
+		Namespace: namespace, WorkflowID: workflow.Type, Version: version,
 	})
 	if err != nil {
 		return definition.WorkflowConfigRef{}, err

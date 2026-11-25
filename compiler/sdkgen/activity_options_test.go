@@ -19,9 +19,9 @@ func RoutedWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := GenerateFromSource(src, Options{
-		WorkflowID: "routed-flow",
-		FuncName:   "RoutedWorkflow",
-		Filename:   "routed_workflow.go",
+		WorkflowType: "routed-flow",
+		FuncName:     "RoutedWorkflow",
+		Filename:     "routed_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)

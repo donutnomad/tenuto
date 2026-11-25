@@ -34,7 +34,7 @@ func ChannelWorkflow(ctx workflow.Context) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "ch-flow", FuncName: "ChannelWorkflow", Filename: "ch_workflow.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "ch-flow", FuncName: "ChannelWorkflow", Filename: "ch_workflow.go"})
 	if err != nil {
 		t.Fatalf("expected channel ops to transpile, got error: %v", err)
 	}
@@ -70,7 +70,7 @@ func UnbufferedChannelWorkflow(ctx workflow.Context) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "unbuf-ch", FuncName: "UnbufferedChannelWorkflow", Filename: "unbuf_ch.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "unbuf-ch", FuncName: "UnbufferedChannelWorkflow", Filename: "unbuf_ch.go"})
 	if err != nil {
 		t.Fatalf("expected unbuffered channel ops to transpile, got error: %v", err)
 	}

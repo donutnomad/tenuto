@@ -1,5 +1,5 @@
 {
-  "id": "cluster-order",
+  "type": "cluster-order",
   "name": "Cluster Order",
   "policy": "auto_upgrade",
   "version": "v1",

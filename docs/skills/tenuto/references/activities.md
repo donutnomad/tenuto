@@ -152,10 +152,10 @@ if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settl
 
 ## 队列如何决定
 
-调度时按顺序取：调用处 `ActivityOptions.TaskQueue` → 定义里的 `activities[].task_queue`（只来自 `@Activity(queue)`；`@Workflow` 没有 `queue` 参数）→ 都没有时 Server 查路由目录（在线 Worker 的「队列 × 类型」，先排除契约不一致的，再优先默认路由，再按权重）。实际队列写进 `ActivityScheduled.taskQueue`。
+调度时按顺序取：调用处 `ActivityOptions.TaskQueue` → 定义里的 `activities[].task_queue`（来自 `@Activity(queue)`）→ 都没有时 Server 查路由目录（在线 Worker 的「队列 × 类型」，先排除契约不一致的，再优先默认路由，再按权重）。实际队列写进 `ActivityScheduled.taskQueue`。
 
 - 一个服务一个队列：`@Activity` 不写 `queue`，Worker 设 `ActivityTaskQueues`（不写时是 `default`）。
-- 跨服务：`remote=true` 契约写 `queue`，放在共享契约包。
+- 跨服务：`@RemoteActivity` 契约写 `queue`，放在共享契约包。
 - 固定队列：`@Activity(queue=...)`，Worker 不写 `ActivityTaskQueues`，从 registry 推导。
 - 没有声明队列的歧义：几个 Worker 提供同一类型时，队列有交集（多实例、滚动发布、一个进程拉多个队列）照常投递，分组按进程（Worker Identity），`BuildID` 相同或为空不算同组；只有一组默认路由时选它；没有默认、有权重时按权重；默认路由（或无默认无权重的路由）落在互不相关的队列上时调度不派发，Run Blocked（`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues`），声明队列或停掉一边后按退避继续。Worker 登记不做这项检查。
 - Console：Workers 页 Activity Routing 表看每个类型在哪些队列；Run 详情 Activity 步骤的 `Queue Source` 看队列来源。

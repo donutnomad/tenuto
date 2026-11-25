@@ -40,7 +40,7 @@ type SayHelloOutput struct {
     Message string `json:"message"`
 }
 
-// @Workflow(id="startup-greeting",name="Startup Greeting",policy=auto_upgrade,version=v1)
+// @Workflow(type="startup-greeting",name="Startup Greeting",policy=auto_upgrade,version=v1)
 func Greet(ctx workflow.Context, in GreetInput) (GreetOutput, error) {
     out, err := CallSayHello(ctx, SayHelloInput{Name: in.Name}, workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second})
     if err != nil {
@@ -75,12 +75,12 @@ func SayHello(_ context.Context, in SayHelloInput) (SayHelloOutput, error) {
 
 | key | 必填 | 含义 |
 | --- | --- | --- |
-| `id` | 是 | Workflow 定义 ID，启动 Run 时使用 |
-| `name` | 否 | 展示名，缺省等于 `id` |
+| `type` | 是 | Workflow Type，启动 Run 时用它指明运行哪个定义 |
+| `name` | 否 | 展示名，缺省等于 `type` |
 | `policy` | 否 | Run 版本策略：`auto_upgrade`（缺省）、`pinned`；其他取值在生成期报错 |
 | `version` | 否 | 作者声明的发布标签，写入 `workflow.json` 并参与内容 hash |
 
-未知 key、缺少 `id`、未知 `policy`、`/* */` 块注释里的注解都会报 `file:line` 错误。`policy` 的运行语义见 [Workflow 版本管理](/develop/versioning)。
+未知 key、缺少 `type`、未知 `policy`、`/* */` 块注释里的注解都会报 `file:line` 错误。`policy` 的运行语义见 [Workflow 版本管理](/develop/versioning)。
 
 ## 调用 Activity
 
@@ -130,7 +130,7 @@ if info.GetContinueAsNewSuggested() {
 
 ## 启动 Run
 
-Worker 启动时自动登记随二进制发布的定义（见 [运行 Worker](/develop/workers)）。调用端给出 Workflow Type（`@Workflow` 的 `id`）和 Workflow ID 启动：
+Worker 启动时自动登记随二进制发布的定义（见 [运行 Worker](/develop/workers)）。调用端给出 Workflow Type（`@Workflow` 的 `type`）和 Workflow ID 启动：
 
 ```go
 c, err := client.Dial(client.Options{HostPort: "localhost:7400"}) // Namespace 留空表示 default
@@ -155,7 +155,7 @@ err = run.Get(ctx, &out) // 等 Run 结束并解码结果
 
 | 标识 | 含义 | 规则 |
 | --- | --- | --- |
-| Workflow Type | 运行哪个定义，取 `@Workflow` 的 `id` | 必填；新 Run 使用该类型当前 active 的 Program |
+| Workflow Type | 运行哪个定义，取 `@Workflow` 的 `type` | 必填；新 Run 使用该类型当前 active 的 Program |
 | Workflow ID | 这次执行的业务标识，Signal、Query、Update、取消都按它寻址 | 选填；留空时生成一个 UUIDv7 文本（如 `0198c1f2-6f0a-7c3e-9d41-2b7e5a1c9f30`）：Go SDK 在发送前生成，HTTP 请求留空时由服务端生成 |
 
 同一个 Namespace 和 Workflow ID 同时只有一个进行中的 Run：

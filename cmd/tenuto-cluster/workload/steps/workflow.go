@@ -38,7 +38,7 @@ type StepOutput struct {
 	Pad   string `json:"pad,omitempty"`
 }
 
-// @Workflow(id="cluster-steps",name="Cluster Steps",version=v1)
+// @Workflow(type="cluster-steps",name="Cluster Steps",version=v1)
 func Steps(ctx workflow.Context, in Input) (Output, error) {
 	total := int64(0)
 	for i := 0; i < in.Steps; i++ {

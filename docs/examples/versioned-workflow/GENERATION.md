@@ -8,17 +8,17 @@
 逗号分隔的 `key=value`，值可以带双引号也可以不带。注解写在声明的文档注释里。
 
 ```go
-// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
+// @Workflow(type="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error)
 
 // @Activity(type="payments.charge",queue="payments",version=v1)
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error)
 
-// @Activity(type="payments.settle",queue="payments",version=v1,remote=true)
+// @RemoteActivity(type="payments.settle",queue="payments",version=v1)
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 ```
 
-`@Workflow` 的 key：`id`（必填）、`name`、`queue`、`policy`、`version`。
+`@Workflow` 的 key：`type`（必填）、`name`、`policy`、`version`。
 `policy` 缺省 `auto_upgrade`，合法值 `auto_upgrade` / `pinned`；`policy` 与 `version`
 原样写入 `workflow.json` 的 `policy` / `version`。
 
@@ -26,9 +26,9 @@ type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 config JSON 的 sha256 内容版本。同一 `(namespace, workflow_id, 内容版本)` 只保留一份 JSON，
 重复登记幂等；Pinned Run 保存版本引用，多个 Run 共享同一份内容，不为每个 Run 复制 JSON。
 
-`@Activity` 的 key：`type`（必填）、`queue`、`version`、`remote`。`remote=true` 只能标注**命名函数类型**
-（`type X func(context.Context, In) (Out, error)`），不能标注有函数体的实现。`queue` 为空时定义不声明队列，
-由 Server 按 Worker 的登记选路。`@Workflow` 没有 `queue` 参数。
+`@Activity` 与 `@RemoteActivity` 的 key：`type`（必填）、`queue`、`version`。`@RemoteActivity` 只能标注**命名函数类型**
+（`type X func(context.Context, In) (Out, error)`），有函数体的实现用 `@Activity`。`queue` 为空时定义不声明队列，
+由 Server 按 Worker 的登记选路。
 
 注解写错、未知 key、缺 `id`/`type`、重复 id、未知 policy 都会报 `file:line`。
 
@@ -90,7 +90,7 @@ Worker 在 `Start` 时把 `registry.Contracts()` 随路由一起上报，Server 
 
 - 一个包多条 `@Activity` 时按桥名（`CallCharge`、`CallNotify` …）稳定排序生成，两次生成逐字节相同。
 - 业务实现在另一个包时，worker 导入那个包即可调用它的 `RegisterActivities`；helper 引用的是本包实现与 DTO。
-- `remote=true` 的命名函数类型只生成调用桥（`CallSettle`）与 marker，**不进入** `RegisterActivities`：
+- `@RemoteActivity` 的命名函数类型只生成调用桥（`CallSettle`）与 marker，**不进入** `RegisterActivities`：
   remote-only 包（如示例 `remote/`）没有 helper，混合包里也只注册本地实现。remote 实现由拥有它的
   worker 手写注册（示例 worker 里 `payments.settle` 就是这唯一一条手写路径）。
 - 契约在登记时现算：I/O 类型不是 struct 或 `map[string]any`、或字段类型不在 wire 支持子集时返回错误。

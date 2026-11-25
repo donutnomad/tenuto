@@ -113,7 +113,7 @@ func (a *retryWorkflowTaskAPI) NackWorkflowTask(ctx context.Context, lease proto
 }
 
 func (a *retryWorkflowTaskAPI) GetWorkflowConfig(_ context.Context, runID, _ string) (*program.WorkflowConfig, error) {
-	return &program.WorkflowConfig{ID: "unused", Program: programtest.Noop()}, nil
+	return &program.WorkflowConfig{Type: "unused", Program: programtest.Noop()}, nil
 }
 
 func (a *retryWorkflowTaskAPI) GetEvents(runID string) ([]history.Event, error) {

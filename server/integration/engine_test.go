@@ -36,7 +36,7 @@ func TestEngineRunsLinearWorkflowWithScheduledEventIDs(t *testing.T) {
 		ActivityConcurrency: 1,
 	})
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "linear"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "linear"},
 		sdkgentest.Step{Type: "first", Input: `map[string]any{"value": "from-first"}`, Options: `StartToCloseTimeout: time.Minute`},
 		sdkgentest.Step{Type: "second", Input: `map[string]any{"value": out0["value"]}`, Options: `StartToCloseTimeout: time.Minute`},
 	)
@@ -48,7 +48,7 @@ func TestEngineRunsLinearWorkflowWithScheduledEventIDs(t *testing.T) {
 	if _, err := eng.RegisterWorkflow(wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := eng.Run(ctx, wf.ID, m{"request_id": "req-1"})
+	runID, err := eng.Run(ctx, wf.Type, m{"request_id": "req-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

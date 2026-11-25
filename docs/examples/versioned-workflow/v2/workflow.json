@@ -1,5 +1,5 @@
 {
-  "id": "lifecycle-demo",
+  "type": "lifecycle-demo",
   "name": "Lifecycle Demo",
   "policy": "auto_upgrade",
   "version": "v2",

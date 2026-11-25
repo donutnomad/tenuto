@@ -31,7 +31,7 @@ func TestDuplicateWorkflowTaskDoesNotDoubleScheduleActivity(t *testing.T) {
 		return m{"ok": true}, nil
 	})
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "duplicate-replay"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "duplicate-replay"},
 		sdkgentest.Step{Type: "blocked", Options: `StartToCloseTimeout: time.Minute`},
 	)
 
@@ -42,7 +42,7 @@ func TestDuplicateWorkflowTaskDoesNotDoubleScheduleActivity(t *testing.T) {
 	if _, err := eng.RegisterWorkflow(wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := eng.Run(ctx, wf.ID, nil)
+	runID, err := eng.Run(ctx, wf.Type, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

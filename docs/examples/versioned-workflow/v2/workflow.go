@@ -32,7 +32,7 @@ type Output struct {
 	Delivered     bool   `json:"delivered"`
 }
 
-// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
+// @Workflow(type="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error) {
 	version := workflow.GetVersion(ctx, "charge-policy", 3, 6)
 	reserved, err := activities.CallReserve(ctx, activities.ReserveInput{OrderID: in.OrderID}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})

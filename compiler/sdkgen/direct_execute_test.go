@@ -43,7 +43,7 @@ func refByType(t *testing.T, result sdkgen.PackageResult, activityType string) p
 
 // 第 4 项：workflow.ExecuteActivity(ctx, pkg.Func, ...) 的被调函数带 @Activity 注解时，
 // activity ref 的 type/queue/version/I/O 指纹与生成的 CallX 桥完全一致；没有注解的函数
-// 以符号写法作 type、走 workflow 默认队列、不带契约。
+// 以符号写法作 type、不声明队列（由 Server 按 Worker 登记选路）、不带契约。
 func TestDirectExecuteActivityUsesAnnotation(t *testing.T) {
 	direct := generateFixtureDir(t, copyFixture(t, "executeactivity"))
 

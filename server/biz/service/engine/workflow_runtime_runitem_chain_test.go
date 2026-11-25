@@ -27,7 +27,7 @@ func TestListRuns_MarksResetRun(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-isreset", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-isreset", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	base, err := startedRunID(server.StartWorkflow(ctx, "", "wf-isreset", "wf-isreset", "", nil))
@@ -76,7 +76,7 @@ func TestListRuns_ContinueAsNewRunNotMarkedReset(t *testing.T) {
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-can-notreset", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-can-notreset", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

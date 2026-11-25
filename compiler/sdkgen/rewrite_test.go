@@ -403,14 +403,13 @@ func TestExportedNameDerivesBridgeNames(t *testing.T) {
 
 // TestAnnotationValueParsing 覆盖注解值的引号与逗号规则。
 func TestAnnotationValueParsing(t *testing.T) {
-	values, err := parseAnnotationValues(`id="lifecycle-demo",name="Lifecycle, Demo",queue=lifecycle,policy=auto_upgrade,version=v2`)
+	values, err := parseAnnotationValues(`type="lifecycle-demo",name="Lifecycle, Demo",policy=auto_upgrade,version=v2`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"id":      "lifecycle-demo",
+		"type":    "lifecycle-demo",
 		"name":    "Lifecycle, Demo",
-		"queue":   "lifecycle",
 		"policy":  "auto_upgrade",
 		"version": "v2",
 	}

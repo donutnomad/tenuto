@@ -116,7 +116,7 @@ import (
 	%q
 )
 
-// @Workflow(id=%s,name=%s,policy=auto_upgrade,version=%s)
+// @Workflow(type=%s,name=%s,policy=auto_upgrade,version=%s)
 func Flow(ctx workflow.Context) error {
 	if _, err := activities.CallB(ctx, activities.BIn{}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}); err != nil {
 		return err
@@ -616,7 +616,7 @@ func TestPublishAcceptsUnroutedActivityType(t *testing.T) {
 	registerGeneratedWorkflowNamed(t, server, workflowID, upgradeSourceA, execution.RunPolicyAutoUpgrade, "A")
 
 	generated, err := sdkgen.GenerateFromSource([]byte(upgradeSourceAppendE), sdkgen.Options{
-		WorkflowID: workflowID, Name: "B", FuncName: "Flow", Filename: "flow.go",
+		WorkflowType: workflowID, Name: "B", FuncName: "Flow", Filename: "flow.go",
 	})
 	if err != nil {
 		t.Fatal(err)

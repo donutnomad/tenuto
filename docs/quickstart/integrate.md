@@ -71,7 +71,7 @@ type NotifyOutput struct {
 	Sent bool `json:"sent"`
 }
 
-// @Workflow(id="place-order",name="Place Order",policy=auto_upgrade,version=v1)
+// @Workflow(type="place-order",name="Place Order",policy=auto_upgrade,version=v1)
 func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	opts := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -103,15 +103,14 @@ func Notify(_ context.Context, in NotifyInput) (NotifyOutput, error) {
 
 | 注解 | key | 含义 |
 | --- | --- | --- |
-| `@Workflow` | `id`（必填） | Workflow Type，启动 Run 时用它指明运行哪个 Workflow |
+| `@Workflow` | `type`（必填） | Workflow Type，启动 Run 时用它指明运行哪个 Workflow |
 | | `name` | Console 中的显示名 |
-| | `queue` | 本 Workflow 调用 Activity 的缺省 Task Queue |
 | | `policy` | `auto_upgrade`（缺省）：运行中的 Run 在下一个 Workflow Task 换到新版本；`pinned`：Run 固定在启动时的版本。见[版本管理](/develop/versioning) |
 | | `version` | 业务版本标签 |
 | `@Activity` | `type`（必填） | Activity Type，同时决定生成的调用桥名：`orders.charge` → `CallCharge` |
 | | `queue` | Activity Task Queue；省略时由执行它的 Worker 决定（`ActivityTaskQueues`，不写时是 `default`） |
 | | `version` | 契约版本，Workflow 侧与 Worker 侧逐字对照 |
-| | `remote` | `true` 时声明由其他服务实现的 Activity，写在命名函数类型上 |
+| `@RemoteActivity` | `type`（必填）、`queue`、`version` | 声明由其他服务实现的 Activity，写在命名函数类型上 |
 
 签名规则：
 
@@ -246,7 +245,7 @@ func main() {
 }
 ```
 
-- 第三个参数是 `@Workflow(id=...)` 的值。
+- 第三个参数是 `@Workflow(type=...)` 的值。
 - `StartWorkflowOptions.ID` 是业务上的 Workflow ID：同一个 ID 同时至多一个运行中的 Run，留空时 SDK 生成 UUID。
 - 一个 `client.Client` 可以被多个 goroutine 共用，在服务启动时创建一次。Signal、Query、Update、取消与终止见 [Go Client](/sdk/client)。
 

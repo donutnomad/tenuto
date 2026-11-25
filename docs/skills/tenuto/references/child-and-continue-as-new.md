@@ -11,7 +11,7 @@ if err != nil {
 }
 ```
 
-- `workflowID` 是子 Workflow 的定义 ID（它的 `@Workflow(id=...)`），需要已在同一 Namespace 登记：子 Workflow 的 `WorkflowDefinition()` 放进某个 Worker 的 `worker.Options.Workflows`。
+- `workflowID` 是子 Workflow 的定义 ID（它的 `@Workflow(type=...)`），需要已在同一 Namespace 登记：子 Workflow 的 `WorkflowDefinition()` 放进某个 Worker 的 `worker.Options.Workflows`。
 - `input` 是 struct 或 `map[string]any`，编码成 JSON object。
 - 调用时立即产生启动命令；`Get` 的目标是 `*map[string]any`，内容是子 Run 的 Output。
 - 子 Run 的 Workflow ID 是 `<父 Run ID>/<Child ID>`，例如 `01a1…/#c1`（`server/biz/domain/execution/child_start.go`）。同一个父 Run 可以启动多个同类型的子 Workflow，它们与该类型的顶层 Run 互不冲突。
@@ -97,7 +97,7 @@ type LoopState struct {
     Cursor int64 `json:"cursor"`
 }
 
-// @Workflow(id="processor")
+// @Workflow(type="processor")
 func Processor(ctx workflow.Context, state LoopState) error {
     cursor := state.Cursor
     for i := 0; i < 100; i++ {

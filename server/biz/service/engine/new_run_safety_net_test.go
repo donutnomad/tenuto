@@ -22,7 +22,7 @@ func TestCronRun_InitiatorAttemptFirstRunIDSearchAttributes(t *testing.T) {
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	defer server.Stop()
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-cron-safety", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-cron-safety", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestRetryRun_InheritsStartSearchAttributesOnly(t *testing.T) {
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:     programtest.Noop(),
-		ID:          "wf-retry-start-sa",
+		Type:        "wf-retry-start-sa",
 		RetryPolicy: &program.RetryPolicy{MaxAttempts: 3, InitialInterval: "100ms", BackoffCoefficient: 2.0, MaxInterval: "1s"},
 	})
 
@@ -121,7 +121,7 @@ func TestRetryRun_SearchAttributesInherited(t *testing.T) {
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-sa",
+		Type:    "wf-retry-sa",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        3,
 			InitialInterval:    "100ms",
@@ -171,7 +171,7 @@ func TestRetryRun_ContinuedRunIDSet(t *testing.T) {
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-contid",
+		Type:    "wf-retry-contid",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        2,
 			InitialInterval:    "50ms",

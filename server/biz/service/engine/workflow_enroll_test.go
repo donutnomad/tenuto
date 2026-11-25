@@ -20,8 +20,8 @@ func TestEnrollWorkflowRuleA(t *testing.T) {
 	for name, server := range servers {
 		t.Run(name, func(t *testing.T) {
 			const namespace = "enroll"
-			contentA := &program.WorkflowConfig{ID: "enroll-flow", Name: "A", Program: programtest.Noop()}
-			contentB := &program.WorkflowConfig{ID: "enroll-flow", Name: "B", Program: programtest.Noop()}
+			contentA := &program.WorkflowConfig{Type: "enroll-flow", Name: "A", Program: programtest.Noop()}
+			contentB := &program.WorkflowConfig{Type: "enroll-flow", Name: "B", Program: programtest.Noop()}
 
 			refA, err := server.Definitions().EnrollWorkflowInNamespace(namespace, contentA)
 			if err != nil {
@@ -70,7 +70,7 @@ func TestEnrollWorkflowRuleA(t *testing.T) {
 			assertActiveVersion(t, server, namespace, "enroll-flow", rollback.Version)
 
 			// 坏配置：校验失败，latest 停在回滚后的版本。
-			bad := &program.WorkflowConfig{ID: "enroll-flow", Name: "bad", RunTimeout: "10m", ExecutionTimeout: "1m", Program: programtest.Noop()}
+			bad := &program.WorkflowConfig{Type: "enroll-flow", Name: "bad", RunTimeout: "10m", ExecutionTimeout: "1m", Program: programtest.Noop()}
 			if _, err := server.Definitions().EnrollWorkflowInNamespace(namespace, bad); err == nil {
 				t.Fatal("非法配置应被拒绝")
 			}
@@ -84,7 +84,7 @@ func TestEnrollWorkflowRuleA(t *testing.T) {
 func TestEnrollEmptyLatest(t *testing.T) {
 	server := newTestServer()
 	const namespace = "artifact-only"
-	workflow := &program.WorkflowConfig{ID: "artifact-only-flow", Name: "A", Program: programtest.Noop()}
+	workflow := &program.WorkflowConfig{Type: "artifact-only-flow", Name: "A", Program: programtest.Noop()}
 
 	registered, err := server.Definitions().RegisterWorkflowArtifactInNamespace(namespace, workflow)
 	if err != nil {

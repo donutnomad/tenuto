@@ -19,7 +19,7 @@ import (
 func writeArtifacts(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	workflow := &program.WorkflowConfig{ID: "demo", Name: "Demo", Policy: "auto_upgrade", Version: "v2", Program: programtest.Noop(),
+	workflow := &program.WorkflowConfig{Type: "demo", Name: "Demo", Policy: "auto_upgrade", Version: "v2", Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{"demo.Charge": {
 			Symbol: "demo.Charge", Type: "demo.charge", TaskQueue: "demo", Version: "v1", Input: "demo.In", Output: "demo.Out",
 		}}}
@@ -45,7 +45,7 @@ func TestLoadDirReadsAndHashesArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
-	if loaded.Workflow.ID != "demo" || loaded.Workflow.Version != "v2" {
+	if loaded.Workflow.Type != "demo" || loaded.Workflow.Version != "v2" {
 		t.Fatalf("workflow 内容异常: %+v", loaded.Workflow)
 	}
 	if ref := loaded.Workflow.Activities["demo.Charge"]; ref.Type != "demo.charge" || ref.TaskQueue != "demo" {

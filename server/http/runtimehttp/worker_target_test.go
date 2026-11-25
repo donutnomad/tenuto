@@ -23,7 +23,7 @@ func TestTargetAPI(t *testing.T) {
 	if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{Namespace: "ns", Identity: "A", ActivityTypes: []string{"charge"}, TaskQueues: []string{"payments"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns", &program.WorkflowConfig{ID: "pay", Program: programtest.Noop(),
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns", &program.WorkflowConfig{Type: "pay", Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"charge": {Symbol: "charge", Type: "charge"},
 		}}); err != nil {

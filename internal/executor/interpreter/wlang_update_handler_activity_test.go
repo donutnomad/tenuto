@@ -40,7 +40,7 @@ func activityHandlerProgram() *program.WorkflowConfig {
 		},
 	}
 	return &program.WorkflowConfig{
-		ID: "handler-activity",
+		Type: "handler-activity",
 		Activities: map[string]program.ActivityRef{
 			"activities.Enrich": {Symbol: "activities.Enrich", Type: "activities.Enrich"},
 		},

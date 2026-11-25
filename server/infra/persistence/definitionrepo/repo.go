@@ -123,12 +123,12 @@ func (s *Repository) saveWorkflowConfigInNamespace(namespace string, wf *program
 		return definition.WorkflowConfigRef{}, false, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.ID, Version: version}
+	ref := definition.WorkflowConfigRef{Namespace: namespace, WorkflowID: wf.Type, Version: version}
 	activated := false
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		row := &WorkflowConfigPO{
 			Namespace:  namespace,
-			WorkflowID: wf.ID,
+			WorkflowID: wf.Type,
 			Version:    version,
 			ConfigJSON: data,
 			CreatedAt:  time.Now(),
@@ -150,7 +150,7 @@ func (s *Repository) saveWorkflowConfigInNamespace(namespace string, wf *program
 			active, err := gsql.From[WorkflowConfigActivePO](WorkflowConfigActiveSchema).
 				Where(
 					WorkflowConfigActiveSchema.Namespace.Eq(namespace),
-					WorkflowConfigActiveSchema.WorkflowID.Eq(wf.ID),
+					WorkflowConfigActiveSchema.WorkflowID.Eq(wf.Type),
 				).Take(tx)
 			if err != nil {
 				return err
@@ -161,7 +161,7 @@ func (s *Repository) saveWorkflowConfigInNamespace(namespace string, wf *program
 		}
 		active := &WorkflowConfigActivePO{
 			Namespace:  namespace,
-			WorkflowID: wf.ID,
+			WorkflowID: wf.Type,
 			Version:    version,
 			UpdatedAt:  time.Now(),
 		}

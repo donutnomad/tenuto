@@ -88,7 +88,7 @@ func newCancelE2EWithSlots(t *testing.T, slots int) *cancelE2E {
 // register 从 Go 源码生成 id 这个 Workflow 并登记；源码里的 activities.X 解析为 cancel.X。
 func (h *cancelE2E) register(id, src string) {
 	h.t.Helper()
-	generated, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: id, FuncName: "W", Filename: "w.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: id, FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		h.t.Fatalf("generate %s: %v", id, err)
 	}

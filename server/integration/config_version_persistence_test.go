@@ -20,7 +20,7 @@ func TestServerRunsRegisteredConfigVersions(t *testing.T) {
 	workflowTasks := memory.NewTaskQueue(16)
 	activityTasks := memory.NewActivityQueueRouter(16)
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(store), WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "wf-versioned"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "wf-versioned"},
 		sdkgentest.Step{Type: "complete", Input: `map[string]any{"value": "v1"}`, Options: `StartToCloseTimeout: time.Minute`},
 	)
 
@@ -31,7 +31,7 @@ func TestServerRunsRegisteredConfigVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 第一个 run pin 到首次注册版本。
-	firstRunID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", map[string]any{"request": "first"}))
+	firstRunID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", map[string]any{"request": "first"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestServerRunsRegisteredConfigVersions(t *testing.T) {
 	if err := server.TerminateWorkflow(context.Background(), "", "", firstRunID, "make-way-for-new-run"); err != nil {
 		t.Fatal(err)
 	}
-	secondRunID, err := server.StartWorkflowForCron(ctx, "", wf.ID, wf.ID, map[string]any{"request": "second"}, nil)
+	secondRunID, err := server.StartWorkflowForCron(ctx, "", wf.Type, wf.Type, map[string]any{"request": "second"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestServerRunsRegisteredConfigVersions(t *testing.T) {
 		t.Fatalf("second run should pin to the newly registered version %q, got %q", secondRef.Version, secondRun.WorkflowConfigVersion)
 	}
 	// 第二个 run 成为 current，第一个 run 已让出 current。
-	cur, err := store.Executions.GetCurrentRunID("", wf.ID)
+	cur, err := store.Executions.GetCurrentRunID("", wf.Type)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestServerRunsRegisteredConfigVersions(t *testing.T) {
 func TestServerStartsLatestPersistedWorkflowConfigAfterRestart(t *testing.T) {
 	store, _ := newGCStore(t, 0)
 	firstServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(store), WorkflowQueue: memory.NewTaskQueue(16), ActivityRouter: memory.NewActivityQueueRouter(16)})
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "wf-persisted-latest"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "wf-persisted-latest"},
 		sdkgentest.Step{Type: "complete", Input: `map[string]any{"value": "v1"}`, Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := firstServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
@@ -102,7 +102,7 @@ func TestServerStartsLatestPersistedWorkflowConfigAfterRestart(t *testing.T) {
 	}
 
 	restartedServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(store), WorkflowQueue: memory.NewTaskQueue(16), ActivityRouter: memory.NewActivityQueueRouter(16)})
-	runID, err := startedRunID(restartedServer.StartWorkflow(context.Background(), "", wf.ID, wf.ID, "", map[string]any{"request": "after-restart"}))
+	runID, err := startedRunID(restartedServer.StartWorkflow(context.Background(), "", wf.Type, wf.Type, "", map[string]any{"request": "after-restart"}))
 	if err != nil {
 		t.Fatal(err)
 	}

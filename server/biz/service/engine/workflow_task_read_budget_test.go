@@ -68,7 +68,7 @@ func TestWorkflowTaskHotPathReadsRunAndStateOnce(t *testing.T) {
 	server := NewServer(deps)
 	t.Cleanup(server.Stop)
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "read-budget", Name: "A", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "read-budget", Name: "A", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", "read-budget", "read-budget", "", nil))

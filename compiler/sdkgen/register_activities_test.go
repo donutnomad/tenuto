@@ -84,7 +84,7 @@ func Notify(_ context.Context, in In) (Out, error) { return Out{OK: true}, nil }
 // @Activity(type="orders.audit",queue="audit",version=v1)
 func Audit(_ context.Context, in In) (Out, error) { return Out{OK: true}, nil }
 
-// @Workflow(id="place-order")
+// @Workflow(type="place-order")
 func Place(ctx workflow.Context, in In) (Out, error) { return CallNotify(ctx, in) }
 `
 	if err := os.WriteFile(filepath.Join(dir, "orders.go"), []byte(src), 0o644); err != nil {

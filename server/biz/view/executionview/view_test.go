@@ -94,16 +94,16 @@ func TestListNamespaces(t *testing.T) {
 	env.createRun(t, "tenant-a", "payments", "run-a1")
 	env.createRun(t, "tenant-a", "payments", "run-a2")
 	env.createRun(t, "", "orders", "run-default")
-	env.saveConfig(t, "tenant-a", &program.WorkflowConfig{ID: "payments", Name: "v1", Program: programtest.Noop()})
-	env.saveConfig(t, "tenant-a", &program.WorkflowConfig{ID: "payments", Name: "v2", Program: programtest.Noop()})
-	env.saveConfig(t, "tenant-a", &program.WorkflowConfig{ID: "refunds", Program: programtest.Noop()})
+	env.saveConfig(t, "tenant-a", &program.WorkflowConfig{Type: "payments", Name: "v1", Program: programtest.Noop()})
+	env.saveConfig(t, "tenant-a", &program.WorkflowConfig{Type: "payments", Name: "v2", Program: programtest.Noop()})
+	env.saveConfig(t, "tenant-a", &program.WorkflowConfig{Type: "refunds", Program: programtest.Noop()})
 	// w1 的两条路由（两个 task queue）算一个 Worker；只有 Worker 的 namespace 照样统计它的 Workflow。
 	env.workers.workers = []protocol.ActivityWorkerVersion{
 		{Namespace: "tenant-a", Identity: "w1", BuildID: "b1", TaskQueues: []string{"q1"}},
 		{Namespace: "tenant-a", Identity: "w1", BuildID: "b1", TaskQueues: []string{"q2"}},
 		{Namespace: "tenant-a", Identity: "w2"}, {Namespace: "workers-only", Identity: "w3"},
 	}
-	env.saveConfig(t, "workers-only", &program.WorkflowConfig{ID: "sync", Program: programtest.Noop()})
+	env.saveConfig(t, "workers-only", &program.WorkflowConfig{Type: "sync", Program: programtest.Noop()})
 	if err := env.schedules.CreateSchedule(&schedule.Schedule{ID: "sch-1", Namespace: "tenant-a", WorkflowType: "payments"}); err != nil {
 		t.Fatal(err)
 	}
@@ -158,19 +158,19 @@ func TestListNamespacesScheduleError(t *testing.T) {
 func TestListWorkflowConfigs(t *testing.T) {
 	// Happy Path: 每个 workflow 一行，展示 active 版本的内容；目标 Worker 状态按 namespace 判定
 	env := newEnv()
-	env.saveConfig(t, "ns", &program.WorkflowConfig{ID: "b-online", Name: "B", TargetWorkerIdentity: "worker-b", Policy: "pinned", Version: "v7",
+	env.saveConfig(t, "ns", &program.WorkflowConfig{Type: "b-online", Name: "B", TargetWorkerIdentity: "worker-b", Policy: "pinned", Version: "v7",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"a": {Symbol: "a", Type: "t"},
 			"b": {Symbol: "b", Type: "t"},
 		}})
-	env.saveConfig(t, "ns", &program.WorkflowConfig{ID: "a-default", Name: "old", Program: programtest.Noop()})
-	env.saveConfig(t, "ns", &program.WorkflowConfig{ID: "a-default", Name: "new", Program: programtest.Noop()})
-	env.saveConfig(t, "ns", &program.WorkflowConfig{ID: "c-offline", TargetWorkerIdentity: "worker-c", Program: programtest.Noop()})
-	if _, err := env.configs.SaveWorkflowConfigArtifactInNamespace("ns", &program.WorkflowConfig{ID: "d-artifact", Name: "artifact", Program: programtest.Noop()}); err != nil {
+	env.saveConfig(t, "ns", &program.WorkflowConfig{Type: "a-default", Name: "old", Program: programtest.Noop()})
+	env.saveConfig(t, "ns", &program.WorkflowConfig{Type: "a-default", Name: "new", Program: programtest.Noop()})
+	env.saveConfig(t, "ns", &program.WorkflowConfig{Type: "c-offline", TargetWorkerIdentity: "worker-c", Program: programtest.Noop()})
+	if _, err := env.configs.SaveWorkflowConfigArtifactInNamespace("ns", &program.WorkflowConfig{Type: "d-artifact", Name: "artifact", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
-	env.saveConfig(t, "other", &program.WorkflowConfig{ID: "elsewhere", Program: programtest.Noop()})
+	env.saveConfig(t, "other", &program.WorkflowConfig{Type: "elsewhere", Program: programtest.Noop()})
 	env.workers.workers = []protocol.ActivityWorkerVersion{
 		{Namespace: "ns", Identity: "worker-b"},
 		{Namespace: "other", Identity: "worker-c"}, // 其他 namespace 的同名 Worker 不算在线

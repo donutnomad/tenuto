@@ -57,7 +57,7 @@ func TestPollWorkflowTaskDrainsStaleStickyTasksWithoutStackGrowth(t *testing.T) 
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: workflowTasks, ActivityRouter: engine.QueueActivityRouter{Queue: activityTasks}})
 
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "stale-sticky-flow",
+		Type:    "stale-sticky-flow",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"first": {Symbol: "first", Type: "activity.first"},

@@ -60,7 +60,7 @@ func W(ctx workflow.Context, input map[string]any) map[string]any {
 		"suggested": info.GetContinueAsNewSuggested(),
 	}
 }`
-	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{WorkflowID: "workflow-info", FuncName: "W", Filename: "workflow_info.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{WorkflowType: "workflow-info", FuncName: "W", Filename: "workflow_info.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

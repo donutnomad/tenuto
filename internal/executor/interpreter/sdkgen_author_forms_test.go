@@ -39,7 +39,7 @@ func (r driveResult) activityTypes() []string {
 
 func compileSource(t *testing.T, src string) *program.WorkflowConfig {
 	t.Helper()
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "author-forms", FuncName: "W", Filename: "w.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "author-forms", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

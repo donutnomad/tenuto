@@ -32,9 +32,9 @@ func generateInitScan(t *testing.T, body string) (Result, error) {
 	t.Helper()
 	src := initScanHeader + "func W(ctx workflow.Context, input map[string]any) error {\n" + body + "\n}\n"
 	return GenerateFromSource([]byte(src), Options{
-		WorkflowID: "init-scan",
-		FuncName:   "W",
-		Filename:   "w.go",
+		WorkflowType: "init-scan",
+		FuncName:     "W",
+		Filename:     "w.go",
 	})
 }
 

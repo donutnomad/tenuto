@@ -34,7 +34,7 @@ func TestResetActivityService_HappyPath(t *testing.T) {
 
 	ctx := context.Background()
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-ra-http", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-ra-http", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -30,7 +30,7 @@ func TestListRuns_FilterByRunIDs(t *testing.T) {
 	runIDs := make([]string, 3)
 	for i := range 3 {
 		wfID := fmt.Sprintf("wf-runids-%d", i)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		id, err := startedRunID(server.StartWorkflow(ctx, "", wfID, wfID, "", nil))
@@ -67,7 +67,7 @@ func TestListRuns_FilterByRunIDs_IgnoresPaging(t *testing.T) {
 	var lastID string
 	for i := range 60 {
 		wfID := fmt.Sprintf("wf-runids-page-%d", i)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		id, err := startedRunID(server.StartWorkflow(ctx, "", wfID, wfID, "", nil))
@@ -95,7 +95,7 @@ func TestListRuns_EmptyRunIDsReturnsAll(t *testing.T) {
 	// 每个 run 用独立 workflowID：同一 workflowID 至多一个 current/running（对标 Temporal）。
 	for i := range 3 {
 		wfID := fmt.Sprintf("wf-runids-empty-%d", i)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := server.StartWorkflow(ctx, "", wfID, wfID, "", nil); err != nil {

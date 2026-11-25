@@ -105,10 +105,10 @@ func TestWorkflowConfigPersistsAcrossStoreInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != workflow.ID || len(got.Program.Program) == 0 || len(got.Activities) != 1 {
+	if got.Type != workflow.Type || len(got.Program.Program) == 0 || len(got.Activities) != 1 {
 		t.Fatalf("unexpected persisted config: %+v", got)
 	}
-	latest, err := reopened.Definitions.LatestWorkflowConfigRefInNamespace("", workflow.ID)
+	latest, err := reopened.Definitions.LatestWorkflowConfigRefInNamespace("", workflow.Type)
 	if err != nil {
 		t.Fatal(err)
 	}

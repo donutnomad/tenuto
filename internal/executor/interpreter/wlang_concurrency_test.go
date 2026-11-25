@@ -128,7 +128,7 @@ func parallelGoProgram(activities map[string]programpkg.ActivityRef, lanes ...ma
 		map[string]any{"var": "ctx"},
 	}}})
 	return &programpkg.WorkflowConfig{
-		ID:         "parallel-wf",
+		Type:       "parallel-wf",
 		Activities: activities,
 		Program:    programpkg.NewWLangProgram(program),
 	}
@@ -406,7 +406,7 @@ func TestParallelGo_HandlerInternalConcurrency(t *testing.T) {
 		},
 	}
 	nodes := &programpkg.WorkflowConfig{
-		ID: "handler-parallel",
+		Type: "handler-parallel",
 		Activities: map[string]programpkg.ActivityRef{
 			"activities.A": {Symbol: "activities.A", Type: "activities.A"},
 			"activities.B": {Symbol: "activities.B", Type: "activities.B"},
@@ -480,7 +480,7 @@ func TestParallelGo_HandlerInternalConcurrency_SecondRoundCompletes(t *testing.T
 		},
 	}
 	nodes := &programpkg.WorkflowConfig{
-		ID: "handler-parallel",
+		Type: "handler-parallel",
 		Activities: map[string]programpkg.ActivityRef{
 			"activities.A": {Symbol: "activities.A", Type: "activities.A"},
 			"activities.B": {Symbol: "activities.B", Type: "activities.B"},

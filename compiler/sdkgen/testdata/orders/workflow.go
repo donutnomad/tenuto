@@ -70,7 +70,7 @@ func Notify(ctx context.Context, in NotifyInput) (NotifyOutput, error) {
 	return NotifyOutput{Note: in.Note}, nil
 }
 
-// @Workflow(id="orders-demo",name="Orders Demo",policy=auto_upgrade,version=v2)
+// @Workflow(type="orders-demo",name="Orders Demo",policy=auto_upgrade,version=v2)
 func Orders(ctx workflow.Context, in Input) (Output, error) {
 	version := workflow.GetVersion(ctx, "charge-policy", 3, 6)
 	reserved, err := inventory.CallReserve(ctx, inventory.ReserveInput{OrderID: in.OrderID}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})

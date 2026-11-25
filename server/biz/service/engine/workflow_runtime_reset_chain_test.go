@@ -36,7 +36,7 @@ func TestResetWorkflow_ChainedReset(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-chain", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-chain", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	run1, err := startedRunID(server.StartWorkflow(ctx, "", "wf-chain", "wf-chain", "", map[string]any{"k": "v"}))
@@ -72,7 +72,7 @@ func TestResetWorkflow_NoIdempotentEarlyReturn(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-rereset", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-rereset", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	base, err := startedRunID(server.StartWorkflow(ctx, "", "wf-rereset", "wf-rereset", "", nil))

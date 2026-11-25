@@ -31,7 +31,7 @@ func TestWorkflowTaskRuntimeHTTPRoutesV2TaskToCapableWorker(t *testing.T) {
 		HandlerABISchema: programpkg.WLangHandlerABISchemaV1,
 	}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:         "http-v2-workflow",
+		Type:       "http-v2-workflow",
 		Program:    program,
 		Activities: map[string]programpkg.ActivityRef{},
 	}); err != nil {
@@ -89,15 +89,15 @@ func countRuntimeEvents(events []historypkg.Event, typ historypkg.EventType) int
 // Integration: selected candidate config crosses HTTP while current remains pinned to old content.
 func TestWorkflowTaskHTTPSelectedProgramConfig(t *testing.T) {
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: memory.NewExecutionManager()}, WorkflowQueue: newRuntimeHTTPTestQueue(), ActivityRouter: newRuntimeHTTPTestQueue().activities()})
-	old := &programpkg.WorkflowConfig{ID: "versioned-http", Name: "old", Program: programtest.Noop()}
+	old := &programpkg.WorkflowConfig{Type: "versioned-http", Name: "old", Program: programtest.Noop()}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, old); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", old.ID, old.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", old.Type, old.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate := &programpkg.WorkflowConfig{ID: old.ID, Name: "candidate", Program: programtest.Noop()}
+	candidate := &programpkg.WorkflowConfig{Type: old.Type, Name: "candidate", Program: programtest.Noop()}
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, candidate)
 	if err != nil {
 		t.Fatal(err)

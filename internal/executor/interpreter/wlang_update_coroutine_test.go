@@ -49,7 +49,7 @@ func bodyActivityWithHandlerProgram(name string) *program.WorkflowConfig {
 		},
 	}
 	return &program.WorkflowConfig{
-		ID: "body-activity-handler",
+		Type: "body-activity-handler",
 		Activities: map[string]program.ActivityRef{
 			"activities.Work": {Symbol: "activities.Work", Type: "activities.Work"},
 		},
@@ -184,7 +184,7 @@ func TestUpdateHandler_NonDetPanic_EscalatesNotDowngrades(t *testing.T) {
 		},
 	}
 	nodes := &program.WorkflowConfig{
-		ID: "nondet-handler",
+		Type: "nondet-handler",
 		Program: program.NewWLangProgram([]any{
 			map[string]any{"expr": map[string]any{"SetUpdateHandler": []any{
 				map[string]any{"pkg": "workflow"},

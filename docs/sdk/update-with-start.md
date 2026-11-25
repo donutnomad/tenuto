@@ -60,7 +60,7 @@ start := c.NewWithStartWorkflowOperation(
         ID:                       "create-" + input.RecordID,
         WorkflowIDConflictPolicy: client.WorkflowIDConflictPolicyUseExisting,
     },
-    "approval-workflow", // @Workflow(id=...) 声明的 Workflow Type
+    "approval-workflow", // @Workflow(type=...) 声明的 Workflow Type
     input,
 )
 

@@ -112,7 +112,7 @@ func generateWorkflow(t testing.TB, workflowType, src string) *program.WorkflowC
 
 // workflowConfig 从 Go 源码（入口函数 W）生成 Workflow 配置；源码里的 activities.X 解析为 test.X。
 func workflowConfig(workflowType, src string) (*program.WorkflowConfig, error) {
-	generated, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: workflowType, FuncName: "W", Filename: "w.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: workflowType, FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		return nil, fmt.Errorf("generate %s: %w", workflowType, err)
 	}

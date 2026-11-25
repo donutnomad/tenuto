@@ -72,7 +72,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 ```json
 {
   "namespace": "orders",
-  "workflow": { "id": "order-flow", "...": "生成器写出的 workflow.json 全文" },
+  "workflow": { "type": "order-flow", "...": "生成器写出的 workflow.json 全文" },
   "activate_if_new": false
 }
 ```
@@ -133,7 +133,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 
 ## 启动请求体
 
-`workflow_type` 是 `@Workflow` 的 `id`，选择定义；`workflow_id` 标识这次执行，留空时服务端生成 UUIDv7 文本并在响应里返回。
+`workflow_type` 是 `@Workflow` 的 `type`，选择定义；`workflow_id` 标识这次执行，留空时服务端生成 UUIDv7 文本并在响应里返回。
 
 | 路径 | 请求体 | 响应 |
 | --- | --- | --- |

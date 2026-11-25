@@ -8,7 +8,7 @@ Workflow 内部的周期逻辑（一个 Run 里循环等待）用 `workflow.Slee
 
 ```go
 handle, err := c.ScheduleClient().Create(ctx, client.ScheduleOptions{ // c 是 sdk/client 的 Client，Namespace 取自它
-    WorkflowType:   "daily-report",                       // @Workflow(id=...)
+    WorkflowType:   "daily-report",                       // @Workflow(type=...)
     Description:    "每日 02:30 生成报表",
     CronExpression: "30 2 * * *",                         // 5 段：分 时 日 月 周
     TimeZone:       "Asia/Shanghai",                      // IANA 时区，空值为 UTC

@@ -39,7 +39,7 @@ func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: fmt.Sprintf("charge-%s-%d", in.OrderID, in.Cents)}, nil
 }
 
-// @Workflow(id="helpers-flow",name="Helpers Flow",policy=auto_upgrade,version=v1)
+// @Workflow(type="helpers-flow",name="Helpers Flow",policy=auto_upgrade,version=v1)
 func Flow(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	total := orderTotal(in.Items)
 	chargeID, err := charge(ctx, in.OrderID, total)

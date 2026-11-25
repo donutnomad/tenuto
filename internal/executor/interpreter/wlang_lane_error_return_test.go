@@ -11,7 +11,7 @@ import (
 
 func probeExecFix(t *testing.T, src string, events []history.Event) ([]history.Command, error) {
 	t.Helper()
-	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowID: "probe-fix", FuncName: "W", Filename: "w.go"})
+	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{WorkflowType: "probe-fix", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}

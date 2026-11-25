@@ -35,10 +35,10 @@ func GeneratedWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: "generated-program-flow",
-		Name:       "生成代码流程",
-		FuncName:   "GeneratedWorkflow",
-		Filename:   "generated_workflow.go",
+		WorkflowType: "generated-program-flow",
+		Name:         "生成代码流程",
+		FuncName:     "GeneratedWorkflow",
+		Filename:     "generated_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)

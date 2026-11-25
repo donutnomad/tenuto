@@ -52,9 +52,9 @@ func W(ctx workflow.Context, input map[string]any) error {
 %s	return nil
 }
 `, body.String())
-	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{WorkflowID: base.ID, FuncName: "W", Filename: "w.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{WorkflowType: base.Type, FuncName: "W", Filename: "w.go"})
 	if err != nil {
-		t.Fatalf("generate %s: %v\n%s", base.ID, err, source)
+		t.Fatalf("generate %s: %v\n%s", base.Type, err, source)
 	}
 	for i, step := range steps {
 		symbol := fmt.Sprintf("activities.A%d", i)
@@ -90,9 +90,9 @@ func W(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `, count)
-	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{WorkflowID: base.ID, FuncName: "W", Filename: "w.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{WorkflowType: base.Type, FuncName: "W", Filename: "w.go"})
 	if err != nil {
-		t.Fatalf("generate %s: %v", base.ID, err)
+		t.Fatalf("generate %s: %v", base.Type, err)
 	}
 	ref := generated.Workflow.Activities["activities.A0"]
 	ref.Type = activityType

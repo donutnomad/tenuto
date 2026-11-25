@@ -168,7 +168,7 @@ func TestStartWorkflowForCronDoesNotReplaceARunningRun(t *testing.T) {
 
 func registerScheduleWorkflow(t *testing.T, server *Server, workflowType string) definition.WorkflowConfigRef {
 	t.Helper()
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: workflowType, Name: workflowType, Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: workflowType, Name: workflowType, Program: programtest.Noop()})
 	if err != nil {
 		t.Fatalf("RegisterWorkflow failed: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestTriggerSchedule_Paused(t *testing.T) {
 
 	wf := &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-trigger-paused",
+		Type:    "wf-trigger-paused",
 		Name:    "Trigger Paused Test",
 	}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {

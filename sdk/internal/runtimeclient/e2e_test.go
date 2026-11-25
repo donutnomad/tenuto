@@ -30,14 +30,14 @@ func TestWorkflowRuntimeHTTPClientStartsAndControlsRun(t *testing.T) {
 	defer httpServer.Close()
 	client := runtimeclient.NewWorkflowRuntimeHTTPClient(httpServer.URL, httpServer.Client(), runtimeclient.RuntimeHTTPClientOptions{})
 
-	wf := &program.WorkflowConfig{ID: "workflow-runtime-api", Program: programtest.Noop()}
+	wf := &program.WorkflowConfig{Type: "workflow-runtime-api", Program: programtest.Noop()}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
 
-	runID := startRun(t, client, wf.ID, m{"request_id": "r-1"})
+	runID := startRun(t, client, wf.Type, m{"request_id": "r-1"})
 	run := getRun(t, client, runID)
-	if run.ID != runID || run.WorkflowID != wf.ID || run.Status != historypkg.StatusRunning {
+	if run.ID != runID || run.WorkflowID != wf.Type || run.Status != historypkg.StatusRunning {
 		t.Fatalf("unexpected run from runtime api: %+v", run)
 	}
 
@@ -63,11 +63,11 @@ func TestWorkflowRuntimeHTTPClientSignalsQueriesAndUpdatesRun(t *testing.T) {
 	defer httpServer.Close()
 	client := runtimeclient.NewWorkflowRuntimeHTTPClient(httpServer.URL, httpServer.Client(), runtimeclient.RuntimeHTTPClientOptions{})
 
-	wf := &program.WorkflowConfig{ID: "workflow-interaction-api", Program: programtest.Noop()}
+	wf := &program.WorkflowConfig{Type: "workflow-interaction-api", Program: programtest.Noop()}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID := startRun(t, client, wf.ID, nil)
+	runID := startRun(t, client, wf.Type, nil)
 
 	if err := client.SignalWorkflow(ctx, runtimeapi.WorkflowRuntimeInteractionRequest{RunID: runID, Name: "payment_received", Input: m{"amount": int64(42)}}); err != nil {
 		t.Fatal(err)
@@ -114,11 +114,11 @@ func TestWorkflowRuntimeHTTPClientRoundTripsUpdatePayloads(t *testing.T) {
 	httpServer := httptest.NewServer(runtimehttp.NewWorkflowRuntimeHTTPHandler(server))
 	defer httpServer.Close()
 	client := runtimeclient.NewWorkflowRuntimeHTTPClient(httpServer.URL, httpServer.Client(), runtimeclient.RuntimeHTTPClientOptions{})
-	wf := &program.WorkflowConfig{ID: "workflow-update-payload-api", Program: programtest.Noop()}
+	wf := &program.WorkflowConfig{Type: "workflow-update-payload-api", Program: programtest.Noop()}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID := startRun(t, client, wf.ID, nil)
+	runID := startRun(t, client, wf.Type, nil)
 	arg, err := protocol.NewJSONPayload(map[string]any{"record_id": "r-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -180,11 +180,11 @@ func TestWorkflowTaskRuntimeHTTPClientCompletesWorkflowWithTaskToken(t *testing.
 	defer httpServer.Close()
 	client := runtimeclient.NewWorkflowTaskRuntimeHTTPClient(httpServer.URL, httpServer.Client(), runtimeclient.RuntimeHTTPClientOptions{})
 
-	wf := &program.WorkflowConfig{ID: "workflow-task-runtime-api", Program: programtest.Noop()}
+	wf := &program.WorkflowConfig{Type: "workflow-task-runtime-api", Program: programtest.Noop()}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

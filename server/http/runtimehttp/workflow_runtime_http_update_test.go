@@ -16,7 +16,7 @@ import (
 func TestWorkflowRuntimeHTTPUpdateWithStartPreservesWorkflowType(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: memory.NewTaskQueue(16), ActivityRouter: memory.NewActivityQueueRouter(16)})
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "approval-workflow", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "approval-workflow", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(NewWorkflowRuntimeHTTPHandler(server))

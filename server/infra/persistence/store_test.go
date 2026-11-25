@@ -163,7 +163,7 @@ func TestRunStoreRoundTrip(t *testing.T) {
 func TestWorkflowConfigStoreUsesContentVersionAndDeduplicates(t *testing.T) {
 	store := newTestStore(t)
 	wf := &program.WorkflowConfig{
-		ID:      "wf-1",
+		Type:    "wf-1",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"step": {Symbol: "step", Type: "complete"},
@@ -385,7 +385,7 @@ func InspectWorkflow(ctx workflow.Context, input map[string]any) error {
 	ready = true
 	return nil
 }
-`), sdkgen.Options{WorkflowID: "typed-uint64", FuncName: "InspectWorkflow", Filename: "typed_uint64.go"})
+`), sdkgen.Options{WorkflowType: "typed-uint64", FuncName: "InspectWorkflow", Filename: "typed_uint64.go"})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

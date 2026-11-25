@@ -49,8 +49,8 @@ func run(url, namespace, version, buildID string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 每个升级验证保留独立 current run；仅示例登记独立 Workflow ID。
-	workflowID, data, err := definition.Load()
+	// 每个升级验证保留独立 current run；仅示例登记独立 Workflow Type。
+	workflowType, data, err := definition.Load()
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func run(url, namespace, version, buildID string) error {
 		if err := json.Unmarshal(data, &config); err != nil {
 			return err
 		}
-		config["id"], _ = json.Marshal(workflowID + suffix)
+		config["type"], _ = json.Marshal(workflowType + suffix)
 		encoded, err := json.Marshal(config)
 		if err != nil {
 			return err

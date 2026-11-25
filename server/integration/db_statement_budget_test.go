@@ -223,14 +223,14 @@ func W(ctx workflow.Context, input map[string]any) error {
 	return workflow.Sleep(ctx, 100*time.Millisecond)
 }
 `
-	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{WorkflowID: "budget-steps", FuncName: "W", Filename: "w.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{WorkflowType: "budget-steps", FuncName: "W", Filename: "w.go"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ref := generated.Workflow.Activities["activities.Step"]
 	ref.Type = "budget.step"
 	generated.Workflow.Activities["activities.Step"] = ref
-	return &program.WorkflowConfig{ID: "budget-steps", Program: generated.Workflow.Program, Activities: generated.Workflow.Activities}
+	return &program.WorkflowConfig{Type: "budget-steps", Program: generated.Workflow.Program, Activities: generated.Workflow.Activities}
 }
 
 func TestStatementBudgetPerWorkflow(t *testing.T) {

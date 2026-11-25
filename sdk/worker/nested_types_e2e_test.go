@@ -203,11 +203,11 @@ func TestNestedTypesCrossEveryWorkflowBoundary(t *testing.T) {
 	}
 	defer c.Close()
 
-	parent, err := sdkgen.GenerateFromSource([]byte(nestedParentSrc), sdkgen.Options{WorkflowID: "nest-parent", FuncName: "Parent", Filename: "nest.go"})
+	parent, err := sdkgen.GenerateFromSource([]byte(nestedParentSrc), sdkgen.Options{WorkflowType: "nest-parent", FuncName: "Parent", Filename: "nest.go"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := sdkgen.GenerateFromSource([]byte(nestedParentSrc), sdkgen.Options{WorkflowID: "nest-parent", FuncName: "Parent", Filename: "nest.go"})
+	again, err := sdkgen.GenerateFromSource([]byte(nestedParentSrc), sdkgen.Options{WorkflowType: "nest-parent", FuncName: "Parent", Filename: "nest.go"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestNestedTypesCrossEveryWorkflowBoundary(t *testing.T) {
 		ref.Type, ref.TaskQueue = symbol, "nest"
 		parent.Workflow.Activities[symbol] = ref
 	}
-	child, err := sdkgen.GenerateFromSource([]byte(nestedChildSrc), sdkgen.Options{WorkflowID: "nest-child", FuncName: "Child", Filename: "child.go"})
+	child, err := sdkgen.GenerateFromSource([]byte(nestedChildSrc), sdkgen.Options{WorkflowType: "nest-child", FuncName: "Child", Filename: "child.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

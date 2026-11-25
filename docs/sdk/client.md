@@ -110,7 +110,7 @@ if err := run.Get(ctx, &out); err != nil {
 }
 ```
 
-- 第三个参数是 Workflow Type，即 `@Workflow(id=...)` 的取值。
+- 第三个参数是 Workflow Type，即 `@Workflow(type=...)` 的取值。
 - `args` 至多一个，编码成 JSON 对象（结构体或 map）作为 Workflow 的输入；结果同样是 JSON 对象，`Get` 解码进 `valuePtr`。整数保留精确值，2^53 以上不丢精度。
 - `StartWorkflowOptions.ID` 是 Workflow ID，留空时 SDK 生成一个 UUID。同一个 Workflow ID 同时至多一个运行中的 Run：已有运行中的 Run 时返回 `ErrWorkflowExecutionAlreadyStarted`；上一个 Run 结束之后可以用同一个 ID 再启动。规则见 [启动 Run](/develop/workflows#启动-run)。
 - 执行超时、Run 超时与 Workflow 重试策略来自 `@Workflow` 注解生成的配置，不在启动时设置。

@@ -22,8 +22,8 @@ type Definition struct {
 	FS fs.FS
 }
 
-// Load 读出 workflow.json 并返回 workflow id，便于错误信息定位到具体定义。
-func (d Definition) Load() (workflowID string, workflowJSON []byte, err error) {
+// Load 读出 workflow.json 并返回 Workflow Type，便于错误信息定位到具体定义。
+func (d Definition) Load() (workflowType string, workflowJSON []byte, err error) {
 	if d.FS == nil {
 		return "", nil, fmt.Errorf("registration: workflow definition has no filesystem")
 	}
@@ -32,15 +32,15 @@ func (d Definition) Load() (workflowID string, workflowJSON []byte, err error) {
 		return "", nil, fmt.Errorf("registration: read embedded %s: %w", ArtifactFile, err)
 	}
 	var header struct {
-		ID string `json:"id"`
+		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return "", nil, fmt.Errorf("registration: decode embedded %s: %w", ArtifactFile, err)
 	}
-	if header.ID == "" {
-		return "", nil, fmt.Errorf("registration: embedded %s has an empty workflow id", ArtifactFile)
+	if header.Type == "" {
+		return "", nil, fmt.Errorf("registration: embedded %s has an empty workflow type", ArtifactFile)
 	}
-	return header.ID, data, nil
+	return header.Type, data, nil
 }
 
 // Registrar 登记一份 workflow.json 原文。

@@ -43,9 +43,9 @@ import (
 func generateDeferProgram(t *testing.T, src string) sdkgen.Result {
 	t.Helper()
 	result, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{
-		WorkflowID: "wlang-function-defer",
-		FuncName:   "W",
-		Filename:   "w.go",
+		WorkflowType: "wlang-function-defer",
+		FuncName:     "W",
+		Filename:     "w.go",
 	})
 	if err != nil {
 		t.Fatalf("sdkgen.GenerateFromSource: %v", err)
@@ -363,7 +363,7 @@ import (
 	"__ACTIVITIES__"
 )
 
-// @Workflow(id="wlang-function-defer-callx",name="WLang Function Defer CallX",policy=auto_upgrade,version=v1)
+// @Workflow(type="wlang-function-defer-callx",name="WLang Function Defer CallX",policy=auto_upgrade,version=v1)
 func W(ctx workflow.Context, input map[string]any) (err error) {
 	var compensationError error
 	order := activities.OrderInput{OrderID: "o-1"}

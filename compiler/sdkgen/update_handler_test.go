@@ -24,7 +24,7 @@ func ApprovalWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 
-	result, err := GenerateFromSource(src, Options{WorkflowID: "approval-flow", FuncName: "ApprovalWorkflow", Filename: "approval.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "approval-flow", FuncName: "ApprovalWorkflow", Filename: "approval.go"})
 	if err != nil {
 		t.Fatalf("generate typed update handler: %v", err)
 	}
@@ -64,7 +64,7 @@ func Flow(ctx workflow.Context, input map[string]any) error {
 	return workflow.SetUpdateHandler(ctx, "update", ` + tt.handler + `)
 }
 `)
-			_, err := GenerateFromSource(src, Options{WorkflowID: "invalid-update", FuncName: "Flow", Filename: "invalid.go"})
+			_, err := GenerateFromSource(src, Options{WorkflowType: "invalid-update", FuncName: "Flow", Filename: "invalid.go"})
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v, want substring %q", err, tt.want)
 			}
@@ -86,7 +86,7 @@ func CounterWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 
-	result, err := GenerateFromSource(src, Options{WorkflowID: "counter-flow", FuncName: "CounterWorkflow", Filename: "counter.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "counter-flow", FuncName: "CounterWorkflow", Filename: "counter.go"})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

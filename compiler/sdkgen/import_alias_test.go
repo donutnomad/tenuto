@@ -22,7 +22,7 @@ func W(ctx wf.Context, input map[string]any) error {
 	return nil
 }
 `
-		return GenerateFromSource([]byte(src), Options{WorkflowID: "alias-flow", FuncName: "W", Filename: "alias.go"})
+		return GenerateFromSource([]byte(src), Options{WorkflowType: "alias-flow", FuncName: "W", Filename: "alias.go"})
 	}
 
 	t.Run("wait group lane activity is collected", func(t *testing.T) {
@@ -77,7 +77,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 	ch.SetUpdateHandler(ctx)
 	return nil
 }
-`), Options{WorkflowID: "other-receiver", FuncName: "W", Filename: "other.go"})
+`), Options{WorkflowType: "other-receiver", FuncName: "W", Filename: "other.go"})
 	require.NoError(t, err)
 	require.NotEmpty(t, result.ProgramJSON)
 }

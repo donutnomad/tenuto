@@ -49,7 +49,7 @@ func CounterWorkflow(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "counter", FuncName: "CounterWorkflow", Filename: "counter.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "counter", FuncName: "CounterWorkflow", Filename: "counter.go"})
 	if err != nil {
 		t.Fatalf("counter workflow 应能编译，却报错: %v", err)
 	}
@@ -91,7 +91,7 @@ func WithdrawWorkflow(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "withdraw", FuncName: "WithdrawWorkflow", Filename: "withdraw.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "withdraw", FuncName: "WithdrawWorkflow", Filename: "withdraw.go"})
 	if err != nil {
 		t.Fatalf("withdraw workflow 应能编译，却报错: %v", err)
 	}
@@ -132,7 +132,7 @@ func FanOutWorkflow(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "fanout", FuncName: "FanOutWorkflow", Filename: "fanout.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "fanout", FuncName: "FanOutWorkflow", Filename: "fanout.go"})
 	if err != nil {
 		t.Fatalf("fanout workflow 应能编译，却报错: %v", err)
 	}
@@ -161,7 +161,7 @@ func FireWorkflow(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "fire", FuncName: "FireWorkflow", Filename: "fire.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "fire", FuncName: "FireWorkflow", Filename: "fire.go"})
 	if err != nil {
 		t.Fatalf("`_ = <副作用调用>` 应能翻译执行，却报错: %v", err)
 	}

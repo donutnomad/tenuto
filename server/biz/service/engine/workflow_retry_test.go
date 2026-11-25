@@ -33,7 +33,7 @@ func TestWorkflowRetry_BasicRetry(t *testing.T) {
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-basic",
+		Type:    "wf-retry-basic",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        3,
 			InitialInterval:    "100ms",
@@ -96,7 +96,7 @@ func TestWorkflowRetry_BackoffDelay(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-backoff",
+		Type:    "wf-retry-backoff",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        3,
 			InitialInterval:    "200ms",
@@ -141,7 +141,7 @@ func TestWorkflowRetry_MaxAttempts(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-maxattempts",
+		Type:    "wf-retry-maxattempts",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:     2,
 			InitialInterval: "50ms",
@@ -189,7 +189,7 @@ func TestWorkflowRetry_NonRetryable(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-nonretryable",
+		Type:    "wf-retry-nonretryable",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        5,
 			InitialInterval:    "50ms",
@@ -226,7 +226,7 @@ func TestWorkflowRetry_RunTimeoutTriggerRetry(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:    programtest.Noop(),
-		ID:         "wf-retry-runtimeout",
+		Type:       "wf-retry-runtimeout",
 		RunTimeout: "80ms",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        3,
@@ -272,7 +272,7 @@ func TestWorkflowRetry_ExecutionTimeoutNoRetry(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:          programtest.Noop(),
-		ID:               "wf-retry-execttimeout",
+		Type:             "wf-retry-execttimeout",
 		ExecutionTimeout: "100ms",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        10,
@@ -312,7 +312,7 @@ func TestWorkflowRetry_BackoffExceedsDeadline(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:          programtest.Noop(),
-		ID:               "wf-retry-backoff-deadline",
+		Type:             "wf-retry-backoff-deadline",
 		ExecutionTimeout: "300ms",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        5,
@@ -357,7 +357,7 @@ func TestWorkflowRetry_DeadlineInheritedAcrossRetries(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program:          programtest.Noop(),
-		ID:               "wf-retry-deadline-inherit",
+		Type:             "wf-retry-deadline-inherit",
 		ExecutionTimeout: "10s",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        5,
@@ -415,7 +415,7 @@ func TestWorkflowRetry_CrashRecovery(t *testing.T) {
 		InitialInterval:    "300ms", // 长一点，方便模拟崩溃窗口
 		BackoffCoefficient: 1.0,
 	}
-	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-retry-crash-recovery", RetryPolicy: retryPolicy, Program: programtest.Noop()})
+	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-retry-crash-recovery", RetryPolicy: retryPolicy, Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestWorkflowRetry_CrashRecovery(t *testing.T) {
 	// 建新 server（同一个 mgr、同一个时钟），触发崩溃恢复
 	server2 := assembleServerWithClock(mgr, newTestTaskQueue(), newTestTaskQueue(), clk)
 	defer server2.Stop()
-	if _, err := server2.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-retry-crash-recovery", RetryPolicy: retryPolicy, Program: programtest.Noop()}); err != nil {
+	if _, err := server2.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-retry-crash-recovery", RetryPolicy: retryPolicy, Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := server2.RecoverRunningWorkflows(ctx); err != nil {
@@ -487,7 +487,7 @@ func TestWorkflowRetry_ConcurrentIdempotent(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-concurrent",
+		Type:    "wf-retry-concurrent",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        5,
 			InitialInterval:    "50ms",
@@ -527,7 +527,7 @@ func TestWorkflowRetry_NoRetryPolicy(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-nopolicy",
+		Type:    "wf-retry-nopolicy",
 	})
 
 	if err != nil {
@@ -556,7 +556,7 @@ func TestWorkflowRetry_CancelNoRetry(t *testing.T) {
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
 		Program: programtest.Noop(),
-		ID:      "wf-retry-cancel",
+		Type:    "wf-retry-cancel",
 		RetryPolicy: &program.RetryPolicy{
 			MaxAttempts:        5,
 			InitialInterval:    "50ms",

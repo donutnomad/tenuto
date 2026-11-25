@@ -31,7 +31,7 @@ func TestScheduleDriverAutoTriggersDueSchedule(t *testing.T) {
 	server := assembly.NewServer(assembly.Options{Stores: stores, WorkflowQueue: workflowTasks, ActivityRouter: activityQueues})
 	defer server.Stop()
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "cron-wf"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "cron-wf"},
 		sdkgentest.Step{Type: "complete", Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
@@ -43,7 +43,7 @@ func TestScheduleDriverAutoTriggersDueSchedule(t *testing.T) {
 	sch := &schedule.Schedule{
 		ID:             "sch-auto",
 		Namespace:      protocol.DefaultNamespace,
-		WorkflowType:   wf.ID,
+		WorkflowType:   wf.Type,
 		CronExpression: "*/5 * * * *",
 		Timezone:       "UTC",
 		OverlapPolicy:  string(schedule.OverlapPolicyEnums.AllowAll),

@@ -83,7 +83,7 @@ func chProgram(activities map[string]programpkg.ActivityRef, stmts ...map[string
 	}
 	program = append(program, map[string]any{"return": map[string]any{"literal": map[string]any{"type": "null", "value": nil}}})
 	return &programpkg.WorkflowConfig{
-		ID:         "channel-wf",
+		Type:       "channel-wf",
 		Activities: activities,
 		Program:    programpkg.NewWLangProgram(program),
 	}

@@ -14,7 +14,7 @@ import (
 func TestWorkflowConfigLatestIsScopedByNamespace(t *testing.T) {
 	store := newTestStore(t)
 	wfA := &program.WorkflowConfig{
-		ID:      "tenant-flow",
+		Type:    "tenant-flow",
 		Name:    "tenant-a",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
@@ -26,7 +26,7 @@ func TestWorkflowConfigLatestIsScopedByNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	wfB := &program.WorkflowConfig{
-		ID:      "tenant-flow",
+		Type:    "tenant-flow",
 		Name:    "tenant-b",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{

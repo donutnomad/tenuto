@@ -39,7 +39,7 @@ func TestBatchDriverStoppedBeforeProcessingLeavesOperationPending(t *testing.T) 
 	runIDs := make([]string, 3)
 	for i := range 3 {
 		wfID := fmt.Sprintf("wf-ctx-cancel-%d", i)
-		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: wfID, Program: programtest.Noop()}); err != nil {
+		if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: wfID, Program: programtest.Noop()}); err != nil {
 			t.Fatal(err)
 		}
 		id, err := startedRunID(server.StartWorkflow(context.Background(), "", wfID, wfID, "", nil))

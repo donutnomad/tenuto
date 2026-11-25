@@ -37,8 +37,8 @@ func LoadDir(dir string) (Artifacts, error) {
 	if err := unmarshalFile(WorkflowFile, workflowData, workflow); err != nil {
 		return Artifacts{}, err
 	}
-	if workflow.ID == "" {
-		return Artifacts{}, fmt.Errorf("%s: workflow id 为空", filepath.Join(dir, WorkflowFile))
+	if workflow.Type == "" {
+		return Artifacts{}, fmt.Errorf("%s: workflow type 为空", filepath.Join(dir, WorkflowFile))
 	}
 	artifacts.Workflow = workflow
 

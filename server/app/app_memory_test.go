@@ -161,10 +161,10 @@ func Flow(ctx workflow.Context) error {
 }
 `
 	generated, err := sdkgen.GenerateFromSource([]byte(source), sdkgen.Options{
-		WorkflowID: "embedded-flow",
-		Name:       "embedded-flow",
-		FuncName:   "Flow",
-		Filename:   "flow.go",
+		WorkflowType: "embedded-flow",
+		Name:         "embedded-flow",
+		FuncName:     "Flow",
+		Filename:     "flow.go",
 	})
 	if err != nil {
 		t.Fatal(err)

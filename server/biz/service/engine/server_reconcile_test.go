@@ -75,7 +75,7 @@ func TestFailWorkflowCommand_RetryRunStartFailureIsRepairedByReconcile(t *testin
 	srv, mgr := newFailingServerForTest(t)
 	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{
 		Program:     programtest.Noop(),
-		ID:          "wf-fail-retry-start-error",
+		Type:        "wf-fail-retry-start-error",
 		RetryPolicy: &program.RetryPolicy{MaxAttempts: 3, InitialInterval: "1h"},
 	})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
@@ -146,7 +146,7 @@ func TestFailWorkflowCommand_RetryRunStartFailureIsRepairedByReconcile(t *testin
 func TestFailWorkflowCommand_TerminalAppendFailureRollsBackWorkflowTask(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newFailingServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-fail-terminal-append-error", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-fail-terminal-append-error", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	commands := []historypkg.Command{{Type: historypkg.CmdFailWorkflow, Error: "boom"}}
 
@@ -173,11 +173,11 @@ func TestFailWorkflowCommand_TerminalAppendFailureRollsBackWorkflowTask(t *testi
 func TestWorkflowTaskPostCommit_ChildStartFailureKeepsRemainingCommands(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newFailingServerForTest(t)
-	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "child-start-error", Program: programtest.Noop()})
+	childRef, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "child-start-error", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "parent-child-start-error", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "parent-child-start-error", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 
 	mgr.failOn(historypkg.EventWorkflowStarted)
@@ -210,7 +210,7 @@ func TestWorkflowTaskPostCommit_ChildStartFailureKeepsRemainingCommands(t *testi
 func TestReconcileStartsMissingContinuedRun(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newFailingServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-continue-start-error", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-continue-start-error", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 
 	mgr.failOn(historypkg.EventWorkflowStarted)
@@ -277,7 +277,7 @@ func TestReconcileSchedulesWorkflowTaskForUnactivatedEvents(t *testing.T) {
 	workflowTasks := newTestTaskQueue()
 	srv := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 	t.Cleanup(srv.Stop)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-reconcile-activation", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-reconcile-activation", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	if err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, nil, ""); err != nil {
 		t.Fatal(err)
@@ -398,7 +398,7 @@ func TestReconcileRunningRuns_StopsOnContextCancel(t *testing.T) {
 func TestRunTimeoutReleasesTimersOnlyAfterTerminalCommit(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newFailingServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-timeout-release-order", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-timeout-release-order", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	if err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, []historypkg.Command{{Type: historypkg.CmdScheduleTimer, TimerID: "sleep-1", Delay: time.Hour}}, ""); err != nil {
 		t.Fatal(err)
@@ -444,7 +444,7 @@ func TestStopCancelsPendingWorkflowTaskReschedule(t *testing.T) {
 func TestFailWorkflowCommand_WithoutRetryMarksFailed(t *testing.T) {
 	ctx := context.Background()
 	srv, mgr := newServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: "wf-fail-no-retry", Program: programtest.Noop()})
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-fail-no-retry", Program: programtest.Noop()})
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 	failure := protocol.Failure{Message: "boom", Type: "Fatal"}
 

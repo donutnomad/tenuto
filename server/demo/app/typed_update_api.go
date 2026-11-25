@@ -111,10 +111,10 @@ func ApprovalWorkflow(ctx workflow.Context, input CreateInput) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{
-		WorkflowID: "typed-approval-workflow",
-		Name:       "Typed Update-With-Start Approval",
-		FuncName:   "ApprovalWorkflow",
-		Filename:   "typed_approval_workflow.go",
+		WorkflowType: "typed-approval-workflow",
+		Name:         "Typed Update-With-Start Approval",
+		FuncName:     "ApprovalWorkflow",
+		Filename:     "typed_approval_workflow.go",
 	})
 	if err != nil {
 		return nil, err
@@ -132,10 +132,10 @@ func NoUpdateHandlerWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{
-		WorkflowID: "no-update-handler-workflow",
-		Name:       "No Update Handler (behavior demo)",
-		FuncName:   "NoUpdateHandlerWorkflow",
-		Filename:   "no_update_handler_workflow.go",
+		WorkflowType: "no-update-handler-workflow",
+		Name:         "No Update Handler (behavior demo)",
+		FuncName:     "NoUpdateHandlerWorkflow",
+		Filename:     "no_update_handler_workflow.go",
 	})
 	if err != nil {
 		return nil, err

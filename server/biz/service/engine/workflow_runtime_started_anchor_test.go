@@ -65,10 +65,10 @@ func TestResetWorkflow_StartedAnchor_EquivalentToAdjacentCompleted(t *testing.T)
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	// 两条 run 用独立 workflowID：同一 workflowID 至多一个 current/running（对标 Temporal）。
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-started-anchor-a", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-started-anchor-a", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-started-anchor-b", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-started-anchor-b", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 

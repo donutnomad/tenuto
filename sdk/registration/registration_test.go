@@ -7,7 +7,7 @@ import (
 
 func TestDefinitionLoad(t *testing.T) {
 	definition := Definition{FS: fstest.MapFS{
-		ArtifactFile: &fstest.MapFile{Data: []byte(`{"id":"startup-greeting","name":"Greeting"}`)},
+		ArtifactFile: &fstest.MapFile{Data: []byte(`{"type":"startup-greeting","name":"Greeting"}`)},
 	}}
 	id, data, err := definition.Load()
 	if err != nil {
@@ -31,7 +31,7 @@ func TestDefinitionLoadBad(t *testing.T) {
 			ArtifactFile: &fstest.MapFile{Data: []byte(`{`)},
 		}},
 		"empty id": {FS: fstest.MapFS{
-			ArtifactFile: &fstest.MapFile{Data: []byte(`{"id":""}`)},
+			ArtifactFile: &fstest.MapFile{Data: []byte(`{"type":""}`)},
 		}},
 	}
 	for name, definition := range cases {

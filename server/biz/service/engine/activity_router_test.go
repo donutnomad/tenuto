@@ -217,7 +217,7 @@ func TestActivityRouteCatalogAllowsConfigWithOnlyActivityType(t *testing.T) {
 	)
 
 	err := catalog.ValidateWorkflowConfigInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "resolved-route",
+		Type:    "resolved-route",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture"},
@@ -237,7 +237,7 @@ func TestActivityRouteCatalogAcceptsExplicitQueuesRegardlessOfCatalog(t *testing
 
 	// 目录里没有 wallets 队列，但显式指定即放行（此前是 hard error）。
 	err := catalog.ValidateWorkflowConfigInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "mismatched-route",
+		Type:    "mismatched-route",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture", TaskQueue: "wallets"},
@@ -248,7 +248,7 @@ func TestActivityRouteCatalogAcceptsExplicitQueuesRegardlessOfCatalog(t *testing
 	}
 
 	err = catalog.ValidateWorkflowConfigInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "missing-build",
+		Type:    "missing-build",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture", TaskQueue: "custodian"},
@@ -271,7 +271,7 @@ func TestRegisterWorkflowAllowsWorkerVersionResolvedRoutes(t *testing.T) {
 	}
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "worker-version-route",
+		Type:    "worker-version-route",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture"},
@@ -305,7 +305,7 @@ func TestServerRefreshActivityWorkerVersionsDropsStaleRoutes(t *testing.T) {
 	}
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "stale-route-removed",
+		Type:    "stale-route-removed",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"refund": {Symbol: "refund", Type: "custodian.Refund"},
@@ -338,7 +338,7 @@ func TestScheduleActivityCommandUsesResolvedWorkerVersionRoute(t *testing.T) {
 	}
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "schedule-worker-version-route",
+		Type:    "schedule-worker-version-route",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture"},
@@ -444,7 +444,7 @@ func TestRegisterWorkflowDistinguishesExplicitTaskQueue(t *testing.T) {
 	}
 
 	_, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "explicit-queue-no-worker",
+		Type:    "explicit-queue-no-worker",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture", TaskQueue: "custodian"},
@@ -456,7 +456,7 @@ func TestRegisterWorkflowDistinguishesExplicitTaskQueue(t *testing.T) {
 	}
 
 	_, err = server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "implicit-queue-no-worker",
+		Type:    "implicit-queue-no-worker",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture"},

@@ -30,7 +30,7 @@ func OrderWorkflow(ctx workflow.Context, in OrderInput) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "range-flow", FuncName: "OrderWorkflow", Filename: "range_workflow.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "range-flow", FuncName: "OrderWorkflow", Filename: "range_workflow.go"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func OrderWorkflow(ctx workflow.Context) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "go-flow", FuncName: "OrderWorkflow", Filename: "go_workflow.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "go-flow", FuncName: "OrderWorkflow", Filename: "go_workflow.go"})
 	if err != nil {
 		t.Fatalf("expected wg.Go to transpile, got error: %v", err)
 	}
@@ -116,7 +116,7 @@ func OrderWorkflow(ctx workflow.Context) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "go-flow-acts", FuncName: "OrderWorkflow", Filename: "go_acts.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "go-flow-acts", FuncName: "OrderWorkflow", Filename: "go_acts.go"})
 	if err != nil {
 		t.Fatalf("expected wg.Go to transpile, got error: %v", err)
 	}

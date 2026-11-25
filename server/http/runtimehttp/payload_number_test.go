@@ -32,7 +32,7 @@ func TestWorkflowRuntimeHTTPPreservesPayloadNumbers(t *testing.T) {
 	scheduleStore := memory.NewScheduleRepository()
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr, Schedules: scheduleStore}, WorkflowQueue: memory.NewTaskQueue(8), ActivityRouter: memory.NewActivityQueueRouter(8)})
 	defer server.Stop()
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns", &program.WorkflowConfig{ID: "pay", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns", &program.WorkflowConfig{Type: "pay", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(NewWorkflowRuntimeHTTPHandler(server))

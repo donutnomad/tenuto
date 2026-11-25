@@ -316,7 +316,7 @@ func createStartedRunForTest(t testing.TB, mgr execution.ExecutionManager, run *
 // registerRunWorkflowForTest 登记 run 的 Workflow 类型的一份空配置，并让 run 使用这一版。
 func registerRunWorkflowForTest(t testing.TB, server *Server, run *execution.Run) {
 	t.Helper()
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: run.WorkflowType, Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: run.WorkflowType, Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

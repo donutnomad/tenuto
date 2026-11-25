@@ -98,7 +98,7 @@ func TestStdlibAndHelpersWorkflowRunsAndReplays(t *testing.T) {
 	}
 	defer c.Close()
 
-	generated, err := sdkgen.GenerateFromSource([]byte(quoteWorkflowSrc), sdkgen.Options{WorkflowID: "quote", FuncName: "Quote", Filename: "quotes.go"})
+	generated, err := sdkgen.GenerateFromSource([]byte(quoteWorkflowSrc), sdkgen.Options{WorkflowType: "quote", FuncName: "Quote", Filename: "quotes.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

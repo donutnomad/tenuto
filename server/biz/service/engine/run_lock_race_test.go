@@ -48,7 +48,7 @@ func startedProgramVersions(t *testing.T, server *Server, runID string) []string
 // pinned。领取的事务按锁下读到的 pinned 策略选版，不在 latest 上开始，这份投递放回队列；重新领取时在当前版本上开始。
 func TestWorkflowTaskStartHonoursPolicySetByAnotherTransaction(t *testing.T) {
 	server := newTestServer()
-	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "policy-race", Name: "A", Program: programtest.Noop()})
+	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "policy-race", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestWorkflowTaskStartHonoursPolicySetByAnotherTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refB, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "policy-race", Name: "B", Program: programtest.Noop()})
+	refB, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "policy-race", Name: "B", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestWorkflowTaskStartHonoursPolicySetByAnotherTransaction(t *testing.T) {
 // 领取的事务读到暂停，不开始这个 WFT，投递被确认丢弃。
 func TestWorkflowTaskStartHonoursPauseByAnotherTransaction(t *testing.T) {
 	server := newTestServer()
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "pause-race", Name: "A", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "pause-race", Name: "A", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", "pause-race", "pause-race", "", nil))
@@ -143,7 +143,7 @@ func TestWorkflowTaskStartHonoursPauseByAnotherTransaction(t *testing.T) {
 // 提交的事务在锁下读到终态，不写入完成，Run 保持 Terminated。
 func TestWorkflowTaskCompletionHonoursTerminationByAnotherTransaction(t *testing.T) {
 	server := newTestServer()
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "terminate-race", Name: "A", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "terminate-race", Name: "A", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	runID, err := startedRunID(server.StartWorkflow(context.Background(), "", "terminate-race", "terminate-race", "", nil))

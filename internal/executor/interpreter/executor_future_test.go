@@ -61,7 +61,7 @@ func futureLetZeroMap(varName string) map[string]any {
 // 这是 sdkgen 双 future 翻译产物的等价手写形态（已实测 GenerateFromSource 端到端可翻译）。
 func twoFutureProgram(activities map[string]programpkg.ActivityRef, program []any) *programpkg.WorkflowConfig {
 	return &programpkg.WorkflowConfig{
-		ID:         "two-future-wf",
+		Type:       "two-future-wf",
 		Activities: activities,
 		Program:    programpkg.NewWLangProgram(program),
 	}

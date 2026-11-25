@@ -37,7 +37,7 @@ description: order、payment、warehouse 三个服务进程通过 Tenuto Server 
 
 ## 跨服务契约
 
-Workflow 所在的 order-service 不链接 payment 与 warehouse 的实现。被调用的 Activity 在 `contracts` 包里声明为带 `remote=true` 的命名函数类型，生成器据此产出调用桥 `CallReserve`、`CallCharge` 等：
+Workflow 所在的 order-service 不链接 payment 与 warehouse 的实现。被调用的 Activity 在 `contracts` 包里用 `@RemoteActivity` 声明为命名函数类型，生成器据此产出调用桥 `CallReserve`、`CallCharge` 等：
 
 ```go
 // examples/shop/contracts/contracts.go（节选）
@@ -50,7 +50,7 @@ type ChargeOutput struct {
 	PaymentID string `json:"payment_id"`
 }
 
-// @Activity(type="payments.charge",queue="payments",version=v1,remote=true)
+// @RemoteActivity(type="payments.charge",queue="payments",version=v1)
 type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)
 ```
 

@@ -17,7 +17,7 @@ func Noop() program.WLangProgram {
 
 // Workflow 返回只含 Noop 程序的配置。
 func Workflow(id string) *program.WorkflowConfig {
-	return &program.WorkflowConfig{ID: id, Program: Noop()}
+	return &program.WorkflowConfig{Type: id, Program: Noop()}
 }
 
 // Field 是 Record 的一个字段：JSON 名与类型 ID（内置标量或另一个描述符的 ID）。
@@ -150,7 +150,7 @@ func PayloadWorkflow(id string, types map[string]program.WLangTypeDescriptor) *p
 	wlang.Types = types
 	wlang.Entry = program.WLangEntryDescriptor{InputVar: "in", Input: entryInput}
 	return &program.WorkflowConfig{
-		ID: id, Program: wlang,
+		Type: id, Program: wlang,
 		Activities: map[string]program.ActivityRef{
 			"order.Charge": {Symbol: "order.Charge", Type: "orders.charge", TaskQueue: "orders"},
 		},

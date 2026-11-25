@@ -11,7 +11,7 @@ import (
 
 func wlangWorkflow(program programpkg.WLangProgram) *programpkg.WorkflowConfig {
 	return &programpkg.WorkflowConfig{
-		ID:      "artifact-validation-wf",
+		Type:    "artifact-validation-wf",
 		Program: program,
 	}
 }

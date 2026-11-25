@@ -22,7 +22,7 @@ if err != nil {
 
 签名：`func ExecuteChildWorkflow(ctx Context, workflowID string, input any, opts ...ChildWorkflowOptions) ChildWorkflowFuture`。
 
-- `workflowID` 是子 Workflow 的定义 ID，即子 Workflow 的 `@Workflow(id=...)`，需要已在同一 Namespace 登记。
+- `workflowID` 是子 Workflow 的定义 ID，即子 Workflow 的 `@Workflow(type=...)`，需要已在同一 Namespace 登记。
 - `input` 是结构体或 `map[string]any`，作为子 Workflow 的输入。
 - `opts` 可选：`ParentClosePolicy`（见下文「父关闭策略」）与 `WaitForCancellation`（见下文「取消子 Workflow」）。
 - 调用时立即产生启动命令，返回的 Future 用 `Get` 等待；`Get` 的目标是 `*map[string]any`，内容是子 Run 的 Output。

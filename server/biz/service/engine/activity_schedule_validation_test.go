@@ -22,7 +22,7 @@ func TestScheduleActivityWithoutCloseTimeoutBlocksRun(t *testing.T) {
 	server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
 	defer server.Stop()
 
-	runID, wftID := startContractRun(t, mgr, server, &program.WorkflowConfig{ID: "missing-activity-timeout", Program: programtest.Noop()})
+	runID, wftID := startContractRun(t, mgr, server, &program.WorkflowConfig{Type: "missing-activity-timeout", Program: programtest.Noop()})
 	command := historypkg.Command{Type: historypkg.CmdScheduleActivity, ActivityID: "charge", ActivityType: "payments.charge"}
 	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, []historypkg.Command{command}, ""); err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestScheduleActivityDuplicateIDBlocksRun(t *testing.T) {
 		mgr := memory.NewExecutionManager()
 		server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 		defer server.Stop()
-		runID, wftID := startContractRun(t, mgr, server, &program.WorkflowConfig{ID: "duplicate-activity-id-batch", Program: programtest.Noop()})
+		runID, wftID := startContractRun(t, mgr, server, &program.WorkflowConfig{Type: "duplicate-activity-id-batch", Program: programtest.Noop()})
 		commands := []historypkg.Command{schedule("charge"), schedule("charge")}
 		if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, commands, ""); err != nil {
 			t.Fatal(err)
@@ -88,7 +88,7 @@ func TestScheduleActivityDuplicateIDBlocksRun(t *testing.T) {
 		mgr := memory.NewExecutionManager()
 		server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 		defer server.Stop()
-		runID, wftID := startContractRun(t, mgr, server, &program.WorkflowConfig{ID: "duplicate-activity-id-open", Program: programtest.Noop()})
+		runID, wftID := startContractRun(t, mgr, server, &program.WorkflowConfig{Type: "duplicate-activity-id-open", Program: programtest.Noop()})
 		if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, []historypkg.Command{schedule("charge")}, ""); err != nil {
 			t.Fatal(err)
 		}

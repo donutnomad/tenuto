@@ -27,7 +27,7 @@ func TestStartBodies(t *testing.T) {
 			t.Fatalf("run %s workflow id = %+v err=%v, want %q", runID, run, err, workflowID)
 		}
 	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns", &program.WorkflowConfig{ID: "pay", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace("ns", &program.WorkflowConfig{Type: "pay", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(NewWorkflowRuntimeHTTPHandler(server))

@@ -22,11 +22,11 @@ import (
 )
 
 type Options struct {
-	WorkflowID string
-	Name       string
-	FuncName   string
-	Filename   string
-	Dir        string
+	WorkflowType string
+	Name         string
+	FuncName     string
+	Filename     string
+	Dir          string
 }
 
 // Result 是一次翻译的产物：登记用的 WorkflowConfig 与格式化后的 WLang 程序 JSON。
@@ -86,8 +86,8 @@ var hostPackages = []string{workflowSDKPath, "time"}
 // 生成路径需要它：activity 的 Input/Output 类型不一定出现在 workflow 入口签名里，必须显式
 // 补齐才能做契约对照。
 func generateWithExtraTypes(sources workflowSources, opts Options, extraTypes map[string]programpkg.WLangTypeDescriptor) (Result, error) {
-	if opts.WorkflowID == "" {
-		return Result{}, fmt.Errorf("workflow id is required")
+	if opts.WorkflowType == "" {
+		return Result{}, fmt.Errorf("workflow type is required")
 	}
 	if opts.FuncName == "" {
 		return Result{}, fmt.Errorf("func name is required")
@@ -193,7 +193,7 @@ func generateWithExtraTypes(sources workflowSources, opts Options, extraTypes ma
 	}
 	// Activity 引用表来自翻译产物：产物里有什么符号，运行期就解析什么符号。
 	workflow := &programpkg.WorkflowConfig{
-		ID:         opts.WorkflowID,
+		Type:       opts.WorkflowType,
 		Name:       opts.Name,
 		Program:    artifact,
 		Activities: programActivities(envelope.Program),

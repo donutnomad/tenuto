@@ -12,8 +12,8 @@ func TestTypedApprovalWorkflowConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate typed approval workflow: %v", err)
 	}
-	if wf.ID != "typed-approval-workflow" {
-		t.Fatalf("unexpected workflow ID %q", wf.ID)
+	if wf.Type != "typed-approval-workflow" {
+		t.Fatalf("unexpected workflow ID %q", wf.Type)
 	}
 	if len(wf.Program.Program) == 0 {
 		t.Fatal("expected a WLang program")
@@ -28,8 +28,8 @@ func TestNoUpdateHandlerWorkflowConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate no-handler workflow: %v", err)
 	}
-	if wf.ID != "no-update-handler-workflow" {
-		t.Fatalf("unexpected workflow ID %q", wf.ID)
+	if wf.Type != "no-update-handler-workflow" {
+		t.Fatalf("unexpected workflow ID %q", wf.Type)
 	}
 }
 

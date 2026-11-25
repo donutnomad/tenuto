@@ -40,7 +40,7 @@ var out OrderOutput
 err = run.Get(ctx, &out)
 ```
 
-- 第三个参数是 Workflow Type，即 `@Workflow(id=...)` 的字符串；没有「传函数」的写法。
+- 第三个参数是 Workflow Type，即 `@Workflow(type=...)` 的字符串；没有「传函数」的写法。
 - `StartWorkflowOptions.ID` 是 Workflow ID，留空时 SDK 生成 UUID；`run.GetID()`、`run.GetRunID()` 读回。
 - 输入至多一个，编码成 JSON object：传 struct 或 map。结果同样是 JSON object。整数原样保留（int64，超出 int64 的为 uint64），超过 2^53 也不丢精度。
 - 同一 Namespace + Workflow ID 同时只有一个活跃 Run；current Run 已结束时用同一个 Workflow ID 再次启动会产生新 Run。没有 ID 复用 / 冲突策略选项（`WorkflowIDConflictPolicyUseExisting` 只用于 Update-With-Start）。

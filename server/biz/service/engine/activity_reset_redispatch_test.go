@@ -30,7 +30,7 @@ func TestResetActivity_RedispatchAfterReset(t *testing.T) {
 
 	// 注册 workflow 配置
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
-		ID:      "wf-reset-real-world",
+		Type:    "wf-reset-real-world",
 		Program: programtest.Noop(),
 		Activities: map[string]program.ActivityRef{
 			"step-settle": {Symbol: "step-settle", Type: "demo.Flaky", TaskQueue: "default"},

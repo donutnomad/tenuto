@@ -36,7 +36,7 @@ func CreateWorkflow(ctx workflow.Context, input map[string]any) error {
 	return nil
 }
 `)
-	result, err := GenerateFromSource(src, Options{WorkflowID: "create", FuncName: "CreateWorkflow", Filename: "create.go"})
+	result, err := GenerateFromSource(src, Options{WorkflowType: "create", FuncName: "CreateWorkflow", Filename: "create.go"})
 	if err != nil {
 		t.Fatalf("handler 内 Await 模式应能编译，却报错: %v", err)
 	}

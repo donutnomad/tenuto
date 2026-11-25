@@ -40,7 +40,7 @@ func TestRetryAttemptFailureDoesNotStopReplay(t *testing.T) {
 		return m{"ok": true}, nil
 	})
 
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "retry-replay"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "retry-replay"},
 		sdkgentest.Step{Type: "sometimes_fails", Options: `StartToCloseTimeout: time.Minute, RetryPolicy: workflow.RetryPolicy{MaxAttempts: 2, InitialInterval: 10 * time.Millisecond, BackoffCoefficient: 1}`},
 	)
 
@@ -51,7 +51,7 @@ func TestRetryAttemptFailureDoesNotStopReplay(t *testing.T) {
 	if _, err := eng.RegisterWorkflow(wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := eng.Run(ctx, wf.ID, nil)
+	runID, err := eng.Run(ctx, wf.Type, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

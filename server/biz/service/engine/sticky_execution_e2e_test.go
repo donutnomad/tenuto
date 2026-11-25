@@ -23,7 +23,7 @@ func TestWorkerStickyExecutionRetainsSessionAndConsumesDelta(t *testing.T) {
 	activityTasks := memory.NewTaskQueue(16)
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: workflowTasks, ActivityRouter: engine.QueueActivityRouter{Queue: activityTasks}})
 	registerE2EActivities(t, server)
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "sticky-two-activities"},
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "sticky-two-activities"},
 		sdkgentest.Step{Type: "activity.first", Options: `StartToCloseTimeout: time.Minute`},
 		sdkgentest.Step{Type: "activity.second", Options: `StartToCloseTimeout: time.Minute`},
 	)); err != nil {
@@ -83,7 +83,7 @@ func TestStickyExecutionFallsBackToAnotherWorkerAfterOwnerStops(t *testing.T) {
 	activityTasks := memory.NewTaskQueue(16)
 	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: workflowTasks, ActivityRouter: engine.QueueActivityRouter{Queue: activityTasks}})
 	registerE2EActivities(t, server)
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "sticky-fallback"},
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "sticky-fallback"},
 		sdkgentest.Step{Type: "activity.first", Options: `StartToCloseTimeout: time.Minute`},
 		sdkgentest.Step{Type: "activity.second", Options: `StartToCloseTimeout: time.Minute`},
 	)); err != nil {

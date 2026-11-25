@@ -142,7 +142,7 @@ func (h *gcHarness) runToCompletion(t *testing.T, ctx context.Context, workflowI
 	h.registry.Register("gc-ok", func(ctx context.Context, input m) (m, error) {
 		return m{"ok": true}, nil
 	})
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: workflowID},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: workflowID},
 		sdkgentest.Step{Type: "gc-ok", Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
@@ -355,13 +355,13 @@ func TestGCEndToEndAllTerminalStatesEnqueueDeletionTask(t *testing.T) {
 
 	// ② Failed —— activity 返回错误。
 	{
-		wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "gc-term-failed"},
+		wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "gc-term-failed"},
 			sdkgentest.Step{Type: "gc-boom", Options: `StartToCloseTimeout: time.Minute, RetryPolicy: workflow.RetryPolicy{MaxAttempts: 1}`},
 		)
 		if _, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 			t.Fatal(err)
 		}
-		runID, err := startedRunID(h.server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+		runID, err := startedRunID(h.server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -371,13 +371,13 @@ func TestGCEndToEndAllTerminalStatesEnqueueDeletionTask(t *testing.T) {
 
 	// ③ Terminated —— 对一个还在跑的 run 调 TerminateWorkflow。
 	{
-		wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "gc-term-terminated"},
+		wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "gc-term-terminated"},
 			sdkgentest.Step{Type: "gc-block", Options: `StartToCloseTimeout: time.Minute`},
 		)
 		if _, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 			t.Fatal(err)
 		}
-		runID, err := startedRunID(h.server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+		runID, err := startedRunID(h.server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -408,13 +408,13 @@ func TestGCEndToEndAllTerminalStatesEnqueueDeletionTask(t *testing.T) {
 			}
 			return m{"ok": true}, nil
 		})
-		wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "gc-term-cancelled"},
+		wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "gc-term-cancelled"},
 			sdkgentest.Step{Type: "gc-cancelable", Options: `StartToCloseTimeout: time.Minute`},
 		)
 		if _, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 			t.Fatal(err)
 		}
-		runID, err := startedRunID(h.server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+		runID, err := startedRunID(h.server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -478,15 +478,15 @@ func RollingWorkflow(ctx workflow.Context, input map[string]any) error {
 }
 `)
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{
-		WorkflowID: workflowID,
-		FuncName:   "RollingWorkflow",
-		Filename:   "rolling_workflow.go",
+		WorkflowType: workflowID,
+		FuncName:     "RollingWorkflow",
+		Filename:     "rolling_workflow.go",
 	})
 	if err != nil {
 		t.Fatalf("generate continue-as-new workflow: %v", err)
 	}
 	wf := result.Workflow
-	wf.ID = workflowID
+	wf.Type = workflowID
 	if _, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatalf("register continue-as-new workflow: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestGCEndToEndCloseAndEnqueueAreAtomic(t *testing.T) {
 	runIDs := make([]string, 0, runs)
 	for i := range runs {
 		workflowID := fmt.Sprintf("gc-e2e-atomic-%d", i)
-		wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: workflowID},
+		wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: workflowID},
 			sdkgentest.Step{Type: "gc-ok", Options: `StartToCloseTimeout: time.Minute`},
 		)
 		if _, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
@@ -612,14 +612,14 @@ func TestGCEndToEndResetSharedTreeSurvivesUntilAllRunsTerminal(t *testing.T) {
 	t.Cleanup(releaseHold)
 
 	// base run：跑完并关闭。
-	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{ID: "gc-e2e-reset"},
+	wf := sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "gc-e2e-reset"},
 		sdkgentest.Step{Type: "gc-ok", Options: `StartToCloseTimeout: time.Minute`},
 		sdkgentest.Step{Type: "gc-hold", Options: `StartToCloseTimeout: time.Minute`},
 	)
 	if _, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	baseRunID, err := startedRunID(h.server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	baseRunID, err := startedRunID(h.server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -40,7 +40,7 @@ type PlaceResult struct {
 //
 // policy=auto_upgrade：运行中的 Run 在下一个 Workflow Task 边界采用最新发布的 Program。
 //
-// @Workflow(id="order-flow",name="Order Flow",policy=auto_upgrade,version=v2)
+// @Workflow(type="order-flow",name="Order Flow",policy=auto_upgrade,version=v2)
 func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	// 确定性的随机值与时间：首次执行写进 History，重放读回同一个值。
 	orderRef := workflow.RandomUUID(ctx)

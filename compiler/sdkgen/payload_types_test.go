@@ -63,7 +63,7 @@ func waitNamed(ctx workflow.Context, name string) error {
 	return workflow.WaitSignal(ctx, name).Get(ctx, &named)
 }
 
-// @Workflow(id="forms")
+// @Workflow(type="forms")
 func Order(ctx workflow.Context, in Approval) (Out, error) {
 	var a Approval
 	var o Out
@@ -109,7 +109,7 @@ func Order(ctx workflow.Context, in Approval) (Out, error) {
 `
 
 func TestPayloadTypesOnGeneratedForms(t *testing.T) {
-	result, err := GenerateFromSource([]byte(payloadFormsSrc), Options{WorkflowID: "forms", FuncName: "Order", Filename: "order.go"})
+	result, err := GenerateFromSource([]byte(payloadFormsSrc), Options{WorkflowType: "forms", FuncName: "Order", Filename: "order.go"})
 	if err != nil {
 		t.Fatal(err)
 	}

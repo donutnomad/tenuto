@@ -1,6 +1,6 @@
 // Package appb 是 app-b（订单）的 SDK 接入，结构与 appa.Start 相同。
 //
-// app-b 的 Workflow 调用 app-a 的 Activity。那些 Activity 在 app-b 里只有 remote=true 的
+// app-b 的 Workflow 调用 app-a 的 Activity。那些 Activity 在 app-b 里只有 @RemoteActivity 的
 // 契约声明，没有实现：生成的 RegisterActivities 只登记本地的 orders.price，
 // app-b 的 Worker 也只消费自己的 orders 队列。跨进程调用不需要额外的接入代码。
 package appb

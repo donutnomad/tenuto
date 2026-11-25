@@ -228,7 +228,7 @@ func TestCancelDuringRetryBackoffStopsFurtherAttempts(t *testing.T) {
 // CancelTimer：TimerCancelled 写入，timer 状态为 cancelled，到期不再触发。
 func TestCancelTimerStopsFiring(t *testing.T) {
 	h := newBuildRoutingHarness(t)
-	ref, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "cancel-timer", Program: programtest.Noop()})
+	ref, err := h.server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "cancel-timer", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestChildCancelRequestIsRecovered(t *testing.T) {
 // 重复的取消请求只写一次 WorkflowCancellationRequested；已关闭的 Run 拒绝取消请求。
 func TestCancelWorkflowIsIdempotentAndRejectsClosedRun(t *testing.T) {
 	srv, mgr := newServerForTest(t)
-	ref, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "cancel-twice", Program: programtest.Noop()})
+	ref, err := srv.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "cancel-twice", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

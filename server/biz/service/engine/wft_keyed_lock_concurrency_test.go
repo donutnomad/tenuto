@@ -36,7 +36,7 @@ func TestWFTKeyedLock_ConcurrentWithSignal_Serialized(t *testing.T) {
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	t.Cleanup(server.Stop)
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-wft-signal", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-wft-signal", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestWFTKeyedLock_ContinueAsNew_NoReentrantDeadlock(t *testing.T) {
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	t.Cleanup(server.Stop)
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-wft-can", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-wft-can", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestWFTKeyedLock_DistinctWorkflowIDs_ConcurrentNoDeadlock(t *testing.T) {
 	runIDs := make([]string, n)
 	taskIDs := make([]int64, n)
 	for i := range n {
-		ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: fmt.Sprintf("wf-distinct-%d", i), Program: programtest.Noop()})
+		ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: fmt.Sprintf("wf-distinct-%d", i), Program: programtest.Noop()})
 		if err != nil {
 			t.Fatal(err)
 		}

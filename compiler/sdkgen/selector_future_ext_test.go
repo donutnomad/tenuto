@@ -27,7 +27,7 @@ import (
 func generateSelExt(t *testing.T, body string) (Result, error) {
 	t.Helper()
 	src := selExtHeader + "func W(ctx workflow.Context, input map[string]any) error {\n" + body + "\n\treturn nil\n}\n"
-	return GenerateFromSource([]byte(src), Options{WorkflowID: "sel-ext", FuncName: "W", Filename: "w.go"})
+	return GenerateFromSource([]byte(src), Options{WorkflowType: "sel-ext", FuncName: "W", Filename: "w.go"})
 }
 
 // T-S4 Happy Path: AddFuture 第 2 参内联 ExecuteActivity → 放行、符号进表。

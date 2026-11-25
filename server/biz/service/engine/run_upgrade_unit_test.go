@@ -22,11 +22,11 @@ func chooseProgramFor(server *Server, run *execution.Run) (execution.ProgramVers
 // active/latest 保持原值；旧 Worker 重启不会把 latest 拉回旧版本。
 func TestArtifactRegistrationKeepsLatest(t *testing.T) {
 	server := newTestServer()
-	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "artifact-flow", Name: "A", Program: programtest.Noop()})
+	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "artifact-flow", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	refB, err := server.Definitions().RegisterWorkflowArtifactInNamespace("default", &program.WorkflowConfig{ID: "artifact-flow", Name: "B", Program: programtest.Noop()})
+	refB, err := server.Definitions().RegisterWorkflowArtifactInNamespace("default", &program.WorkflowConfig{Type: "artifact-flow", Name: "B", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,11 +78,11 @@ func TestSetRunPolicyOverride(t *testing.T) {
 // 下一次 WFT 边界重新选择 latest。UpgradeError 只是诊断，不清空也不阻塞选版。
 func TestAutoUpgradeRetrySelectsLatestAfterFailure(t *testing.T) {
 	server := newTestServer()
-	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "retry-flow", Name: "A", Program: programtest.Noop()})
+	refA, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "retry-flow", Name: "A", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	refB, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{ID: "retry-flow", Name: "B", Program: programtest.Noop()})
+	refB, err := server.Definitions().RegisterWorkflowInNamespace("default", &program.WorkflowConfig{Type: "retry-flow", Name: "B", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}

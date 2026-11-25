@@ -63,7 +63,7 @@ func TestWorkerTelemetryPreservesParentAndEmitsAllSignals(t *testing.T) {
 		Task: protocol.Task{
 			Type:             protocol.TaskTypeWorkflow,
 			RunID:            api.runID,
-			WorkflowType:     api.wf.ID,
+			WorkflowType:     api.wf.Type,
 			ScheduledEventID: 1,
 			TraceContext:     cloneStringMap(carrier),
 		},

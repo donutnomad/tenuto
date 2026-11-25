@@ -21,9 +21,9 @@ func generateAndRun(t *testing.T, src, funcName string, input map[string]any) (e
 	t.Helper()
 
 	gen, err := sdkgen.GenerateFromSource([]byte(src), sdkgen.Options{
-		WorkflowID: "typed-e2e-wf",
-		FuncName:   funcName,
-		Filename:   "workflow.go",
+		WorkflowType: "typed-e2e-wf",
+		FuncName:     funcName,
+		Filename:     "workflow.go",
 	})
 	if err != nil {
 		t.Fatalf("GenerateFromSource: %v", err)
@@ -42,7 +42,7 @@ func generateAndRun(t *testing.T, src, funcName string, input map[string]any) (e
 
 	// 取执行器实际算出的 workflow 输出。
 	activities := &program.WorkflowConfig{
-		ID:         "e2e",
+		Type:       "e2e",
 		Program:    artifact,
 		Activities: map[string]program.ActivityRef{},
 	}

@@ -41,7 +41,7 @@ func newLostDeliveryServer(t *testing.T) (*Server, *memory.ExecutionManager, *me
 
 func startLostDeliveryRun(t *testing.T, srv *Server, id string) string {
 	t.Helper()
-	return startReconcileTestRun(t, srv, &program.WorkflowConfig{ID: id, Program: programtest.Noop()})
+	return startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: id, Program: programtest.Noop()})
 }
 
 // takeQueued 取出队列里现有的一份任务；队列为空时 ok 为 false。

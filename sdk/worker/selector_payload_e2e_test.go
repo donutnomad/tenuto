@@ -43,7 +43,7 @@ type Result struct {
 	Approver string ` + "`json:\"approver\"`" + `
 }
 
-// @Workflow(id="selector-order")
+// @Workflow(type="selector-order")
 func Order(ctx workflow.Context, in Input) (Result, error) {
 	var approval Approval
 	name := "approve"

@@ -42,8 +42,8 @@ type PackageResult struct {
 	Dir string
 	// PackageName 是工作流源码包的包名。
 	PackageName string
-	// WorkflowID 来自 @Workflow(id=...)。
-	WorkflowID string
+	// WorkflowType 来自 @Workflow(type=...)。
+	WorkflowType string
 	// Policy 与 Version 来自 @Workflow(policy=...,version=...)，同时写进 WorkflowConfig。
 	Policy  string
 	Version string
@@ -162,11 +162,11 @@ func Generate(plan Plan) (PackageResult, error) {
 		return PackageResult{}, err
 	}
 	generated, err := generateWithExtraTypes(sources, Options{
-		WorkflowID: plan.Spec.Annotation.ID,
-		Name:       plan.Spec.Annotation.Name,
-		FuncName:   plan.Spec.FuncName,
-		Filename:   plan.Spec.File,
-		Dir:        plan.Dir,
+		WorkflowType: plan.Spec.Annotation.Type,
+		Name:         plan.Spec.Annotation.Name,
+		FuncName:     plan.Spec.FuncName,
+		Filename:     plan.Spec.File,
+		Dir:          plan.Dir,
 	}, probeTypes)
 	if err != nil {
 		return PackageResult{}, err
@@ -180,14 +180,14 @@ func Generate(plan Plan) (PackageResult, error) {
 		fingerprints[contract.Pos] = struct{ input, output string }{input, output}
 	}
 	result := PackageResult{
-		Dir:         plan.Dir,
-		PackageName: plan.PackageName,
-		WorkflowID:  plan.Spec.Annotation.ID,
-		Policy:      plan.Spec.Annotation.Policy,
-		Version:     plan.Spec.Annotation.Version,
-		Workflow:    generated.Workflow,
-		WatchFiles:  plan.WatchFiles,
-		Bridges:     plan.Bridges,
+		Dir:          plan.Dir,
+		PackageName:  plan.PackageName,
+		WorkflowType: plan.Spec.Annotation.Type,
+		Policy:       plan.Spec.Annotation.Policy,
+		Version:      plan.Spec.Annotation.Version,
+		Workflow:     generated.Workflow,
+		WatchFiles:   plan.WatchFiles,
+		Bridges:      plan.Bridges,
 	}
 	// Activities 以翻译产物里真实出现的符号为准：注解契约按注解写 Type/Queue/Version，
 	// 未注解的直调（ExecuteActivity + pkg.Symbol）保留原有的 Type=Symbol 约定。

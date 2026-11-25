@@ -53,17 +53,17 @@ func OrderWorkflow(ctx workflow.Context, input Input) error {
 `)
 
 	result, err := GenerateFromSource(src, Options{
-		WorkflowID: "order-flow",
-		Name:       "订单流程",
-		FuncName:   "OrderWorkflow",
-		Filename:   "order_workflow.go",
+		WorkflowType: "order-flow",
+		Name:         "订单流程",
+		FuncName:     "OrderWorkflow",
+		Filename:     "order_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if result.Workflow.ID != "order-flow" || result.Workflow.Name != "订单流程" {
-		t.Fatalf("workflow id/name = %q/%q", result.Workflow.ID, result.Workflow.Name)
+	if result.Workflow.Type != "order-flow" || result.Workflow.Name != "订单流程" {
+		t.Fatalf("workflow id/name = %q/%q", result.Workflow.Type, result.Workflow.Name)
 	}
 	if result.Workflow.Program.Schema != program.WLangProgramSchemaV2 {
 		t.Fatal("sdkgen program must use artifact v2")
@@ -85,10 +85,10 @@ func OrderWorkflow(ctx workflow.Context, input Input) error {
 	}
 	taggedSource := strings.Replace(string(src), "VIP bool", "VIP bool `json:\"vip\"`", 1)
 	tagged, err := GenerateFromSource([]byte(taggedSource), Options{
-		WorkflowID: "order-flow",
-		Name:       "订单流程",
-		FuncName:   "OrderWorkflow",
-		Filename:   "order_workflow.go",
+		WorkflowType: "order-flow",
+		Name:         "订单流程",
+		FuncName:     "OrderWorkflow",
+		Filename:     "order_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func Bad(input string) string {
 	return (&([]string{input}[0]))[0:]
 }
 `)
-	_, err := GenerateFromSource(src, Options{WorkflowID: "bad", FuncName: "Bad", Filename: "bad.go"})
+	_, err := GenerateFromSource(src, Options{WorkflowType: "bad", FuncName: "Bad", Filename: "bad.go"})
 	if err == nil {
 		t.Fatal("expected diagnostic")
 	}
@@ -156,9 +156,9 @@ func IndexWorkflow(ctx workflow.Context, input Input) error {
 }
 `)
 	result, err := GenerateFromSource(src, Options{
-		WorkflowID: "index-input",
-		FuncName:   "IndexWorkflow",
-		Filename:   "index_workflow.go",
+		WorkflowType: "index-input",
+		FuncName:     "IndexWorkflow",
+		Filename:     "index_workflow.go",
 	})
 	if err != nil {
 		t.Fatal(err)

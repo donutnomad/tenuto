@@ -44,7 +44,7 @@ func TestResetWorkflowLeavesBaseRunningWhenTransactionFails(t *testing.T) {
 	server := assembleServerWithClock(mgr, &ackRecordingQueue{}, newTestTaskQueue(), clocktest.NewFake(testClockStart))
 	t.Cleanup(server.Stop)
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "reset-atomic", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "reset-atomic", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 	baseID, err := startedRunID(server.StartWorkflow(ctx, "", "reset-atomic", "reset-atomic", "", nil))

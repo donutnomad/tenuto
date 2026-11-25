@@ -74,7 +74,7 @@ func wgProgram(stmts ...map[string]any) *programpkg.WorkflowConfig {
 	}
 	program = append(program, map[string]any{"return": map[string]any{"literal": map[string]any{"type": "null", "value": nil}}})
 	return &programpkg.WorkflowConfig{
-		ID:      "waitgroup-wf",
+		Type:    "waitgroup-wf",
 		Program: programpkg.NewWLangProgram(program),
 	}
 }

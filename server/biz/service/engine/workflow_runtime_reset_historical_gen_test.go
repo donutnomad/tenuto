@@ -32,7 +32,7 @@ func TestResetWorkflow_HistoricalGen_TerminatesRunningCurrent(t *testing.T) {
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	defer server.Stop()
 
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{ID: "wf-hist-gen", Program: programtest.Noop()}); err != nil {
+	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-hist-gen", Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
 

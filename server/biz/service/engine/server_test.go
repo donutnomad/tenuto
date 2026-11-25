@@ -25,7 +25,7 @@ func TestServerRecoversActivityQueueEnqueueFailureFromHistory(t *testing.T) {
 	server := assembleServer(mgr, workflowTasks, activityTasks)
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:      "wf-queue-recover",
+		Type:    "wf-queue-recover",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"step-1": {Symbol: "step-1", Type: "work"},
@@ -98,11 +98,11 @@ func TestServerRecoversWorkflowQueueEnqueueFailureFromHistory(t *testing.T) {
 	activityTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, activityTasks)
 
-	wf := &programpkg.WorkflowConfig{ID: "wf-workflow-queue-recover", Program: programtest.Noop()}
+	wf := &programpkg.WorkflowConfig{Type: "wf-workflow-queue-recover", Program: programtest.Noop()}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf); err != nil {
 		t.Fatal(err)
 	}
-	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.ID, wf.ID, "", nil))
+	runID, err := startedRunID(server.StartWorkflow(ctx, "", wf.Type, wf.Type, "", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func TestServerRequeuesV2WorkflowUntilCapableWorkerPolls(t *testing.T) {
 		HandlerABISchema: programpkg.WLangHandlerABISchemaV1,
 	}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:         "v2-workflow",
+		Type:       "v2-workflow",
 		Program:    program,
 		Activities: map[string]programpkg.ActivityRef{},
 	}); err != nil {
@@ -955,11 +955,11 @@ func TestServerStartChildWorkflowCommandCreatesChildRunAndPropagatesCompletion(t
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 
-	parentRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "parent-flow", Program: programtest.Noop()})
+	parentRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "parent-flow", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	childRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "child-flow", Program: programtest.Noop()})
+	childRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "child-flow", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1044,7 +1044,7 @@ func TestServerContinueAsNewCommandCreatesNewRunAndClosesCurrent(t *testing.T) {
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "rolling-flow", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "rolling-flow", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1143,7 +1143,7 @@ func TestServerContinueAsNewDefaultsToWorkflowTypeAndPreservesExecutionID(t *tes
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "approval-workflow", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "approval-workflow", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1192,7 +1192,7 @@ func TestServerContinueAsNewInheritsSearchAttributes(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "can-sa-flow", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "can-sa-flow", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1247,7 +1247,7 @@ func TestServerRecoverySchedulesWorkflowTaskAfterActivityCloseEvent(t *testing.T
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:      "wf-recover-after-activity-close",
+		Type:    "wf-recover-after-activity-close",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"capture": {Symbol: "capture", Type: "custodian.Capture"},
@@ -1299,7 +1299,7 @@ func TestServerRecoverySchedulesWorkflowTaskAfterMarkerEvent(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "wf-recover-after-marker", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "wf-recover-after-marker", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1341,12 +1341,12 @@ func TestServerRecoveryCreatesMissingChildRunFromHistory(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
-	parentRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "parent-recover-child", Program: programtest.Noop()})
+	parentRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "parent-recover-child", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	childRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:      "child-recover-child",
+		Type:    "child-recover-child",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"old-step": {Symbol: "old-step", Type: "old.Activity"},
@@ -1388,7 +1388,7 @@ func TestServerRecoveryCreatesMissingChildRunFromHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:      "child-recover-child",
+		Type:    "child-recover-child",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"new-step": {Symbol: "new-step", Type: "new.Activity"},
@@ -1421,11 +1421,11 @@ func TestServerRecoveryPropagatesClosedChildWorkflowToParent(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
-	parentRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "parent-recover-child-close", Program: programtest.Noop()})
+	parentRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "parent-recover-child-close", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	childRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "child-recover-child-close", Program: programtest.Noop()})
+	childRef, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "child-recover-child-close", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1501,7 +1501,7 @@ func TestServerRecoveryCreatesMissingContinueAsNewRunFromHistory(t *testing.T) {
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:      "recover-continue",
+		Type:    "recover-continue",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"old-step": {Symbol: "old-step", Type: "old.Activity"},
@@ -1531,7 +1531,7 @@ func TestServerRecoveryCreatesMissingContinueAsNewRunFromHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:      "recover-continue",
+		Type:    "recover-continue",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"new-step": {Symbol: "new-step", Type: "new.Activity"},
@@ -1570,7 +1570,7 @@ func TestServerRecoverRunFiresExpiredTimerFromHistory(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	workflowTasks := newTestTaskQueue()
 	firstServer := assembleServer(mgr, workflowTasks, newTestTaskQueue())
-	wf := &programpkg.WorkflowConfig{ID: "wf", Program: programtest.Noop()}
+	wf := &programpkg.WorkflowConfig{Type: "wf", Program: programtest.Noop()}
 	ref, err := firstServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, wf)
 	if err != nil {
 		t.Fatal(err)
@@ -1724,7 +1724,7 @@ func TestServerRecoverRunReconcilesTerminalEventStatus(t *testing.T) {
 	ctx := context.Background()
 	mgr := memory.NewExecutionManager()
 	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "wf-reconcile-terminal", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "wf-reconcile-terminal", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1765,7 +1765,7 @@ func TestServerRecoverRunAppliesExpiredWorkflowTimeoutBeforeQueueRecovery(t *tes
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 	defer server.Stop()
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "wf-recover-expired-timeout", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "wf-recover-expired-timeout", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2301,7 +2301,7 @@ func TestServerRecoversOpenWorkflowTaskFromEventHistory(t *testing.T) {
 	activityTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, activityTasks)
 
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{ID: "wf-recover-open-task", Program: programtest.Noop()})
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{Type: "wf-recover-open-task", Program: programtest.Noop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2347,7 +2347,7 @@ func TestServerRecoversOpenActivityTaskFromState(t *testing.T) {
 	server := assembleServer(mgr, workflowTasks, activityTasks)
 
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:      "wf-recover-open-activity",
+		Type:    "wf-recover-open-activity",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"charge": {Symbol: "charge", Type: "charge_card"},
@@ -2579,7 +2579,7 @@ func TestWorkflowTaskCapabilityUsesSelectedProgramVersion(t *testing.T) {
 	register := func(id string, program programpkg.WLangProgram) definition.WorkflowConfigRef {
 		t.Helper()
 		ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-			ID:         id,
+			Type:       id,
 			Program:    program,
 			Activities: map[string]programpkg.ActivityRef{},
 		})
@@ -2590,7 +2590,7 @@ func TestWorkflowTaskCapabilityUsesSelectedProgramVersion(t *testing.T) {
 		return ref
 	}
 	refA, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		ID:      "capability-upgrade",
+		Type:    "capability-upgrade",
 		Program: programtest.Noop(),
 		Activities: map[string]programpkg.ActivityRef{
 			"plain": {Symbol: "plain", Type: "noop"},

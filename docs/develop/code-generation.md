@@ -13,35 +13,35 @@ status: Stable
 ## 注解语法
 
 ```go
-// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
+// @Workflow(type="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error)
 
 // @Activity(type="lifecycle.charge",queue="lifecycle",version=v1)
 func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error)
 
-// @Activity(type="payments.settle",queue="payments",version=v1,remote=true)
+// @RemoteActivity(type="payments.settle",queue="payments",version=v1)
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 ```
 
 - 注解写在声明文档注释的 `//` 行内，形如 `@Kind(key=value,key="value")`，逗号分隔，值可带双引号。
-- `@Workflow` 的 key：`id`（必填）、`name`、`queue`、`policy`、`version`。
-- `@Activity` 的 key：`type`（必填）、`queue`、`version`、`remote`。
+- `@Workflow` 的 key：`type`（必填）、`name`、`policy`、`version`。
+- `@Activity` 与 `@RemoteActivity` 的 key：`type`（必填）、`queue`、`version`。
 - 未知 key、重复 key、缺少必填项、未闭合的引号、写在 `/* */` 里的注解都报 `file:line` 错误。
 
-### @Activity 的两种形态
+### @Activity 与 @RemoteActivity
 
 | 形态 | 写法 | 生成内容 |
 | --- | --- | --- |
-| 本地实现 | 注解标在普通函数上 | 桥 `CallX`、签名断言、进入 `RegisterActivities` |
-| 远程契约 | `remote=true` 标在命名函数类型上 | 桥 `CallX` 与标记函数 `<类型名>Activity`（如 `SettleRemoteActivity`），实现由拥有该 Activity 的 Worker 注册 |
+| 本地实现 | `@Activity` 标在普通函数上 | 桥 `CallX`、签名断言、进入 `RegisterActivities` |
+| 远程契约 | `@RemoteActivity` 标在命名函数类型上 | 桥 `CallX` 与标记函数 `<类型名>Activity`（如 `SettleRemoteActivity`），实现由拥有该 Activity 的 Worker 注册 |
 
 约束（均由生成器检查）：
 
 - 签名固定为 `func(context.Context, In) (Out, error)`：两个参数，第一个是 `context.Context`；两个返回值，第二个是 `error`，第一个是数据类型。
 - 实现是包级普通函数，方法上的注解被拒绝。
-- `remote=true` 只能标在 `type X func(...)` 上；命名函数类型必须声明 `remote=true`。
-- 一个声明只带一条 `@Activity`；同一批契约里 `type` 唯一，生成的桥名唯一。
-- `@Activity` 写了 `queue` 时，`workflow.json` 声明这个队列，生成的 `RegisterActivities` 用 `activity.RegisterActivityOnQueue` 一起登记，Worker 据此决定拉取的队列。省略时两边都不带队列：Server 按 Worker 的登记选路，Worker 在 `ActivityTaskQueues`（不写时是 `default`）上提供它。`@Workflow` 没有 `queue` 参数，写了会报 `file:line`。
+- `@RemoteActivity` 只能标在 `type X func(...)` 上；命名函数类型上写 `@Activity` 报错。
+- 一个声明只带一条 `@Activity` 或 `@RemoteActivity`；同一批契约里 `type` 唯一，生成的桥名唯一。
+- `@Activity` 写了 `queue` 时，`workflow.json` 声明这个队列，生成的 `RegisterActivities` 用 `activity.RegisterActivityOnQueue` 一起登记，Worker 据此决定拉取的队列。省略时两边都不带队列：Server 按 Worker 的登记选路，Worker 在 `ActivityTaskQueues`（不写时是 `default`）上提供它。
 
 ### 桥名的派生
 
