@@ -29,7 +29,7 @@ type OpenResult struct {
 //
 // policy=pinned：Run 固定使用启动时的 Program。之后发布的新 Program 只影响新启动的 Run。
 //
-// @Workflow(id="return-flow",name="Return Flow",queue="fulfillment",policy=pinned,version=v3)
+// @Workflow(id="return-flow",name="Return Flow",policy=pinned,version=v3)
 func ReturnFlow(ctx workflow.Context, in ReturnInput) (ReturnOutput, error) {
 	// RandomUUID 把首次执行生成的值写进 History，重放读回同一个值。
 	ticket := workflow.RandomUUID(ctx)

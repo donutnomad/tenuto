@@ -32,7 +32,6 @@ func main() {
 	}
 	if err := svc.RunWorker(ctx, "payment-service", c, worker.Options{
 		Activities:          registry,
-		ActivityTaskQueues:  []string{"payments"},
 		ActivityConcurrency: 8,
 		BuildID:             svc.Env("BUILD_ID", "payment-dev"),
 	}); err != nil {

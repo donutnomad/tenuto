@@ -39,7 +39,6 @@ func run(ctx context.Context, url, namespace string) error {
     w, err := worker.New(c, worker.Options{
         Role:                         worker.RoleActivity,
         Activities:                   registry,
-        ActivityTaskQueues:           []string{"orders"},
         ActivityConcurrency:          8,
         Identity:                     "orders-activity-" + hostname,
         BuildID:                      "orders-v1",
@@ -68,7 +67,7 @@ func run(ctx context.Context, url, namespace string) error {
 
 ## worker.New
 
-`worker.New(c client.Client, options worker.Options) (*worker.Worker, error)`：`c` 必须由 `client.Dial` 创建，Namespace、连接与缺省 Identity、Telemetry 都取自它。与 Temporal 不同，没有 task queue 参数（Workflow Task 不分队列，Activity 队列由 `ActivityTaskQueues` 指定），也没有 `RegisterWorkflow` / `RegisterActivity` 方法（Workflow 是生成的定义，Activity 在 `activity.Registry` 里）。
+`worker.New(c client.Client, options worker.Options) (*worker.Worker, error)`：`c` 必须由 `client.Dial` 创建，Namespace、连接与缺省 Identity、Telemetry 都取自它。与 Temporal 不同，没有 task queue 参数（Workflow Task 不分队列，Activity 队列取自 registry 登记的队列或 `ActivityTaskQueues`），也没有 `RegisterWorkflow` / `RegisterActivity` 方法（Workflow 是生成的定义，Activity 在 `activity.Registry` 里）。
 
 ## worker.Options
 
@@ -77,7 +76,7 @@ func run(ctx context.Context, url, namespace string) error {
 | `Role` | 见右 | `worker.RoleBoth` / `RoleWorkflow` / `RoleActivity`；留空时 `Activities` 登记了 Activity 取 `RoleBoth`，否则 `RoleWorkflow` |
 | `Workflows` | 空 | 随二进制发布的定义，`Start` 时登记 |
 | `Activities` | 空 | 本 Worker 执行的 Activity，契约随路由上报 |
-| `ActivityTaskQueues` | `["default"]` | 消费的 Activity Task Queue；要覆盖 `@Activity(queue=...)` 与 `ActivityOptions.TaskQueue` 用到的队列 |
+| `ActivityTaskQueues` | registry 登记的队列 | 消费的 Activity Task Queue。为空时取 registry 登记的队列（生成的 `RegisterActivities` 带注解 `queue`，手写用 `activity.RegisterActivityOnQueue`），有不带队列的 Activity 时加上 `default`；显式设置时必须包含 registry 登记的队列，否则 `worker.New` 报错；`ActivityOptions.TaskQueue` 改派的队列需要显式加上 |
 | `WorkflowConcurrency` | `1` | 同时处理的 Workflow Task 数 |
 | `ActivityConcurrency` | `1` | 每个 Activity Task Queue 的并发槽位 |
 | `WorkflowTaskTimeout` | `10s` | 单个 Workflow Task 的执行超时；领取时报给 Server，Server 按它计时 |
@@ -149,7 +148,7 @@ WORKFLOW_BACKEND=memory WORKFLOW_HTTP_ADDR=127.0.0.1:7400 go run ./server/cmd/te
 | 现象 | 检查 |
 | --- | --- |
 | `WaitReady` 报定义登记失败 | 产物是否由当前源码生成；Server 地址与 Namespace |
-| Activity 长时间 Scheduled | `ActivityTaskQueues` 是否包含该队列；`Activities` 是否登记了这个 type；`POST /runtime/workflow/list-workers` 里是否有该 Worker |
+| Activity 长时间 Scheduled | Worker 拉取的队列（registry 登记的队列或 `ActivityTaskQueues`）是否包含该队列；`Activities` 是否登记了这个 type；`POST /runtime/workflow/list-workers` 里是否有该 Worker |
 | Run Blocked：`activity route unavailable` | 该 Namespace 是否有注册了这个 `type` 的在线 Worker |
 | Run 暂停：`contract mismatch` | Worker 与 Program 是否来自同一次生成；新旧 build 是否用了不同 BuildID（见 `versioning.md`） |
 | Workflow Task 反复超时 | 函数体里的纯计算是否过重；调大 `WorkflowTaskTimeout` 或把计算放进 Activity |

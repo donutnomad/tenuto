@@ -78,28 +78,29 @@ var _ activity.Caller[ShipV2Input, ShipV2Output] = CallShipV2
 var _ activity.Handler[ShipV2Input, ShipV2Output] = ShipV2
 
 // RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。
-// 每个实现的契约（type、version、输入输出指纹）由 activity.RegisterActivity 算出，Worker 登记时随 registry 上报。
+// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
+// worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。
 // remote 契约的实现在别的进程，由那个进程登记。
 func RegisterActivities(registry *activity.Registry) error {
-	if err := activity.RegisterActivity(registry, "fulfillment.inspect", "v1", Inspect); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.inspect", "v1", Inspect); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "fulfillment.notify", "v1", Notify); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.notify", "v1", Notify); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "fulfillment.quote", "v2", Quote); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.quote", "v2", Quote); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "fulfillment.reserve", "v1", Reserve); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.reserve", "v1", Reserve); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "fulfillment.restock", "v1", Restock); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.restock", "v1", Restock); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "fulfillment.ship", "v1", Ship); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.ship", "v1", Ship); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "fulfillment.ship-v2", "v1", ShipV2); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "fulfillment", "fulfillment.ship-v2", "v1", ShipV2); err != nil {
 		return err
 	}
 	return nil

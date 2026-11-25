@@ -80,7 +80,7 @@ type SayHelloOutput struct {
 	Message string `json:"message"`
 }
 
-// @Workflow(id="startup-greeting",name="Startup Greeting",queue="startup",policy=auto_upgrade,version=v1)
+// @Workflow(id="startup-greeting",name="Startup Greeting",policy=auto_upgrade,version=v1)
 func Greet(ctx workflow.Context, in GreetInput) (GreetOutput, error) {
 	out, err := CallSayHello(ctx, SayHelloInput{Name: in.Name})
 	if err != nil {
@@ -111,7 +111,6 @@ if err := startupflow.RegisterActivities(registry); err != nil {
 w, err := worker.New(c, worker.Options{
 	Workflows:          []registration.Definition{startupflow.WorkflowDefinition()},
 	Activities:         registry,
-	ActivityTaskQueues: []string{"startup"},
 	Identity:           "startup-worker-1",
 	BuildID:            "startup-v1",
 })

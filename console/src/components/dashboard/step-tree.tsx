@@ -2,7 +2,8 @@
 
 import { useState, Fragment } from "react"
 import Link from "next/link"
-import type { Step } from "@/lib/types"
+import type { ActivityRef, Step } from "@/lib/types"
+import { TASK_QUEUE_SOURCE_LABEL, taskQueueSource } from "@/lib/activity-routing"
 import { STATUS_COLORS, STATUS_TEXT_COLORS } from "@/lib/constants"
 import { formatDuration, formatTimestampWithAgo } from "@/lib/format"
 import { ActivityTimeoutFields } from "./activity-scheduled-fields"
@@ -10,7 +11,17 @@ import { cn } from "@/lib/utils"
 import { JsonViewer } from "./json-viewer"
 import { ChevronDown, ChevronRight, ExternalLink, RotateCcw } from "lucide-react"
 
-function StepRow({ step, namespace }: { step: Step; namespace: string }) {
+function StepRow({
+  step,
+  namespace,
+  activities,
+}: {
+  step: Step
+  namespace: string
+  activities?: Record<string, ActivityRef>
+}) {
+  // Child Workflow 也以步骤展示（childRunID 非空），它没有 Activity 队列。
+  const queueSource = step.childRunID ? null : taskQueueSource(step.taskQueue, step.activityType, activities)
   const [expanded, setExpanded] = useState(false)
   const dotColor = STATUS_COLORS[step.status] ?? "bg-gray-400"
   const textColor = STATUS_TEXT_COLORS[step.status] ?? "text-gray-400"
@@ -79,6 +90,7 @@ function StepRow({ step, namespace }: { step: Step; namespace: string }) {
             <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
               <Detail label="Activity Type" value={step.activityType} />
               <Detail label="Task Queue" value={step.taskQueue || "default"} />
+              {queueSource && <Detail label="Queue Source" value={TASK_QUEUE_SOURCE_LABEL[queueSource]} />}
               <Detail label="Step ID" value={step.stepID} />
               <ActivityTimeoutFields step={step} Detail={Detail} />
             </div>
@@ -238,7 +250,16 @@ function Detail({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function StepTree({ steps, namespace }: { steps: Step[]; namespace: string }) {
+// activities 是 Run 当前 Workflow 定义里的 Activity 引用，用来标注每次调度的队列来源。
+export function StepTree({
+  steps,
+  namespace,
+  activities,
+}: {
+  steps: Step[]
+  namespace: string
+  activities?: Record<string, ActivityRef>
+}) {
   if (steps.length === 0) {
     return (
       <div className="py-8 text-center text-sm text-muted-foreground">
@@ -250,7 +271,7 @@ export function StepTree({ steps, namespace }: { steps: Step[]; namespace: strin
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       {steps.map((step) => (
-        <StepRow key={`${step.seq}-${step.stepID}`} step={step} namespace={namespace} />
+        <StepRow key={`${step.seq}-${step.stepID}`} step={step} namespace={namespace} activities={activities} />
       ))}
     </div>
   )

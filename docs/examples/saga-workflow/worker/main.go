@@ -47,7 +47,6 @@ func run(url, namespace string) error {
 	activityWorker, err := worker.New(c, worker.Options{
 		Role:                                   worker.RoleActivity,
 		Activities:                             registry,
-		ActivityTaskQueues:                     []string{"saga"},
 		Identity:                               "saga-activity-1",
 		BuildID:                                "saga-v1",
 		ActivityWorkerVersionDefault:           true,

@@ -69,7 +69,6 @@ if err != nil { ... }
 w, err := worker.New(c, worker.Options{
 	Role:                         worker.RoleBoth,
 	Activities:                   registry,
-	ActivityTaskQueues:           []string{Queue},
 	Identity:                     rel.build + "-1", // 进程实例
 	BuildID:                      rel.build,        // 代码版本：新旧 build 靠它并存
 	Workflows:                    []registration.Definition{rel.workflow()},
@@ -99,7 +98,7 @@ w.Stop()
 |---|---|
 | `@Activity(type=...,queue=...,version=...)`，函数签名 `func(context.Context, In) (Out, error)` | `appa/v1/activities.go` |
 | `@Activity(...,remote=true)` 声明在函数类型上，DTO 由调用方自己定义 | `appb/v1/remote.go` |
-| `@Workflow(id=...,queue=...,policy=...,version=...)` | `appa/v1/workflow.go`（`pinned`）、`appb/v1/workflow.go`（`auto_upgrade`） |
+| `@Workflow(id=...,policy=...,version=...)` | `appa/v1/workflow.go`（`pinned`）、`appb/v1/workflow.go`（`auto_upgrade`） |
 | 生成的类型化调用 `CallPrice(ctx, in, opts)` 与 `ActivityOptions` / `RetryPolicy` | `appb/v1/workflow.go` |
 | 两个 Future 并行：`workflow.ExecuteActivity` 后分别 `Get` | `appb/v1/workflow.go` |
 | Signal 等待 `workflow.WaitSignal`；Signal 与 Timer 竞争：`workflow.Go` + `workflow.Sleep` + `workflow.Await` | `appa/v1/workflow.go`、`appb/v1/workflow.go` |

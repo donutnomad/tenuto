@@ -22,7 +22,7 @@ func Charge(ctx context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: "charge-" + in.OrderID}, nil
 }
 
-// @Workflow(id="directcall-samepkg-flow",name="Direct Call Same Package Flow",queue="flows",policy=auto_upgrade,version=v1)
+// @Workflow(id="directcall-samepkg-flow",name="Direct Call Same Package Flow",policy=auto_upgrade,version=v1)
 func Flow(ctx workflow.Context, in ChargeInput) (ChargeOutput, error) {
 	return Charge(context.Background(), in)
 }

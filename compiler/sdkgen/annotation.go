@@ -17,7 +17,6 @@ import (
 type workflowAnnotation struct {
 	ID      string
 	Name    string
-	Queue   string
 	Policy  string // 归一化后的策略，缺省 auto_upgrade
 	Version string
 	Pos     string // file:line
@@ -43,7 +42,7 @@ type annotationEntry struct {
 func (a annotationEntry) pos() string { return fmt.Sprintf("%s:%d", a.File, a.Line) }
 
 var (
-	workflowAnnotationKeys = map[string]bool{"id": true, "name": true, "queue": true, "policy": true, "version": true}
+	workflowAnnotationKeys = map[string]bool{"id": true, "name": true, "policy": true, "version": true}
 	activityAnnotationKeys = map[string]bool{"type": true, "queue": true, "version": true, "remote": true}
 )
 
@@ -187,13 +186,16 @@ func declarationAnnotations(fset *token.FileSet, docs ...*ast.CommentGroup) ([]a
 
 // toWorkflowAnnotation 校验 key 集合并归一化策略。
 func toWorkflowAnnotation(entry annotationEntry) (workflowAnnotation, error) {
+	// Activity 的 queue 是 Activity 自己的属性，不随 Workflow 继承。
+	if _, ok := entry.Values["queue"]; ok {
+		return workflowAnnotation{}, fmt.Errorf("%s: @Workflow 不接受 queue：Activity 的队列写在 @Activity(queue=...)，或不写、由执行它的 Worker 的 ActivityTaskQueues 决定", entry.pos())
+	}
 	if err := checkAnnotationKeys(entry, workflowAnnotationKeys); err != nil {
 		return workflowAnnotation{}, err
 	}
 	annotation := workflowAnnotation{
 		ID:      entry.Values["id"],
 		Name:    entry.Values["name"],
-		Queue:   entry.Values["queue"],
 		Policy:  entry.Values["policy"],
 		Version: entry.Values["version"],
 		Pos:     entry.pos(),

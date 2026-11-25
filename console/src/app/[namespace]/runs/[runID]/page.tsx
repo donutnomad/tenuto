@@ -477,7 +477,7 @@ export default function RunDetailPage() {
                   </span>
                 )}
               </h3>
-              <StepTree steps={stepTreeRows} namespace={namespace} />
+              <StepTree steps={stepTreeRows} namespace={namespace} activities={workflowConfig?.activities} />
             </div>
 
             {steps.length > 0 && (

@@ -46,7 +46,7 @@ type LengthOutput struct {
 | 注解 key | 必填 | 含义 |
 | --- | --- | --- |
 | `type` | 是 | Activity Type，Workflow 调度和 Worker 注册共用的稳定名称 |
-| `queue` | 否 | Activity Task Queue；省略时使用所属 `@Workflow` 的 `queue` |
+| `queue` | 否 | Activity Task Queue；省略时定义不声明队列，由 Server 按 Worker 的登记选择（Worker 在 `ActivityTaskQueues` 上提供它，不写时是 `default`），见[Activity 的队列如何决定](/operations/namespaces-task-queues#activity-的队列如何决定) |
 | `version` | 否 | 契约版本标签；Worker 上报的版本与它逐字对照 |
 | `remote` | 否 | `true` 表示实现位于其他 Worker，只能标在命名函数类型上 |
 
@@ -130,17 +130,17 @@ activity.RegisterActivity(registry, "activities.CheckBalance", "", CheckBalance)
 type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 ```
 
-Workflow 侧调用生成的 `remote.CallSettle(ctx, in)`。拥有该 Activity 的 Worker 用同一个 `type` 和 `version` 登记实现：
+Workflow 侧调用生成的 `remote.CallSettle(ctx, in)`。拥有该 Activity 的 Worker 用同一个 `queue`、`type` 和 `version` 登记实现：
 
 ```go
-err := activity.RegisterActivity(registry, "payments.settle", "v1", Settle)
+err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settle", "v1", Settle)
 ```
 
 两侧 DTO 可以各自定义，JSON 字段名、类型与可选性一致时 wire 指纹相同。
 
 ## 注册 Activity
 
-`activity.Registry` 保存一个 Worker 进程能执行的 Activity，每个类型一个实现和一份契约。生成的 `RegisterActivities` 一次登记本包全部本地实现：
+`activity.Registry` 保存一个 Worker 进程能执行的 Activity，每个类型一个实现、一份契约和它所在的 Task Queue。生成的 `RegisterActivities` 一次登记本包全部本地实现，连同注解里的 `queue`：
 
 ```go
 import (
@@ -156,20 +156,23 @@ if err := sagaflow.RegisterActivities(registry); err != nil {
 activityWorker, err := worker.New(c, worker.Options{
     Role:               worker.RoleActivity,
     Activities:         registry,
-    ActivityTaskQueues: []string{"saga"},
     // ...
 })
 ```
 
 Worker 在 `Start` 时把 registry 里的全部契约随路由一起上报。`remote=true` 的契约没有本地实现，不进入 `RegisterActivities`。
 
+`ActivityTaskQueues` 为空时，Worker 拉取 registry 里登记的队列：生成的 `RegisterActivities` 带上注解里的 `queue`，手写登记用 `activity.RegisterActivityOnQueue`；有不带队列的 Activity（`activity.RegisterActivity`、`reg.Register`）时再加上 `default`。显式设置 `ActivityTaskQueues` 时必须包含 registry 登记的每个队列，否则 `worker.New` 返回错误；可以额外列出别的队列，例如 Workflow 用 `ActivityOptions.TaskQueue` 改派的队列。
+
 手写登记入口：
 
 | 函数 | 用途 |
 | --- | --- |
-| `activity.RegisterActivity(reg, type, version, fn)` | 登记强类型实现；契约的输入输出指纹从 `fn` 的参数与返回类型算出 |
+| `activity.RegisterActivityOnQueue(reg, queue, type, version, fn)` | 登记强类型实现及其 Task Queue；契约的输入输出指纹从 `fn` 的参数与返回类型算出 |
+| `activity.RegisterActivity(reg, type, version, fn)` | 同上，不指定 Task Queue |
 | `reg.Register(type, fn)` | 登记 `func(context.Context, map[string]any) (map[string]any, error)`；版本为空 |
 | `reg.Contracts()` | 按类型名排序的全部契约 |
+| `reg.Queues()` | 登记时指定的 Task Queue，去重排序 |
 | `activity.ContractOf[I, O](type, version)` | 从 DTO 计算契约，用于与生成产物核对 |
 
 同一个 registry 里每个 Activity Type 只能登记一次，重复登记返回错误。

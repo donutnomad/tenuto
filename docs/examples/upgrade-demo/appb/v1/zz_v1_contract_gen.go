@@ -9,7 +9,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// CallPrice 调度 activity orders.price（queue workflow 默认队列, version v1）。
+// CallPrice 调度 activity orders.price（queue orders, version v1）。
 func CallPrice(ctx workflow.Context, in PriceInput, opts ...workflow.ActivityOptions) (PriceOutput, error) {
 	var out PriceOutput
 	err := workflow.ExecuteActivity(ctx, Price, in, opts...).Get(ctx, &out)
@@ -68,10 +68,11 @@ func CallShip(ctx workflow.Context, in ShipInput, opts ...workflow.ActivityOptio
 var _ activity.Caller[ShipInput, ShipOutput] = CallShip
 
 // RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。
-// 每个实现的契约（type、version、输入输出指纹）由 activity.RegisterActivity 算出，Worker 登记时随 registry 上报。
+// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
+// worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。
 // remote 契约的实现在别的进程，由那个进程登记。
 func RegisterActivities(registry *activity.Registry) error {
-	if err := activity.RegisterActivity(registry, "orders.price", "v1", Price); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.price", "v1", Price); err != nil {
 		return err
 	}
 	return nil

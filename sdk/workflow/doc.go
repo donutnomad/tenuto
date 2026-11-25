@@ -3,7 +3,7 @@
 // 本包的函数只在 Workflow 源码里使用：它们是定义标记，在普通 Go 代码里调用会 panic，运行时由 Worker
 // 的解释器实现。错误判断 IsCanceledError 例外，它也可以在 Workflow 之外使用。
 //
-//	// @Workflow(id="place-order",queue="orders",version=v1)
+//	// @Workflow(id="place-order",version=v1)
 //	func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 //		charged, err := CallCharge(ctx, ChargeInput{OrderID: in.OrderID}, workflow.ActivityOptions{
 //			StartToCloseTimeout: time.Minute,

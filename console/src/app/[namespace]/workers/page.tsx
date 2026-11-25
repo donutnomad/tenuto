@@ -7,6 +7,7 @@ import { LoadError } from "@/components/dashboard/load-error"
 import type { WorkerListItem } from "@/lib/types"
 import { timeAgo } from "@/lib/format"
 import { stickyCacheSummary } from "@/lib/worker-cache"
+import { activityRoutings } from "@/lib/activity-routing"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -31,6 +32,7 @@ export default function WorkersPage() {
   )
 
   const workers: WorkerListItem[] = data?.items ?? []
+  const routings = activityRoutings(workers)
 
   return (
     <div className="space-y-4">
@@ -130,6 +132,50 @@ export default function WorkersPage() {
               )}
             </TableBody>
           </Table>
+
+          {routings.length > 0 && (
+            <>
+              <h2 className="pt-4 text-base font-semibold text-foreground">Activity Routing</h2>
+              <p className="text-xs text-muted-foreground">
+                Activities whose task queue is not declared in the workflow definition go to one of these queues;
+                the server prefers default routes and skips routes whose contract differs.
+              </p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Activity Type</TableHead>
+                    <TableHead>Task Queues</TableHead>
+                    <TableHead>Workers</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {routings.map((r) => (
+                    <TableRow key={r.activityType}>
+                      <TableCell className="font-mono text-xs">{r.activityType}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {r.queues.map((q) => (
+                            <Badge
+                              key={q}
+                              variant={r.defaultQueues.includes(q) ? "default" : "secondary"}
+                              className="text-[10px]"
+                              title={r.defaultQueues.includes(q) ? "default route" : undefined}
+                            >
+                              {q}
+                            </Badge>
+                          ))}
+                          {r.queues.length > 1 && (
+                            <span className="text-[10px] text-amber-600">served on {r.queues.length} queues</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs tabular-nums">{r.workers}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
+          )}
         </>
       )}
     </div>

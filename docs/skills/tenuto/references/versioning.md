@@ -88,7 +88,7 @@ nondeterministic workflow: extra replay command <...>
 注解只接受 `auto_upgrade` 与 `pinned` 两个值。
 
 ```go
-// @Workflow(id="order-flow",queue="orders",policy=pinned,version=v3)
+// @Workflow(id="order-flow",policy=pinned,version=v3)
 func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error)
 ```
 

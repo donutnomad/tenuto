@@ -60,7 +60,7 @@ type ComputeOutput struct {
 	Pad   string `json:"pad,omitempty"`
 }
 
-// @Workflow(id="cluster-order",name="Cluster Order",queue="cluster",version=v1)
+// @Workflow(id="cluster-order",name="Cluster Order",version=v1)
 func Order(ctx workflow.Context, in Input) (Output, error) {
 	total := int64(0)
 	for i := 0; i < in.Sequential; i++ {

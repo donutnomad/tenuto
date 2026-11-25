@@ -363,7 +363,7 @@ import (
 	"__ACTIVITIES__"
 )
 
-// @Workflow(id="wlang-function-defer-callx",name="WLang Function Defer CallX",queue="saga",policy=auto_upgrade,version=v1)
+// @Workflow(id="wlang-function-defer-callx",name="WLang Function Defer CallX",policy=auto_upgrade,version=v1)
 func W(ctx workflow.Context, input map[string]any) (err error) {
 	var compensationError error
 	order := activities.OrderInput{OrderID: "o-1"}

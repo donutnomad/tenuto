@@ -261,11 +261,10 @@ func runOrder(t *testing.T, scenarioValue string) (error, []historypkg.Event) {
 		t.Fatalf("RegisterActivities: %v", err)
 	}
 	w, err := worker.New(c, worker.Options{
-		Workflows:          []registration.Definition{sagaflow.WorkflowDefinition()},
-		Activities:         registry,
-		ActivityTaskQueues: []string{"saga"},
-		Identity:           "saga-test-worker",
-		BuildID:            "saga-v1",
+		Workflows:  []registration.Definition{sagaflow.WorkflowDefinition()},
+		Activities: registry,
+		Identity:   "saga-test-worker",
+		BuildID:    "saga-v1",
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -204,15 +204,11 @@ func Generate(plan Plan) (PackageResult, error) {
 		if err != nil {
 			return PackageResult{}, err
 		}
-		queue := contract.Queue
-		if queue == "" {
-			queue = plan.Spec.Annotation.Queue
-		}
 		fingerprint := fingerprints[contract.Pos]
 		refs[symbol] = programpkg.ActivityRef{
 			Symbol:    symbol,
 			Type:      contract.Type,
-			TaskQueue: queue,
+			TaskQueue: contract.Queue,
 			Version:   contract.Version,
 			Input:     fingerprint.input,
 			Output:    fingerprint.output,

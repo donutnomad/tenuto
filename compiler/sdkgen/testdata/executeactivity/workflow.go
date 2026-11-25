@@ -26,7 +26,7 @@ func Notify(ctx context.Context, in NotifyInput) (NotifyOutput, error) {
 	return NotifyOutput{Sent: true}, nil
 }
 
-// @Workflow(id="executeactivity-flow",name="Execute Activity Flow",queue="flows",policy=pinned,version=v1)
+// @Workflow(id="executeactivity-flow",name="Execute Activity Flow",policy=pinned,version=v1)
 func Flow(ctx workflow.Context, in activities.ChargeInput) (activities.ChargeOutput, error) {
 	var charged activities.ChargeOutput
 	if err := workflow.ExecuteActivity(ctx, activities.Charge, in, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}).Get(ctx, &charged); err != nil {

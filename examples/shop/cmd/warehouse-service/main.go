@@ -33,7 +33,6 @@ func main() {
 	}
 	if err := svc.RunWorker(ctx, "warehouse-service", c, worker.Options{
 		Activities:          registry,
-		ActivityTaskQueues:  []string{"warehouse"},
 		ActivityConcurrency: 8,
 		BuildID:             svc.Env("BUILD_ID", "warehouse-dev"),
 	}); err != nil {

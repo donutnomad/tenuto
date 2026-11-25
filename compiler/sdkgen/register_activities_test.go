@@ -1,6 +1,8 @@
 package sdkgen
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -10,7 +12,7 @@ import (
 func TestRenderBridgeRegisterActivities(t *testing.T) {
 	contracts := []Contract{
 		{Type: "orders.alpha", Version: "v1", Input: "AlphaInput", Output: "AlphaOutput", MarkerName: "Alpha", CallName: "CallAlpha"},
-		{Type: "orders.beta", Version: "v2", Input: "BetaInput", Output: "BetaOutput", MarkerName: "Beta", CallName: "CallBeta"},
+		{Type: "orders.beta", Queue: "orders", Version: "v2", Input: "BetaInput", Output: "BetaOutput", MarkerName: "Beta", CallName: "CallBeta"},
 		{Type: "payments.settle", Version: "v1", Remote: true, Input: "SettleInput", Output: "SettleOutput", MarkerName: "SettleRemoteActivity", CallName: "CallSettle"},
 	}
 	content := string(renderBridge("orders", contracts))
@@ -20,7 +22,8 @@ func TestRenderBridgeRegisterActivities(t *testing.T) {
 	for _, want := range []string{
 		"func RegisterActivities(registry *activity.Registry) error {",
 		`if err := activity.RegisterActivity(registry, "orders.alpha", "v1", Alpha); err != nil {`,
-		`if err := activity.RegisterActivity(registry, "orders.beta", "v2", Beta); err != nil {`,
+		// 带 queue 的契约连同 queue 一起登记，Worker 据此推导拉取的队列。
+		`if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.beta", "v2", Beta); err != nil {`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("注册 helper 缺少 %q\n%s", want, content)
@@ -52,5 +55,59 @@ func TestRenderBridgeRegisterActivitiesErrorHandling(t *testing.T) {
 	want := "\tif err := activity.RegisterActivity(registry, \"orders.alpha\", \"\", Alpha); err != nil {\n\t\treturn err\n\t}\n"
 	if !strings.Contains(content, want) {
 		t.Fatalf("helper 必须返回 RegisterActivity 的错误\n%s", content)
+	}
+}
+
+// TestScanContractsQueueBelongsToActivity 锁住队列归属：queue 只来自 @Activity 自己的注解，与同包的 @Workflow
+// 无关。写了 queue 的连同队列登记；没写的不带队列登记，由 Worker 的 ActivityTaskQueues 决定。
+func TestScanContractsQueueBelongsToActivity(t *testing.T) {
+	dir := t.TempDir()
+	src := `package orders
+
+import (
+	"context"
+
+	workflow "github.com/donutnomad/tenuto/sdk/workflow"
+)
+
+type In struct {
+	ID string ` + "`json:\"id\"`" + `
+}
+
+type Out struct {
+	OK bool ` + "`json:\"ok\"`" + `
+}
+
+// @Activity(type="orders.notify",version=v1)
+func Notify(_ context.Context, in In) (Out, error) { return Out{OK: true}, nil }
+
+// @Activity(type="orders.audit",queue="audit",version=v1)
+func Audit(_ context.Context, in In) (Out, error) { return Out{OK: true}, nil }
+
+// @Workflow(id="place-order")
+func Place(ctx workflow.Context, in In) (Out, error) { return CallNotify(ctx, in) }
+`
+	if err := os.WriteFile(filepath.Join(dir, "orders.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contracts, _, err := scanContracts(dir, moduleInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queues := map[string]string{}
+	for _, contract := range contracts {
+		queues[contract.Type] = contract.Queue
+	}
+	if queues["orders.notify"] != "" || queues["orders.audit"] != "audit" {
+		t.Fatalf("queues = %v, want orders.notify without queue and orders.audit=audit", queues)
+	}
+	content := string(renderBridge("orders", contracts))
+	for _, want := range []string{
+		`activity.RegisterActivity(registry, "orders.notify", "v1", Notify)`,
+		`activity.RegisterActivityOnQueue(registry, "audit", "orders.audit", "v1", Audit)`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("注册 helper 缺少 %q\n%s", want, content)
+		}
 	}
 }

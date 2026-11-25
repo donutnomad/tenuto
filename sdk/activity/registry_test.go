@@ -113,3 +113,39 @@ func TestRegisterActivityRejectsNonObjectIO(t *testing.T) {
 		t.Fatalf("rejected activities were registered: %v", registry.Types())
 	}
 }
+
+// TestRegistryRecordsQueues 锁住队列记录：RegisterActivityOnQueue 带队列，RegisterActivity 与 Register 不带。
+func TestRegistryRecordsQueues(t *testing.T) {
+	type in struct {
+		ID string `json:"id"`
+	}
+	type out struct {
+		OK bool `json:"ok"`
+	}
+	fn := func(context.Context, in) (out, error) { return out{OK: true}, nil }
+	registry := NewRegistry()
+	if err := RegisterActivityOnQueue(registry, "payments", "payments.charge", "v1", fn); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterActivityOnQueue(registry, "payments", "payments.refund", "v1", fn); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterActivityOnQueue(registry, "orders", "orders.notify", "v1", fn); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterActivity(registry, "audit.log", "v1", fn); err != nil {
+		t.Fatal(err)
+	}
+	if got := registry.Queues(); !reflect.DeepEqual(got, []string{"orders", "payments"}) {
+		t.Fatalf("Queues = %v", got)
+	}
+	if got := registry.Unqueued(); !reflect.DeepEqual(got, []string{"audit.log"}) {
+		t.Fatalf("Unqueued = %v", got)
+	}
+	if got := registry.QueueOf("payments.refund"); got != "payments" {
+		t.Fatalf("QueueOf(payments.refund) = %q", got)
+	}
+	if got := registry.QueueOf("audit.log"); got != "" {
+		t.Fatalf("QueueOf(audit.log) = %q, want empty", got)
+	}
+}

@@ -175,7 +175,7 @@ if err != nil {
 等待主流程推进后再返回（Update-With-Start 的典型用法）：
 
 ```go
-// @Workflow(id="approval-workflow",queue="approval")
+// @Workflow(id="approval-workflow")
 func ApprovalWorkflow(ctx workflow.Context, input CreateInput) error {
     var result CreateResult
     createDone := false

@@ -36,7 +36,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
    type SayHelloInput struct{ Name string `json:"name"` }
    type SayHelloOutput struct{ Message string `json:"message"` }
 
-   // @Workflow(id="startup-greeting",name="Startup Greeting",queue="startup",policy=auto_upgrade,version=v1)
+   // @Workflow(id="startup-greeting",name="Startup Greeting",policy=auto_upgrade,version=v1)
    func Greet(ctx workflow.Context, in GreetInput) (GreetOutput, error) {
        out, err := CallSayHello(ctx, SayHelloInput{Name: in.Name},
            workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second})
@@ -86,7 +86,6 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
    w, err := worker.New(c, worker.Options{
        Workflows:                    []registration.Definition{startupflow.WorkflowDefinition()},
        Activities:                   registry,
-       ActivityTaskQueues:           []string{"startup"},
        Identity:                     "startup-worker-1",
        BuildID:                      "startup-v1",
        ActivityWorkerVersionDefault: true,
@@ -102,7 +101,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
    <-ctx.Done()
    ```
 
-   import：`sdk/activity`、`sdk/client`、`sdk/registration`、`sdk/worker`（均在 `github.com/donutnomad/tenuto/` 下）。`w.Run(ctx)` 是 `Start` + `WaitReady` + 阻塞 + `Stop` 的简写。`tenuto-server` 默认内嵌 Workflow Worker，此时业务进程可以只起 `Role: worker.RoleActivity` 的 Worker 并把 `Workflows` 放进它的选项（见 `references/workers.md`）。
+   import：`sdk/activity`、`sdk/client`、`sdk/registration`、`sdk/worker`（均在 `github.com/donutnomad/tenuto/` 下）。`w.Run(ctx)` 是 `Start` + `WaitReady` + 阻塞 + `Stop` 的简写。Worker 拉取的 Activity 队列来自 registry（`RegisterActivities` 带注解 `queue`），不写 `ActivityTaskQueues`；显式写时必须包含这些队列，否则 `worker.New` 报错。`tenuto-server` 默认内嵌 Workflow Worker，此时业务进程可以只起 `Role: worker.RoleActivity` 的 Worker 并把 `Workflows` 放进它的选项（见 `references/workers.md`）。
 
 4. **启动并与 Run 交互**（同一个 Client `c`）：
 
@@ -186,7 +185,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | --- | --- | --- |
 | 声明 Workflow / Activity、运行生成、读懂产物 | `@Workflow`、`@Activity`、`tenuto-workflow-gen generate` | `references/codegen.md` |
 | 确认某段 Go 能否写进 Workflow | — | `references/go-subset.md` |
-| 调度 Activity、超时、重试、心跳、取消、Worker 停止、异步完成、幂等 | `CallX`、`workflow.ExecuteActivity`、`workflow.ActivityOptions`、`workflow.TimeoutTypeOf`、`activity.GetInfo`、`activity.RecordHeartbeat`、`activity.GetWorkerStopChannel`、`activity.ErrWorkerStopping`、`activity.ErrPending` | `references/activities.md` |
+| 调度 Activity、队列如何决定、超时、重试、心跳、取消、Worker 停止、异步完成、幂等 | `CallX`、`workflow.ExecuteActivity`、`workflow.ActivityOptions`、`workflow.TimeoutTypeOf`、`activity.GetInfo`、`activity.RecordHeartbeat`、`activity.GetWorkerStopChannel`、`activity.ErrWorkerStopping`、`activity.ErrPending` | `references/activities.md` |
 | 类型化错误与分支 | `apperror.New*`、`workflow.NewApplicationError*`、`workflow.IsApplicationError` | `references/errors.md` |
 | 并行、等待最先完成的一个 | `workflow.Go`、`NewWaitGroup`、`NewChannel`、`NewSelector`、`Await` | `references/concurrency.md` |
 | 接收外部事件、暴露状态、带结果的命令 | `workflow.WaitSignal`、`SetQueryHandler`、`SetUpdateHandler` | `references/messaging.md` |
@@ -229,12 +228,14 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | Update 的 `handle.Get` 返回 `*apperror.Error`，`Type() == "UnknownUpdate"`，message `no update handler registered for "<name>"` | 名称不一致，或 Handler 在主函数第一次阻塞之后才注册 | 对齐名称；把 `SetUpdateHandler` 移到函数开头 |
 | Update 停在 Accepted | Handler 已开始执行，停在 `Await`、Activity 或 Timer 上 | 用 Query `__stack_trace` 看 Run 当前等待的 Activity 或 Timer（`waiting`、`steps`）；推进它等待的事件 |
 | Update 的 `handle.Get` 返回 `*apperror.Error`，`Type() == "AcceptedUpdateCompletedWorkflow"` | Handler 完成前 Run 已关闭（主函数返回、失败、取消、终止、continue-as-new） | 让主函数在 Handler 完成前保持运行（`Await` Handler 设置的完成标志） |
-| Run 显示 Blocked，Workflow Task 失败原因 `activity_route_unavailable`，`activity route unavailable: ... is not registered in activity route catalog` / `has no active route` | 该 Activity `type` 在这个 Namespace 没有在线 Worker | 启动注册了该 `type` 的 Activity Worker（核对 Namespace、`ActivityTaskQueues`、`ActivityWorkerVersionRegistry` 非空）；Run 按退避自动继续 |
+| Run 显示 Blocked，Workflow Task 失败原因 `activity_route_unavailable`，`activity route unavailable: ... is not registered in activity route catalog` / `has no active route` | 该 Activity `type` 在这个 Namespace 没有在线 Worker | 启动注册了该 `type` 的 Activity Worker（核对 Namespace、registry 登记的队列或 `ActivityTaskQueues`、`ActivityWorkerVersionRegistry` 非空）；Run 按退避自动继续 |
 | Activity 长时间 Scheduled，Server 日志反复出现 `activity claim refused: worker contract is incompatible` | 队列上在线的 build 契约都与 Run 当前 Program 的声明不一致（常见于 `pinned` Run 需要的旧 build 已下线） | 让契约一致的 build 重新上线，它领取下一次投递；或给 Activity 设置 `ScheduleToStartTimeout` 限定等待 |
 | Run 显示 Blocked，Workflow Task 失败原因 `bad_schedule_activity_attributes`，`activity "..." (type ...) sets neither StartToCloseTimeout nor ScheduleToCloseTimeout` | 调度 Activity 时没有设置关闭超时（选项来自变量，生成期检查不到） | 给该调用的 `ActivityOptions` 设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout`，重新生成并发布；Run 按退避自动继续 |
 | Run 显示 Blocked，Workflow Task 失败原因 `schedule_activity_duplicate_id`，`activity "..." (type ...): an activity with this ActivityID is still open in this run` | `ActivityOptions.ActivityID` 与同一 Run 里仍未关闭的 Activity 重复（含同一批里两次调度同一 ID） | 让并发的调用用不同的 ID（如带上循环下标），或等前一个 Activity 结束后再用同一 ID；重新生成并发布，Run 按退避自动继续 |
 | Run 显示 Blocked，`activity_route_unavailable`，`declares a contract and no online worker on task queue ... reported one` | 指定了 Task Queue（或目标 Worker）的 Activity 声明了契约，但该队列上没有在线 Worker 可对照 | 启动消费该队列的 Activity Worker；Run 按退避自动继续，不写 `ConfigError` |
-| Activity 长时间 Scheduled | Worker 没有消费该 Task Queue，或心跳登记已过 TTL | 核对 `ActivityTaskQueues` 与注解 `queue` / `ActivityOptions.TaskQueue`，查看 Worker 列表 |
+| Activity 长时间 Scheduled | Worker 没有消费该 Task Queue，或心跳登记已过 TTL | 核对 Worker 拉取的队列（registry 登记的队列或 `ActivityTaskQueues`）与注解 `queue` / `ActivityOptions.TaskQueue`，查看 Worker 列表 |
+| Run 显示 Blocked，`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues` | 定义与调用处都没有声明队列，几个服务在互不相关的队列上提供同一类型 | 在 `@Activity(queue)` 或 `ActivityOptions.TaskQueue` 声明队列后重新生成发布，或停掉其中一个服务；Run 按退避自动继续，见 `references/activities.md` 的「队列如何决定」 |
+| `worker.New` 返回 `activity "..." is registered on task queue "...", which ActivityTaskQueues [...] does not include` | 显式设置的 `ActivityTaskQueues` 漏了 registry 登记的队列 | 删掉 `ActivityTaskQueues` 让 Worker 用登记的队列，或把缺的队列加进去 |
 | `CreateSchedule`/`UpdateSchedule` 返回 `invalid overlap_policy`；`TriggerSchedule` 返回 409 `previous scheduled run is still running` | Overlap Policy 只接受 `SKIP`、`ALLOW_ALL`；`SKIP` 下上一次触发的执行链仍在运行 | 改用大写取值；等执行链结束，或改用 `ALLOW_ALL`，见 `references/schedules.md` |
 | `StartWorkflow` 返回 `current run conflict` | 该 Workflow ID 已有活跃 Run | 换一个 Workflow ID 启动并行实例；或等它结束、取消或终止 |
 | Query 被拒：`workflow has not completed its first workflow task yet; query handlers are not registered` | Run 刚启动 | 稍后重试 |

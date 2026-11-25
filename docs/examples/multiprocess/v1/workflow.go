@@ -29,7 +29,7 @@ type OrderOutput struct {
 	Note    string `json:"note"`
 }
 
-// @Workflow(id="order-flow",name="Multiprocess Order Flow",queue="orders",policy=auto_upgrade,version=v1)
+// @Workflow(id="order-flow",name="Multiprocess Order Flow",policy=auto_upgrade,version=v1)
 func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	// 第一代标记点：v1/v2 写入 4，v3 提高 minSupported 后旧历史 marker 越界即不兼容。
 	version := workflow.GetVersion(ctx, "order-flow-changes", 3, 4)

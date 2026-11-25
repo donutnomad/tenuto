@@ -158,7 +158,7 @@ func TestGenerateRewritesBridgeCalls(t *testing.T) {
 		version      string
 		symbol       string
 	}{
-		// 未显式写 queue 的 activity 继承 @Workflow(queue=orders)。
+		// queue 全部来自各自的 @Activity 注解。
 		{"inventory.reserve", "inventory", "v1", "inventory.Reserve"},
 		{"orders.charge", "orders", "v1", "orders.Charge"},
 		{"orders.charge-v2", "orders", "v2", "orders.ChargeV2"},
@@ -302,6 +302,16 @@ import workflow "github.com/donutnomad/tenuto/sdk/workflow"
 // @Workflow(id="bad",retry=3)
 func W(ctx workflow.Context) error { return nil }`,
 			wantErr: []string{"workflow.go:5", `未知 key "retry"`},
+		},
+		{
+			name: "@Workflow 不接受 queue",
+			source: `package bad
+
+import workflow "github.com/donutnomad/tenuto/sdk/workflow"
+
+// @Workflow(id="bad",queue="orders")
+func W(ctx workflow.Context) error { return nil }`,
+			wantErr: []string{"workflow.go:5", "@Workflow 不接受 queue", "@Activity(queue=...)"},
 		},
 		{
 			name: "未知 policy",

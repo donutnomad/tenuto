@@ -71,7 +71,7 @@ type NotifyOutput struct {
 	Sent bool `json:"sent"`
 }
 
-// @Workflow(id="place-order",name="Place Order",queue="orders",policy=auto_upgrade,version=v1)
+// @Workflow(id="place-order",name="Place Order",policy=auto_upgrade,version=v1)
 func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	opts := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -109,7 +109,7 @@ func Notify(_ context.Context, in NotifyInput) (NotifyOutput, error) {
 | | `policy` | `auto_upgrade`（缺省）：运行中的 Run 在下一个 Workflow Task 换到新版本；`pinned`：Run 固定在启动时的版本。见[版本管理](/develop/versioning) |
 | | `version` | 业务版本标签 |
 | `@Activity` | `type`（必填） | Activity Type，同时决定生成的调用桥名：`orders.charge` → `CallCharge` |
-| | `queue` | Activity Task Queue；省略时使用所属 `@Workflow` 的 `queue` |
+| | `queue` | Activity Task Queue；省略时由执行它的 Worker 决定（`ActivityTaskQueues`，不写时是 `default`） |
 | | `version` | 契约版本，Workflow 侧与 Worker 侧逐字对照 |
 | | `remote` | `true` 时声明由其他服务实现的 Activity，写在命名函数类型上 |
 
@@ -144,7 +144,7 @@ go generate ./...
 
 两类注册都在 Worker 启动时完成：
 
-- **Activity**：生成的 `RegisterActivities(registry)` 一次登记本包全部 `@Activity` 实现。也可以逐个登记：`activity.RegisterActivity(registry, "orders.charge", "v1", Charge)`。Worker 启动时把每个 Activity 的契约（type、version、输入输出指纹）随路由上报给 Server。
+- **Activity**：生成的 `RegisterActivities(registry)` 一次登记本包全部 `@Activity` 实现。也可以逐个登记：`activity.RegisterActivityOnQueue(registry, "orders", "orders.charge", "v1", Charge)`。Worker 启动时把每个 Activity 的契约（type、version、输入输出指纹）随路由上报给 Server。
 - **Workflow**：把 `WorkflowDefinition()` 放进 `worker.Options.Workflows`，`Start` 时登记到 Client 的 Namespace。版本按 `workflow.json` 的内容 hash 区分：新内容首次登记时成为该 Workflow ID 的 latest，新 Run 使用 latest；同一内容重复登记幂等，latest 保持不变。
 
 ```go
@@ -187,7 +187,6 @@ func main() {
 	w, err := worker.New(c, worker.Options{
 		Workflows:          []registration.Definition{orders.WorkflowDefinition()},
 		Activities:         registry,
-		ActivityTaskQueues: []string{"orders"},
 		BuildID:            "shop-2026.11.13", // 镜像版本或 Git commit
 	})
 	if err != nil {
@@ -203,7 +202,7 @@ func main() {
 }
 ```
 
-- `ActivityTaskQueues` 列出本 Worker 消费的队列，与注解里的 `queue` 对应。
+- Worker 拉取的 Activity 队列来自 registry：`RegisterActivities` 带上了注解里的 `queue`，不需要再写 `ActivityTaskQueues`。显式设置 `ActivityTaskQueues` 时必须包含这些队列，否则 `worker.New` 返回错误。
 - Namespace 不需要预先创建，第一次登记时生效。
 - 不放进 `Workflows` 时，也可以在 CI 或发布流程里用生成器登记：`go tool tenuto-workflow-gen generate -url $TENUTO_URL -namespace shop -publish ./orders`（`-publish` 同时激活为 latest）。
 

@@ -19,9 +19,6 @@ import (
 	"github.com/donutnomad/tenuto/sdk/worker"
 )
 
-// Queue 是 app-a 消费的 Activity Task Queue，与 @Activity / @Workflow 注解里的 queue 一致。
-const Queue = "fulfillment"
-
 // Options 是启动一个 app-a Worker 需要的全部配置。
 type Options struct {
 	URL       string // Tenuto Server 的 HTTP 地址
@@ -65,9 +62,8 @@ func Start(ctx context.Context, opts Options) (*worker.Worker, error) {
 
 	// 3. worker.New 创建同时执行 Workflow Task 与 Activity Task 的 Worker。
 	w, err := worker.New(c, worker.Options{
-		Role:               worker.RoleBoth,
-		Activities:         registry,
-		ActivityTaskQueues: []string{Queue},
+		Role:       worker.RoleBoth,
+		Activities: registry,
 		// Identity 标识这个进程实例，BuildID 标识代码版本。Server 按 BuildID 保存每个版本上报的契约：
 		// 新旧版本的 BuildID 不同，两个进程才能同时在线、各自保留自己的契约。任务投到队列，不带 build；
 		// 领到任务的进程开始执行前，Server 按它这个 BuildID 的契约对照 Program 的声明。

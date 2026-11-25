@@ -40,7 +40,7 @@ type SayHelloOutput struct {
     Message string `json:"message"`
 }
 
-// @Workflow(id="startup-greeting",name="Startup Greeting",queue="startup",policy=auto_upgrade,version=v1)
+// @Workflow(id="startup-greeting",name="Startup Greeting",policy=auto_upgrade,version=v1)
 func Greet(ctx workflow.Context, in GreetInput) (GreetOutput, error) {
     out, err := CallSayHello(ctx, SayHelloInput{Name: in.Name}, workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second})
     if err != nil {

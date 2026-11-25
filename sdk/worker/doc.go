@@ -17,7 +17,6 @@
 //	w, err := worker.New(c, worker.Options{
 //		Workflows:          []registration.Definition{orders.WorkflowDefinition()},
 //		Activities:         registry,
-//		ActivityTaskQueues: []string{"orders"},
 //		BuildID:            "orders-v1",
 //	})
 //	if err != nil {

@@ -14,8 +14,9 @@ import (
 // Contract 是一个 Activity 实现的 wire 契约：类型名、版本、输入与输出的结构指纹。
 type Contract = protocol.ActivityContract
 
-// Registry 保存一个 Worker 进程能执行的 Activity：每个类型一个实现和一份契约。
-// Worker 登记时把全部契约上报给 Server，Server 用它对照 Workflow 侧的声明。
+// Registry 保存一个 Worker 进程能执行的 Activity：每个类型一个实现、一份契约和它所在的 Task Queue。
+// Worker 登记时把全部契约上报给 Server，Server 用它对照 Workflow 侧的声明；
+// worker.Options.ActivityTaskQueues 为空时，Worker 拉取的队列由 Queues 推导。
 type Registry struct {
 	entries map[string]registered
 }
@@ -23,6 +24,7 @@ type Registry struct {
 type registered struct {
 	fn       protocol.ActivityFunc
 	contract Contract
+	queue    string // 空表示登记时没有指定队列
 }
 
 // NewRegistry 返回一个空的 Registry。
@@ -37,10 +39,10 @@ func (r *Registry) Register(activityType string, fn protocol.ActivityFunc) error
 	if err != nil {
 		return err
 	}
-	return r.add(contract, fn)
+	return r.add(contract, "", fn)
 }
 
-func (r *Registry) add(contract Contract, fn protocol.ActivityFunc) error {
+func (r *Registry) add(contract Contract, queue string, fn protocol.ActivityFunc) error {
 	if contract.Type == "" {
 		return errors.New("activity type is empty")
 	}
@@ -50,7 +52,7 @@ func (r *Registry) add(contract Contract, fn protocol.ActivityFunc) error {
 	if _, exists := r.entries[contract.Type]; exists {
 		return fmt.Errorf("activity type %q is already registered", contract.Type)
 	}
-	r.entries[contract.Type] = registered{fn: fn, contract: contract}
+	r.entries[contract.Type] = registered{fn: fn, contract: contract, queue: queue}
 	return nil
 }
 
@@ -73,6 +75,36 @@ func (r *Registry) Types() []string {
 	return types
 }
 
+// Queues 返回登记时指定的 Task Queue，去重并排序。
+func (r *Registry) Queues() []string {
+	seen := map[string]bool{}
+	queues := []string{}
+	for _, entry := range r.entries {
+		if entry.queue != "" && !seen[entry.queue] {
+			seen[entry.queue] = true
+			queues = append(queues, entry.queue)
+		}
+	}
+	sort.Strings(queues)
+	return queues
+}
+
+// Unqueued 返回登记时没有指定 Task Queue 的 Activity 类型，按名称排序。
+func (r *Registry) Unqueued() []string {
+	types := []string{}
+	for _, activityType := range r.Types() {
+		if r.entries[activityType].queue == "" {
+			types = append(types, activityType)
+		}
+	}
+	return types
+}
+
+// QueueOf 返回 activityType 登记时指定的 Task Queue；没有登记或没有指定时返回空串。
+func (r *Registry) QueueOf(activityType string) string {
+	return r.entries[activityType].queue
+}
+
 // Contracts 返回按类型名排序的全部契约，Worker 登记时原样上报。
 func (r *Registry) Contracts() []Contract {
 	types := r.Types()
@@ -83,11 +115,19 @@ func (r *Registry) Contracts() []Contract {
 	return contracts
 }
 
-// RegisterActivity 登记一个强类型 Activity，并从 I、O 算出它的契约。
+// RegisterActivity 登记一个强类型 Activity，并从 I、O 算出它的契约；不指定 Task Queue，
+// Worker 在 ActivityTaskQueues 列出的队列上执行它（为空时是 "default"）。知道队列时用 RegisterActivityOnQueue。
 //
 // Activity 的输入与输出在线上是 JSON object，所以 I 与 O 必须是 struct 或 map[string]any。
 // version 是实现的契约版本，与 Workflow 侧 @Activity(version=...) 的值逐字对照。
 func RegisterActivity[I, O any](reg *Registry, activityType, version string, fn func(context.Context, I) (O, error)) error {
+	return RegisterActivityOnQueue(reg, "", activityType, version, fn)
+}
+
+// RegisterActivityOnQueue 与 RegisterActivity 相同，并记录 Activity 所在的 Task Queue，
+// 与 Workflow 侧 @Activity(queue=...) 的值一致。生成的 RegisterActivities 用它登记。
+// worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些队列；显式设置时必须包含它们。
+func RegisterActivityOnQueue[I, O any](reg *Registry, queue, activityType, version string, fn func(context.Context, I) (O, error)) error {
 	if err := requireObject[I](activityType, "input"); err != nil {
 		return err
 	}
@@ -101,7 +141,7 @@ func RegisterActivity[I, O any](reg *Registry, activityType, version string, fn 
 	if fn == nil {
 		return fmt.Errorf("activity %q: implementation is nil", activityType)
 	}
-	return reg.add(contract, func(ctx context.Context, input map[string]any) (map[string]any, error) {
+	return reg.add(contract, queue, func(ctx context.Context, input map[string]any) (map[string]any, error) {
 		var in I
 		if err := mapToStruct(input, &in); err != nil {
 			return nil, err

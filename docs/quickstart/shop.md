@@ -59,7 +59,7 @@ payment-service 实现同一个 type 与 version，在 `payments` 队列上执�
 ```go
 // examples/shop/payment/payment.go（节选）
 func (g *Gateway) Register(registry *activity.Registry) error {
-	return activity.RegisterActivity(registry, "payments.charge", "v1", g.Charge)
+	return activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", "v1", g.Charge)
 }
 ```
 
@@ -118,7 +118,6 @@ order-service 的 `GET /orders/{id}` 组合三种读法：`DescribeWorkflowExecu
 svc.RunWorker(ctx, "order-service", c, worker.Options{
 	Workflows:           []registration.Definition{orders.WorkflowDefinition()},
 	Activities:          registry, // orders.notify
-	ActivityTaskQueues:  []string{"orders"},
 	ActivityConcurrency: 8,
 	BuildID:             svc.Env("BUILD_ID", "order-dev"),
 })

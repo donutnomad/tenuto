@@ -29,7 +29,7 @@ type PaymentFailureDetail struct {
 	Reason  string `json:"reason"`
 }
 
-// @Workflow(id="saga-order",name="Saga Order",queue="saga",policy=auto_upgrade,version=v1)
+// @Workflow(id="saga-order",name="Saga Order",policy=auto_upgrade,version=v1)
 func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 	reserved, err := CallReserveInventory(ctx, ReserveInventoryInput{OrderID: in.OrderID}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
 	if err != nil {

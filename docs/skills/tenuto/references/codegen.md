@@ -7,7 +7,7 @@
 注解写在声明文档注释的 `//` 行里，形如 `@Kind(key=value,key="value")`：逗号分隔，值可带双引号也可不带。
 
 ```go
-// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",queue="lifecycle",policy=auto_upgrade,version=v2)
+// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error)
 
 // @Activity(type="lifecycle.charge",queue="lifecycle",version=v1)
@@ -39,7 +39,7 @@ Workflow 函数规则：
 | key | 必填 | 含义 |
 | --- | --- | --- |
 | `type` | 是 | Activity Type：路由、注册、重放对照共用的身份 |
-| `queue` | 否 | Activity Task Queue；省略时取所属 `@Workflow` 的 `queue` |
+| `queue` | 否 | Activity Task Queue；写了时 `workflow.json` 声明它，生成的 `RegisterActivities` 连同它一起登记；省略时由 Server 按 Worker 的登记选路（Worker 的 `ActivityTaskQueues`，不写时是 `default`）。`@Workflow` 没有 `queue` 参数 |
 | `version` | 否 | 契约版本标签，Server 只做逐字相等对照 |
 | `remote` | 否 | `true` 表示实现在别的 Worker；只能标在命名函数类型上 |
 
@@ -135,7 +135,7 @@ var _ activity.Caller[SayHelloInput, SayHelloOutput] = CallSayHello
 var _ activity.Handler[SayHelloInput, SayHelloOutput] = SayHello
 
 func RegisterActivities(registry *activity.Registry) error {
-    if err := activity.RegisterActivity(registry, "startup.say-hello", "v1", SayHello); err != nil {
+    if err := activity.RegisterActivityOnQueue(registry, "startup", "startup.say-hello", "v1", SayHello); err != nil {
         return err
     }
     return nil

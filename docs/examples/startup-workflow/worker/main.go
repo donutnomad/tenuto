@@ -49,7 +49,6 @@ func run(url, namespace string) error {
 	w, err := worker.New(c, worker.Options{
 		Workflows:                              []registration.Definition{startupflow.WorkflowDefinition()},
 		Activities:                             registry,
-		ActivityTaskQueues:                     []string{"startup"},
 		Identity:                               "startup-worker-1",
 		BuildID:                                "startup-v1",
 		ActivityWorkerVersionDefault:           true,

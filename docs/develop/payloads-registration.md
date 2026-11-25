@@ -13,7 +13,7 @@ Workflow Type 是部署稳定的名称，即 `@Workflow(id=...)` 的取值；Go 
 ## Workflow Type
 
 ```go
-// @Workflow(id="orders.approval",queue="orders",version=v1)
+// @Workflow(id="orders.approval",version=v1)
 func Approval(ctx workflow.Context, in CreateInput) (CreateResult, error) { ... }
 ```
 

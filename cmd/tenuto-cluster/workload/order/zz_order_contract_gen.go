@@ -18,10 +18,11 @@ var _ activity.Caller[ComputeInput, ComputeOutput] = CallCompute
 var _ activity.Handler[ComputeInput, ComputeOutput] = Compute
 
 // RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。
-// 每个实现的契约（type、version、输入输出指纹）由 activity.RegisterActivity 算出，Worker 登记时随 registry 上报。
+// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
+// worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。
 // remote 契约的实现在别的进程，由那个进程登记。
 func RegisterActivities(registry *activity.Registry) error {
-	if err := activity.RegisterActivity(registry, "cluster.compute", "v1", Compute); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "cluster", "cluster.compute", "v1", Compute); err != nil {
 		return err
 	}
 	return nil

@@ -17,7 +17,7 @@ type LoopState struct {
     Cursor int64 `json:"cursor"`
 }
 
-// @Workflow(id="processor",queue="processing")
+// @Workflow(id="processor")
 func Processor(ctx workflow.Context, state LoopState) error {
     cursor := state.Cursor
     for i := 0; i < 100; i++ {

@@ -10,7 +10,7 @@ import (
 	"github.com/donutnomad/tenuto/compiler/sdkgen/testdata/directcall/activities"
 )
 
-// @Workflow(id="directcall-flow",name="Direct Call Flow",queue="flows",policy=auto_upgrade,version=v1)
+// @Workflow(id="directcall-flow",name="Direct Call Flow",policy=auto_upgrade,version=v1)
 func Flow(ctx workflow.Context, in activities.ChargeInput) (activities.ChargeOutput, error) {
 	// 直调本地实现（合法 Go）：生成器必须把它重写成 ExecuteActivity，
 	// 不能静默内联成普通函数调用而丢失 activity 派发。

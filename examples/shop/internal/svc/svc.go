@@ -57,7 +57,11 @@ func RunWorker(ctx context.Context, name string, c client.Client, opts worker.Op
 		}
 		return fmt.Errorf("worker not ready: %w", err)
 	}
-	log.Printf("%s ready: queues=%v", name, opts.ActivityTaskQueues)
+	queues := opts.ActivityTaskQueues
+	if len(queues) == 0 {
+		queues = opts.Activities.Queues() // 没有配置时 Worker 拉取 registry 登记的队列
+	}
+	log.Printf("%s ready: queues=%v", name, queues)
 	<-ctx.Done()
 	log.Printf("%s stopping", name)
 	return nil

@@ -8,7 +8,7 @@
 逗号分隔的 `key=value`，值可以带双引号也可以不带。注解写在声明的文档注释里。
 
 ```go
-// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",queue="lifecycle",policy=auto_upgrade,version=v2)
+// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error)
 
 // @Activity(type="payments.charge",queue="payments",version=v1)
@@ -27,8 +27,8 @@ config JSON 的 sha256 内容版本。同一 `(namespace, workflow_id, 内容版
 重复登记幂等；Pinned Run 保存版本引用，多个 Run 共享同一份内容，不为每个 Run 复制 JSON。
 
 `@Activity` 的 key：`type`（必填）、`queue`、`version`、`remote`。`remote=true` 只能标注**命名函数类型**
-（`type X func(context.Context, In) (Out, error)`），不能标注有函数体的实现。`queue` 为空时该
-activity 使用所属 `@Workflow` 的 `queue`。
+（`type X func(context.Context, In) (Out, error)`），不能标注有函数体的实现。`queue` 为空时定义不声明队列，
+由 Server 按 Worker 的登记选路。`@Workflow` 没有 `queue` 参数。
 
 注解写错、未知 key、缺 `id`/`type`、重复 id、未知 policy 都会报 `file:line`。
 

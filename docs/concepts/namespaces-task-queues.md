@@ -36,19 +36,22 @@ Namespace 变更会影响 Run 查询、Task Queue 路由和客户端默认目标
 
 ## Task Queue
 
-Task Queue 决定任务被哪一组 Worker 领取。Workflow Task 和 Activity Task 可以使用不同队列：
+Task Queue 决定 Activity Task 被哪一组 Worker 领取。Workflow Task 不分队列，由 Server 派给任意 Workflow Worker，`@Workflow` 没有 `queue` 参数。
+
+Activity 的队列是 Activity 自己的属性，有两种写法：
 
 ```go
-// Workflow Task 队列：Workflow 注解的 queue
-// @Workflow(id="checkout",queue="workflow-tasks")
-func Checkout(ctx workflow.Context, input CheckoutInput) error { ... }
-
-// Activity Task 队列：Activity 注解的 queue
+// 在 Activity 上声明：workflow.json 记录这个队列，Worker 从生成的 RegisterActivities 推导出要拉取它
 // @Activity(type="payments.charge-card",queue="payments-activities")
 func ChargeCard(ctx context.Context, input ChargeInput) (ChargeOutput, error) { ... }
+
+// 不写：由执行它的 Worker 决定（worker.Options.ActivityTaskQueues，不写时是 default），
+// Server 调度时按在线 Worker 的登记选队列
+// @Activity(type="orders.notify")
+func Notify(ctx context.Context, input NotifyInput) (NotifyOutput, error) { ... }
 ```
 
-单次调用通过 `workflow.ActivityOptions{TaskQueue: "payments-activities"}` 指定队列。注解和选项都没有给出队列时使用 `default`。注解写法见 [注解与代码生成](/develop/code-generation)。
+单次调用通过 `workflow.ActivityOptions{TaskQueue: "payments-activities"}` 改派队列。决定顺序、没有声明队列时的选路与歧义处理见 [Activity 的队列如何决定](/operations/namespaces-task-queues#activity-的队列如何决定)，注解写法见 [注解与代码生成](/develop/code-generation)。
 
 使用独立队列隔离资源密集型 Activity、低延迟 Activity 和高权限 Activity。队列名称属于运行契约，修改队列后必须同步部署对应 Worker。
 

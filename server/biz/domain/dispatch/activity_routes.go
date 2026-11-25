@@ -198,7 +198,67 @@ func (c *ActivityRouteCatalog) ResolveActivityRoute(ref ActivityRouteRef) (Activ
 	}
 	candidates = contractCompatibleRoutes(candidates, ref)
 	sortActivityRoutes(candidates)
+	if pools := ambiguousRoutePools(candidates); pools != nil {
+		return ActivityRoute{}, protocol.InvalidRequestf("%w: activity %s type %s declares no task queue and workers serve it on unrelated task queues %q; "+
+			"declare the task queue in @Activity(queue=...) or ActivityOptions.TaskQueue, or stop one of them",
+			ErrActivityRouteUnavailable, ref.ActivityID, ref.Type, pools)
+	}
 	return chooseActivityRoute(candidates, ref), nil
+}
+
+// ambiguousRoutePools 判断没有声明队列的 Activity 在候选路由里有没有明确的去处，没有时返回互不相关的各组队列。
+//
+// chooseActivityRoute 在默认路由之间、或既没有默认也没有权重的路由之间按排序取第一个；这些路由分布在
+// 互不相关的队列上时（例如两个服务各自的队列），取第一个就是在两个服务之间静默二选一。同一个 build 拉取的
+// 几个队列算一组（滚动发布与一个进程拉多个队列都在组内）。配置了权重而没有默认路由时，按权重分流是显式意图，不算歧义。
+func ambiguousRoutePools(candidates []ActivityRoute) [][]string {
+	pool := filterActivityRoutes(append([]ActivityRoute(nil), candidates...), func(route ActivityRoute) bool { return route.Default })
+	if len(pool) == 0 {
+		for _, route := range candidates {
+			if route.Weight > 0 {
+				return nil
+			}
+		}
+		pool = candidates
+	}
+	// 并查集：同一个队列、同一个 build 的路由相连。
+	parent := map[string]string{}
+	var find func(string) string
+	find = func(node string) string {
+		if parent[node] == node {
+			return node
+		}
+		parent[node] = find(parent[node])
+		return parent[node]
+	}
+	union := func(a, b string) {
+		for _, node := range []string{a, b} {
+			if _, ok := parent[node]; !ok {
+				parent[node] = node
+			}
+		}
+		parent[find(a)] = find(b)
+	}
+	for _, route := range pool {
+		union("queue:"+route.TaskQueue, "build:"+route.BuildID)
+	}
+	groups := map[string][]string{}
+	for _, route := range pool {
+		root := find("queue:" + route.TaskQueue)
+		if !slices.Contains(groups[root], route.TaskQueue) {
+			groups[root] = append(groups[root], route.TaskQueue)
+		}
+	}
+	if len(groups) < 2 {
+		return nil
+	}
+	pools := make([][]string, 0, len(groups))
+	for _, queues := range groups {
+		slices.Sort(queues)
+		pools = append(pools, queues)
+	}
+	slices.SortFunc(pools, func(a, b []string) int { return strings.Compare(a[0], b[0]) })
+	return pools
 }
 
 // resolveExplicitActivityRoute 处理调用方指定了 TaskQueue 的引用。

@@ -23,7 +23,7 @@ type ChargeOutput struct {
 // @Activity(type="payments.charge.v1",queue="payments",version=v1,remote=true)
 type ChargeRemote func(context.Context, ChargeInput) (ChargeOutput, error)
 
-// @Workflow(id="samepkg-flow",name="Same Package Flow",queue="flows",policy=auto_upgrade,version=v1)
+// @Workflow(id="samepkg-flow",name="Same Package Flow",policy=auto_upgrade,version=v1)
 func Flow(ctx workflow.Context, in ChargeInput) (ChargeOutput, error) {
 	return CallCharge(ctx, in, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
 }

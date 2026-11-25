@@ -36,7 +36,7 @@ Tenuto 有三层互相独立的版本机制：
 | `pinned` | Run 固定启动时的内容，只有显式迁移才切换 |
 
 ```go
-// @Workflow(id="order-flow",queue="orders",policy=pinned,version=v3)
+// @Workflow(id="order-flow",policy=pinned,version=v3)
 func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error)
 ```
 

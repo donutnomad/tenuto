@@ -131,8 +131,8 @@ registry := activity.NewRegistry()
 if err := sagaflow.RegisterActivities(registry); err != nil { // 生成的批量登记，一个参数
     return err
 }
-// remote 契约的实现由拥有它的进程手写登记，type 与 version 和注解逐字一致
-if err := activity.RegisterActivity(registry, "payments.settle", "v1", Settle); err != nil {
+// remote 契约的实现由拥有它的进程手写登记，queue、type 与 version 和注解逐字一致
+if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settle", "v1", Settle); err != nil {
     return err
 }
 ```
@@ -140,13 +140,25 @@ if err := activity.RegisterActivity(registry, "payments.settle", "v1", Settle); 
 | 函数 | 用途 |
 | --- | --- |
 | `activity.NewRegistry() *Registry` | 一个 Worker 进程一个注册表 |
-| `<pkg>.RegisterActivities(registry) error` | 生成：登记本包全部本地 `@Activity` 实现与契约 |
-| `activity.RegisterActivity[I, O](reg, type, version, fn) error` | 登记强类型实现；指纹从 `I`、`O` 算出 |
+| `<pkg>.RegisterActivities(registry) error` | 生成：登记本包全部本地 `@Activity` 实现、契约与 `queue` |
+| `activity.RegisterActivityOnQueue[I, O](reg, queue, type, version, fn) error` | 登记强类型实现及其 Task Queue；指纹从 `I`、`O` 算出 |
+| `activity.RegisterActivity[I, O](reg, type, version, fn) error` | 同上，不指定 Task Queue |
 | `reg.Register(type, fn) error` | 登记 `func(context.Context, map[string]any) (map[string]any, error)`；版本为空 |
 | `reg.Contracts()`、`reg.Types()` | 按类型名排序的契约 / 类型 |
+| `reg.Queues()` | 登记时指定的 Task Queue；`worker.Options.ActivityTaskQueues` 为空时 Worker 拉取这些队列 |
 | `activity.ContractOf[I, O](type, version)` | 从 DTO 计算契约 |
 
-同一个注册表里每个 `type` 只能登记一次（`activity type "..." is already registered`）。Worker 在 `Start` 时把全部契约随路由上报。
+同一个注册表里每个 `type` 只能登记一次（`activity type "..." is already registered`）。Worker 在 `Start` 时把全部契约随路由上报。`ActivityTaskQueues` 为空时 Worker 拉取 `reg.Queues()`，有不带队列的 Activity 时加上 `default`；显式设置时必须包含 `reg.Queues()`，否则 `worker.New` 报错。
+
+## 队列如何决定
+
+调度时按顺序取：调用处 `ActivityOptions.TaskQueue` → 定义里的 `activities[].task_queue`（只来自 `@Activity(queue)`；`@Workflow` 没有 `queue` 参数）→ 都没有时 Server 查路由目录（在线 Worker 的「队列 × 类型」，先排除契约不一致的，再优先默认路由，再按权重）。实际队列写进 `ActivityScheduled.taskQueue`。
+
+- 一个服务一个队列：`@Activity` 不写 `queue`，Worker 设 `ActivityTaskQueues`（不写时是 `default`）。
+- 跨服务：`remote=true` 契约写 `queue`，放在共享契约包。
+- 固定队列：`@Activity(queue=...)`，Worker 不写 `ActivityTaskQueues`，从 registry 推导。
+- 没有声明队列的歧义：几个 Worker 提供同一类型时，队列有交集（多实例、滚动发布）照常投递；只有一组默认路由时选它；没有默认、有权重时按权重；默认路由（或无默认无权重的路由）落在互不相关的队列上时调度不派发，Run Blocked（`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues`），声明队列或停掉一边后按退避继续。Worker 登记不做这项检查。
+- Console：Workers 页 Activity Routing 表看每个类型在哪些队列；Run 详情 Activity 步骤的 `Queue Source` 看队列来源。
 
 ## 执行上下文、心跳与取消
 

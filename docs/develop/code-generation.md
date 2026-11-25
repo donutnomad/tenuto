@@ -13,7 +13,7 @@ status: Stable
 ## 注解语法
 
 ```go
-// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",queue="lifecycle",policy=auto_upgrade,version=v2)
+// @Workflow(id="lifecycle-demo",name="Lifecycle Demo",policy=auto_upgrade,version=v2)
 func Lifecycle(ctx workflow.Context, in Input) (Output, error)
 
 // @Activity(type="lifecycle.charge",queue="lifecycle",version=v1)
@@ -41,7 +41,7 @@ type SettleRemote func(context.Context, SettleInput) (SettleOutput, error)
 - 实现是包级普通函数，方法上的注解被拒绝。
 - `remote=true` 只能标在 `type X func(...)` 上；命名函数类型必须声明 `remote=true`。
 - 一个声明只带一条 `@Activity`；同一批契约里 `type` 唯一，生成的桥名唯一。
-- `queue` 省略时使用所属 `@Workflow` 的 `queue`。
+- `@Activity` 写了 `queue` 时，`workflow.json` 声明这个队列，生成的 `RegisterActivities` 用 `activity.RegisterActivityOnQueue` 一起登记，Worker 据此决定拉取的队列。省略时两边都不带队列：Server 按 Worker 的登记选路，Worker 在 `ActivityTaskQueues`（不写时是 `default`）上提供它。`@Workflow` 没有 `queue` 参数，写了会报 `file:line`。
 
 ### 桥名的派生
 

@@ -65,8 +65,9 @@ func main() {
 		log.Fatal(err)
 	}
 	if err := svc.RunWorker(ctx, "order-service", c, worker.Options{
-		Workflows:           []registration.Definition{orders.WorkflowDefinition()},
-		Activities:          registry,
+		Workflows:  []registration.Definition{orders.WorkflowDefinition()},
+		Activities: registry,
+		// orders.notify 的注解不写 queue：队列由这个 Worker 决定，Server 按它的登记把任务投到 orders。
 		ActivityTaskQueues:  []string{"orders"},
 		ActivityConcurrency: 8,
 		BuildID:             svc.Env("BUILD_ID", "order-dev"),

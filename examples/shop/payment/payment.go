@@ -33,7 +33,7 @@ func NewGateway(flaky bool) *Gateway {
 
 // Register 把扣款 Activity 登记到 registry，契约与 contracts.ChargeRemote 一致。
 func (g *Gateway) Register(registry *activity.Registry) error {
-	return activity.RegisterActivity(registry, "payments.charge", "v1", g.Charge)
+	return activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", "v1", g.Charge)
 }
 
 func (g *Gateway) Charge(ctx context.Context, in contracts.ChargeInput) (contracts.ChargeOutput, error) {

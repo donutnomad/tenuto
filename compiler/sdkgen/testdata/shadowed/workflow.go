@@ -34,7 +34,7 @@ func Charge(_ context.Context, in ChargeInput) (ChargeOutput, error) {
 	return ChargeOutput{ChargeID: "charge-" + in.OrderID}, nil
 }
 
-// @Workflow(id="shadowed-flow",name="Shadowed Flow",queue="shadowed",policy=auto_upgrade,version=v1)
+// @Workflow(id="shadowed-flow",name="Shadowed Flow",policy=auto_upgrade,version=v1)
 func Flow(ctx workflow.Context, in Input) (Output, error) {
 	// 局部函数值遮蔽同名 activity 实现：Go 语义下 marker 标识符指向它，不是包级函数。
 	Charge := func(input ChargeInput) ChargeOutput { return ChargeOutput{ChargeID: "local:" + input.OrderID} }

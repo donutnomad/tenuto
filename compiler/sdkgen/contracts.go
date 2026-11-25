@@ -23,7 +23,7 @@ type Contract struct {
 	PkgName    string // Go 包名
 	ImportPath string // 模块内 import path
 	Type       string // 注解 type，如 payments.charge
-	Queue      string // 注解 queue，空表示用 workflow 的默认 queue
+	Queue      string // 注解 queue；空表示定义不声明队列，由 Server 按 Worker 的登记选路
 	Version    string // 注解 version
 	Remote     bool   // remote=true：契约是命名函数类型，实现不在本仓
 	Input      string // 输入类型的源码文本（契约包内的写法，如 ChargeInput）
@@ -531,7 +531,7 @@ func renderBridge(pkgName string, contracts []Contract) []byte {
 	for _, contract := range contracts {
 		q := contract.Queue
 		if q == "" {
-			q = "workflow 默认队列"
+			q = "未声明，由 Worker 登记决定"
 		}
 		builder.WriteString("\n// " + contract.CallName + " 调度 activity " + contract.Type +
 			"（queue " + q + ", version " + defaultVersionLabel(contract.Version) + "）。\n")
@@ -575,11 +575,16 @@ func renderRegisterActivities(contracts []Contract) string {
 	}
 	var builder strings.Builder
 	builder.WriteString("\n// RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。\n")
-	builder.WriteString("// 每个实现的契约（type、version、输入输出指纹）由 activity.RegisterActivity 算出，Worker 登记时随 registry 上报。\n")
+	builder.WriteString("// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；\n")
+	builder.WriteString("// worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。\n")
 	builder.WriteString("// remote 契约的实现在别的进程，由那个进程登记。\n")
 	builder.WriteString("func RegisterActivities(registry *activity.Registry) error {\n")
 	for _, contract := range local {
-		builder.WriteString("\tif err := activity.RegisterActivity(registry, " + strconv.Quote(contract.Type) + ", " +
+		call := "activity.RegisterActivity(registry, "
+		if contract.Queue != "" {
+			call = "activity.RegisterActivityOnQueue(registry, " + strconv.Quote(contract.Queue) + ", "
+		}
+		builder.WriteString("\tif err := " + call + strconv.Quote(contract.Type) + ", " +
 			strconv.Quote(contract.Version) + ", " + contract.MarkerName + "); err != nil {\n\t\treturn err\n\t}\n")
 	}
 	builder.WriteString("\treturn nil\n}\n")

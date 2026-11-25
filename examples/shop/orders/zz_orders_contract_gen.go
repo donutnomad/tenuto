@@ -7,7 +7,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 )
 
-// CallNotify 调度 activity orders.notify（queue workflow 默认队列, version v1）。
+// CallNotify 调度 activity orders.notify（queue 未声明，由 Worker 登记决定, version v1）。
 func CallNotify(ctx workflow.Context, in NotifyInput, opts ...workflow.ActivityOptions) (NotifyOutput, error) {
 	var out NotifyOutput
 	err := workflow.ExecuteActivity(ctx, Notify, in, opts...).Get(ctx, &out)
@@ -18,7 +18,8 @@ var _ activity.Caller[NotifyInput, NotifyOutput] = CallNotify
 var _ activity.Handler[NotifyInput, NotifyOutput] = Notify
 
 // RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。
-// 每个实现的契约（type、version、输入输出指纹）由 activity.RegisterActivity 算出，Worker 登记时随 registry 上报。
+// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
+// worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。
 // remote 契约的实现在别的进程，由那个进程登记。
 func RegisterActivities(registry *activity.Registry) error {
 	if err := activity.RegisterActivity(registry, "orders.notify", "v1", Notify); err != nil {

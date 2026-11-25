@@ -1566,7 +1566,6 @@
     "orders.Notify": {
       "symbol": "orders.Notify",
       "type": "orders.notify",
-      "task_queue": "orders",
       "version": "v1",
       "input": "wire:4c907cccae668619a3eb17b96c48d282",
       "output": "wire:86aded0f5989de4395eb479721dccc55"

@@ -31,15 +31,14 @@ func Example() {
 
 	// 真实项目里这两行是生成代码：orders.RegisterActivities(registry) 与 orders.WorkflowDefinition()。
 	registry := activity.NewRegistry()
-	if err := activity.RegisterActivity(registry, "orders.Charge", "v1", charge); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "orders", "orders.Charge", "v1", charge); err != nil {
 		log.Fatal(err)
 	}
 	w, err := worker.New(c, worker.Options{
-		Workflows:          []registration.Definition{orderWorkflowDefinition()},
-		Activities:         registry,
-		ActivityTaskQueues: []string{"orders"},
-		Identity:           "orders-worker-1",
-		BuildID:            "orders-v1",
+		Workflows:  []registration.Definition{orderWorkflowDefinition()},
+		Activities: registry,
+		Identity:   "orders-worker-1",
+		BuildID:    "orders-v1",
 	})
 	if err != nil {
 		log.Fatal(err)

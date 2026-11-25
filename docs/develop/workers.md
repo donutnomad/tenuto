@@ -43,7 +43,6 @@ func run(ctx context.Context, url, namespace string) error {
     activityWorker, err := worker.New(c, worker.Options{
         Role:                                   worker.RoleActivity,
         Activities:                             registry,
-        ActivityTaskQueues:                     []string{"saga"},
         Identity:                               "saga-activity-1",
         BuildID:                                "saga-v1",
         ActivityWorkerVersionDefault:           true,
@@ -93,7 +92,7 @@ w, err := worker.New(c, worker.Options{...})
 
 `worker.New(c, options)` 用 `c`（必须由 `client.Dial` 创建）的连接与 Namespace。与 Temporal 的 `worker.New(client, taskQueue, options)` 相比有两处不同：
 
-- 没有 task queue 参数：Workflow Task 不分队列，由 Server 派给任意 Workflow Worker；Activity 的队列由 `ActivityTaskQueues` 指定，一个 Worker 可以消费多个队列。
+- 没有 task queue 参数：Workflow Task 不分队列，由 Server 派给任意 Workflow Worker；Activity 的队列取自 registry 登记的队列，或由 `ActivityTaskQueues` 指定，一个 Worker 可以消费多个队列。
 - 没有 `RegisterWorkflow` / `RegisterActivity` 方法：Workflow 是生成器打进二进制的定义（`Workflows`），Activity 由生成的 `RegisterActivities` 登记到 `activity.Registry`（`Activities`）。
 
 | 方法 | 作用 |
@@ -110,7 +109,7 @@ w, err := worker.New(c, worker.Options{...})
 | `Role` | 见右 | `worker.RoleBoth` / `RoleWorkflow` / `RoleActivity`；留空时 `Activities` 登记了 Activity 取 `RoleBoth`，否则 `RoleWorkflow` |
 | `Workflows` | 空 | 随二进制发布的 Workflow 定义，`Start` 时登记 |
 | `Activities` | 空 | 本 Worker 执行的 Activity；契约随路由上报 |
-| `ActivityTaskQueues` | `["default"]` | 消费的 Activity Task Queue 列表 |
+| `ActivityTaskQueues` | registry 登记的队列 | 消费的 Activity Task Queue 列表；显式设置时必须包含 registry 登记的队列。队列的完整决定规则见[Activity 的队列如何决定](/operations/namespaces-task-queues#activity-的队列如何决定) |
 | `WorkflowConcurrency` | `1` | 同时处理的 Workflow Task 数 |
 | `ActivityConcurrency` | `1` | 每个 Activity Task Queue 的并发槽位 |
 | `WorkflowTaskTimeout` | `10s` | 单个 Workflow Task 的执行超时；领取时报给 Server，Server 按它为这个 Workflow Task 计时 |
@@ -123,6 +122,8 @@ w, err := worker.New(c, worker.Options{...})
 | `ActivityWorkerVersionHeartbeatTTL` | `30s` | 路由登记的存活时间；进程崩溃后路由在这段时间之后到期 |
 | `ExecutionCache` | `nil` | 非 nil 时启用 Sticky Execution Cache，见 [Sticky Execution Cache](/operations/sticky-cache) |
 | `Telemetry` | `client.Options.Telemetry` | OpenTelemetry providers；Worker 的日志写入其中的 `Logger`，未配置时写入 `slog.Default()` |
+
+`ActivityTaskQueues` 为空时，Worker 拉取 registry 里登记的队列：生成的 `RegisterActivities` 带上注解里的 `queue`，手写登记用 `activity.RegisterActivityOnQueue`；有不带队列的 Activity（`activity.RegisterActivity`、`reg.Register`）时再加上 `default`。显式设置 `ActivityTaskQueues` 时必须包含 registry 登记的每个队列，否则 `worker.New` 返回错误；可以额外列出别的队列，例如 Workflow 用 `ActivityOptions.TaskQueue` 改派的队列。
 
 Namespace 取自 Client：`Options.Namespace` 决定 Activity 的登记与领取范围，以及 Workflow 定义登记到哪个 Namespace。
 

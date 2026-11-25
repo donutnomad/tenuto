@@ -17,9 +17,9 @@ type PriceOutput struct {
 	Amount int64 `json:"amount"`
 }
 
-// Price 是 app-b 自己的本地 Activity：给订单定价。queue 省略，取所属 @Workflow 的 queue。
+// Price 是 app-b 自己的本地 Activity：给订单定价。
 //
-// @Activity(type="orders.price",version=v1)
+// @Activity(type="orders.price",queue="orders",version=v1)
 func Price(_ context.Context, in PriceInput) (PriceOutput, error) {
 	return PriceOutput{Amount: unitPrice * int64(in.Qty)}, nil
 }

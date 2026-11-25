@@ -72,7 +72,6 @@ func run(url, namespace, buildID, identity string, isDefault bool, artifactsDir 
 		Role:                                   worker.RoleActivity,
 		Activities:                             registry,
 		ActivityConcurrency:                    2,
-		ActivityTaskQueues:                     []string{"lifecycle", "payments"},
 		Identity:                               identity,
 		BuildID:                                buildID,
 		ActivityWorkerVersionDefault:           isDefault,
@@ -135,7 +134,7 @@ func register[I, O any](registry *wfsdk.Registry, declared map[string]program.Ac
 		panic(fmt.Sprintf("workflow.json 的 %s 契约与实现不一致（重新生成产物）：声明 input=%s output=%s，实现 input=%s output=%s",
 			ref.Type, ref.Input, ref.Output, expected.Input, expected.Output))
 	}
-	if err := wfsdk.RegisterActivity(registry, ref.Type, ref.Version, fn); err != nil {
+	if err := wfsdk.RegisterActivityOnQueue(registry, ref.TaskQueue, ref.Type, ref.Version, fn); err != nil {
 		panic(fmt.Sprintf("注册 %s 失败: %v", ref.Type, err))
 	}
 }

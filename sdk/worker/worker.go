@@ -9,6 +9,7 @@ import (
 
 	"github.com/donutnomad/tenuto/internal/executor"
 	internalworker "github.com/donutnomad/tenuto/internal/worker"
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/sdk/activity"
 	"github.com/donutnomad/tenuto/sdk/client"
 	"github.com/donutnomad/tenuto/sdk/internal/runtimeclient"
@@ -47,7 +48,10 @@ type Options struct {
 	// Activities 是本 Worker 执行的 Activity（生成代码里的 RegisterActivities 登记到它）。
 	// 契约随 Worker 的 Activity 路由一起上报。
 	Activities *activity.Registry
-	// ActivityTaskQueues 是拉取 Activity Task 的队列；为空时取 "default"。
+	// ActivityTaskQueues 是拉取 Activity Task 的队列。为空时由 Activities 推导：登记时带队列的 Activity
+	// （生成的 RegisterActivities、activity.RegisterActivityOnQueue）贡献各自的队列，存在没带队列的
+	// Activity 时再加上 "default"。显式设置时必须包含 Activities 里登记的全部队列，否则 New 返回错误；
+	// 可以额外列出别的队列（例如 Workflow 用 ActivityOptions.TaskQueue 改派的队列）。
 	ActivityTaskQueues []string
 	// WorkflowConcurrency 与 ActivityConcurrency 是并发处理的任务数（Activity 按每个队列计），缺省 1。
 	WorkflowConcurrency int
@@ -97,7 +101,7 @@ type Worker struct {
 // New 创建经 c 连接 Server 的 Worker，namespace 取自 c。c 必须由 client.Dial 创建。
 //
 // 与 Temporal 不同，New 不接收 task queue 参数：Workflow Task 不分队列，由 Server 派给任意 Workflow Worker；
-// Activity 的队列由 Options.ActivityTaskQueues 指定。Workflow 与 Activity 经 Options 登记，没有
+// Activity 的队列取自 Activities 登记的队列，或由 Options.ActivityTaskQueues 指定。Workflow 与 Activity 经 Options 登记，没有
 // RegisterWorkflow / RegisterActivity 方法：Workflow 是生成器打进二进制的定义，Activity 由生成的
 // RegisterActivities 登记到 activity.Registry。
 func New(c client.Client, options Options) (*Worker, error) {
@@ -118,12 +122,16 @@ func newWorker(c client.Client, options Options, cache *executor.ExecutionCache)
 		return nil, errors.New("worker: client must be created by client.Dial")
 	}
 	conn := provider.RuntimeConn()
+	queues, err := activityTaskQueues(options.ActivityTaskQueues, options.Activities)
+	if err != nil {
+		return nil, err
+	}
 	inner := internalworker.WorkerOptions{
 		Namespace:                              conn.Namespace,
 		WorkflowConcurrency:                    options.WorkflowConcurrency,
 		ActivityConcurrency:                    options.ActivityConcurrency,
 		Role:                                   internalworker.WorkerRole(options.Role),
-		ActivityTaskQueues:                     options.ActivityTaskQueues,
+		ActivityTaskQueues:                     queues,
 		WorkflowTaskTimeout:                    options.WorkflowTaskTimeout,
 		Identity:                               options.Identity,
 		BuildID:                                options.BuildID,
@@ -209,4 +217,31 @@ func (w *Worker) Run(ctx context.Context) error {
 // 停止完成后返回。
 func (w *Worker) Stop() {
 	w.inner.Stop()
+}
+
+// activityTaskQueues 决定 Worker 拉取的 Activity 队列：explicit 为空时取 registry 登记的队列
+// （有没带队列的 Activity 时加上 "default"）；explicit 非空时原样使用，但必须包含 registry 登记的每个队列，
+// 否则那些 Activity 的任务没有 Worker 拉取，Run 要到调度时才阻塞在 activity_route_unavailable。
+func activityTaskQueues(explicit []string, registry *activity.Registry) ([]string, error) {
+	if registry == nil {
+		return explicit, nil
+	}
+	if len(explicit) == 0 {
+		queues := registry.Queues()
+		if len(registry.Unqueued()) > 0 {
+			queues = append(queues, protocol.DefaultActivityTaskQueue)
+		}
+		return queues, nil
+	}
+	listed := map[string]bool{}
+	for _, queue := range explicit {
+		listed[queue] = true
+	}
+	for _, activityType := range registry.Types() {
+		if queue := registry.QueueOf(activityType); queue != "" && !listed[queue] {
+			return nil, fmt.Errorf("worker: activity %q is registered on task queue %q, which ActivityTaskQueues %q does not include; add it or leave ActivityTaskQueues empty to use the registered queues",
+				activityType, queue, explicit)
+		}
+	}
+	return explicit, nil
 }

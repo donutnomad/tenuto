@@ -245,7 +245,7 @@ func TestSourceVersionCompatibility(t *testing.T) {
 	if !equalStrings(freshRun.Executed, wantExecuted) {
 		t.Fatalf("v2 执行顺序 = %v，期望 %v", freshRun.Executed, wantExecuted)
 	}
-	// 干跑的调度命令必须落到注解声明的队列：@Workflow(queue=lifecycle) 作为默认，
+	// 干跑的调度命令必须落到注解声明的队列：lifecycle.* 用 @Activity(queue="lifecycle")，
 	// payments.settle 用调用点显式的 workflow.ActivityOptions{TaskQueue: "payments"}。
 	wantQueues := []string{"lifecycle", "lifecycle", "payments", "lifecycle"}
 	if !equalStrings(freshRun.Queues, wantQueues) {

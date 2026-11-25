@@ -58,22 +58,23 @@ var _ activity.Caller[ReserveInventoryInput, ReserveInventoryOutput] = CallReser
 var _ activity.Handler[ReserveInventoryInput, ReserveInventoryOutput] = ReserveInventory
 
 // RegisterActivities 把本包全部本地 @Activity 实现登记到 registry。
-// 每个实现的契约（type、version、输入输出指纹）由 activity.RegisterActivity 算出，Worker 登记时随 registry 上报。
+// 每个实现的契约（type、version、输入输出指纹）与注解里的 queue 一起登记，Worker 登记时随 registry 上报；
+// worker.Options.ActivityTaskQueues 为空时 Worker 拉取这些 queue。
 // remote 契约的实现在别的进程，由那个进程登记。
 func RegisterActivities(registry *activity.Registry) error {
-	if err := activity.RegisterActivity(registry, "saga.charge-payment", "v1", ChargePayment); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.charge-payment", "v1", ChargePayment); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "saga.create-shipment", "v1", CreateShipment); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.create-shipment", "v1", CreateShipment); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "saga.refund-payment", "v1", RefundPayment); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.refund-payment", "v1", RefundPayment); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "saga.release-inventory", "v1", ReleaseInventory); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.release-inventory", "v1", ReleaseInventory); err != nil {
 		return err
 	}
-	if err := activity.RegisterActivity(registry, "saga.reserve-inventory", "v1", ReserveInventory); err != nil {
+	if err := activity.RegisterActivityOnQueue(registry, "saga", "saga.reserve-inventory", "v1", ReserveInventory); err != nil {
 		return err
 	}
 	return nil
