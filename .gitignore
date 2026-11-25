@@ -32,3 +32,6 @@ sdk/worker/testdata/tmp-rename-*/
 
 # engineering log kept local
 CHANGELOG.md
+
+# pnpm 在仓库根目录创建的本地包缓存
+.pnpm-store/
