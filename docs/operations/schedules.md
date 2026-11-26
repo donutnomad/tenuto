@@ -25,12 +25,12 @@ Policy 只接受以上大写值，空值保存为 `SKIP`；其他值在 Create/U
 - Update：修改描述、Cron、时区、输入、Overlap Policy 和 catch-up window。
 - Pause：清空 `next_run_at`，已启动 Run 继续执行。
 - Resume：从当前时间重新计算下一次触发。
-- Trigger：人工立即触发，并使用 CAS 推进下一次时间；遵守 Overlap Policy，`SKIP` 下执行链仍在运行时返回 409。
+- Trigger：人工立即触发，Workflow ID 取触发时刻（同一秒内重复触发得到同一个 Run）；同 Temporal 的 TriggerImmediately，不改变 `next_run_at`，积压的到期点照常补触发；遵守 Overlap Policy，`SKIP` 下执行链仍在运行时返回 409。
 - Delete：删除后续触发配置，已有 Run 继续保留。
 
 ## Catch-up
 
-每个 Schedule 有自己的 `catchup_window`（纳秒，缺省 365 天，最小 10 秒，Create / Update 时给出更小的值返回 400）。错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，较早的那部分计入 `buffer_dropped`，只保留最近的 1000 个（Temporal 保留最早的 1000 个）。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。 跳过时 Server 记 WARN `schedule driver: skipped fire times outside the catch-up window or over the buffer limit`（带本次的 `missed_catchup_window` 与 `buffer_dropped`）。停机恢复后的突发量由窗口控制：分钟级的 `ALLOW_ALL` Schedule 停机一天后恢复会补启约 1000 个 Run。
+每个 Schedule 有自己的 `catchup_window`（纳秒，缺省 365 天，最小 10 秒，Create / Update 时给出更小的值返回 400）。错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，同 Temporal 保留最早的 1000 个，buffer 满之后到达的到期点（到当前时刻为止）计入 `buffer_dropped`；保留的处理完后从当前时刻之后的到期点继续，buffer 没满时 `buffer_dropped` 不增长。超出窗口的那一段只计数，不逐个处理，长期停机后第一轮扫描不会变慢。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。 跳过时 Server 记 WARN `schedule driver: skipped fire times outside the catch-up window or over the buffer limit`（带本次的 `missed_catchup_window` 与 `buffer_dropped`）。停机恢复后的突发量由窗口控制：分钟级的 `ALLOW_ALL` Schedule 停机一天后恢复会补启约 1000 个 Run。
 
 ## Leader 与 CAS
 

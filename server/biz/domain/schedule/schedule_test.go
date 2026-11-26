@@ -249,15 +249,47 @@ func TestSchedule_SkipUnstartable(t *testing.T) {
 		assert.False(t, skipped)
 		assert.True(t, entity.NextRunAt.Equal(first))
 	})
-	t.Run("pending fire times over the buffer limit drop the oldest", func(t *testing.T) {
+	t.Run("a full buffer keeps the oldest fire times and drops the newer ones", func(t *testing.T) {
 		entity := newSchedule(t, schedule.NewParams{CronExpression: "* * * * *"})
 		first := *entity.NextRunAt
-		// first 起 1500 个到期点都已到期且在 365 天窗口内。
-		_, skipped := entity.SkipUnstartable(first.Add(1499 * time.Minute))
+		// first 起 1500 个到期点都已到期且在 365 天窗口内：保留最早的 1000 个，丢弃之后到 now 的 500 个。
+		now := first.Add(1499 * time.Minute)
+		_, skipped := entity.SkipUnstartable(now)
 		require.True(t, skipped)
 		assert.Zero(t, entity.MissedCatchupWindow)
 		assert.Equal(t, int64(500), entity.BufferDropped)
-		assert.True(t, entity.NextRunAt.Equal(first.Add(500*time.Minute)))
+		assert.True(t, entity.NextRunAt.Equal(first))
+		assert.True(t, entity.BufferDropFrom.Equal(first.Add(1000*time.Minute)))
+		assert.True(t, entity.DueForFire(now))
+		// 保留的到期点处理完，NextRunAt 走到丢弃区间：不再处理，下一次 SkipUnstartable 跳到 now 之后，不重复计数。
+		entity.AdvanceNextRunAt(first.Add(999*time.Minute), now)
+		assert.False(t, entity.DueForFire(now))
+		later := now.Add(30 * time.Second)
+		_, skipped = entity.SkipUnstartable(later)
+		require.True(t, skipped)
+		assert.True(t, entity.NextRunAt.Equal(now.Add(time.Minute)))
+		assert.Nil(t, entity.BufferDropFrom)
+		assert.Equal(t, int64(500), entity.BufferDropped)
+		_, skipped = entity.SkipUnstartable(later)
+		assert.False(t, skipped)
+	})
+	t.Run("a buffer that never fills drops nothing", func(t *testing.T) {
+		entity := newSchedule(t, schedule.NewParams{CronExpression: "* * * * *"})
+		first := *entity.NextRunAt
+		_, skipped := entity.SkipUnstartable(first.Add(999 * time.Minute))
+		assert.False(t, skipped)
+		assert.Zero(t, entity.BufferDropped)
+	})
+	t.Run("a year-long outage of a per-minute schedule is skipped in one pass", func(t *testing.T) {
+		entity := newSchedule(t, schedule.NewParams{CronExpression: "* * * * *", CatchupWindow: time.Hour})
+		first := *entity.NextRunAt
+		started := time.Now()
+		_, skipped := entity.SkipUnstartable(first.Add(366 * 24 * time.Hour))
+		require.True(t, skipped)
+		assert.Less(t, time.Since(started), time.Second)
+		// first 到窗口起点（不含）之间每分钟一个：366 天减去 1 小时窗口。
+		assert.Equal(t, int64(366*24*60-60), entity.MissedCatchupWindow)
+		assert.True(t, entity.NextRunAt.Equal(first.Add(366*24*time.Hour-time.Hour)))
 	})
 	t.Run("paused schedule is untouched", func(t *testing.T) {
 		entity := newSchedule(t, schedule.NewParams{Paused: true})

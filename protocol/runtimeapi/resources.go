@@ -308,7 +308,7 @@ type Schedule struct {
 	RunCount      int           `json:"run_count"`
 	// MissedCatchupWindow 是因超出 catchup window 没有触发的到期点数。
 	MissedCatchupWindow int64 `json:"missed_catchup_window"`
-	// BufferDropped 是补触发时因超出 1000 个的缓冲上限而丢弃的到期点数。
+	// BufferDropped 是补触发时 buffer（1000 个）满之后到达而被丢弃的到期点数。
 	BufferDropped int64     `json:"buffer_dropped"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`

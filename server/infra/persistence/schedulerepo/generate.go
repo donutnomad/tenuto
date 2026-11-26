@@ -28,6 +28,8 @@ type ScheduleSchemaType struct {
 	CatchupWindow       gsql.ScalarField   // time.Duration
 	MissedCatchupWindow gsql.IntField      // int64
 	BufferDropped       gsql.IntField      // int64
+	BufferDropFrom      gsql.DateTimeField // *time.Time
+	BufferDropUntil     gsql.DateTimeField // *time.Time
 	CreatedAt           gsql.DateTimeField // time.Time
 	UpdatedAt           gsql.DateTimeField // time.Time
 	fieldType           SchedulePO
@@ -61,6 +63,8 @@ func (t *ScheduleSchemaType) WithTable(tableName string) {
 	t.CatchupWindow = t.CatchupWindow.WithTable(&tn)
 	t.MissedCatchupWindow = t.MissedCatchupWindow.WithTable(&tn)
 	t.BufferDropped = t.BufferDropped.WithTable(&tn)
+	t.BufferDropFrom = t.BufferDropFrom.WithTable(&tn)
+	t.BufferDropUntil = t.BufferDropUntil.WithTable(&tn)
 	t.CreatedAt = t.CreatedAt.WithTable(&tn)
 	t.UpdatedAt = t.UpdatedAt.WithTable(&tn)
 }
@@ -98,6 +102,8 @@ func (t ScheduleSchemaType) AllFields() field.BaseFields {
 		t.CatchupWindow,
 		t.MissedCatchupWindow,
 		t.BufferDropped,
+		t.BufferDropFrom,
+		t.BufferDropUntil,
 		t.CreatedAt,
 		t.UpdatedAt,
 	}
@@ -128,6 +134,8 @@ var ScheduleSchema = ScheduleSchemaType{
 	CatchupWindow:       gsql.ScalarFieldOf[time.Duration]("tenuto_schedules", "catchup_window_ns"),
 	MissedCatchupWindow: gsql.IntFieldOf[int64]("tenuto_schedules", "missed_catchup_window"),
 	BufferDropped:       gsql.IntFieldOf[int64]("tenuto_schedules", "buffer_dropped"),
+	BufferDropFrom:      gsql.DateTimeFieldOf[*time.Time]("tenuto_schedules", "buffer_drop_from"),
+	BufferDropUntil:     gsql.DateTimeFieldOf[*time.Time]("tenuto_schedules", "buffer_drop_until"),
 	CreatedAt:           gsql.DateTimeFieldOf[time.Time]("tenuto_schedules", "created_at"),
 	UpdatedAt:           gsql.DateTimeFieldOf[time.Time]("tenuto_schedules", "updated_at"),
 	fieldType:           SchedulePO{},
@@ -139,7 +147,7 @@ var ScheduleSchema = ScheduleSchemaType{
 func (s *SchedulePO) ToPatch(input *schedule.Schedule) map[string]any {
 	b := s.ToPO(input)
 	fields := input.ExportPatch()
-	values := make(map[string]any, 17)
+	values := make(map[string]any, 19)
 	if fields.ID.IsPresent() {
 		values["id"] = b.ID
 	}
@@ -184,6 +192,12 @@ func (s *SchedulePO) ToPatch(input *schedule.Schedule) map[string]any {
 	}
 	if fields.BufferDropped.IsPresent() {
 		values["buffer_dropped"] = b.BufferDropped
+	}
+	if fields.BufferDropFrom.IsPresent() {
+		values["buffer_drop_from"] = b.BufferDropFrom
+	}
+	if fields.BufferDropUntil.IsPresent() {
+		values["buffer_drop_until"] = b.BufferDropUntil
 	}
 	if fields.CreatedAt.IsPresent() {
 		values["created_at"] = b.CreatedAt

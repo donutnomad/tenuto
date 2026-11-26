@@ -317,6 +317,9 @@ CREATE TABLE IF NOT EXISTS `tenuto_schedules` (
   `catchup_window_ns`     BIGINT NOT NULL,
   `missed_catchup_window` BIGINT NOT NULL DEFAULT 0,
   `buffer_dropped`        BIGINT NOT NULL DEFAULT 0,
+  -- buffer_drop_from / buffer_drop_until 是 buffer 满时丢弃的到期点区间，处理完保留的到期点后跳过它；没有时为 NULL。
+  `buffer_drop_from`      DATETIME(3),
+  `buffer_drop_until`     DATETIME(3),
   `created_at`      DATETIME(3)  NOT NULL,
   `updated_at`      DATETIME(3)  NOT NULL,
   PRIMARY KEY (`namespace`, `id`),

@@ -10,15 +10,68 @@ import (
 
 // CronNextRunAt 返回 after 之后的下一次触发时刻（UTC）；表达式无效或搜索范围内没有匹配时返回 nil。
 func CronNextRunAt(expr string, after time.Time, loc *time.Location) *time.Time {
-	parsed, err := parseCronExpr(expr)
+	cron, err := ParseCron(expr, loc)
 	if err != nil {
 		return nil
 	}
-	t := cronNext(parsed, after, loc)
+	return cron.Next(after)
+}
+
+// Cron 是解析过的 cron 表达式与它的时区，多次计算复用同一份解析结果。
+type Cron struct {
+	expr *cronExpr
+	loc  *time.Location
+}
+
+// ParseCron 解析 expr；loc 为 nil 时按 UTC 计算。
+func ParseCron(expr string, loc *time.Location) (Cron, error) {
+	parsed, err := parseCronExpr(expr)
+	if err != nil {
+		return Cron{}, err
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	return Cron{expr: parsed, loc: loc}, nil
+}
+
+// Next 返回 after 之后的下一次触发时刻（UTC）；搜索范围内没有匹配时返回 nil。
+func (c Cron) Next(after time.Time) *time.Time {
+	t := cronNext(c.expr, after, c.loc)
 	if t.IsZero() {
 		return nil
 	}
 	return &t
+}
+
+// CountBetween 返回 from 与 to 之间（两端都不含）的触发时刻数。整天落在区间内、且当天没有夏令时切换（正好 24 小时）时
+// 按「日期匹配则 小时数 × 分钟数」直接计数，不逐个计算；区间两端的那两天逐个计算。代价与区间的天数成正比。
+func (c Cron) CountBetween(from, to time.Time) int64 {
+	var n int64
+	cursor := from
+	for cursor.Before(to) {
+		local := cursor.In(c.loc)
+		dayStart := firstOccurrence(time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, c.loc))
+		dayEnd := firstOccurrence(time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, c.loc))
+		if !dayEnd.After(cursor) {
+			dayEnd = cursor.Add(time.Hour)
+		}
+		if dayStart.After(from) && !dayEnd.After(to) && dayEnd.Sub(dayStart) == 24*time.Hour {
+			if c.expr.dayMatches(local) {
+				n += int64(len(c.expr.hours) * len(c.expr.minutes))
+			}
+		} else {
+			start := cursor
+			if cursor.After(from) {
+				start = cursor.Add(-time.Nanosecond) // 第一天之后从当天 0 点算起，0 点本身也计入
+			}
+			for t := cronNext(c.expr, start, c.loc); !t.IsZero() && t.Before(dayEnd) && t.Before(to); t = cronNext(c.expr, t, c.loc) {
+				n++
+			}
+		}
+		cursor = dayEnd
+	}
+	return n
 }
 
 // cronExpr represents a parsed 5-field cron expression: minute hour dom month dow.
@@ -30,6 +83,18 @@ type cronExpr struct {
 	daysOfWeek  []int // 0-6 (0=Sunday)
 	// dayFieldsRestricted 表示日与星期两个字段都受限（都不以 * 开头）：按标准 cron，满足其一即匹配。
 	dayFieldsRestricted bool
+	// 各字段的取值集合，解析时建好，计算下一次触发时直接查。
+	minuteSet [60]bool
+	hourSet   [24]bool
+	domSet    [32]bool
+	monthSet  [13]bool
+	dowSet    [7]bool
+}
+
+// dayMatches 报告 local（Schedule 时区）这一天是否满足月、日与星期三个字段。
+func (c *cronExpr) dayMatches(local time.Time) bool {
+	domMatch, dowMatch := c.domSet[local.Day()], c.dowSet[int(local.Weekday())]
+	return c.monthSet[int(local.Month())] && (domMatch && dowMatch || c.dayFieldsRestricted && (domMatch || dowMatch))
 }
 
 func parseCronExpr(expr string) (*cronExpr, error) {
@@ -61,7 +126,7 @@ func parseCronExpr(expr string) (*cronExpr, error) {
 	if !dayFieldsRestricted && !dayOfMonthExists(dom, months) {
 		return nil, protocol.InvalidRequestf("cron expression %q never matches: no listed month has the listed day of month", expr)
 	}
-	return &cronExpr{
+	parsed := &cronExpr{
 		minutes:     minutes,
 		hours:       hours,
 		daysOfMonth: dom,
@@ -69,7 +134,23 @@ func parseCronExpr(expr string) (*cronExpr, error) {
 		daysOfWeek:  dow,
 
 		dayFieldsRestricted: dayFieldsRestricted,
-	}, nil
+	}
+	for _, v := range minutes {
+		parsed.minuteSet[v] = true
+	}
+	for _, v := range hours {
+		parsed.hourSet[v] = true
+	}
+	for _, v := range dom {
+		parsed.domSet[v] = true
+	}
+	for _, v := range months {
+		parsed.monthSet[v] = true
+	}
+	for _, v := range dow {
+		parsed.dowSet[v] = true
+	}
+	return parsed, nil
 }
 
 // dayOfMonthExists 报告某个月份里存在某个日：2 月按 29 天计。日与星期按「同时满足」组合时，
@@ -205,24 +286,17 @@ func cronNext(c *cronExpr, after time.Time, loc *time.Location) time.Time {
 	t := after.Truncate(time.Minute).Add(time.Minute)
 	deadline := after.AddDate(cronSearchYears, 0, 0)
 
-	monthSet := intSet(c.months)
-	domSet := intSet(c.daysOfMonth)
-	dowSet := intSet(c.daysOfWeek)
-	hourSet := intSet(c.hours)
-	minuteSet := intSet(c.minutes)
-
 	for t.Before(deadline) {
 		local := t.In(loc)
 		var next time.Time
-		domMatch, dowMatch := domSet[local.Day()], dowSet[int(local.Weekday())]
 		switch {
-		case !monthSet[int(local.Month())]:
+		case !c.monthSet[int(local.Month())]:
 			next = nextLocalDay(t, local, time.Date(local.Year(), local.Month()+1, 1, 0, 0, 0, 0, loc))
-		case !(domMatch && dowMatch || c.dayFieldsRestricted && (domMatch || dowMatch)):
+		case !c.dayMatches(local):
 			next = nextLocalDay(t, local, time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, loc))
-		case !hourSet[local.Hour()]:
+		case !c.hourSet[local.Hour()]:
 			next = t.Add(minutesToNextHour(local))
-		case !minuteSet[local.Minute()] || repeatedWallClock(local):
+		case !c.minuteSet[local.Minute()] || repeatedWallClock(local):
 			next = t.Add(time.Minute)
 		default:
 			return t.UTC()
@@ -271,12 +345,4 @@ func firstOccurrence(t time.Time) time.Time {
 		return earlier
 	}
 	return t
-}
-
-func intSet(vals []int) map[int]bool {
-	m := make(map[int]bool, len(vals))
-	for _, v := range vals {
-		m[v] = true
-	}
-	return m
 }

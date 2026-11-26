@@ -160,7 +160,7 @@ err = handle.Delete(ctx)
 
 先启动再推进：两步之间进程退出时，下一次执行时间仍是这个到期点，下一轮以同一个 Workflow ID 重新启动，得到已启动的那个 Run，不会重复执行。
 
-Server 停机或数据库不可用期间错过的到期点在恢复后补触发。错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，较早的那部分计入 `buffer_dropped`，只保留最近的 1000 个（Temporal 保留最早的 1000 个）。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。 不希望停机后补跑的 Schedule 把 `CatchupWindow` 设小（例如 `time.Minute`）；`Describe` 返回的 `MissedCatchupWindow` 与 `BufferDropped` 是累计跳过的到期点数。需要补齐每个周期的业务在 Workflow 输入或业务数据库里记录处理进度，由 Workflow 自己计算要处理的区间。
+Server 停机或数据库不可用期间错过的到期点在恢复后补触发。错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，同 Temporal 保留最早的 1000 个，buffer 满之后到达的到期点（到当前时刻为止）计入 `buffer_dropped`；保留的处理完后从当前时刻之后的到期点继续，buffer 没满时 `buffer_dropped` 不增长。超出窗口的那一段只计数，不逐个处理，长期停机后第一轮扫描不会变慢。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。 不希望停机后补跑的 Schedule 把 `CatchupWindow` 设小（例如 `time.Minute`）；`Describe` 返回的 `MissedCatchupWindow` 与 `BufferDropped` 是累计跳过的到期点数。需要补齐每个周期的业务在 Workflow 输入或业务数据库里记录处理进度，由 Workflow 自己计算要处理的区间。
 
 ## 周期任务设计
 

@@ -113,8 +113,8 @@ func (u *UseCase) List(filter ListFilter) (ListResult, error) {
 }
 
 // Trigger 立即触发一次，同样遵守 Overlap Policy：SKIP 下上一次触发的 Run 仍在运行时返回 schedule.ErrOverlapSkipped。
-// Workflow ID 取触发时刻（秒级），同一秒内重复触发返回同一个 Run。
-// 先用 CAS 推进 NextRunAt 占位，再启动 Run 并记录结果；启动失败时 NextRunAt 恢复为触发前的值。
+// 与 Temporal 的 TriggerImmediately 一致，手动触发不改变 NextRunAt：积压的到期点照常按 catchup window 补触发。
+// Workflow ID 取触发时刻（秒级），同一秒内重复触发（含并发的两次）返回同一个 Run，不重复记录。
 func (u *UseCase) Trigger(ctx context.Context, namespace, scheduleID string) (string, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
 	entity, err := u.Get(namespace, scheduleID)
@@ -125,24 +125,15 @@ func (u *UseCase) Trigger(ctx context.Context, namespace, scheduleID string) (st
 		return "", fmt.Errorf("%w: schedule %s/%s last run %s", schedule.ErrOverlapSkipped, namespace, scheduleID, entity.LastRunID)
 	}
 	now := u.clock.Now()
-	oldNextRunAt := entity.AdvanceNextRunAt(now, now)
-	advanced, err := u.repo.UpdateScheduleNextRunAtCAS(entity, oldNextRunAt)
-	if err != nil {
-		return "", err
-	}
-	if !advanced {
-		return "", fmt.Errorf("%w: %s/%s, try again", schedule.ErrConcurrentUpdate, namespace, scheduleID)
-	}
 	runID, err := u.firer.StartWorkflowForCron(ctx, entity.Namespace, entity.WorkflowType, entity.RunWorkflowID(now), entity.Input, entity.RunSearchAttributes(now))
 	if err != nil {
-		u.restoreNextRunAt(entity, oldNextRunAt)
 		return "", err
 	}
-	// 同一秒内重复触发落在同一个 Workflow ID 上，返回已启动的 Run，不重复记录。
 	if runID == entity.LastRunID {
 		return runID, nil
 	}
 	entity.RecordRun(runID, now)
+	entity.Touch(now)
 	if err := u.repo.UpdateSchedule(entity); err != nil {
 		u.logger.Error("schedule triggered but updating its last run failed", "namespace", entity.Namespace, "schedule_id", entity.ID, "run_id", runID, "err", err)
 	}
@@ -196,7 +187,7 @@ func (u *UseCase) fire(ctx context.Context, entity *schedule.Schedule) {
 		}
 	}
 	for range FireBatchSize {
-		if ctx.Err() != nil || entity.NextRunAt == nil || entity.NextRunAt.After(now) {
+		if ctx.Err() != nil || !entity.DueForFire(now) {
 			return
 		}
 		if !u.fireAt(ctx, entity, now) {
@@ -258,12 +249,4 @@ func (u *UseCase) casNextRunAt(entity *schedule.Schedule, previous *time.Time) b
 		return false
 	}
 	return advanced
-}
-
-// restoreNextRunAt 在启动 Run 失败后把 NextRunAt 改回推进前的值。
-func (u *UseCase) restoreNextRunAt(entity *schedule.Schedule, previous *time.Time) {
-	advanced := entity.RestoreNextRunAt(previous, u.clock.Now())
-	if _, err := u.repo.UpdateScheduleNextRunAtCAS(entity, advanced); err != nil {
-		u.logger.Error("schedule driver: restore next_run_at failed", "namespace", entity.Namespace, "schedule_id", entity.ID, "err", err)
-	}
 }

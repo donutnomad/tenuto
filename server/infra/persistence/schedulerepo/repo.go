@@ -66,6 +66,8 @@ func rowToSchedule(row *SchedulePO) (*schedule.Schedule, error) {
 		CatchupWindow:       row.CatchupWindow,
 		MissedCatchupWindow: row.MissedCatchupWindow,
 		BufferDropped:       row.BufferDropped,
+		BufferDropFrom:      row.BufferDropFrom,
+		BufferDropUntil:     row.BufferDropUntil,
 		CreatedAt:           row.CreatedAt,
 		UpdatedAt:           row.UpdatedAt,
 	}, nil

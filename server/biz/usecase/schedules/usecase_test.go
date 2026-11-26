@@ -795,28 +795,6 @@ func TestTrigger_RecordsRun(t *testing.T) {
 	}
 }
 
-func TestTrigger_CASConflict(t *testing.T) {
-	// Error Case: NextRunAt 的 CAS 被抢占时返回并发修改错误，且不启动 Run
-	ctx := context.Background()
-	store := memory.NewScheduleRepository()
-	created, err := newTestUseCase(newFakeFirer(store)).Create(schedules.CreateRequest{
-		WorkflowType: "wf-conflict", CronExpression: "0 0 * * *",
-	})
-	if err != nil {
-		t.Fatalf("Create failed: %v", err)
-	}
-	firer := newFakeFirer(newCASFailStore(store))
-
-	_, err = newTestUseCase(firer).Trigger(ctx, "default", created.ID)
-
-	if err == nil || !strings.Contains(err.Error(), "was concurrently modified") {
-		t.Fatalf("expected concurrent modification error, got %v", err)
-	}
-	if firer.startCallCount() != 0 {
-		t.Fatalf("expected no start call after CAS conflict, got %d", firer.startCallCount())
-	}
-}
-
 func TestTrigger_StartFailure(t *testing.T) {
 	// Error Case: 启动 Run 失败时返回该错误，不记录 Run
 	ctx := context.Background()

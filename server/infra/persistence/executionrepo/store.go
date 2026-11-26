@@ -446,6 +446,8 @@ type gormExecutionTx struct {
 	store  *Repository
 	db     *gorm.DB
 	states map[string]*execution.WorkflowExecutionState
+	// storedAttributes 是 states 里每个 Run 在加锁读取（或创建）时已写入库的搜索属性。
+	storedAttributes map[string]map[string]string
 }
 
 func (t *gormExecutionTx) AppendIdempotent(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
@@ -605,7 +607,7 @@ func (t *gormExecutionTx) CreateRun(run *execution.Run) error {
 	if err := createExecutionState(t.db, state); err != nil {
 		return err
 	}
-	if err := writeRunSearchAttributes(t.db, run.ID, row.Namespace, row.CreatedAt, state.SearchAttributes); err != nil {
+	if err := insertRunSearchAttributes(t.db, run.ID, row.Namespace, row.CreatedAt, execution.SearchAttributeTerms(state.SearchAttributes)); err != nil {
 		return err
 	}
 	t.keepState(state)

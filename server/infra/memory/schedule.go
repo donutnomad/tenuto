@@ -37,6 +37,8 @@ func cloneSchedule(entity *schedule.Schedule) *schedule.Schedule {
 	clone.Input = cloneAnyMap(entity.Input)
 	clone.LastRunAt = cloneTime(entity.LastRunAt)
 	clone.NextRunAt = cloneTime(entity.NextRunAt)
+	clone.BufferDropFrom = cloneTime(entity.BufferDropFrom)
+	clone.BufferDropUntil = cloneTime(entity.BufferDropUntil)
 	clone.ClearPatch()
 	return &clone
 }

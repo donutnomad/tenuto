@@ -16,7 +16,8 @@ const (
 	DefaultCatchupWindow = 365 * 24 * time.Hour
 	// MinCatchupWindow 是 catchup window 的下限，更小的值返回 InvalidRequest。
 	MinCatchupWindow = 10 * time.Second
-	// MaxBufferSize 是一次补触发最多保留的到期点数：窗口内待触发的到期点超过它时，较早的到期点计入 BufferDropped。
+	// MaxBufferSize 是待补触发的到期点上限：窗口内已到期、还没处理的到期点超过它时，保留最早的 MaxBufferSize 个，
+	// 更晚的计入 BufferDropped（同 Temporal 的 buffer 满时丢弃新到的触发）。
 	MaxBufferSize = 1000
 )
 
@@ -76,10 +77,14 @@ type Schedule struct {
 	// MissedCatchupWindow 是因超出 catchup window 而没有触发的到期点数（Temporal ScheduleInfo.MissedCatchupWindow）。
 	MissedCatchupWindow int64 `json:"missed_catchup_window"`
 	// BufferDropped 是补触发时因超出 MaxBufferSize 而丢弃的到期点数（Temporal ScheduleInfo.BufferDropped）。
-	BufferDropped int64     `json:"buffer_dropped"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	patch         SchedulePatch
+	BufferDropped int64 `json:"buffer_dropped"`
+	// BufferDropFrom 与 BufferDropUntil 记录 buffer 满时丢弃的到期点区间 [BufferDropFrom, BufferDropUntil]：
+	// 保留的 MaxBufferSize 个到期点处理完、NextRunAt 走到 BufferDropFrom 时跳到 BufferDropUntil 之后。没有丢弃时为 nil。
+	BufferDropFrom  *time.Time `json:"-"`
+	BufferDropUntil *time.Time `json:"-"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	patch           SchedulePatch
 }
 
 type NewParams struct {
@@ -246,48 +251,64 @@ func (s *Schedule) AdvanceNextRunAt(after, now time.Time) (previous *time.Time) 
 	return previous
 }
 
-// SkipUnstartable 按 Temporal 的补触发规则跳过此刻不会触发的到期点，把 NextRunAt 推进到第一个要触发的到期点：
-//   - 落后 now 超过 CatchupWindow 的到期点逐个计入 MissedCatchupWindow；
-//   - 窗口内、不晚于 now 的到期点超过 MaxBufferSize 个时，较早的那部分计入 BufferDropped，保留最近的 MaxBufferSize 个。
+// SkipUnstartable 按 Temporal scheduler 的补触发规则跳过此刻不会触发的到期点，把 NextRunAt 推进到下一个要触发的到期点：
+//   - 落后 now 超过 CatchupWindow 的到期点计入 MissedCatchupWindow：直接推进到窗口内的第一个到期点，被跳过的只计数；
+//   - NextRunAt 走到之前 buffer 满时记下的丢弃区间时，跳到区间之后；
+//   - 窗口内已到期的到期点超过 MaxBufferSize 个时，保留最早的 MaxBufferSize 个，更晚的（到 now 为止）计入 BufferDropped，
+//     并记下丢弃区间。
 //
-// 返回推进前的值供 CAS 比较；skipped 为 false 表示没有要跳过的到期点，Schedule 不变。
+// 返回推进前的 NextRunAt 供 CAS 比较；skipped 为 false 表示 Schedule 不变。cron 只解析一次。
 func (s *Schedule) SkipUnstartable(now time.Time) (previous *time.Time, skipped bool) {
-	if s.NextRunAt == nil || s.Paused {
-		return s.NextRunAt, false
-	}
-	loc := s.location()
-	next := s.NextRunAt
-	var missed int64
-	for next != nil && now.Sub(*next) > s.CatchupWindow {
-		missed++
-		next = CronNextRunAt(s.CronExpression, *next, loc)
-	}
-	var pending int64
-	for at := next; at != nil && !at.After(now); at = CronNextRunAt(s.CronExpression, *at, loc) {
-		pending++
-	}
-	dropped := max(pending-MaxBufferSize, 0)
-	for range dropped {
-		next = CronNextRunAt(s.CronExpression, *next, loc)
-	}
-	if missed == 0 && dropped == 0 {
-		return s.NextRunAt, false
-	}
 	previous = s.NextRunAt
+	if s.NextRunAt == nil || s.Paused {
+		return previous, false
+	}
+	cron, err := ParseCron(s.CronExpression, s.location())
+	if err != nil {
+		return previous, false
+	}
+	next := s.NextRunAt
+	if windowStart := now.Add(-s.CatchupWindow); next.Before(windowStart) {
+		missed := 1 + cron.CountBetween(*next, windowStart)
+		next = cron.Next(windowStart.Add(-time.Nanosecond))
+		s.setMissedCatchupWindow(s.MissedCatchupWindow + missed)
+		skipped = true
+	}
+	if s.BufferDropFrom != nil && (next == nil || !next.Before(*s.BufferDropFrom)) {
+		if next != nil && !next.After(*s.BufferDropUntil) {
+			next = cron.Next(*s.BufferDropUntil)
+		}
+		s.setBufferDropFrom(nil)
+		s.setBufferDropUntil(nil)
+		skipped = true
+	}
+	if s.BufferDropFrom == nil && next != nil && !next.After(now) {
+		if pending := 1 + cron.CountBetween(*next, now.Add(time.Nanosecond)); pending > MaxBufferSize {
+			dropFrom := next
+			for range MaxBufferSize {
+				dropFrom = cron.Next(*dropFrom)
+			}
+			until := now
+			s.setBufferDropped(s.BufferDropped + pending - MaxBufferSize)
+			s.setBufferDropFrom(dropFrom)
+			s.setBufferDropUntil(&until)
+			skipped = true
+		}
+	}
+	if !skipped {
+		return previous, false
+	}
 	s.setNextRunAt(next)
-	s.setMissedCatchupWindow(s.MissedCatchupWindow + missed)
-	s.setBufferDropped(s.BufferDropped + dropped)
 	s.setUpdatedAt(now)
 	return previous, true
 }
 
-// RestoreNextRunAt 把 NextRunAt 改回推进前的值 previous，返回被替换掉的值供 CAS 比较。
-// 启动 Run 失败时使用：这次到期点留给下一轮扫描重新触发。
-func (s *Schedule) RestoreNextRunAt(previous *time.Time, now time.Time) (advanced *time.Time) {
-	advanced = s.NextRunAt
-	s.setNextRunAt(previous)
-	s.setUpdatedAt(now)
-	return advanced
+// DueForFire 报告 NextRunAt 是此刻要处理的到期点：不晚于 now，且不在 buffer 满时丢弃的区间里。
+func (s *Schedule) DueForFire(now time.Time) bool {
+	if s.NextRunAt == nil || s.NextRunAt.After(now) {
+		return false
+	}
+	return s.BufferDropFrom == nil || s.NextRunAt.Before(*s.BufferDropFrom)
 }
 
 // ChecksPreviousRun 报告触发前是否要读取上一次触发的 Run 的状态：SKIP 策略且触发过。

@@ -22,7 +22,7 @@ d, err := handle.Describe(ctx)
 ```
 
 - Cron 是 5 段表达式，粒度到分钟；无法解析或永远不会匹配（`0 0 31 2 *`）时 Create/Update 返回 `invalid cron_expression`（HTTP 400）。按 `TimeZone` 的墙上时间匹配：夏令时前拨日不存在的时刻当天跳过；回拨日重复的时刻只在第一次出现时触发一次（同 Vixie cron；Temporal 两次都触发）。日与星期两段都被限定（都不以 `*` 开头）时满足任意一段即触发：`0 0 13 * 5` 是每月 13 日和每个周五。
-- 触发顺序：catch-up 检查（逐个到期点）→ Overlap 检查 → 以到期点的 Workflow ID 启动 Run（该 ID 的 Run 已在运行时不再启动）→ CAS 把 `next_run_at` 推进到这个到期点之后的下一个 cron 时刻。启动失败时 `next_run_at` 不动，调度器下一轮重试；`Trigger` 失败时 `next_run_at` 保持原值。
+- 触发顺序：catch-up 检查（逐个到期点）→ Overlap 检查 → 以到期点的 Workflow ID 启动 Run（该 ID 的 Run 已在运行时不再启动）→ CAS 把 `next_run_at` 推进到这个到期点之后的下一个 cron 时刻。启动失败时 `next_run_at` 不动，调度器下一轮重试。`Trigger` 不改变 `next_run_at`（同 Temporal TriggerImmediately），积压的到期点照常补触发。
 - `OverlapPolicy` 只接受大写值，空值保存为 `SKIP`；其他值（`skip`、`BUFFER_ONE`、`CANCEL_OTHER`、`TERMINATE_OTHER` 等）Create/Update 返回 `invalid overlap_policy`（HTTP 400）。语义同 Temporal：
 
 | 值 | 行为 |
@@ -83,7 +83,7 @@ curl -sS -X POST http://127.0.0.1:7400/runtime/workflow/create-schedule \
 
 ## 行为边界
 
-- Catch-up：错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，较早的那部分计入 `buffer_dropped`，只保留最近的 1000 个（Temporal 保留最早的 1000 个）。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。
+- Catch-up：错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，同 Temporal 保留最早的 1000 个，buffer 满之后到达的到期点（到当前时刻为止）计入 `buffer_dropped`；保留的处理完后从当前时刻之后的到期点继续，buffer 没满时 `buffer_dropped` 不增长。超出窗口的那一段只计数，不逐个处理，长期停机后第一轮扫描不会变慢。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。
 - 被调度的 Workflow 自己处理重复执行：用业务周期（如日期）作为 Activity 的幂等键。
 - Schedule 触发的 Run 在 Workflow 里拿到的时间用 `workflow.Now(ctx)`；需要「本次计划时间」时由 Activity 读取 Run 的搜索属性 `TemporalScheduledStartTime`（`DescribeWorkflowExecution`），或把它放进业务逻辑可推导的输入。
 

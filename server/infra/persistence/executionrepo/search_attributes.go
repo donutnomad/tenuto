@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/donutnomad/gsql"
@@ -20,14 +21,9 @@ func searchAttributeHash(term execution.SearchAttributeTerm) []byte {
 	return sum[:]
 }
 
-// writeRunSearchAttributes 把 runID 在 tenuto_run_search_attributes 里的行换成 attrs 的 term：先删后插。
-// 调用方与 execution state 的写入在同一个事务里。
-func writeRunSearchAttributes(db *gorm.DB, runID, namespace string, createdAt time.Time, attrs map[string]string) error {
-	if err := gsql.From[RunSearchAttributePO](RunSearchAttributeSchema).
-		Where(RunSearchAttributeSchema.RunID.Eq(runID)).Delete(db).Error; err != nil {
-		return fmt.Errorf("run %s search attributes: %w", runID, err)
-	}
-	terms := execution.SearchAttributeTerms(attrs)
+// insertRunSearchAttributes 为新建的 Run 插入 attrs 的 term 行。新 Run 没有旧行，不执行 DELETE：REPEATABLE READ 下
+// 按不存在的 run_id 删除也会加间隙锁，UUIDv7 的新 Run 都落在同一个间隙里，并发的 CreateRun 会互相死锁。
+func insertRunSearchAttributes(db *gorm.DB, runID, namespace string, createdAt time.Time, terms []execution.SearchAttributeTerm) error {
 	if len(terms) == 0 {
 		return nil
 	}
@@ -46,8 +42,37 @@ type runKeyRow struct {
 	CreatedAt time.Time `gorm:"column:created_at"`
 }
 
-// rewriteRunSearchAttributes 在搜索属性改变后重写 runID 的行；namespace 与 created_at 读自 Run 行（Run 创建后不变）。
-func rewriteRunSearchAttributes(db *gorm.DB, runID string, attrs map[string]string) error {
+// updateRunSearchAttributes 把 runID 的行从 stored 的 term 改成 attrs 的 term：按完整主键删除少了的、插入多了的，
+// 两边相同时不写库。stored 是本事务加锁读到 execution state 时的搜索属性，与已提交的行一致（二者总在同一事务里写入），
+// 不需要再读这张表。namespace 与 created_at 只在插入时读自 Run 行（Run 创建后不变）。
+func updateRunSearchAttributes(db *gorm.DB, runID string, stored, attrs map[string]string) error {
+	before, after := execution.SearchAttributeTerms(stored), execution.SearchAttributeTerms(attrs)
+	var removed [][]byte
+	for _, term := range before {
+		if !slices.Contains(after, term) {
+			removed = append(removed, searchAttributeHash(term))
+		}
+	}
+	var added []execution.SearchAttributeTerm
+	for _, term := range after {
+		if !slices.Contains(before, term) {
+			added = append(added, term)
+		}
+	}
+	if len(removed) > 0 {
+		hashes := make([]any, len(removed))
+		for i, hash := range removed {
+			hashes[i] = hash
+		}
+		if err := gsql.From[RunSearchAttributePO](RunSearchAttributeSchema).
+			Where(RunSearchAttributeSchema.RunID.Eq(runID), gsql.Expr("? IN ?", RunSearchAttributeSchema.AttrHash, hashes)).
+			Delete(db).Error; err != nil {
+			return fmt.Errorf("run %s search attributes: %w", runID, err)
+		}
+	}
+	if len(added) == 0 {
+		return nil
+	}
 	rows, err := infradb.Find(db, gsql.SelectG[runKeyRow](RunSchema.Namespace, RunSchema.CreatedAt).
 		From(RunSchema).Where(RunSchema.ID.Eq(runID)))
 	if err != nil {
@@ -56,7 +81,7 @@ func rewriteRunSearchAttributes(db *gorm.DB, runID string, attrs map[string]stri
 	if len(rows) == 0 {
 		return fmt.Errorf("run %s: %w", runID, execution.ErrRunNotFound)
 	}
-	return writeRunSearchAttributes(db, runID, rows[0].Namespace, rows[0].CreatedAt, attrs)
+	return insertRunSearchAttributes(db, runID, rows[0].Namespace, rows[0].CreatedAt, added)
 }
 
 // listBySearchAttributes 是带搜索属性条件的 List：以按键排序的第一个 term 沿
