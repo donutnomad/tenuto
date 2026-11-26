@@ -165,7 +165,7 @@ func TestListActiveReportsCorruptContracts(t *testing.T) {
 	}
 }
 
-// 只删除在 before 之前到期的路由：仍有效与刚到期的行保留。
+// 只删除在 before 之前到期的路由：仍有效与刚到期的行保留，keep 选中的 Worker（Running Run 指定的）也保留。
 func TestDeleteExpiredActivityWorkerVersions(t *testing.T) {
 	repository := newTestRepository(t)
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -174,6 +174,7 @@ func TestDeleteExpiredActivityWorkerVersions(t *testing.T) {
 		registeredAt time.Time
 	}{
 		{"gone-pod", now.Add(-48 * time.Hour)},
+		{"pinned-pod", now.Add(-48 * time.Hour)},
 		{"recent-pod", now.Add(-2 * time.Hour)},
 		{"live-pod", now},
 	} {
@@ -183,7 +184,9 @@ func TestDeleteExpiredActivityWorkerVersions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	deleted, err := repository.DeleteExpiredActivityWorkerVersions(now.Add(-24 * time.Hour))
+	deleted, err := repository.DeleteExpiredActivityWorkerVersions(now.Add(-24*time.Hour), func(namespace, identity string) bool {
+		return namespace == protocol.DefaultNamespace && identity == "pinned-pod"
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +202,7 @@ func TestDeleteExpiredActivityWorkerVersions(t *testing.T) {
 			t.Fatalf("expired row kept: %+v", row)
 		}
 	}
-	if len(rows) != 4 {
-		t.Fatalf("remaining rows = %d, want 4", len(rows))
+	if len(rows) != 6 {
+		t.Fatalf("remaining rows = %d, want 6", len(rows))
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/runtimeapi"
 )
 
@@ -52,5 +53,23 @@ func TestRuntimePostTreatsEmptySuccessBodyAsTransportError(t *testing.T) {
 	}
 	if got := attempts.Load(); got != 3 {
 		t.Fatalf("attempts = %d, want 3", got)
+	}
+}
+
+// 心跳应答 404（Server 上没有这份登记）映射成 protocol.ErrActivityWorkerVersionNotRegistered，Worker 据此重新登记；
+// 其他失败不映射。
+func TestHeartbeatActivityWorkerVersionMapsNotFoundToNotRegistered(t *testing.T) {
+	status := http.StatusNotFound
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "activity worker version is not registered: default/pod-1/v1", status)
+	}))
+	defer server.Close()
+	client := NewWorkflowRuntimeHTTPClient(server.URL, nil, RuntimeHTTPClientOptions{})
+	if err := client.HeartbeatActivityWorkerVersionInNamespace(context.Background(), "default", "pod-1", "v1"); !errors.Is(err, protocol.ErrActivityWorkerVersionNotRegistered) {
+		t.Fatalf("404 heartbeat = %v, want ErrActivityWorkerVersionNotRegistered", err)
+	}
+	status = http.StatusBadRequest
+	if err := client.HeartbeatActivityWorkerVersionInNamespace(context.Background(), "default", "", "v1"); err == nil || errors.Is(err, protocol.ErrActivityWorkerVersionNotRegistered) {
+		t.Fatalf("400 heartbeat = %v, want a plain error", err)
 	}
 }

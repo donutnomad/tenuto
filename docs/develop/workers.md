@@ -237,6 +237,8 @@ func Export(ctx context.Context, in ExportInput) (ExportOutput, error) {
 
 注销是尽力而为的一次调用，等待上限 3 秒；调用失败时只记日志。进程崩溃或被 `SIGKILL` 时没有机会注销，路由在心跳 TTL（默认 30s）之后到期；队列里的任务由同一队列上仍在 poll 的 Worker 领取，它已经开始的 Attempt 由 StartToClose 或心跳超时重试。
 
-注销只让路由到期，Worker 的登记记录再保留一天：指定了 Target Worker 的 Workflow 仍然能找到这个离线 Worker 上次登记的队列，任务排队等这个 Identity 回来。到期超过一天的登记由 Server 的周期全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`）删除；之后指定这个 Identity 的 Activity 以 `activity_route_unavailable` 退避等待（Run 显示 Blocked），Worker 重新登记后恢复。Identity 含 Pod 名等每次发布都变的部分时，旧登记因此不会无限累积。
+注销只让路由到期，Worker 的登记记录保留：指定了 Target Worker 的 Workflow 仍然能找到这个离线 Worker 上次登记的队列，任务排队等这个 Identity 回来，受 `ScheduleToStartTimeout` 约束。Server 的周期全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`）删除到期超过一天、且没有 Running Run 指定的登记，Identity 含 Pod 名等每次发布都变的部分时旧登记因此不会无限累积。
+
+Worker 是否在线只由它自己的心跳决定：网络分区或数据库故障让心跳失败超过上述期限、登记被删除后，下一次心跳得到 404，Worker 立即重新登记（失败时从 1 秒起加倍退避、不超过心跳间隔），重新进入选路。
 
 部署平台在 `SIGTERM` 后预留的终止宽限期大于 `GracefulStopTimeout` 加几秒注销时间，让 `Stop()` 走完（Kubernetes 缺省 30 秒）。

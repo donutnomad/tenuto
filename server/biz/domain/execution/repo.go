@@ -94,6 +94,12 @@ type RunCount struct {
 	Count     int
 }
 
+// TargetWorker 是 Run 指定的 Activity Worker（Run.TargetWorkerIdentity）及其 namespace。
+type TargetWorker struct {
+	Namespace string
+	Identity  string
+}
+
 // Store 是 Run 的读取与少量单列写入。Run 的状态变更经 ExecutionTx.UpdateRun 与同一业务事实的 History、
 // state 写入在同一事务提交。
 type Store interface {
@@ -105,6 +111,9 @@ type Store interface {
 	List(filter StoreListFilter) (StoreListResult, error)
 	// CountRuns 返回按 namespace 与 Run 行状态分组的 Run 数量；namespace 非空时只统计这个 namespace。
 	CountRuns(namespace string) ([]RunCount, error)
+	// ListRunningTargetWorkers 返回 Running Run 指定的 Activity Worker（去重）：这些 Run 的 Activity 只投给这个
+	// Identity，它的登记即使已到期也要保留，Run 才能按它最后登记的队列排队。
+	ListRunningTargetWorkers() ([]TargetWorker, error)
 	// ListRecoveryRunIDs 返回周期补偿要处理的 Running Run 的 ID（去重、升序），即满足任一条件的 Run：
 	//   - Run 的执行截止时间或 Run 截止时间早于 dueBefore；
 	//   - 有 deadline 早于 dueBefore 的 Scheduled timer；

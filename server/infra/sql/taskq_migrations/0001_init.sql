@@ -27,7 +27,7 @@ CREATE TABLE `taskq_queue_info` (
   `ack_level`     BIGINT       NOT NULL DEFAULT 0,
   `next_task_id`  BIGINT       NOT NULL DEFAULT 1,
   PRIMARY KEY (`queue_name`, `partition_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- taskq_tasks：任务本体。dispatched_at 为 NULL 表示待投递，非 NULL 表示已投递
 -- （超过 visibility timeout 后由 ResetTimedOutTasks 置回 NULL 重投）。
@@ -48,7 +48,7 @@ CREATE TABLE `taskq_tasks` (
   PRIMARY KEY (`queue_name`, `partition_id`, `task_id`),
   KEY `idx_tasks_visibility` (`queue_name`, `partition_id`, `dispatched_at`, `routing_key`, `task_id`),
   KEY `idx_tasks_routing_deadline` (`queue_name`, `partition_id`, `dispatched_at`, `routing_deadline`, `task_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- taskq_partition_config：queue 的读写分区数。
 -- scope = '_default_' 是全局默认行，其余每行是某个 queue 的显式 override。
@@ -58,7 +58,7 @@ CREATE TABLE `taskq_partition_config` (
   `num_write`   BIGINT       NOT NULL,
   `updated_at`  DATETIME(3)  NOT NULL,
   PRIMARY KEY (`scope`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- taskq_partition_lock：dbleader 选主锁（每个 lock_name 一行 leader）。
 -- version 是 Fencing Token，每次易主 +1；expire_at_ms 为绝对过期时刻（毫秒）。
@@ -69,7 +69,7 @@ CREATE TABLE `taskq_partition_lock` (
   `expire_at_ms`  BIGINT          NOT NULL COMMENT '锁的绝对过期时间（Unix 毫秒）',
   `version`       BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '每次易主 +1，Fencing Token',
   PRIMARY KEY (`lock_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- taskq_partition_lock_members：选主锁的成员心跳表，leader 据 last_seen 判活并剔除过期成员。
 -- 表名可配：gormstore.Config.MemberTable，改名后需同步改这里。
@@ -89,7 +89,7 @@ CREATE TABLE `taskq_partition_lock_members` (
   -- 复合主键字节数 = (191 + 191) × 4 = 1528 ≤ InnoDB 索引键 3072 字节上限。
   PRIMARY KEY (`lock_name`, `instance_id`),
   KEY `idx_members_lock_lastseen` (`lock_name`, `last_seen`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- taskq_membership_members：服务发现的成员注册表（matching 等服务的实例心跳）。
 -- expires_at 到期即视为下线，PruneExpiredMembers 负责清理；draining 表示实例正在优雅下线。
@@ -116,4 +116,4 @@ CREATE TABLE `taskq_membership_members` (
   KEY `idx_membership_heartbeat` (`heartbeat_at`, `expires_at`),
   KEY `idx_membership_active` (`service_name`, `heartbeat_at`, `expires_at`),
   KEY `idx_membership_expires` (`expires_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;

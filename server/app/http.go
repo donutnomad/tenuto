@@ -15,6 +15,7 @@ import (
 
 	taskqgormstore "github.com/donutnomad/taskq/store/gormstore"
 	"github.com/donutnomad/tenuto/protocol/runtimeapi"
+	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/http/runtimehttp"
 	"gorm.io/gorm"
 )
@@ -43,7 +44,8 @@ func newHTTPHandler(runtime http.Handler, health *healthState, partitions partit
 }
 
 // limitInFlight 限制同时处理的非长轮询请求数：超出 limit 时立即应答 503 与 Retry-After，请求没有被处理，
-// 客户端可以重发（含非幂等端点）。长轮询（runtimeapi.IsLongPoll）不计入。
+// 客户端可以重发（含非幂等端点）。长轮询（runtimeapi.IsLongPoll）不计入；Update 在拿锁与写库阶段计入，
+// 进入等结果的长等待之前经 engine.WithLongWaitRelease 归还名额。
 func limitInFlight(next http.Handler, limit int) http.Handler {
 	slots := make(chan struct{}, limit)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,8 +55,10 @@ func limitInFlight(next http.Handler, limit int) http.Handler {
 		}
 		select {
 		case slots <- struct{}{}:
-			defer func() { <-slots }()
-			next.ServeHTTP(w, r)
+			var once sync.Once
+			release := func() { once.Do(func() { <-slots }) }
+			defer release()
+			next.ServeHTTP(w, r.WithContext(engine.WithLongWaitRelease(r.Context(), release)))
 		default:
 			w.Header().Set("Retry-After", inFlightRetryAfter)
 			http.Error(w, "too many requests in flight; retry", http.StatusServiceUnavailable)

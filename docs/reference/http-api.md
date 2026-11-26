@@ -38,12 +38,13 @@ Update validator 的拒绝是 400，响应体是 `protocol.Failure` 的 JSON。�
 | --- | --- |
 | Namespace、Task Queue、Build ID、Schedule 时区 | 64 |
 | Activity Type、Worker identity | 128 |
-| Workflow ID、Workflow Type、Activity ID、Timer ID、Update ID、Schedule 描述与 cron 表达式 | 191 |
+| Workflow ID、Workflow Type、Activity ID、Timer ID、Update ID、marker 名与 ID、Schedule 描述与 cron 表达式 | 191 |
+| 启动与 Signal 的 `request_id` | 128 字节 |
 | Batch Operation 的 `reason` | 1024 |
 
-子 Workflow 的 Workflow ID 是 `<父 Run ID>/<ChildID>`，整体不超过 191。Workflow 代码发出的命令（Timer ID、子 Workflow ID 与 Type、Activity ID、Activity Type、Task Queue）超长时，Workflow Task 以 `bad_start_timer_attributes`、`bad_start_child_workflow_attributes` 或 `bad_schedule_activity_attributes` 失败，Run 显示 Blocked，修复代码后恢复。
+子 Workflow 的 Workflow ID 是 `<父 Run ID>/<ChildID>`，整体不超过 191。Workflow 代码发出的命令（Timer ID、子 Workflow ID 与 Type、Activity ID、Activity Type、Task Queue、marker 名与 ID）超长时，Workflow Task 以 `bad_start_timer_attributes`、`bad_start_child_workflow_attributes`、`bad_schedule_activity_attributes` 或 `bad_record_marker_attributes` 失败，Run 显示 Blocked，修复代码后恢复。
 
-MySQL 表的排序规则是 `utf8mb4_bin`：标识区分大小写与重音，`order-ab12` 与 `order-AB12`、`Prod` 与 `prod` 是不同的 Workflow 与 Namespace，与内存后端一致。
+MySQL 表（含 TaskQ 的表）的排序规则是 `utf8mb4_0900_bin`：标识按字节比较，区分大小写、重音与尾随空格，`order-ab12` 与 `order-AB12`、`Prod` 与 `prod`、`t` 与 `t ` 是不同的标识，与内存后端一致。
 
 ## Namespace 与寻址
 
@@ -124,7 +125,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 | POST | `/runtime/workflow/run-stats` | 一个 Namespace 内按状态聚合的 Run 数量 |
 | POST | `/runtime/workflow/activity-states` | Activity mutable state |
 | POST | `/runtime/workflow/register-activity-worker-version` | 注册 Activity Worker Build ID |
-| POST | `/runtime/workflow/heartbeat-activity-worker-version` | 刷新 Activity Worker Build ID TTL |
+| POST | `/runtime/workflow/heartbeat-activity-worker-version` | 刷新 Activity Worker Build ID TTL；登记不存在（从未登记，或到期超过一天后被清理）时应答 404，Worker 应重新调用 `register-activity-worker-version` |
 | POST | `/runtime/workflow/deregister-activity-worker-version` | 注销 Activity Worker 的路由，`{namespace, identity, build_id}`；`Worker.Stop()` 调用 |
 | POST | `/runtime/workflow/start-batch` | 受理批量操作：`{"req":{namespace,type,filter,reason,reset_type}}`，返回 202 与 `pending` 记录，后台异步处理；`type` 未知或 Reset 缺 `reset_type` 时返回 400，不产生记录 |
 | POST | `/runtime/workflow/get-batch` | `{namespace, operation_id}`，返回记录的状态与进度；不存在时 404 |

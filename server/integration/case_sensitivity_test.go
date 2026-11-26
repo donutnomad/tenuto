@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// MySQL 表的排序规则是 utf8mb4_bin：只差大小写的 Workflow ID 与 Namespace 是不同的 Workflow 与 Namespace，与内存后端一致。
+// MySQL 表的排序规则是 utf8mb4_0900_bin：只差大小写的 Workflow ID 与 Namespace 是不同的 Workflow 与 Namespace，与内存后端一致。
 func TestWorkflowIDAndNamespaceAreCaseSensitiveOnMySQL(t *testing.T) {
 	server, url := newRuntimeHTTPServer(t)
 	registerReturnWorkflow(t, server, "tenant-a", "case-flow")

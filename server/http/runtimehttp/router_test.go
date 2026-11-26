@@ -207,6 +207,7 @@ func TestRuntimeErrorStatus(t *testing.T) {
 		{definition.ErrWorkflowConfigNotFound, http.StatusNotFound},
 		{fmt.Errorf("load run: %w", execution.ErrRunNotFound), http.StatusNotFound},
 		{execution.ErrNoCurrentRun, http.StatusNotFound},
+		{fmt.Errorf("%w: default/pod-1/v1", protocol.ErrActivityWorkerVersionNotRegistered), http.StatusNotFound},
 		{fmt.Errorf("%w: default/batch-1", batch.ErrNotFound), http.StatusNotFound},
 		{fmt.Errorf("%w: batch operation b-1 is completed, cannot become cancelled", batch.ErrInvalidTransition), http.StatusConflict},
 		{batch.ErrConcurrentUpdate, http.StatusConflict},

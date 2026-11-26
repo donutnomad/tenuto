@@ -41,6 +41,12 @@ var ErrBadStartChildWorkflowAttributes = errors.New("bad start child workflow at
 // WorkflowTaskFailedCauseBadStartChildWorkflowAttributes 是启动子 Workflow 命令被拒绝时 WorkflowTaskFailed 的 cause。
 const WorkflowTaskFailedCauseBadStartChildWorkflowAttributes = "bad_start_child_workflow_attributes"
 
+// ErrBadRecordMarkerAttributes 表示 Workflow 发出的 RecordMarker 命令属性不合法（marker 名或 ID 超长）。
+var ErrBadRecordMarkerAttributes = errors.New("bad record marker attributes")
+
+// WorkflowTaskFailedCauseBadRecordMarkerAttributes 是 RecordMarker 命令被拒绝时 WorkflowTaskFailed 的 cause。
+const WorkflowTaskFailedCauseBadRecordMarkerAttributes = "bad_record_marker_attributes"
+
 // BadCommandAttributesCause 返回命令校验错误（ValidateWorkflowCommand 的结果）对应的 WorkflowTaskFailed cause。
 // 这类错误由 Workflow 代码决定，重试同一批命令得到同样的结果：Workflow Task 记为失败，Run 显示 Blocked。
 func BadCommandAttributesCause(err error) (string, bool) {
@@ -51,6 +57,8 @@ func BadCommandAttributesCause(err error) (string, bool) {
 		return WorkflowTaskFailedCauseBadStartTimerAttributes, true
 	case errors.Is(err, ErrBadStartChildWorkflowAttributes):
 		return WorkflowTaskFailedCauseBadStartChildWorkflowAttributes, true
+	case errors.Is(err, ErrBadRecordMarkerAttributes):
+		return WorkflowTaskFailedCauseBadRecordMarkerAttributes, true
 	}
 	return "", false
 }
@@ -77,6 +85,13 @@ func ValidateWorkflowCommand(runID string, command history.Command) error {
 			protocol.CheckLength("child workflow type", command.WorkflowType, protocol.MaxWorkflowTypeLength),
 		); err != nil {
 			return fmt.Errorf("%w: %w", ErrBadStartChildWorkflowAttributes, err)
+		}
+	case history.CmdRecordMarker:
+		if err := errors.Join(
+			protocol.CheckLength("marker name", command.MarkerName, protocol.MaxMarkerNameLength),
+			protocol.CheckLength("marker id", command.MarkerID, protocol.MaxMarkerIDLength),
+		); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRecordMarkerAttributes, err)
 		}
 	}
 	return nil

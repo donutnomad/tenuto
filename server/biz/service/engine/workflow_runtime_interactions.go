@@ -224,7 +224,9 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 // Run 先结束时是 History 里记下的失败终态（见 execution.UpdateRecordsFromEvents）。
 // 每一轮先读 Run 的 NextEventID 再读 History，未完成时经 runWatch 等 Run 变化，Run 在哪个副本上变化都会唤醒。
 // 软超时、ctx 结束或 StopLongPolls 时仍未完成则返回 Accepted，不报错，让 client 再来（对标 Temporal）。
+// 进入等待前归还请求的在途名额（WithLongWaitRelease）。
 func (s *Server) awaitUpdateResult(ctx context.Context, namespace, runID, updateID string, result protocol.WorkflowUpdateResult) protocol.WorkflowUpdateResult {
+	releaseBeforeLongWait(ctx)
 	ctx, cancel := s.longPollContext(ctx)
 	defer cancel()
 	deadline := s.clock.Now().Add(s.updateSoftTimeout)

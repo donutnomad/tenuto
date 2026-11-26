@@ -106,6 +106,8 @@ func TestValidateWorkflowCommandChecksIdentifierLengths(t *testing.T) {
 		"child workflow type": {history.Command{Type: history.CmdStartChildWorkflow, ChildID: "c", WorkflowType: strings.Repeat("t", protocol.MaxWorkflowTypeLength+1)}, WorkflowTaskFailedCauseBadStartChildWorkflowAttributes},
 		"activity type":       {history.Command{Type: history.CmdScheduleActivity, ActivityID: "a", ActivityType: strings.Repeat("t", protocol.MaxActivityTypeLength+1), StartToCloseTimeout: time.Second}, WorkflowTaskFailedCauseBadScheduleActivityAttributes},
 		"task queue":          {history.Command{Type: history.CmdScheduleActivity, ActivityID: "a", ActivityType: "t", TaskQueue: strings.Repeat("q", protocol.MaxTaskQueueLength+1), StartToCloseTimeout: time.Second}, WorkflowTaskFailedCauseBadScheduleActivityAttributes},
+		"marker name":         {history.Command{Type: history.CmdRecordMarker, MarkerName: strings.Repeat("n", protocol.MaxMarkerNameLength+1), MarkerID: "1"}, WorkflowTaskFailedCauseBadRecordMarkerAttributes},
+		"marker id":           {history.Command{Type: history.CmdRecordMarker, MarkerName: "SideEffect", MarkerID: strings.Repeat("界", protocol.MaxMarkerIDLength+1)}, WorkflowTaskFailedCauseBadRecordMarkerAttributes},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cause, ok := BadCommandAttributesCause(ValidateWorkflowCommand(runID, tc.command))
@@ -118,6 +120,7 @@ func TestValidateWorkflowCommandChecksIdentifierLengths(t *testing.T) {
 		"longest timer id":   {Type: history.CmdScheduleTimer, TimerID: strings.Repeat("界", protocol.MaxTimerIDLength)},
 		"longest child id":   {Type: history.CmdStartChildWorkflow, ChildID: strings.Repeat("c", childLimit), WorkflowType: "flow"},
 		"longest task queue": {Type: history.CmdScheduleActivity, ActivityID: "a", ActivityType: "t", TaskQueue: strings.Repeat("q", protocol.MaxTaskQueueLength), StartToCloseTimeout: time.Second},
+		"longest marker":     {Type: history.CmdRecordMarker, MarkerName: strings.Repeat("n", protocol.MaxMarkerNameLength), MarkerID: strings.Repeat("界", protocol.MaxMarkerIDLength)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := ValidateWorkflowCommand(runID, command); err != nil {

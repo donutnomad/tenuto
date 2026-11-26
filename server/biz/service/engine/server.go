@@ -211,6 +211,21 @@ func (s *Server) longPollContext(ctx context.Context) (context.Context, context.
 	}
 }
 
+type longWaitReleaseKey struct{}
+
+// WithLongWaitRelease 让请求在进入长等待（等 Update 结果）之前调用 release：入口限制在途请求数时，请求在拿锁与
+// 写库阶段占用名额，长等待不占用。release 可能被调用多次，由调用方保证幂等。
+func WithLongWaitRelease(ctx context.Context, release func()) context.Context {
+	return context.WithValue(ctx, longWaitReleaseKey{}, release)
+}
+
+// releaseBeforeLongWait 调用 ctx 携带的 WithLongWaitRelease 回调。
+func releaseBeforeLongWait(ctx context.Context) {
+	if release, ok := ctx.Value(longWaitReleaseKey{}).(func()); ok {
+		release()
+	}
+}
+
 // Stop 停止进程内的定时器与 runWatch 的读取。驱动 Server 的后台任务（schedule 驱动、保留期 GC）归应用入口所有，
 // 应用入口先停它们再调用 Stop，停止后不会再有新 Run 挂上定时器。
 func (s *Server) Stop() {

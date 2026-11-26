@@ -17,7 +17,7 @@ status: Stable
 | `WORKFLOW_NODE_ID` | hostname | Server 节点唯一标识 |
 | `WORKFLOW_STARTUP_TIMEOUT` | `30s` | 数据库、membership、路由与内嵌 Workflow Worker 的启动期限；启动恢复在后台运行，不计入 |
 | `WORKFLOW_RECONCILE_INTERVAL` | `30s` | 周期补偿的间隔：按到期索引只处理有到期或待处理事项的 Running Run（截止时间、timer、Activity 超时在两个周期内到期，或有 Scheduled Activity、open / 待调度的 Workflow Task、blocked），补投任务、接管到期定时器；MySQL 部署只有选为 leader 的副本执行 |
-| `WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL` | `10m` | 全量补偿的间隔：按游标逐页检查全部 Running Run，补齐没有到期索引的崩溃窗口（子 Run 补建、子 Run 终态传播、终态写回 Run、父关闭策略、子 Run 取消请求补发），并删除到期超过一天的 Activity Worker 登记；与周期补偿同一 leader 执行 |
+| `WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL` | `10m` | 全量补偿的间隔：按游标逐页检查全部 Running Run，补齐没有到期索引的崩溃窗口（子 Run 补建、子 Run 终态传播、终态写回 Run、父关闭策略、子 Run 取消请求补发），并删除到期超过一天、没有 Running Run 指定（Target Worker）的 Activity Worker 登记；与周期补偿同一 leader 执行 |
 | `WORKFLOW_TASK_TOKEN_SECRET` | 生产后端必填 | Task Token HMAC Secret，至少 32 字节；所有 Server 副本配置同一值，任一副本签发的 Token 才能被其他副本校验；memory 后端提供开发默认值 |
 | `WORKFLOW_WORKER_ENABLED` | `true` | 在本进程内执行 Workflow Task；`false` 时由独立 workflow worker 消费 |
 | `WORKFLOW_WORKER_CONCURRENCY` | `8` | 内嵌 workflow worker 并发度 |
@@ -35,7 +35,7 @@ status: Stable
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `WORKFLOW_HTTP_SHUTDOWN_TIMEOUT` | `20s` | 优雅退出期限：收到 `SIGTERM` 时在途的非长轮询请求在这个期限内照常做完并应答结果 |
-| `WORKFLOW_HTTP_MAX_IN_FLIGHT` | `4 × WORKFLOW_DB_MAX_OPEN_CONNS`（缺省 200） | `/runtime/*` 上同时处理的非长轮询请求数上限，必须为正整数。超出时立即应答 `503` 与 `Retry-After: 1`，请求没有被处理，可以原样重发；长轮询（`workflow-task/poll`、`activity/poll`、`wait-closed`、`update`、`update-with-start`）不计入 |
+| `WORKFLOW_HTTP_MAX_IN_FLIGHT` | `4 × WORKFLOW_DB_MAX_OPEN_CONNS`（缺省 200） | `/runtime/*` 上同时处理的非长轮询请求数上限，必须为正整数。超出时立即应答 `503` 与 `Retry-After: 1`，请求没有被处理，可以原样重发；长轮询（`workflow-task/poll`、`activity/poll`、`wait-closed`）不计入；`update` 与 `update-with-start` 在拿锁与写库阶段计入，进入等结果的长等待之前归还名额 |
 | `WORKFLOW_HTTP_READ_HEADER_TIMEOUT` | `5s` | Header 读取超时 |
 | `WORKFLOW_HTTP_READ_TIMEOUT` | `30s` | 读完整个请求（含 body）的期限；`0` 表示不限制，不可为负 |
 | `WORKFLOW_HTTP_WRITE_TIMEOUT` | `2m` | 从读完请求头到写完响应的期限；必须大于长轮询上界 `1m`，或设为 `0` 不限制，否则启动失败 |

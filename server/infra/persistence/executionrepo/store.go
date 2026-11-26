@@ -153,6 +153,27 @@ func (s *Repository) CountRuns(namespace string) ([]execution.RunCount, error) {
 	return counts, nil
 }
 
+type targetWorkerRow struct {
+	Namespace            string
+	TargetWorkerIdentity string
+}
+
+// ListRunningTargetWorkers 走 idx_workflow_runs_status 的 running 区间。
+func (s *Repository) ListRunningTargetWorkers() ([]execution.TargetWorker, error) {
+	rows, err := infradb.Find(s.db, gsql.SelectG[targetWorkerRow](RunSchema.Namespace, RunSchema.TargetWorkerIdentity).
+		From(RunSchema).
+		Where(RunSchema.Status.Eq(string(history.StatusRunning)), RunSchema.TargetWorkerIdentity.Not("")).
+		Distinct())
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]execution.TargetWorker, 0, len(rows))
+	for _, row := range rows {
+		targets = append(targets, execution.TargetWorker{Namespace: row.Namespace, Identity: row.TargetWorkerIdentity})
+	}
+	return targets, nil
+}
+
 func runRowsToDomain(rows []*RunPO) ([]*execution.Run, error) {
 	runs := make([]*execution.Run, 0, len(rows))
 	for _, row := range rows {

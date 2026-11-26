@@ -17,6 +17,13 @@ const (
 	MaxTaskQueueLength      = 64
 	MaxTimerIDLength        = 191
 	MaxUpdateIDLength       = 191
+	// MaxMarkerNameLength 与 MaxMarkerIDLength 让 MarkerRecorded 的去重键（"marker_recorded:<name>:<id>"）不超过
+	// tenuto_events.dedupe_key 的 400 字符。
+	MaxMarkerNameLength = 191
+	MaxMarkerIDLength   = 191
+	// MaxRequestIDLength 是启动与 Signal 请求幂等键的最大字节数（不是字符数），WorkflowSignaled 的去重键
+	// （"workflow_signaled:<request id>"）因此不超过 tenuto_events.dedupe_key 的宽度。
+	MaxRequestIDLength = 128
 	MaxWorkerIdentityLength = 128
 	MaxBuildIDLength        = 64
 	// MaxScheduleDescriptionLength 与 MaxCronExpressionLength 是 tenuto_schedules 对应列的宽度。

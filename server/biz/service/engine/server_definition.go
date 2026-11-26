@@ -62,8 +62,19 @@ const expiredWorkerVersionRetention = 24 * time.Hour
 
 // PurgeExpiredActivityWorkerVersions 删除到期超过 expiredWorkerVersionRetention 的 Activity Worker 路由，返回删除的行数。
 // identity 含 Pod 名的 Worker 每次发布都留下一组到期的行；由应用入口的 leader 周期任务调用。
+// Running Run 指定的 Worker（TargetWorkerIdentity）不删：这些 Run 的 Activity 按它最后登记的队列排队等它回来，
+// 受 ScheduleToStart 约束（与 Temporal 一致）。仍在工作的 Worker 被删除后，下一次心跳得到 404 并重新登记。
 func (s *Server) PurgeExpiredActivityWorkerVersions() (int64, error) {
-	return s.workerVersions.DeleteExpiredActivityWorkerVersions(s.clock.Now().Add(-expiredWorkerVersionRetention))
+	targets, err := s.mgr.ListRunningTargetWorkers()
+	if err != nil {
+		return 0, err
+	}
+	pinned := make(map[execution.TargetWorker]bool, len(targets))
+	for _, target := range targets {
+		pinned[target] = true
+	}
+	return s.workerVersions.DeleteExpiredActivityWorkerVersions(s.clock.Now().Add(-expiredWorkerVersionRetention),
+		func(namespace, identity string) bool { return pinned[execution.TargetWorker{Namespace: namespace, Identity: identity}] })
 }
 
 // DeregisterActivityWorkerVersionInNamespace 注销一个 Activity Worker：它的路由立刻退出选路。

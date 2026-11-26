@@ -26,13 +26,10 @@ func RequestCancellation(writer EventAppender, current *Run, treeID, branchID, r
 	return err
 }
 
-// MaxRequestIDLength 是启动与 Signal 请求幂等键的最大字节数。
-const MaxRequestIDLength = 128
-
-// ValidateRequestID 拒绝超过 MaxRequestIDLength 的请求幂等键；空值表示不去重。
+// ValidateRequestID 拒绝超过 protocol.MaxRequestIDLength 字节的请求幂等键；空值表示不去重。
 func ValidateRequestID(requestID string) error {
-	if len(requestID) > MaxRequestIDLength {
-		return protocol.InvalidRequestf("request id is longer than %d bytes", MaxRequestIDLength)
+	if len(requestID) > protocol.MaxRequestIDLength {
+		return protocol.InvalidRequestf("request id is longer than %d bytes", protocol.MaxRequestIDLength)
 	}
 	return nil
 }

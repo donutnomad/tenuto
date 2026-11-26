@@ -422,6 +422,24 @@ func (s *RunStore) CountRuns(namespace string) ([]execution.RunCount, error) {
 	return counts, nil
 }
 
+func (s *RunStore) ListRunningTargetWorkers() ([]execution.TargetWorker, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := make(map[execution.TargetWorker]bool)
+	var targets []execution.TargetWorker
+	for _, run := range s.runs {
+		if run.Status != history.StatusRunning || run.TargetWorkerIdentity == "" {
+			continue
+		}
+		target := execution.TargetWorker{Namespace: protocol.NormalizeNamespace(run.Namespace), Identity: run.TargetWorkerIdentity}
+		if !seen[target] {
+			seen[target] = true
+			targets = append(targets, target)
+		}
+	}
+	return targets, nil
+}
+
 // snapshots 返回全部已提交 Run 的寻址与 current 标记。
 func (s *RunStore) snapshots() map[string]runSnapshot {
 	s.mu.RLock()

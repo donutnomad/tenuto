@@ -53,6 +53,6 @@ CREATE TABLE IF NOT EXISTS tenuto_batch_operations (
   updated_at        DATETIME(3)   NOT NULL,
   PRIMARY KEY (namespace, id),
   INDEX idx_tenuto_batch_operations_status (status, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }

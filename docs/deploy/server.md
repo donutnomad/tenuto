@@ -99,6 +99,8 @@ go tool pprof http://127.0.0.1:6060/debug/pprof/mutex
 
 ## 数据库 Schema
 
+数据库要求 MySQL 8.0 或更高：全部表（含 TaskQ 的表）使用 `utf8mb4_0900_bin` 排序规则，标识按字节比较，区分大小写、重音与尾随空格；MySQL 5.7 没有这个排序规则，迁移失败。
+
 Server 启动时不建表也不改表。表结构由二进制内嵌的版本化迁移维护，首次部署与每次升级都在启动新版本 Server 之前执行一次：
 
 ```bash

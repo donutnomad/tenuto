@@ -188,7 +188,7 @@ const retryAfterSeconds = "1"
 func runtimeErrorStatus(path string, err error, transient func(error) bool) int {
 	switch {
 	case isAny(err, execution.ErrRunNotFound, execution.ErrNoCurrentRun, batch.ErrNotFound,
-		definition.ErrWorkflowConfigNotFound, schedule.ErrNotFound):
+		definition.ErrWorkflowConfigNotFound, schedule.ErrNotFound, protocol.ErrActivityWorkerVersionNotRegistered):
 		return http.StatusNotFound
 	case isAny(err, execution.ErrCurrentRunConflict, execution.ErrRunAlreadyExists, schedule.ErrAlreadyExists, schedule.ErrConcurrentUpdate,
 		schedule.ErrOverlapSkipped, batch.ErrAlreadyExists, batch.ErrConcurrentUpdate,

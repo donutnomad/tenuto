@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/donutnomad/tenuto/protocol/runtimeapi"
 )
 
 func TestHTTPHealthAndRuntimeReadiness(t *testing.T) {
@@ -111,5 +114,40 @@ func TestLimitInFlightRejectsExcessRequests(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/runtime/workflow/start", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("request after the slots were released = %d", recorder.Code)
+	}
+}
+
+// Update 在拿锁与写库阶段占用在途名额（长等待之前由 engine.WithLongWaitRelease 归还）。
+func TestLimitInFlightCountsUpdateUntilItWaits(t *testing.T) {
+	waiting := make(chan struct{})
+	finish := make(chan struct{})
+	handler := limitInFlight(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == runtimeapi.WorkflowRuntimeUpdatePath {
+			<-finish
+		}
+		w.WriteHeader(http.StatusOK)
+	}), 1)
+	done := make(chan int, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		close(waiting)
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, runtimeapi.WorkflowRuntimeUpdatePath, nil))
+		done <- recorder.Code
+	}()
+	<-waiting
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, runtimeapi.WorkflowRuntimeSignalPath, nil))
+		if recorder.Code == http.StatusServiceUnavailable {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("update did not take an in-flight slot")
+		}
+	}
+	close(finish)
+	if code := <-done; code != http.StatusOK {
+		t.Fatalf("update = %d", code)
 	}
 }
