@@ -30,6 +30,7 @@ Tenuto 将程序失败、业务拒绝、超时、取消和确定性错误映射�
 | `HistoryLimitExceeded` | Run 因 Event History 超过硬上限被关闭；父 Workflow 在 `ChildWorkflowFailed` 中读到同一 Type |
 | `AcceptedUpdateCompletedWorkflow` | Update 已接受、Handler 尚未完成时 Run 关闭；不可重试（`NonRetryable`），与 Temporal 同名 |
 | `CanceledError` | 取消错误，与 Temporal 的 CanceledError 对应：`ctx.Err()`、被取消的 Activity / timer / 子 Workflow 返回给 Workflow 代码的错误，以及 `workflow.NewCanceledError(details...)`；不可重试。Workflow 返回它时 Run 以 Cancelled 结束、details 记进 `WorkflowCancelled`；Activity 确认取消时以它上报，details 记进 `ActivityCancelled`。用 `workflow.IsCanceledError` 或 `apperror.IsCanceled` 判断 |
+| `ResetWorkflowError` | Workflow Reset 时分叉点上已开始的 Activity 被打断：新 Run 在这次调用上写 `ActivityFailed`，Workflow 代码收到它；不可重试（`NonRetryable`），`ActivityFailed.lastHeartbeatDetails` 是原 Run 在 reset 时的最新心跳。对应 Temporal 的 `ResetWorkflowFailure`，见 [Reset](/operations/reset#分叉点上未结束的-activity-与-timer) |
 
 ## Application Error
 

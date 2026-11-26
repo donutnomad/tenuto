@@ -40,7 +40,8 @@ func (v *View) GetRunWithBlocked(namespace, workflowID, runID string) (*RunWithB
 	}
 	result := &RunWithBlocked{Run: current, Blocked: state.BlockedInfo()}
 	if current.Status == history.StatusFailed {
-		events, err := v.runs.GetEvents(current.ID)
+		// 只读末尾几个事件：WorkflowFailed 是 Run 的结束事件，之后不再追加事件。History 很大的 Run 不整段读出。
+		events, err := v.runs.GetEventsRange(current.ID, max(0, state.LastEventID-execution.CloseEventScan), state.LastEventID)
 		if err != nil {
 			return nil, err
 		}

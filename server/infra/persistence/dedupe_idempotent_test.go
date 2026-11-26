@@ -169,3 +169,32 @@ func TestGormAppendIdempotent_SecondSameDedupeKey_ReturnsExistingNodeID(t *testi
 		t.Fatalf("duplicate dedupe key must persist exactly ONE event, got %d", got)
 	}
 }
+
+// TestGormGetEventIDByDedupeKey 按去重键读回 Signal 事件 ID（SignalWithStart 重发据此认出已生效的请求）；
+// 不在这个 branch 上的键返回 found=false。
+func TestGormGetEventIDByDedupeKey(t *testing.T) {
+	store := newTestStore(t)
+	const runID = "run-dedupe-lookup"
+	createTestRun(t, store, runID)
+
+	signaled := history.NewWorkflowSignaledEvent("notify", nil)
+	signaled.WorkflowSignaled.RequestID = "req-1"
+	var eventID int64
+	if err := store.Executions.RunInTx(func(tx execution.ExecutionTx) error {
+		id, _, e := tx.AppendIdempotent(runID, runID, runID, signaled)
+		eventID = id
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, found, err := store.Executions.GetEventIDByDedupeKey(runID, runID, dedupeKeyOf(t, signaled))
+	if err != nil || !found || got != eventID {
+		t.Fatalf("GetEventIDByDedupeKey = (%d, %v, %v), want (%d, true, nil)", got, found, err, eventID)
+	}
+	other := history.NewWorkflowSignaledEvent("notify", nil)
+	other.WorkflowSignaled.RequestID = "req-2"
+	if _, found, err := store.Executions.GetEventIDByDedupeKey(runID, runID, dedupeKeyOf(t, other)); err != nil || found {
+		t.Fatalf("unknown key: found=%v err=%v, want not found", found, err)
+	}
+}

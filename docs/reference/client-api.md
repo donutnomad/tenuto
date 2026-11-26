@@ -155,11 +155,13 @@ type ListWorkflowOptions struct {
     SearchAttributes map[string]string
     Offset, Limit    int
     NewestFirst      bool
+    SkipTotal        bool // 不计算 Total（为 0），翻页看 HasMore
 }
 
 type ListWorkflowResult struct {
     Executions []WorkflowExecutionInfo
     Total      int
+    HasMore    bool
 }
 
 type ResetWorkflowExecutionOptions struct {

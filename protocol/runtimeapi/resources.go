@@ -96,11 +96,15 @@ type RunListFilter struct {
 	Limit            int               `json:"limit,omitempty"`
 	OrderDesc        bool              `json:"order_desc,omitempty"`
 	BlockedOnly      bool              `json:"blocked_only,omitempty"`
+	// SkipTotal 为 true 时 Server 不计算 Total（应答 0），翻页看 HasMore。
+	SkipTotal bool `json:"skip_total,omitempty"`
 }
 
+// RunListResult 是一页 Run。Total 是满足条件的 Run 总数（SkipTotal 时为 0），HasMore 表示这一页之后还有 Run。
 type RunListResult struct {
-	Items []RunListItem `json:"items"`
-	Total int           `json:"total"`
+	Items   []RunListItem `json:"items"`
+	Total   int           `json:"total"`
+	HasMore bool          `json:"has_more"`
 }
 
 type RunListItem struct {

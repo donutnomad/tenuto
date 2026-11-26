@@ -123,7 +123,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - IO、环境变量、数据库、HTTP 放进 Activity。Workflow 里可以调用一组列明的确定性标准库函数（`strings` 的 `ToUpper`/`Split`/`TrimSpace` 等、`strconv.Itoa`/`Atoi`/`ParseInt` 等、`fmt.Sprintf`/`Sprint`/`Errorf`、`math.Max`/`Round`/`Sqrt` 等），结果与 Go 相同；清单之外的标准库函数（`sort.*`、`time.Parse`、`math.Pow`、`strconv.Quote`）与其他包的函数生成期报 `file:line`。清单与 `fmt` 格式串规则见 `references/go-subset.md`。
 - Workflow 可以调用同包普通函数与值接收者方法（含其他文件里的、递归、带 `workflow.Context` 调度 Activity 的）：函数体一起翻译进产物，改它就改变内容版本。泛型、可变参数、指针接收者、包级变量、函数当值在生成期报错。
 - 决定 Activity 调度顺序、协程启动顺序、Selector case 顺序的数据用 slice。Workflow 里的 `range m` 按 key 升序遍历（确定、可重放），但升序通常不是业务顺序。
-- 翻译后的 WLang 与 Go 源码行为一致（结构体是值、slice 共享底层数组、nil slice 输出 `null`、`for` 条件每轮求值）；做不到一致的写法在生成期报错，清单见 `references/go-subset.md`。
+- 翻译后的 WLang 与 Go 源码行为一致（结构体是值、slice 共享底层数组、nil slice 输出 `null`、`for` 条件每轮求值）；做不到一致的写法在生成期报错（如定长数组 `[N]T`，改用 slice），清单见 `references/go-subset.md`。
 - Workflow 接触的数据类型（子 Workflow / Activity / continue-as-new 实参、Signal、Update、Query 载荷，任意嵌套深度，含递归类型与契约包类型）都登记进类型表；channel、函数、嵌入字段等无法编码的类型在生成期按 `file:line` 与类型路径报错，见 `references/go-subset.md` 的「数据类型」。
 - `workflow.Await` 的条件闭包与 Query Handler 只读 Workflow 内存变量：它们在重放时反复求值，Query 产生的命令被丢弃。
 - 对已有运行中 Run 的 Workflow，新增、删除、重排 Activity / Timer / Child / `SideEffect` / `RandomUUID` / `RandomInt` / 协程 / Selector case 需要 `GetVersion` 保护或 `pinned`：这些改动改变命令序列。
@@ -158,7 +158,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - 一个包目录一条 `@Workflow`；`@Workflow` / `@Activity` 写在包级函数的 `//` 行注释里：方法、块注释、未知 key 都被拒绝。
 - 每个 Activity 调用设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout`：attempt 开始后 Worker 立即确认队列租约，attempt 的存活只由这两个超时与 `HeartbeatTimeout` 判定，Worker 消失后靠 StartToClose（或 heartbeat）超时重试。缺少时生成器报出调用点；选项来自变量时由 Server 拒绝调度命令，Workflow Task 以 `bad_schedule_activity_attributes` 失败。
 - Activity 至少执行一次（at-least-once），不保证只执行一次：已开始的 attempt 不会因队列重投再执行，但超时重试、Worker 在上报结果前崩溃、Worker 停止时交还 attempt 都会让同一业务操作再执行。每个 Activity 都必须幂等。
-- Activity 要可取消就必须 Heartbeat：取消只经 `activity.RecordHeartbeat` 的响应送达，不 Heartbeat 的 Activity 只在返回或超时时结束。Worker 对心跳节流（最小间隔为 `HeartbeatTimeout` 的 80%，未设置时 30s，上限 60s；间隔内只发最新 details，失败/取消/交还结束时补发），可以频繁调用。Heartbeat 不写 History，只更新 Activity 状态（`activity-states` 的 `lastHeartbeat`）；超时的 Attempt 的最后一次详情在 `ActivityTimedOut.lastHeartbeatDetails`。收到 Workflow 的取消后返回 `ctx.Err()` 或取消错误即确认取消（`ActivityCancelled`）。
+- Activity 要可取消就必须 Heartbeat：取消只经 `activity.RecordHeartbeat` 的响应送达，不 Heartbeat 的 Activity 只在返回或超时时结束。Worker 对心跳节流（最小间隔为 `HeartbeatTimeout` 的 80%，未设置时 30s，上限 60s；间隔内只发最新 details，失败/取消/交还结束时补发），可以频繁调用。Heartbeat 不写 History，只更新 Activity 状态（`activity-states` 的 `lastHeartbeat`）；超时的 Attempt 的最后一次详情在 `ActivityTimedOut.lastHeartbeatDetails`，被 Workflow Reset 打断的在新 Run 的 `ActivityFailed.lastHeartbeatDetails`（Console 的 Attempt 详情显示为 Last Heartbeat）。收到 Workflow 的取消后返回 `ctx.Err()` 或取消错误即确认取消（`ActivityCancelled`）。
 - `Worker.Stop` 是优雅停止：停 poll，关闭 `activity.GetWorkerStopChannel(ctx)`，等在途任务最多 `GracefulStopTimeout`（缺省 10s），到期才取消 `ctx`。与 Stop 同时到达的任务不会等超时：应答已到达的照常处理，没送到的由 Server 立即交还。长 Activity 监听停止 channel，Heartbeat 保存进度后返回 `activity.ErrWorkerStopping`：attempt 交还 Server，以同一序号重新派发，不消耗重试次数。
 - Activity 默认重试，缺省策略与 Temporal 相同、由 Server 补齐：不限次数，`InitialInterval` 1s、`BackoffCoefficient` 2.0、`MaxInterval` 100 × InitialInterval；部分设置的 `workflow.RetryPolicy` 其余字段取缺省值；只执行一次写 `MaxAttempts: 1`。重试在成功、不可重试错误、`MaxAttempts`、`ScheduleToCloseTimeout` 到期（或下一次 Attempt 会落在它之后）时停止；`ScheduleToStartTimeout` 约束每个 Attempt（从首次调度、退避到期或 reset 时起算），到期后直接失败，不重试。所有超时与间隔字段都是 `time.Duration`。
 - 调用点的 `ActivityOptions`（`TaskQueue`、超时、重试）只作用于这一次调用，不改变同一 Activity 其他调用点的路由。`ActivityOptions` 没有 `BuildID`。
@@ -174,7 +174,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - 数据库访问量：TaskQ 分区的行都已投递或确认时 poll 与可见性扫描不读库；内嵌 Workflow Worker 的 Workflow Task 长轮询持续 `TASKQ_POLL_TIMEOUT`（默认 30s）。每个 Workflow 的语句数按入口分组看 `TestStatementBudgetPerWorkflow`（`TENUTO_TEST_MYSQL=1`，见 `references/operations.md`），事务外读 Run 与 execution state 的次数看 `TestRepositoryReadsPerWorkflow`（内存后端）。Server 给 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN` 设置 `parseTime=true`、`loc=UTC`、`interpolateParams=true`，字符集用 `utf8mb4`。
 - Server 补偿分两档，都只在 leader 上运行：周期补偿（`WORKFLOW_RECONCILE_INTERVAL`，默认 30s）按到期索引只处理有到期或待处理事项的 Running Run，代价与 Running Run 总数无关；全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`，默认 10m）逐页检查全部 Running Run，补建崩溃后缺失的子 Run，补做终态传播、终态写回、父关闭策略与子 Run 取消请求。
 - 投递在队列里丢失时 Run 不会停住：已入队却超过等待时长（30s 宽限期起按派发次数翻倍，最长 8 分钟）仍没被领取的 open Workflow Task 与 Scheduled Activity attempt 由 leader 的 reconciler 再投一份（日志 `task dispatched but not claimed; redelivering`）。已关闭 WFT 的陈旧投递由 Server 领取时确认丢弃，不交给 Worker。
-- 配置了 Workflow RetryPolicy 的 Run 不再重试时，终态 `WorkflowFailed` 的 `retryState` 写明原因（`MaximumAttemptsReached`、`NonRetryableFailure`、`Timeout`）；没有 RetryPolicy 时为空。
+- 配置了 Workflow RetryPolicy 的 Run 不再重试时，终态 `WorkflowFailed` 的 `retryState` 写明原因（`MaximumAttemptsReached`、`NonRetryableFailure`、`Timeout`）；没有 RetryPolicy 时为空。重试 Run 在退避期内收到的 Signal 只写入 History、等退避到期一并处理；SignalWithStart、取消请求与 Update 让重试 Run 立即开始（同 Temporal 默认行为）。
 - 新旧 Activity build 并存时 BuildID 必须不同：相同 BuildID 的登记互相覆盖，引擎分不出新旧契约。
 - 旧 build 下线前先排空只有它满足契约的 Activity（`pinned` 在旧 Program 上的 Run）：下线之后这些任务留在队列里被新 build 反复拒绝，直到旧 build 回来或 `ScheduleToStartTimeout` 到期。契约不变、或只做兼容改动（入参新增字段）的发布没有这个限制。
 - 取消按 Temporal 语义交给 Workflow 代码：根 Context 被取消，已取消 ctx 上的 Activity / `Sleep` / 子 Workflow 返回取消错误，代码继续运行。补偿发在 `workflow.NewDisconnectedContext(ctx)` 上；返回取消错误 → `cancelled`，返回 nil → `completed`。局部取消用 `workflow.WithCancel`。
@@ -199,7 +199,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | 从调用端启动、等待结果、查询、Signal、Update、管理 Run | `client.Dial`、`client.Client`、`WorkflowRun.Get`、`/runtime/workflow/*` | `references/client-api.md` |
 | 周期启动、列出一个 Schedule 的全部 Run | `CreateSchedule` 等、`TemporalScheduledById` | `references/schedules.md` |
 | 按业务字段检索 Run | `UpsertSearchAttributes`、`ListRuns`、保留键 | `references/search-attributes.md` |
-| Reset、批量操作（异步、可取消）、恢复暂停的 Run | `ResetWorkflow`、`StartBatchOperation`、`CancelBatchOperation`、`SetRunPolicy` | `references/operations.md` |
+| Reset（含重置点上未结束的 Activity / Timer 怎样带进新 Run、`ResetWorkflowError`）、批量操作（异步、可取消）、恢复暂停的 Run | `ResetWorkflow`、`StartBatchOperation`、`CancelBatchOperation`、`SetRunPolicy` | `references/operations.md` |
 | 上线前确认保证、生产必需配置、已测场景与实测数字、已知限制 | — | `references/operations.md#生产就绪` |
 | 多副本故障注入（kill -9 / SIGSTOP、数据库断连与卡死、副本间分区后核对结果与 History）、长时间浸泡、滚动升级演练、压测与 CPU profile；matching 广播地址与监听地址不同 | `cmd/tenuto-cluster failover` / `soak` / `upgrade` / `bench`、`BenchmarkHarness`、`WORKFLOW_PPROF_ADDR`、`TASKQ_MATCHING_ADVERTISE_ADDR` | `references/operations.md#多副本故障注入与压测` |
 
@@ -255,6 +255,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | 生成器：`@Workflow policy="auto" 未知，支持 auto_upgrade、pinned`、`未知 key`、`缺少 type`、`注解必须写成 // 行注释`、`@Workflow 注解只能有一个` | 注解写法错误 | 按 `references/codegen.md` 的 key 表修正 |
 | 生成器：`activity ... 的 marker ... 是变量引用 ... 而不是函数符号` | Activity 函数名在 Workflow 函数体内被同名局部变量遮蔽，或包没通过类型检查 | 改局部变量名；先让包编译通过 |
 | Reset 返回 400：`reset requires reset_type (first_workflow_task or last_workflow_task) or reset_event_id` | 没有给重置点 | 二选一提供，见 `references/operations.md` |
+| Run 显示 Blocked，Workflow Task 失败原因 `bad_start_timer_attributes` / `bad_start_child_workflow_attributes` / `bad_schedule_activity_attributes` / `bad_record_marker_attributes`，`... has N characters, the limit is M` | Workflow 代码发出的 Timer ID、子 Workflow ID / Type、Activity ID / Type、Task Queue、marker 名与 ID 超过长度上限 | 缩短这个标识，重新生成并发布；Run 按退避自动继续。上限见 `references/operations.md` |
 | Runtime API 返回 503 `service temporarily unavailable`（SDK 重试用尽后是 `client.ErrUnavailable`），Server 日志 WARN `runtime http request failed: dependency temporarily unavailable`，`err` 是 `Error 1040: Too many connections` 等 | MySQL 连接数打满、锁等待超时、死锁、连接中断或 matching 分区换主；连接数打满通常是 `副本数 × 2 × WORKFLOW_DB_MAX_OPEN_CONNS` 超过了 MySQL `max_connections` | 调低 `WORKFLOW_DB_MAX_OPEN_CONNS` 或调高 `max_connections`；Reset、Schedule Create / Trigger、批量操作启动得到的是 502，先读状态确认再重发，见 `references/operations.md` |
 | Server 日志 WARN `task queue ack failed`，`err` 是 `max retries exceeded` 或 `stale ack token` | TaskQ 分区换主期间 Worker 的 `ack` 没送到；结局已落库，`ack` 应答 200 | 无需处理：任务 60s 后重投，`begin` 判定 `attempt_already_started` 后丢弃；持续出现时查 matching 的分区租约 |
 | 开启 `WORKFLOW_RETENTION` 后 `tenuto_runs` 持续增长，`tenuto.retention.gc.backlog.oldest_age` 上升，GC leader 记 WARN `retention gc: deletion backlog is growing` | 删除持续失败（看 `tenuto.retention.gc.failures` 与 `retention gc: tree deletion failed` 的 `err`），或单棵 tree 的删除慢到一轮扫描处理不完到期任务 | 按日志里的错误处理数据库问题；一轮扫描处理所有到期任务，`WORKFLOW_GC_BATCH` 只决定每批大小 |

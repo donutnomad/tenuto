@@ -2,6 +2,7 @@ package memory
 
 import (
 	"cmp"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -227,7 +228,7 @@ func (s *WorkerVersionRepository) HeartbeatActivityWorkerVersionInNamespace(name
 		}
 	}
 	if matched == 0 {
-		return protocol.InvalidRequestf("activity worker version %s/%s/%s is not registered", namespace, identity, buildID)
+		return fmt.Errorf("%w: %s/%s/%s", protocol.ErrActivityWorkerVersionNotRegistered, namespace, identity, buildID)
 	}
 	return nil
 }
@@ -246,6 +247,19 @@ func (s *WorkerVersionRepository) DeregisterActivityWorkerVersionInNamespace(nam
 		}
 	}
 	return nil
+}
+
+func (s *WorkerVersionRepository) DeleteExpiredActivityWorkerVersions(before time.Time, keep func(namespace, identity string) bool) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var deleted int64
+	for key, worker := range s.workers {
+		if !worker.ExpiresAt.IsZero() && worker.ExpiresAt.Before(before) && !keep(protocol.NormalizeNamespace(worker.Namespace), worker.Identity) {
+			delete(s.workers, key)
+			deleted++
+		}
+	}
+	return deleted, nil
 }
 
 func (s *WorkerVersionRepository) ListActiveActivityWorkerVersions(now time.Time) ([]protocol.ActivityWorkerVersion, error) {

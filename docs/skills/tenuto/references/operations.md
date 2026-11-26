@@ -46,7 +46,9 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 
 ### 运维请求本身失败时
 
-Runtime API 的状态码区分原因：400 是请求的问题（body 是原因，改正后重试），404 是 Run、Schedule、Batch Operation 等目标不存在（Run 不属于请求的 Namespace 时同样是 404 `run not found`），409 是与已有记录或并发写入冲突（Schedule ID 或 Run ID 已存在、同一定义版本以不同内容重复登记、取消已结束的 Batch；重新读取后重试），500 是 Server 故障——body 固定为 `internal server error`，原因在 Server 日志的 `runtime http request failed` 行；503 是 MySQL 或任务队列暂时不可用（连接数打满 1040、锁等待 1205、死锁 1213、连接中断、matching 分区换主、TaskQ 入队与 nack 重试用完 `max retries exceeded`），带 `Retry-After: 1`，SDK 自动重试；同样的失败落在 Reset、Schedule 的 Create / Trigger、批量操作启动上是 502（可能已经生效，先读状态再重发）。连接池上限是每个副本 Workflow 与 TaskQ 两个池各 `WORKFLOW_DB_MAX_OPEN_CONNS`（缺省 50），`副本数 × 2 × 该值` 加 migrate 与工具余量要小于 MySQL `max_connections`（缺省 151）；长轮询不占数据库连接。
+Runtime API 的状态码区分原因：400 是请求的问题（body 是原因，改正后重试），404 是 Run、Schedule、Batch Operation 等目标不存在（Run 不属于请求的 Namespace 时同样是 404 `run not found`），409 是与已有记录或并发写入冲突（Schedule ID 或 Run ID 已存在、同一定义版本以不同内容重复登记、取消已结束的 Batch；重新读取后重试），500 是 Server 故障——body 固定为 `internal server error`，原因在 Server 日志的 `runtime http request failed` 行；503 是 MySQL 或任务队列暂时不可用（连接数打满 1040、锁等待 1205、死锁 1213、连接中断、matching 分区换主、TaskQ 入队与 nack 重试用完 `max retries exceeded`），以及在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`（缺省 `4 × WORKFLOW_DB_MAX_OPEN_CONNS`；Update 只在拿锁与写库阶段计入）、请求在生效之前被取消，带 `Retry-After: 1`，SDK 自动重试；同样的失败落在 Reset、Schedule 的 Create / Trigger、批量操作启动上是 502（可能已经生效，先读状态再重发）。连接池上限是每个副本 Workflow 与 TaskQ 两个池各 `WORKFLOW_DB_MAX_OPEN_CONNS`（缺省 50），`副本数 × 2 × 该值` 加 migrate 与工具余量要小于 MySQL `max_connections`（缺省 151）；长轮询不占数据库连接。DSN 没有给出 `readTimeout` / `writeTimeout` 时 Server 设为 `60s` / `30s`；readiness 用每个池里一条专用连接 Ping，不和业务请求排队。标识超长返回 400（按字符计：Namespace、Task Queue、Build ID 64；Activity Type、Worker identity 128；Workflow ID / Type、Activity ID、Timer ID、Update ID、marker 名与 ID 191；启动与 Signal 的 request ID 128 字节）；Workflow 代码发出的超长 Timer ID、子 Workflow ID / Type、Activity Type、Task Queue、marker 名与 ID 让 Workflow Task 以 `bad_start_timer_attributes`、`bad_start_child_workflow_attributes`、`bad_schedule_activity_attributes`、`bad_record_marker_attributes` 失败，Run 显示 Blocked。MySQL 表（含 TaskQ 的表）是 `utf8mb4_0900_bin`，标识区分大小写、重音与尾随空格，要求 MySQL 8.0+。
+
+停机（`SIGTERM`）：长轮询立即结束（poll / wait-closed 应答 204，Update 返回当前阶段）；其余在途请求在 `WORKFLOW_HTTP_SHUTDOWN_TIMEOUT` 内照常做完并应答结果，生效之前被取消的请求应答 503。SDK 把 2xx 空应答体当作传输错误。
 
 Activity 与 Workflow Task 的 `ack` 在结局落库之后发出（`begin` 记下 started 或判定不执行；WFT 结果已上报），任务队列确认失败（分区换主时 `max retries exceeded`、旧 ownership epoch 的 `stale ack token`）不让 `ack` 失败：应答 200，Server 记 WARN `task queue ack failed`，任务在可见性超时（60s）后重投，`begin` 返回 `attempt_already_started` 由 Worker 丢弃，Activity 不重复执行。
 
@@ -101,9 +103,9 @@ HTTP `reset`：`{"run_id":"...","reason":"...","reset_type":"last_workflow_task"
 | `reset_type and reset_event_id are mutually exclusive` | 两个都给了 |
 | `unknown reset type: ...` | `reset_type` 取值错误 |
 | `reset_event_id N is not a valid reset point: must be a workflow task boundary event (WorkflowTaskStarted/Completed/Failed/TimedOut)` | 事件 ID 不是 Workflow Task 边界 |
-| 重置点之前有待处理的 Activity / Timer | 选更早或更晚的边界，或等它们完成 |
+| `cannot reset: pending child workflows exist at reset point` | 重置点之前启动的子 Workflow 在重置点上尚未结束（按 History 判定，重置点之后才关闭的也算）：选更早的边界，或选它关闭之后的边界 |
 
-Temporal 允许这种重置点：未开始的 Activity 保留并从 reset 时刻重新计算 Schedule-To-Start / Schedule-To-Close，已开始的 Activity 以不可重试的 `ResetWorkflowFailure` 失败，Timer 按原 deadline 触发；Tenuto 拒绝它（对照与源码出处见文档 `operations/reset.md#分叉点上未结束的-activity-与-timer`）。
+重置点上未结束的 Activity 与 Timer 不阻止 Reset（与 Temporal 一致）：未开始的 Activity 在新 Run 里以 Attempt 1 重新派发，Schedule-To-Start / Schedule-To-Close 从 reset 时刻起算；已开始的 Activity（History 里有当前 attempt 的 `ActivityStarted`，只有 `MaxAttempts: 1` 的 Activity 开始时就写；有重试的在 attempt 结束时才补写，所以执行中或退避中的按未开始处理）收到不可重试的 `ResetWorkflowError`，`ActivityFailed.lastHeartbeatDetails` 是原 Run 在 reset 时的最新心跳；已请求取消、开始只是 transient 的写 `ActivityCancelled`；Timer 按原 deadline 触发，reset 时已过期的立即触发。原 Run 上仍在执行的 attempt 的完成被拒绝。未关闭的子 Workflow 仍拒绝 Reset（见上表）。细节见文档 `operations/reset.md#分叉点上未结束的-activity-与-timer`。
 
 Activity Reset（单个调用）：Attempt 置 1，Schedule-To-Start 从 reset 时刻起算，Schedule-To-Close 仍从最初调度时间起算，Reset 不延长整个调用的期限（与 Temporal `ResetActivity` 相同）。
 
@@ -114,7 +116,7 @@ Reset 之后：
 - 新代码仍需要能重放保留下来的那段 History。
 - Reset 标记（新 Run History 里 `cause` 为 `reset_workflow` 的 `WorkflowTaskFailed`）不计入 `blocked.consecutive_failures`，新 Run 从未阻塞状态开始。
 - Reset 一个运行中的子 Run：父 Run 继续等待，它的子关联改指新 Run，新 Run 的结果照常传播给父 Run。
-- 终止原 Run、创建新 Run、切换 current、重置点之后的 Signal / Update 在同一个事务里写入；写入失败时 Reset 整体失败，原 Run 保持运行，没有新 Run。
+- 终止原 Run、创建新 Run、切换 current、重置点上未结束的 Activity / Timer 在新 Run 里的 state 与补写的关闭事件、重置点之后的 Signal / Update 在同一个事务里写入；写入失败时 Reset 整体失败，原 Run 保持运行，没有新 Run。
 
 ## Activity Reset
 
@@ -169,7 +171,7 @@ HTTP：`start-batch` 的 body 是 `{"req":{"namespace","type","filter","reason",
 
 | 路径 | 内容 |
 | --- | --- |
-| `list-workers` | 在线 Worker、Identity、BuildID、队列 |
+| `list-workers` | 在线 Worker、Identity、BuildID、队列（到期超过一天、没有 Running Run 指定的登记由全量补偿删除；Worker 的心跳得到 404 时重新登记） |
 | `list-configs` | 已登记的定义与版本 |
 | `list-task-queues`、`list-namespaces` | 队列与命名空间 |
 | `activity-states` | Run 内每个 Activity Call 的状态 |

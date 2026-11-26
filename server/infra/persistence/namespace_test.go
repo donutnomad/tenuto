@@ -145,7 +145,7 @@ func TestCountRunsGroupsByNamespaceAndStatus(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	counts, err := store.Executions.CountRuns()
+	counts, err := store.Executions.CountRuns("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,5 +161,13 @@ func TestCountRunsGroupsByNamespaceAndStatus(t *testing.T) {
 		if got[key] != count {
 			t.Fatalf("counts = %+v, want %+v", got, want)
 		}
+	}
+	// 给出 namespace 时只统计这个 namespace。
+	counts, err = store.Executions.CountRuns("tenant-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(counts) != 1 || counts[0].Namespace != "tenant-b" || counts[0].Count != 1 {
+		t.Fatalf("tenant-b counts = %+v", counts)
 	}
 }

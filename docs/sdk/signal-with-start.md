@@ -36,9 +36,19 @@ per Namespace + Workflow ID lock
 
 该范围防止并发请求创建多个 current Run。启动和 Signal 一起提交：Signal 写入失败时 Run 也不会留下。新 Run 使用该 Workflow Type 当前 active 的 Program，与 `StartWorkflow`、Update-With-Start 一致。
 
-## 重试窗口
+进行中的 Run 是 Workflow 失败重试的 Run、仍在等首个 Workflow Task 的退避时，Signal-With-Start 立即调度 Workflow Task，重试提前开始；普通 Signal 只写入 History、等退避到期。这与 Temporal 的默认行为相同（`EnableSignalWithStartWorkflowTaskBackoff` 默认关闭）。
 
-请求已提交而客户端在收到响应前失联时，重试会复用已启动的 current Run 并追加第二条 Signal。Payload 应包含业务 Message ID，Workflow 依据该 ID 去重。
+## 重发与去重
+
+SDK 为每次 `SignalWithStartWorkflow` 生成一个 request ID，瞬时错误（连接中断、网关 502/503/504）时以同一个 request ID 重发（HTTP 调用方在请求体里给 `request_id`）。语义与 Temporal 的 SignalWithStart 去重相同：
+
+- 启动新 Run 时，request ID 记在 `WorkflowStarted.RequestID`，同时是 `WorkflowSignaled` 的去重键。
+- 重发时 Workflow ID 的 current Run（运行中或已结束）已记过这个 request ID 的 Signal：返回这个 Run 与第一次的 Signal 事件 ID。
+- current Run 是这个 request ID 启动的 Run 经 continue-as-new 或失败重试接续的一代：返回链首的 Run（Signal 所在的 Run）与第一次的事件 ID，不在接续的 Run 上再记 Signal。
+
+所以第一次请求已提交、应答丢失、重发到达之前 Run 已经结束时，重发不会启动第二个 Run。
+
+应用代码在调用超出 `ctx` 期限后再调用一次、或进程重启后重放消息，是新的 request ID，会形成第二条 Signal（Run 已结束时还会启动新 Run）。Payload 应包含业务 Message ID，Workflow 依据该 ID 去重。
 
 ## 行为矩阵
 
@@ -48,6 +58,7 @@ per Namespace + Workflow ID lock
 | current Run 正在运行 | 复用 Run 并写 Signal |
 | 多个请求并发启动同一 ID | keyed lock 串行，只产生一个 current Run |
 | current Run 已结束 | 启动新 Run 并写 Signal，新 Run 成为 current |
+| 同一个 request ID 重发，current Run（含已结束）或它的链首已记过这条 Signal | 返回第一次的 Run 与 Signal 事件 ID，不启动、不再写 Signal |
 | current Run 正在运行且类型与请求的 Workflow Type 不同 | 返回类型不一致错误 |
 | Workflow ID 为空 | SDK 生成 Workflow ID（HTTP 请求留空时由服务端生成），启动新 Run 并写 Signal |
 | Signal Name 或 Workflow Type 为空 | 请求校验失败 |

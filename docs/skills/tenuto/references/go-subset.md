@@ -131,7 +131,8 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 ## 数据类型
 
 - Workflow 代码接触到的每个数据类型都登记进类型表，嵌套深度不限，包括只出现在子 Workflow / Activity / continue-as-new 实参或 Query 结果字面量里的 struct。
-- 当前包与契约包、DTO 包的 struct、具名基础类型、具名 slice/map/array 可用；递归与互相递归类型经指针、slice 或 map 递归即可；`any` 字段可以持有 struct 值。
+- 当前包与契约包、DTO 包的 struct、具名基础类型、具名 slice/map 可用；递归与互相递归类型经指针、slice 或 map 递归即可；`any` 字段可以持有 struct 值。
+- 定长数组（`[N]T`、`[...]T{}`、底层是数组的具名类型、数组字段）生成期报错（`file:line`）：Go 数组是值、WLang 只有共享的 slice；改用 `[]T`。
 - 生成期报错（带 `file:line` 与路径，如 `ChildInput.Items[].Meta (chan int): channels cannot cross workflow boundaries`）：channel、函数、有方法的接口、匿名 struct、嵌入字段（改成具名字段）、未导出字段、泛型类型实例化、非字符串 map 键、自定义 JSON 编解码、`complex` / `uintptr`。
 
 ## SDK 调用的形态约束

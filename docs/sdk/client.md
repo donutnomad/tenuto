@@ -81,7 +81,7 @@ c, err := client.Dial(client.Options{
 | 调用 | 归类 | 原因 |
 | --- | --- | --- |
 | `ExecuteWorkflow` | 可以重发 | SDK 为每次调用生成 request ID（`ID` 为空时同时生成 Workflow ID），Server 认出重发的启动，返回这次启动开启的 Run 链的 current Run（失败重试、Continue-As-New 之后是接替的 Run），链已经结束也一样 |
-| `SignalWorkflow`、`SignalWithStartWorkflow` | 可以重发 | SDK 为每次调用生成 request ID，同一个 Run 上同一个 request ID 只记一条 `WorkflowSignaled` |
+| `SignalWorkflow`、`SignalWithStartWorkflow` | 可以重发 | SDK 为每次调用生成 request ID，同一个 Run 上同一个 request ID 只记一条 `WorkflowSignaled`；`SignalWithStartWorkflow` 的重发在第一次启动的 Run 已结束时返回那个 Run，不启动新 Run |
 | `UpdateWorkflow`、`UpdateWithStartWorkflow`、Update 句柄的 `Get` | 可以重发 | `UpdateID` 为空时 SDK 生成，Server 按 Update ID 去重 |
 | `CancelWorkflow` | 可以重发 | 已请求过取消时返回成功 |
 | `TerminateWorkflow`、Schedule 的 `Delete` | 可以重发 | 效果相同；第一次的应答丢失时，重发报告 Run 已结束（`ErrInvalidArgument`）或 Schedule 不存在（`ErrNotFound`） |
@@ -219,7 +219,7 @@ page, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 
 - `DescribeWorkflowExecution` 返回状态、执行链（`FirstRunID`、`PreviousRunID`）、重试序号、超时到期时刻、搜索属性、版本策略与 Program 内容版本，以及版本管理的 `ConfigError`（Run 暂停的原因）与 `UpgradeError`；Workflow Task 连续失败而停滞时 `Blocked` 非 nil。
 - `GetWorkflowHistory` 按事件 ID 升序逐页读取（每页 200 个），读取失败时 `HasNext` 返回 true、`Next` 返回错误。`runID` 为空时先解析当前 Run，后续页都读这个 Run。
-- `ListWorkflow` 的条件之间是「与」：`WorkflowID`（含同一 ID 的全部 Run）、`Statuses`（为空时不按状态过滤）、`SearchAttributes`（每个键完全相等），`Offset` / `Limit` 分页（`Limit` 缺省 50、最大 1000，超出返回 400），`Total` 是满足条件的总数。
+- `ListWorkflow` 的条件之间是「与」：`WorkflowID`（含同一 ID 的全部 Run）、`Statuses`（为空时不按状态过滤）、`SearchAttributes`（每个键完全相等），`Offset` / `Limit` 分页（`Limit` 缺省 50、最大 1000，超出返回 400），`Total` 是满足条件的总数，`HasMore` 表示这一页之后还有 Run；`SkipTotal: true` 时 Server 不计算总数（`Total` 为 0），Run 很多时这一页更快，翻页看 `HasMore`。
 
 ## Reset 与版本策略
 

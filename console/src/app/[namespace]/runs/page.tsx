@@ -10,7 +10,8 @@ import type { BatchOperationType, ResetType, RunListItem, RunStatus } from "@/li
 import { REFRESH_INTERVAL_LIST } from "@/lib/constants"
 import { DEFAULT_RESET_TYPE, batchAccepted, selectedRunsBatchRequest, type BatchOutcome } from "@/lib/batch-operations"
 import { scheduleRunsFilter } from "@/lib/schedule-runs"
-import { countNoun, truncateID, formatDateTimeColumn } from "@/lib/format"
+import { truncateID, formatDateTimeColumn } from "@/lib/format"
+import { runListPage } from "@/lib/run-list-page"
 import { RunStatusBadge } from "@/components/dashboard/run-status-badge"
 import { BlockedBadge } from "@/components/dashboard/blocked-badge"
 import { ActionFeedback } from "@/components/dashboard/action-feedback"
@@ -123,6 +124,7 @@ function RunsPageContent() {
         offset: page * pageSize,
         limit: pageSize,
         order_desc: orderDesc,
+        skip_total: true,
       }),
     {
       refreshInterval: (data) => {
@@ -144,9 +146,7 @@ function RunsPageContent() {
     []
   )
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1
-  const isFirstPage = page === 0
-  const isLastPage = page >= totalPages - 1
+  const pageInfo = runListPage(page, pageSize, data)
   const runs: RunListItem[] = data?.items ?? []
   const hasRunningRun = runs.some((r) => r.status === "running")
   const isAutoRefreshing = hasRunningRun && isValidating
@@ -203,7 +203,7 @@ function RunsPageContent() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-foreground">
-            {data ? countNoun(data.total, "Run") : "Runs"}
+            Runs
           </h1>
           {isAutoRefreshing && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-600">
@@ -458,14 +458,14 @@ function RunsPageContent() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon-sm" disabled={isFirstPage} onClick={() => setPage((p) => p - 1)}>
+              <Button variant="ghost" size="icon-sm" disabled={!pageInfo.hasPrevious} onClick={() => setPage((p) => p - 1)}>
                 <ChevronLeft className="size-4" />
               </Button>
-              <Button variant="ghost" size="icon-sm" disabled={isLastPage} onClick={() => setPage((p) => p + 1)}>
+              <Button variant="ghost" size="icon-sm" disabled={!pageInfo.hasNext} onClick={() => setPage((p) => p + 1)}>
                 <ChevronRight className="size-4" />
               </Button>
               <span className="text-sm text-muted-foreground tabular-nums">
-                {page * pageSize + 1}–{Math.min((page + 1) * pageSize, data.total)} of {data.total}
+                {pageInfo.first}–{pageInfo.last}
               </span>
             </div>
           </div>

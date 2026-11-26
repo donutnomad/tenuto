@@ -98,6 +98,51 @@ func TestLowerRejectsNonDeterministicConstructs(t *testing.T) {
 	}
 }
 
+// 定长数组在 Go 里是值，翻译成 WLang 后变成引用语义的 slice；生成期拒绝，报 file:line 并提示改用 slice。
+func TestGenerateRejectsFixedArrays(t *testing.T) {
+	const header = `package flows
+
+import workflow "github.com/donutnomad/tenuto/sdk/workflow"
+
+type Grid [3]int
+
+type Box struct {
+	Cells [2]int
+}
+
+type Out struct {
+	Sum int
+}
+
+func sum(cells [2]int) int { return cells[0] + cells[1] }
+
+`
+	cases := []struct {
+		name, body, want string
+	}{
+		{"array literal", "a := [3]int{1, 2, 3}\n\tb := a\n\tb[0] = 9\n\treturn Out{Sum: a[0]}, nil", "w.go:18"},
+		{"ellipsis literal", "a := [...]int{1, 2}\n\treturn Out{Sum: a[0]}, nil", "w.go:18"},
+		{"named array type", "var g Grid\n\treturn Out{Sum: g[0]}, nil", "w.go:18"},
+		{"array field", "box := Box{}\n\treturn Out{Sum: box.Cells[0]}, nil", "w.go:19"},
+		{"helper parameter", "return Out{Sum: sum([2]int{1, 2})}, nil", "w.go:18"},
+		{"slice of arrays", "gs := []Grid{}\n\treturn Out{Sum: len(gs)}, nil", "w.go:18"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := header + "func W(ctx workflow.Context, input map[string]any) (Out, error) {\n\t" + tc.body + "\n}\n"
+			_, err := GenerateFromSource([]byte(src), Options{WorkflowType: "arrays", FuncName: "W", Filename: "w.go"})
+			if err == nil {
+				t.Fatal("want generation error")
+			}
+			for _, want := range []string{tc.want, "定长数组", "改用 slice"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error %q does not contain %q", err.Error(), want)
+				}
+			}
+		})
+	}
+}
+
 // 第 2 项：time 常量、time.Duration 转换与本文件的包级常量在生成期折叠，产物不带 time 符号。
 func TestLowerFoldsTimeConstantsAndPackageConsts(t *testing.T) {
 	result, err := generateLowered(`

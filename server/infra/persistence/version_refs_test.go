@@ -52,7 +52,7 @@ func TestListAllReturnsDatabaseError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := store.Executions.CountRuns(); err == nil {
+	if _, err := store.Executions.CountRuns(""); err == nil {
 		t.Fatal("CountRuns error = nil after the database connection was closed")
 	}
 }

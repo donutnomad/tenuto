@@ -70,6 +70,13 @@ type NewParams struct {
 
 // New 校验参数并创建 Schedule；未暂停时按 cron 计算首个 NextRunAt。
 func New(id string, params NewParams, now time.Time) (*Schedule, error) {
+	if err := errors.Join(
+		protocol.CheckLength("namespace", params.Namespace, protocol.MaxNamespaceLength),
+		protocol.CheckLength("workflow_type", params.WorkflowType, protocol.MaxWorkflowTypeLength),
+		checkScheduleText(params.Description, params.CronExpression, params.Timezone),
+	); err != nil {
+		return nil, err
+	}
 	if params.WorkflowType == "" {
 		return nil, protocol.InvalidRequestf("workflow_type is required")
 	}
@@ -130,6 +137,9 @@ type Changes struct {
 
 // Update 应用字段变更；cron 或时区变化且未暂停时重算 NextRunAt。
 func (s *Schedule) Update(changes Changes, now time.Time) error {
+	if err := checkScheduleText(deref(changes.Description), deref(changes.CronExpression), deref(changes.Timezone)); err != nil {
+		return err
+	}
 	var loc *time.Location
 	cronChanged := false
 	if changes.Description != nil {
@@ -250,4 +260,20 @@ func (s *Schedule) location() *time.Location {
 	}
 	loc, _ := time.LoadLocation(s.Timezone)
 	return loc
+}
+
+// checkScheduleText 检查 Schedule 文本字段的长度（tenuto_schedules 的列宽）。
+func checkScheduleText(description, cronExpression, timezone string) error {
+	return errors.Join(
+		protocol.CheckLength("description", description, protocol.MaxScheduleDescriptionLength),
+		protocol.CheckLength("cron_expression", cronExpression, protocol.MaxCronExpressionLength),
+		protocol.CheckLength("timezone", timezone, protocol.MaxTimezoneLength),
+	)
+}
+
+func deref(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

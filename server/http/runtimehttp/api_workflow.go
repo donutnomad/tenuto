@@ -3,7 +3,6 @@ package runtimehttp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/donutnomad/tenuto/program"
@@ -372,7 +371,7 @@ func (a *workflowRuntimeHTTPAPI) WaitClosed(ctx *gin.Context, req runtimeapi.Wor
 	defer cancel()
 	run, closing, err := a.engine.WaitRunClosed(pollCtx, req.Namespace, req.WorkflowID, req.RunID)
 	if err != nil {
-		if pollCtx.Err() != nil && errors.Is(err, pollCtx.Err()) {
+		if longPollEnded(ctx, err) {
 			ctx.Status(http.StatusNoContent)
 			return nil, errSkipResponse
 		}

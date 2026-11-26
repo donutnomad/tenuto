@@ -85,7 +85,7 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 			return LeaseAction{}, e
 		}
 		eventID = id // 闭包捕获传出（fn 只返回 LeaseAction）
-		return LeaseAction{ScheduleWFT: true}, nil
+		return LeaseAction{ScheduleWFT: true, AfterSignal: true}, nil
 	})
 	if err != nil {
 		return 0, err
@@ -180,6 +180,9 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 	if updateID == "" {
 		updateID = uuid.NewString()
 	}
+	if err := protocol.CheckLength("update id", updateID, protocol.MaxUpdateIDLength); err != nil {
+		return protocol.WorkflowUpdateResult{}, err
+	}
 	// 无状态 args 校验：在 Register waiter、进 lease 之前。拒绝时零 history、不注册 waiter、不 ScheduleWFT，
 	// 直接返回 error（对标 Temporal reject）。只看 name+args，不读 workflow 状态 → 无副作用泄漏、无需 replay。
 	if v, ok := s.lookupUpdateValidator(name); ok {
@@ -240,8 +243,12 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 // AcceptedUpdateCompletedWorkflow 失败（与 execution.UpdateRecordsFromEvents 的投影一致）。
 // 第一轮按 update ID 的去重键索引查找，之后每轮先读 execution state，再只读上一轮之后新增的事件；未完成时经 runWatch
 // 等 Run 变化，Run 在哪个副本上变化都会唤醒。读取量与等待期间新增的事件数成正比，与 History 长度无关。
-// 软超时时仍未完成则返回 Accepted，不报错，让 client 再来（对标 Temporal）。
+// 软超时、ctx 结束或 StopLongPolls 时仍未完成则返回 Accepted，不报错，让 client 再来（对标 Temporal）。
+// 进入等待前归还请求的在途名额（WithLongWaitRelease）。
 func (s *Server) awaitUpdateResult(ctx context.Context, namespace, runID, updateID string, result protocol.WorkflowUpdateResult) protocol.WorkflowUpdateResult {
+	releaseBeforeLongWait(ctx)
+	ctx, cancel := s.longPollContext(ctx)
+	defer cancel()
 	deadline := s.clock.Now().Add(s.updateSoftTimeout)
 	var cursor int64
 	for first := true; ; first = false {
@@ -305,6 +312,9 @@ func (s *Server) UpdateWithStart(
 	if updateID == "" {
 		updateID = uuid.NewString()
 	}
+	if err := protocol.CheckLength("update id", updateID, protocol.MaxUpdateIDLength); err != nil {
+		return "", protocol.WorkflowUpdateResult{}, err
+	}
 	stage, err = protocol.NormalizeUpdateWaitStage(stage)
 	if err != nil {
 		return "", protocol.WorkflowUpdateResult{}, err
@@ -339,8 +349,9 @@ func (s *Server) UpdateWithStart(
 }
 
 // SignalWithStart 原子地「确保该 Workflow ID 有进行中的 Run」+「发送 Signal」。启动判定与 UpdateWithStart
-// 相同；Signal 发出即返回，返回 Signal 的 eventID。requestID 是 Signal 的幂等键，语义同 SignalWorkflow：
-// 重发的请求落到第一次启动或找到的运行中 Run 上时不再多记 Signal。
+// 相同；Signal 发出即返回，返回 Signal 的 eventID。requestID 是启动与 Signal 的幂等键：启动时记进
+// WorkflowStarted.RequestID；重发时 current Run（含已结束）或它的链首已记过这个 requestID 的 Signal，
+// 返回那个 Run 与第一次的事件 ID，不启动新 Run、不再记 Signal。
 func (s *Server) SignalWithStart(
 	ctx context.Context, namespace, workflowType, workflowID string,
 	startInput map[string]any, signalName, requestID string, signalInput map[string]any,
@@ -414,13 +425,13 @@ func (s *Server) validateInteraction(namespace, workflowID, runID, name string) 
 	return nil
 }
 
-// closeEventScan 是读取结束事件时向前查看的事件数：结束事件之后不再追加事件，留出余量即可。
-const closeEventScan = 8
-
-// WaitRunClosed 等待请求寻址的 Run 结束，返回结束后的 Run 与它的结束事件；ctx 先结束时返回 ctx 的错误。
+// WaitRunClosed 等待请求寻址的 Run 结束，返回结束后的 Run 与它的结束事件；ctx 先结束或 StopLongPolls 时返回
+// context 的错误。
 // 每一轮先读 Run 的 execution state，未结束时经 runWatch 等 Run 变化：Run 在哪个副本上结束都会唤醒。
 // 只等这一个 Run，continue-as-new 与重试产生的下一个 Run 由调用方按结束事件跟随。
 func (s *Server) WaitRunClosed(ctx context.Context, namespace, workflowID, runID string) (*execution.Run, history.Event, error) {
+	ctx, cancel := s.longPollContext(ctx)
+	defer cancel()
 	ref, err := s.resolveRunRef(namespace, workflowID, runID)
 	if err != nil {
 		return nil, history.Event{}, err
@@ -445,7 +456,7 @@ func (s *Server) closedRun(runID string, lastEventID int64) (*execution.Run, his
 	if err != nil {
 		return nil, history.Event{}, err
 	}
-	events, err := s.mgr.GetEventsRange(runID, max(0, lastEventID-closeEventScan), lastEventID)
+	events, err := s.mgr.GetEventsRange(runID, max(0, lastEventID-execution.CloseEventScan), lastEventID)
 	if err != nil {
 		return nil, history.Event{}, err
 	}
@@ -454,5 +465,5 @@ func (s *Server) closedRun(runID string, lastEventID int64) (*execution.Run, his
 			return run, events[i], nil
 		}
 	}
-	return nil, history.Event{}, fmt.Errorf("run %s is %s but its last %d events have no closing event", runID, run.Status, closeEventScan)
+	return nil, history.Event{}, fmt.Errorf("run %s is %s but its last %d events have no closing event", runID, run.Status, execution.CloseEventScan)
 }
