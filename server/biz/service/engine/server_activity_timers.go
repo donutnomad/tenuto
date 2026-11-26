@@ -53,7 +53,7 @@ func (s *Server) handleActivityTimeout(runID string, scheduledEventID int64, rea
 func (s *Server) handleActivityTimeoutAttempt(runID string, scheduledEventID int64, attempt int, reason protocol.TimeoutType) {
 	// activity 超时 timer goroutine 写 ActivityTimedOut 事件并经 HandleActivityFailed 改 run 事件/state、
 	// 可能调度 WFT，须拿 per-(namespace, workflowID) keyed lock 与并发 WFT/signal 串行。所有 activity 超时入口
-	// （s2c/hb/s2s/total timer）都汇聚到本函数，在此统一加锁；HandleActivityFailed/scheduleWorkflowTaskIfRunning
+	// （s2c/hb/s2s/total timer）都汇聚到本函数，在此统一加锁；HandleActivityFailed/scheduleWorkflowTask
 	// 不拿 keyed lock、派 WFT 仅异步入队，同 workflowID 不重入。timer 无请求 ctx，用 Background。
 	ref, release, err := s.lockRunWorkflow(context.Background(), runID)
 	if err != nil {

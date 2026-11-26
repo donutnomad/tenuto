@@ -159,6 +159,72 @@ func HistoryBranchContract(t *testing.T, newManager func(t *testing.T) execution
 		}
 	})
 
+	// reset 搬到新 Run 的 UpdateAccepted 与带 RequestID 的 Signal、reset 标记上的 RequestID 都带去重键写入：
+	// 新 Run 上按 Update ID 与 RequestID 查得到它们，同一个 Update 不会被再接受一次。带 RequestID 的 reset 在
+	// base 的行锁下比较 base 的 ResetRunID，期间另一次 reset 已提交时整个事务回滚。
+	t.Run("ResetWritesDedupeKeys", func(t *testing.T) {
+		manager := newManager(t)
+		base := execution.NewRun(execution.NewRunOptions{ID: "run-dedupe-base", WorkflowID: "wf-dedupe", WorkflowConfigVersion: "v1", CreatedAt: contractNow})
+		createRun(t, manager, base)
+		cutoff, _ := appendIdempotent(t, manager, base, history.NewWorkflowTaskScheduledEvent(0))
+		appendIdempotent(t, manager, base, history.NewWorkflowUpdateAcceptedEvent("approve", "update-1", nil))
+		signal := history.NewWorkflowSignaledEvent("pay", nil)
+		signal.WorkflowSignaled.RequestID = "signal-request-1"
+		appendIdempotent(t, manager, base, signal)
+		events, err := manager.GetEvents(base.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, err := manager.GetCurrentRunID(base.Namespace, base.WorkflowID)
+		if err != nil && !errors.Is(err, execution.ErrNoCurrentRun) {
+			t.Fatal(err)
+		}
+		commit := func(newRunID, requestID, expectedBaseResetRunID, expectedCurrent string) (*execution.Run, error) {
+			forked, err := manager.ForkBranch(execution.ForkBranchRequest{SourceRunID: base.ID, ForkNodeID: cutoff, NewRunID: newRunID, NewBranchID: newRunID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := execution.NewResetRun(base, newRunID, base.ID, forked.BranchToken, contractNow)
+			return next, manager.RunInTx(func(tx execution.ExecutionTx) error {
+				return execution.CommitResetRun(tx, execution.ResetRunCommit{
+					NewRun: next, ExpectedCurrent: expectedCurrent, BaseRunID: base.ID, ExpectedBaseResetRunID: expectedBaseResetRunID,
+					TreeID: base.ID, BranchID: newRunID,
+					FailedEvent: history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{
+						ScheduledEventID: cutoff, Cause: execution.WorkflowTaskFailedCauseResetWorkflow, RequestID: requestID,
+					}),
+					ReapplyEvents: execution.ResetReapplyEvents(events, cutoff, nil),
+					Now:           contractNow,
+				})
+			})
+		}
+		reset, err := commit("run-dedupe-reset", "reset-request-1", "", current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		accepted, err := manager.GetEventsByDedupeKeys(reset.ID, execution.UpdateDedupeKeys("update-1"))
+		if err != nil || len(accepted) != 1 || accepted[0].WorkflowUpdateAccepted == nil {
+			t.Fatalf("reapplied update lookup on the reset run = %+v (err %v), want the WorkflowUpdateAccepted", accepted, err)
+		}
+		if id, inserted := appendIdempotent(t, manager, reset, history.NewWorkflowUpdateAcceptedEvent("approve", "update-1", nil)); inserted || id != accepted[0].ID {
+			t.Fatalf("accepting the reapplied update again = (%d, %v), want (%d, false)", id, inserted, accepted[0].ID)
+		}
+		if id, inserted := appendIdempotent(t, manager, reset, signal); inserted {
+			t.Fatalf("the reapplied signal's request id did not dedupe: appended again at %d", id)
+		}
+		marker, err := manager.GetEventsByDedupeKeys(reset.ID, []string{execution.ResetRequestDedupeKey("reset-request-1")})
+		if err != nil || len(marker) != 1 || marker[0].WorkflowTaskFailed == nil || marker[0].WorkflowTaskFailed.RequestID != "reset-request-1" {
+			t.Fatalf("reset request lookup = %+v (err %v), want the reset marker", marker, err)
+		}
+
+		// 第二次 reset 读到的 base ResetRunID 还是空的：base 已被 reset 过，事务回滚，新 Run 不存在。
+		if _, err := commit("run-dedupe-again", "reset-request-1", "", reset.ID); !errors.Is(err, execution.ErrCurrentRunConflict) {
+			t.Fatalf("reset with a stale base reset link: err=%v, want ErrCurrentRunConflict", err)
+		}
+		if _, err := manager.Get("run-dedupe-again"); !errors.Is(err, execution.ErrRunNotFound) {
+			t.Fatalf("a conflicting reset created its run: err=%v", err)
+		}
+	})
+
 	t.Run("ForkOfMissingRun", func(t *testing.T) {
 		manager := newManager(t)
 		_, err := manager.ForkBranch(execution.ForkBranchRequest{SourceRunID: "run-missing", ForkNodeID: 1, NewRunID: "run-new", NewBranchID: "run-new"})

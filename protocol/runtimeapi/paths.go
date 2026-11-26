@@ -88,8 +88,8 @@ const (
 	ActivityRuntimeReleasePath   = "/runtime/activity/release"
 )
 
-// nonIdempotentPaths 是重发会再执行一次的端点：Reset 产生新的 Run，触发 Schedule 启动新的 Run，
-// 登记批量操作与创建 Schedule 各新建一条记录，请求里都没有去重键。
+// nonIdempotentPaths 是重发会再执行一次的端点：Reset 产生新的 Run（只有带 request_id 时去重），触发 Schedule
+// 启动新的 Run，登记批量操作与创建 Schedule 各新建一条记录，请求里没有必填的去重键。
 var nonIdempotentPaths = map[string]bool{
 	WorkflowRuntimeResetPath:           true,
 	WorkflowRuntimeCreateSchedulePath:  true,

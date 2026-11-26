@@ -156,7 +156,7 @@ func (s *Server) completeActivityAttempt(ctx context.Context, runID string, bran
 	}
 	s.stopActivityTimers(runID, scheduledEventID) // 终态后停内存 timer（事务外，无锁交叉）
 	postCommitCtx := context.WithoutCancel(ctx)
-	return s.scheduleWorkflowTaskIfRunning(postCommitCtx, runID)
+	return s.scheduleWorkflowTask(postCommitCtx, runID)
 }
 
 // ActivityTaskToken 是异步完成时外部系统交回的 Activity Task Token。
@@ -273,7 +273,7 @@ func (s *Server) settleActivityFailure(ctx context.Context, runID string, schedu
 	if failure.Terminal {
 		s.stopActivityTimers(runID, scheduledEventID)
 		postCommitCtx := context.WithoutCancel(ctx)
-		return s.scheduleWorkflowTaskIfRunning(postCommitCtx, runID)
+		return s.scheduleWorkflowTask(postCommitCtx, runID)
 	}
 	return nil
 }
@@ -377,7 +377,7 @@ func (s *Server) releaseActivityAttempt(ctx context.Context, runID string, branc
 	}
 	if release.Cancelled {
 		s.stopActivityTimers(runID, scheduledEventID)
-		return s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID)
+		return s.scheduleWorkflowTask(context.WithoutCancel(ctx), runID)
 	}
 	released := release.Redispatch
 	if released == nil {

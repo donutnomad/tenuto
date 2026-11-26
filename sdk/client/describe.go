@@ -235,6 +235,9 @@ type ResetWorkflowExecutionOptions struct {
 	EventID int64
 	// ReapplyExcludeTypes 是不重新应用到新 Run 的外部输入；缺省把分叉点之后的 Signal 与 Update 重新应用到新 Run。
 	ReapplyExcludeTypes []ResetReapplyExcludeType
+	// RequestID 是可选的幂等键：同一个 Run 上带同一个 RequestID 的 Reset 只生效一次，重复的调用返回第一次
+	// reset 出的 Run ID。为空时不去重。
+	RequestID string
 }
 
 // ResetReapplyExcludeType 是 Reset 时可以不重新应用的外部输入类型。
@@ -258,7 +261,7 @@ func (c *workflowClient) ResetWorkflowExecution(ctx context.Context, options Res
 	}
 	newRunID, err := c.workflows().ResetWorkflow(ctx, runtimeapi.WorkflowRuntimeResetRequest{
 		Namespace: c.namespace, RunID: runID, Reason: options.Reason, ResetType: string(options.ResetType),
-		ResetEventID: options.EventID, ReapplyExcludeTypes: exclude,
+		ResetEventID: options.EventID, ReapplyExcludeTypes: exclude, RequestID: options.RequestID,
 	})
 	return newRunID, mapError(callOther, err)
 }

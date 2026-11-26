@@ -71,7 +71,7 @@ func (s *Server) propagateChildWorkflowClose(ctx context.Context, childRunID, pa
 		return nil // 已终态，无新进展
 	}
 	postCommitCtx := context.WithoutCancel(ctx)
-	return s.scheduleWorkflowTaskIfRunning(postCommitCtx, parentRunID)
+	return s.scheduleWorkflowTask(postCommitCtx, parentRunID)
 }
 
 // enforceParentClosePolicy 对已关闭的父 Run 仍在运行的子 Workflow 执行各自的父关闭策略。子关联读持久化的

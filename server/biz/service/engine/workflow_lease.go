@@ -150,7 +150,7 @@ func (s *Server) withWorkflowLease(ctx context.Context, namespace, workflowID, r
 		if act.AfterSignal {
 			return s.scheduleWorkflowTaskAfterSignal(postCommitCtx, ref.ID)
 		}
-		return s.scheduleWorkflowTaskIfRunning(postCommitCtx, ref.ID)
+		return s.scheduleWorkflowTask(postCommitCtx, ref.ID)
 	}
 	return nil
 }
@@ -245,7 +245,7 @@ func (s *Server) startOrAcceptUpdate(
 		return "", txErr
 	}
 	if scheduled {
-		if e := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), currentID); e != nil {
+		if e := s.scheduleWorkflowTask(context.WithoutCancel(ctx), currentID); e != nil {
 			return "", e
 		}
 	}
@@ -333,7 +333,7 @@ func (s *Server) startOrSignal(
 	}
 	// 锁内、事务外调度（幂等：已有 open WFT 则 no-op）。重试 Run 的退避期内也立即调度：同 Temporal
 	// signalwithstartworkflow 在 EnableSignalWithStartWorkflowTaskBackoff 默认关闭时的行为，与普通 Signal 不同。
-	if e := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), currentID); e != nil {
+	if e := s.scheduleWorkflowTask(context.WithoutCancel(ctx), currentID); e != nil {
 		return "", 0, e
 	}
 	return currentID, eventID, nil

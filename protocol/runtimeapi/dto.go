@@ -227,6 +227,8 @@ type WorkflowRuntimeResetRequest struct {
 	ResetType           string   `json:"reset_type,omitempty"`
 	ResetEventID        int64    `json:"reset_event_id,omitempty"`
 	ReapplyExcludeTypes []string `json:"reapply_exclude_types,omitempty"`
+	// RequestID 是可选的幂等键：同一个 Run 上带同一个 request_id 的 Reset 只生效一次，重复的请求返回第一次 reset 出的 Run。
+	RequestID string `json:"request_id,omitempty"`
 }
 
 // WorkflowRuntimeResetActivityRequest 按 ActivityID 寻址 Run 里一个未关闭的 Activity。

@@ -37,6 +37,9 @@ func DedupeKey(event Event) (string, bool) {
 		return "workflow_update_completed:" + event.WorkflowUpdateCompleted.UpdateID, true
 	case typ == EventChildWorkflowStarted && event.ChildWorkflowStarted != nil:
 		return "child_workflow_started:" + event.ChildWorkflowStarted.ChildID, true
+	case typ == EventWorkflowTaskFailed && event.WorkflowTaskFailed != nil && event.WorkflowTaskFailed.RequestID != "":
+		// reset 标记写在 reset 出的 Run 的 branch 上，按 Reset 请求的 RequestID 查得到这次 reset。
+		return "reset_request:" + event.WorkflowTaskFailed.RequestID, true
 	case typ == EventWorkflowSignaled && event.WorkflowSignaled != nil && event.WorkflowSignaled.RequestID != "":
 		return "workflow_signaled:" + event.WorkflowSignaled.RequestID, true
 	default:

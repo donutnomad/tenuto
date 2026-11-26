@@ -63,7 +63,7 @@ Batch 的状态只描述 Batch 本身：批量取消在全部取消请求发出�
   - reset：Run 的最新 Reset 产生的新 Run 晚于 Batch 创建时，视为已 Reset，计入 `skipped_count`。
 
   因此恢复后的计数准确，但上一任驱动在崩溃前完成的那部分动作可能计入 `skipped_count` 而不是 `succeeded_count`。
-- 租约切换的瞬间两个副本都可能认为自己是 leader。记录带版本号，保存基于过期读取时被拒绝：落后的驱动丢弃自己那一页的结果并停下，计数不重复；最坏情况下同一页的动作执行两次，与崩溃重做相同。
+- 租约切换的瞬间两个副本都可能认为自己是 leader。记录带版本号，保存基于过期读取时被拒绝：落后的驱动丢弃自己那一页的结果并停下，计数不重复。两个驱动同时处理同一页时，terminate 与 cancel 的第二次执行按上面的规则不重复生效；reset 带确定性的 `request_id`（由 Batch ID 与 Run ID 组成，对应 Temporal batcher 的 `deterministicRequestID`），Server 按它去重，第二次执行返回第一次 reset 出的 Run，同一个 Run 不会被 reset 两次。
 
 ## 取消 Batch
 

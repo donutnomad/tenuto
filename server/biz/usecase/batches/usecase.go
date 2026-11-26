@@ -240,7 +240,8 @@ func (u *UseCase) applyPage(ctx context.Context, op *batch.Operation, page execu
 // apply 对一个 Run 执行动作。重做一页时每种动作都不会重复生效：
 //   - cancel：已结束的 Run 跳过；已请求过取消的 Run 再次请求不追加事件，计为成功（取消已请求）。
 //   - terminate：已结束的 Run（包括上一次已终止的）跳过。
-//   - reset：Run 的 ResetRunID 指向批量操作创建之后产生的 Run 时视为已 Reset，跳过。
+//   - reset：Run 的 ResetRunID 指向批量操作创建之后产生的 Run 时视为已 Reset，跳过；读到之后才被 Reset 的
+//     （两个重叠的驱动处理同一页）由 Reset 的 RequestID（batch ID 与 Run ID）在 Server 上去重，返回第一次的结果。
 //
 // 动作失败而 Run 已经结束（与其他关闭路径竞争）时，cancel 与 terminate 计为跳过。
 func (u *UseCase) apply(ctx context.Context, op *batch.Operation, run *execution.Run) (outcome, error) {
@@ -250,6 +251,7 @@ func (u *UseCase) apply(ctx context.Context, op *batch.Operation, run *execution
 		}
 		_, err := u.actions.ResetWorkflow(ctx, execution.ResetWorkflowRequest{
 			Namespace: run.Namespace, RunID: run.ID, Reason: op.Reason, ResetType: op.ResetType,
+			RequestID: op.ResetRequestID(run.ID),
 		})
 		if err != nil {
 			return failed, err
