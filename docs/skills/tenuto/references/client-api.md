@@ -24,7 +24,7 @@ SDK 在传输层统一重试瞬时错误（Server 滚动重启、网关切换）
 | 连接没有建立、HTTP 429 / 503 | 重试 | 重试 |
 | 连接中断、读应答中断、HTTP 502 / 504 | 重试 | 不重试 |
 
-- 可以重发：`ExecuteWorkflow`（SDK 生成 request ID，`ID` 为空时也生成 Workflow ID；Server 对同一 request ID 返回第一次启动的 Run，Run 已结束也一样）、`SignalWorkflow` / `SignalWithStartWorkflow`（request ID：同一 Run 上只记一条 Signal）、Update（`UpdateID` 为空时 SDK 生成）、`CancelWorkflow`、`TerminateWorkflow` 与 Schedule 的 `Delete`（第一次应答丢失时重发报告 Run 已结束 / Schedule 不存在）、`UpsertSearchAttributes`、`UpdateWorkflowExecutionOptions`、Schedule 的 `Update` / `Pause` / `Unpause`、`StopBatchOperation`、全部读取与长轮询（`Get`、Update 句柄的 `Get`、Worker poll），以及 Worker 的任务上报（task token 定界）。
+- 可以重发：`ExecuteWorkflow`（SDK 生成 request ID，`ID` 为空时也生成 Workflow ID；Server 对同一 request ID 返回这次启动开启的 Run 链的 current Run，失败重试、continue-as-new 之后是接替的 Run，链已结束也一样）、`SignalWorkflow` / `SignalWithStartWorkflow`（request ID：同一 Run 上只记一条 Signal）、Update（`UpdateID` 为空时 SDK 生成）、`CancelWorkflow`、`TerminateWorkflow` 与 Schedule 的 `Delete`（第一次应答丢失时重发报告 Run 已结束 / Schedule 不存在）、`UpsertSearchAttributes`、`UpdateWorkflowExecutionOptions`、Schedule 的 `Update` / `Pause` / `Unpause`、`StopBatchOperation`、全部读取与长轮询（`Get`、Update 句柄的 `Get`、Worker poll），以及 Worker 的任务上报（task token 定界）。
 - 再执行一次：`ResetWorkflowExecution`、Schedule 的 `Create` 与 `Trigger`、`StartBatchOperation`。遇到连接中断 / 502 / 504 时先读状态确认第一次是否生效，再决定是否重发。
 - 应用代码自己再调用一次 `SignalWorkflow` 是另一个 Signal（新的 request ID）；需要跨进程去重时在 Signal 载荷里带业务幂等键。
 - Worker 轮询在重试用尽后再按 100ms 起、最长 10s 退避；一段连续失败只记一条 WARN（`poll failed; retrying with backoff`），其余 DEBUG，恢复时 INFO（`poll recovered`）。

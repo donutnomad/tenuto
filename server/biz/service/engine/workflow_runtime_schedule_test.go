@@ -74,7 +74,7 @@ func TestScheduleSkipFollowsTheContinuedRun(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	server, clk := newFakeClockServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	defer server.Stop()
-	ref := registerScheduleWorkflow(t, server, "wf-skip-chain")
+	registerScheduleWorkflow(t, server, "wf-skip-chain")
 	uc := server.ScheduleUseCase()
 
 	created, err := uc.Create(schedules.CreateRequest{WorkflowType: "wf-skip-chain", CronExpression: "*/5 * * * *", OverlapPolicy: "SKIP"})
@@ -91,10 +91,7 @@ func TestScheduleSkipFollowsTheContinuedRun(t *testing.T) {
 	assertScheduleRun(t, mgr, first.LastRunID, created.RunWorkflowID(firstDue), "wf-skip-chain", history.StatusRunning)
 
 	// 上一次触发的 Run continue-as-new：LastRunID 已结束，接续的 Run 仍在运行。
-	continuedID := execution.NewID()
-	if err := server.startContinuedRunWithRef(ctx, first.LastRunID, continuedID, nil, ref); err != nil {
-		t.Fatal(err)
-	}
+	continuedID := continueAsNewForTest(t, server, mgr, first.LastRunID, nil)
 	if status, _ := server.GetRunStatus(first.LastRunID); status != history.StatusContinuedAsNew {
 		t.Fatalf("last run status = %s, want continued-as-new", status)
 	}

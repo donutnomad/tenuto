@@ -141,6 +141,57 @@ func TransactionContract(t *testing.T, newManager func(t *testing.T) execution.E
 			t.Errorf("reset link not stored: %+v err=%v", run, err)
 		}
 	})
+
+	// 终态事件之后 History 不再接受事件：重复的终态写入按去重返回已记录的事件，其余追加返回 ErrRunClosed。
+	t.Run("ClosedRunRejectsAppends", func(t *testing.T) {
+		manager := newManager(t)
+		const runID = "run-closed"
+		createContractRun(t, manager, runID)
+		if _, err := manager.Append(runID, runID, runID, started(runID)); err != nil {
+			t.Fatal(err)
+		}
+		completedID, inserted, err := manager.AppendIdempotent(runID, runID, runID, history.NewWorkflowCompletedEvent(nil))
+		if err != nil || !inserted {
+			t.Fatalf("append terminal event: inserted=%v err=%v", inserted, err)
+		}
+
+		if id, inserted, err := manager.AppendIdempotent(runID, runID, runID, history.NewWorkflowCompletedEvent(nil)); err != nil || inserted || id != completedID {
+			t.Errorf("duplicate terminal append = id:%d inserted:%v err:%v; want the recorded event %d", id, inserted, err, completedID)
+		}
+		if _, err := manager.Append(runID, runID, runID, history.NewWorkflowSignaledEvent("late", nil)); !errors.Is(err, execution.ErrRunClosed) {
+			t.Errorf("signal after terminal: err = %v, want ErrRunClosed", err)
+		}
+		if _, _, err := manager.AppendIdempotent(runID, runID, runID, history.NewTimerScheduledEvent("late", nil, 0)); !errors.Is(err, execution.ErrRunClosed) {
+			t.Errorf("deduped event after terminal: err = %v, want ErrRunClosed", err)
+		}
+		if _, _, err := manager.AppendWorkflowTaskScheduled(runID, runID, runID, history.NewWorkflowTaskScheduledEvent(1000)); !errors.Is(err, execution.ErrRunClosed) {
+			t.Errorf("workflow task after terminal: err = %v, want ErrRunClosed", err)
+		}
+
+		// 同一事务里先写终态再写别的事件：后一次追加被拒，整个事务回滚。
+		const sameTxRunID = "run-closed-same-tx"
+		createContractRun(t, manager, sameTxRunID)
+		err = manager.RunInTx(func(tx execution.ExecutionTx) error {
+			if _, err := tx.Append(sameTxRunID, sameTxRunID, sameTxRunID, history.NewWorkflowCompletedEvent(nil)); err != nil {
+				return err
+			}
+			_, err := tx.Append(sameTxRunID, sameTxRunID, sameTxRunID, history.NewWorkflowSignaledEvent("late", nil))
+			return err
+		})
+		if !errors.Is(err, execution.ErrRunClosed) {
+			t.Fatalf("append after terminal in the same tx: err = %v, want ErrRunClosed", err)
+		}
+		if events, err := manager.GetEvents(sameTxRunID); err != nil || len(events) != 0 {
+			t.Errorf("rolled back tx left events %d err=%v", len(events), err)
+		}
+		events, err := manager.GetEvents(runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) != 2 || events[1].ID != completedID {
+			t.Errorf("closed run history changed: %d events", len(events))
+		}
+	})
 }
 
 // RunReadUnderLockContract 断言 ExecutionTx.GetRunForUpdate 的语义：读到本事务自己的写入；读到在它之前提交的、

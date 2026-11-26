@@ -14,7 +14,7 @@ import (
 // prepareWorkflowFailure 在事务外决定 run 失败后重试还是终结，返回要落库的 WorkflowFailed 事件。
 // 配置了 RetryPolicy 时事件的 RetryState 记录这次决定：重试时为 InProgress，不再重试时说明原因
 // （NonRetryableFailure、MaximumAttemptsReached、Timeout）。重试时 retryRunID 非空，事件带 NewExecutionRunID：
-// 事件落库后，建重试 run 这一步由 startRetryRun 完成，失败时 reconcileRun 按事件里的 NewExecutionRunID 重做。
+// 重试 run 由调用方用 prepareRetryRun 备好，与 WorkflowFailed 同事务提交（execution.CommitRetryRun）。
 func (s *Server) prepareWorkflowFailure(runID string, failure protocol.Failure, timeoutType string) (failed history.Event, retryRunID string, err error) {
 	failed, err = history.NewWorkflowFailedFailureEvent(failure, timeoutType)
 	if err != nil {
@@ -78,6 +78,7 @@ func (s *Server) prepareRetryRun(ctx context.Context, oldRunID, retryRunID strin
 	if err != nil {
 		return retryRunStart{}, err
 	}
+	startedEvent.WorkflowStarted.RequestID = execution.StartRequestID(oldEvents)
 	backoff := execution.WorkflowRetryBackoff(wfCfg.RetryPolicy, oldRun.Attempt)
 	oldTreeID, oldBranchID, err := runBranchInfoFromRun(oldRun)
 	if err != nil {
@@ -103,21 +104,4 @@ func (s *Server) activateRetryRun(start retryRunStart) {
 	s.startDurableTimer(timer.RunID, timer.ScheduledEventID, timer.Deadline)
 	// 新 run 继承 execution deadline，run deadline 随新 run 写入。
 	s.armRunTimers(start.commit.NewRun)
-}
-
-// startRetryRun 为已落 WorkflowFailed（带 NewExecutionRunID）的旧 run 建重试 run：
-// 同一事务内把旧 run 置 Failed、切 current、建新 run 并持久化 backoff timer。
-func (s *Server) startRetryRun(ctx context.Context, oldRunID, retryRunID string) error {
-	start, err := s.prepareRetryRun(ctx, oldRunID, retryRunID)
-	if err != nil {
-		return err
-	}
-	if err := s.telemetry.runInTx(ctx, "start_retry_run", s.mgr, func(tx execution.ExecutionTx) error {
-		_, err := execution.CommitRetryRun(tx, start.commit)
-		return err
-	}); err != nil {
-		return err
-	}
-	s.activateRetryRun(start)
-	return nil
 }

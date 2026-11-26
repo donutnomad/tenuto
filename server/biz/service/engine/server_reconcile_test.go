@@ -18,10 +18,8 @@ import (
 // 提交后动作失败的可恢复性与周期补偿（reconcileRun）
 // ============================================
 // 测试策略:
-// - Error Case: CmdFailWorkflow 的重试 run 创建失败 → 终态已随 WFT 落库，周期补偿补建重试 run。
 // - Error Case: WorkflowFailed 写入失败 → WFT 提交整体回滚，同一次完成可重试。
 // - Error Case: 子 run 启动失败不中断其余命令；周期补偿补建子 run。
-// - Error Case: continue-as-new 接续 run 创建失败 → 周期补偿补建。
 // - Error Case: 子终态向父传播失败 → 周期补偿经父的 open child state 补传播。
 // - Edge Case: 事件已提交、WFT 未调度 → 周期补偿补调度；重试退避期内不提前调度。
 // - Edge Case: 单个 run 补偿失败不影响其余 run；ctx 取消时停止扫描。
@@ -67,79 +65,6 @@ func retryRunIDForTest(t *testing.T, mgr execution.ExecutionManager, runID strin
 	}
 	t.Fatalf("run %s has no WorkflowFailed event", runID)
 	return ""
-}
-
-// Error Case: 重试 run 创建失败时，run 不再停在「WFT 已完成、没有终态」；周期补偿补建重试 run。
-func TestFailWorkflowCommand_RetryRunStartFailureIsRepairedByReconcile(t *testing.T) {
-	ctx := context.Background()
-	srv, mgr := newFailingServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{
-		Program:     programtest.Noop(),
-		Type:        "wf-fail-retry-start-error",
-		RetryPolicy: &program.RetryPolicy{MaxAttempts: 3, InitialInterval: "1h"},
-	})
-	wftID := openWorkflowTaskForTest(t, mgr, runID)
-
-	// 重试 run 的 WorkflowStarted 写入失败 → 建重试 run 的事务回滚。
-	mgr.failOn(historypkg.EventWorkflowStarted)
-	err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, []historypkg.Command{{Type: historypkg.CmdFailWorkflow, Error: "boom"}}, "")
-	mgr.failOn("")
-	if err == nil {
-		t.Fatal("expected the retry run start failure to be returned")
-	}
-
-	status, err := srv.GetRunStatus(runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status != historypkg.StatusFailed {
-		t.Fatalf("expected WorkflowFailed committed with the workflow task, got status %s", status)
-	}
-	retryRunID := retryRunIDForTest(t, mgr, runID)
-	if retryRunID == "" {
-		t.Fatal("expected WorkflowFailed to carry the retry run id")
-	}
-	if srv.runExists(retryRunID) {
-		t.Fatal("retry run must not exist after its transaction failed")
-	}
-	if stored, _ := mgr.Get(runID); stored.Status != historypkg.StatusRunning {
-		t.Fatalf("run row must stay running until the retry run exists, got %s", stored.Status)
-	}
-
-	if _, err := srv.DispatchPendingTasks(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	retryRun, err := mgr.Get(retryRunID)
-	if err != nil {
-		t.Fatalf("expected reconcile to create the retry run: %v", err)
-	}
-	if retryRun.Attempt != 2 || retryRun.Initiator != execution.InitiatorEnums.Retry {
-		t.Fatalf("unexpected retry run: attempt=%d initiator=%s", retryRun.Attempt, retryRun.Initiator)
-	}
-	if stored, _ := mgr.Get(runID); stored.Status != historypkg.StatusFailed {
-		t.Fatalf("expected old run to become failed with the retry run, got %s", stored.Status)
-	}
-	timers, err := mgr.ListTimerStates(retryRunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(timers) != 1 || timers[0].Kind != execution.TimerKindEnums.RetryBackoff {
-		t.Fatalf("expected one retry backoff timer, got %+v", timers)
-	}
-
-	// 退避期内再跑一轮：不重复建 run，也不提前调度重试 run 的首个 WFT。
-	if _, err := srv.DispatchPendingTasks(ctx); err != nil {
-		t.Fatal(err)
-	}
-	retryHistory, _ := mgr.GetEvents(retryRunID)
-	if countEngineEvents(retryHistory, historypkg.EventWorkflowTaskScheduled) != 0 {
-		t.Fatalf("retry run must wait for its backoff timer, got history %+v", retryHistory)
-	}
-	oldHistory, _ := mgr.GetEvents(runID)
-	if countEngineEvents(oldHistory, historypkg.EventWorkflowFailed) != 1 {
-		t.Fatalf("expected exactly one WorkflowFailed, got %d", countEngineEvents(oldHistory, historypkg.EventWorkflowFailed))
-	}
 }
 
 // Error Case: WorkflowFailed 写不进去时 WFT 完成一起回滚，同一次完成重试后成功。
@@ -203,41 +128,6 @@ func TestWorkflowTaskPostCommit_ChildStartFailureKeepsRemainingCommands(t *testi
 	}
 	if !srv.runExists(states[0].ChildRunID) {
 		t.Fatal("expected reconcile to start the child run")
-	}
-}
-
-// Error Case: continue-as-new 的接续 run 创建失败 → 周期补偿补建并把旧 run 置 ContinuedAsNew。
-func TestReconcileStartsMissingContinuedRun(t *testing.T) {
-	ctx := context.Background()
-	srv, mgr := newFailingServerForTest(t)
-	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-continue-start-error", Program: programtest.Noop()})
-	wftID := openWorkflowTaskForTest(t, mgr, runID)
-
-	mgr.failOn(historypkg.EventWorkflowStarted)
-	err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, []historypkg.Command{{Type: historypkg.CmdContinueAsNew, Input: map[string]any{"page": int64(2)}}}, "")
-	mgr.failOn("")
-	if err == nil {
-		t.Fatal("expected the continued run start failure to be returned")
-	}
-	if stored, _ := mgr.Get(runID); stored.Status != historypkg.StatusRunning {
-		t.Fatalf("run row must stay running until the continued run exists, got %s", stored.Status)
-	}
-
-	if _, err := srv.DispatchPendingTasks(ctx); err != nil {
-		t.Fatal(err)
-	}
-	history, _ := mgr.GetEvents(runID)
-	var nextRunID string
-	for _, event := range history {
-		if event.WorkflowContinuedAsNew != nil {
-			nextRunID = event.WorkflowContinuedAsNew.NextRunID
-		}
-	}
-	if nextRunID == "" || !srv.runExists(nextRunID) {
-		t.Fatalf("expected reconcile to start the continued run %q", nextRunID)
-	}
-	if stored, _ := mgr.Get(runID); stored.Status != historypkg.StatusContinuedAsNew {
-		t.Fatalf("expected old run continued-as-new, got %s", stored.Status)
 	}
 }
 
@@ -345,11 +235,12 @@ func TestReconcileRunningRuns_OneFailingRunDoesNotStopOthers(t *testing.T) {
 		t.Fatal(err)
 	}
 	goodWFT := appendOpenWorkflowTaskForTest(t, mgr, good.ID)
-	closed := &execution.Run{ID: "run-reconcile-closed", WorkflowID: "wf-closed", WorkflowType: "wf-closed", Status: historypkg.StatusCompleted, CreatedAt: now.Add(2 * time.Millisecond)}
+	closed := &execution.Run{ID: "run-reconcile-closed", WorkflowID: "wf-closed", WorkflowType: "wf-closed", Status: historypkg.StatusRunning, CreatedAt: now.Add(2 * time.Millisecond)}
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(closed)) }); err != nil {
 		t.Fatal(err)
 	}
 	appendOpenWorkflowTaskForTest(t, mgr, closed.ID)
+	markRunTerminalForTest(t, mgr, closed.ID, historypkg.StatusCompleted, nil)
 
 	result, err := srv.DispatchPendingTasks(ctx)
 	if err == nil || !strings.Contains(err.Error(), bad.ID) {

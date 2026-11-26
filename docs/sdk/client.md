@@ -80,7 +80,7 @@ c, err := client.Dial(client.Options{
 
 | 调用 | 归类 | 原因 |
 | --- | --- | --- |
-| `ExecuteWorkflow` | 可以重发 | SDK 为每次调用生成 request ID（`ID` 为空时同时生成 Workflow ID），Server 认出重发的启动，返回第一次启动的 Run，Run 已经结束也一样 |
+| `ExecuteWorkflow` | 可以重发 | SDK 为每次调用生成 request ID（`ID` 为空时同时生成 Workflow ID），Server 认出重发的启动，返回这次启动开启的 Run 链的 current Run（失败重试、Continue-As-New 之后是接替的 Run），链已经结束也一样 |
 | `SignalWorkflow`、`SignalWithStartWorkflow` | 可以重发 | SDK 为每次调用生成 request ID，同一个 Run 上同一个 request ID 只记一条 `WorkflowSignaled` |
 | `UpdateWorkflow`、`UpdateWithStartWorkflow`、Update 句柄的 `Get` | 可以重发 | `UpdateID` 为空时 SDK 生成，Server 按 Update ID 去重 |
 | `CancelWorkflow` | 可以重发 | 已请求过取消时返回成功 |

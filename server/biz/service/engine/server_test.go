@@ -790,11 +790,12 @@ func TestServerIgnoresWorkflowTaskTimeoutAfterTerminalHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	taskCtx := server.WorkflowTaskContext(ctx, run.ID, scheduledEventID)
 	if _, err := mgr.Append(run.ID, run.ID, run.ID, historypkg.NewWorkflowCancelledEvent(nil)); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := server.HandleWorkflowTaskTimedOut(server.WorkflowTaskContext(ctx, run.ID, scheduledEventID), run.ID, scheduledEventID, "timeout"); err != nil {
+	if err := server.HandleWorkflowTaskTimedOut(taskCtx, run.ID, scheduledEventID, "timeout"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1455,7 +1456,7 @@ func TestServerRecoveryPropagatesClosedChildWorkflowToParent(t *testing.T) {
 		ParentRunID:            parent.ID,
 		ParentChildID:          "child_1",
 		ParentScheduledEventID: childStartedID,
-		Status:                 historypkg.StatusCompleted,
+		Status:                 historypkg.StatusRunning,
 		Output:                 map[string]any{"ok": true},
 		CreatedAt:              time.Now(),
 	}
@@ -1478,6 +1479,7 @@ func TestServerRecoveryPropagatesClosedChildWorkflowToParent(t *testing.T) {
 	if _, err := mgr.Append(child.ID, child.ID, child.ID, historypkg.NewWorkflowCompletedEvent(child.Output)); err != nil {
 		t.Fatal(err)
 	}
+	markRunTerminalForTest(t, mgr, child.ID, historypkg.StatusCompleted, child.Output)
 
 	if err := server.RecoverRunningWorkflows(ctx); err != nil {
 		t.Fatal(err)
@@ -1492,76 +1494,6 @@ func TestServerRecoveryPropagatesClosedChildWorkflowToParent(t *testing.T) {
 	}
 	if len(workflowTasks.tasks) == 0 {
 		t.Fatal("expected parent workflow task after recovered child completion")
-	}
-}
-
-func TestServerRecoveryCreatesMissingContinueAsNewRunFromHistory(t *testing.T) {
-	ctx := context.Background()
-	mgr := memory.NewExecutionManager()
-	workflowTasks := newTestTaskQueue()
-	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
-	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		Type:    "recover-continue",
-		Program: programtest.Noop(),
-		Activities: map[string]programpkg.ActivityRef{
-			"old-step": {Symbol: "old-step", Type: "old.Activity"},
-		},
-	})
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := &execution.Run{
-		ID:                    "run-recover-continue",
-		WorkflowID:            "recover-execution-1",
-		WorkflowType:          ref.WorkflowType,
-		WorkflowConfigVersion: ref.Version,
-		FirstRunID:            "run-recover-continue",
-		Status:                historypkg.StatusRunning,
-		IsCurrent:             true, // 旧 run 是 current（recovery 重建 CAN 切代 expectedOld=旧run 需其为 current）
-		CreatedAt:             time.Now(),
-	}
-	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(run)) }); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := mgr.Append(run.ID, run.ID, run.ID, historypkg.NewWorkflowStartedEvent(nil, "", "", "", "", 0)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := mgr.Append(run.ID, run.ID, run.ID, historypkg.NewWorkflowContinuedAsNewEvent(ref.WorkflowType, "run-recovered-continue-next", ref.Version, map[string]any{"generation": int64(2)})); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &programpkg.WorkflowConfig{
-		Type:    "recover-continue",
-		Program: programtest.Noop(),
-		Activities: map[string]programpkg.ActivityRef{
-			"new-step": {Symbol: "new-step", Type: "new.Activity"},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := server.RecoverRun(ctx, run.ID); err != nil {
-		t.Fatal(err)
-	}
-	next, err := mgr.Get("run-recovered-continue-next")
-	if err != nil || next.WorkflowID != "recover-execution-1" || next.WorkflowType != "recover-continue" {
-		t.Fatalf("expected continue-as-new run to be recovered, got %+v", next)
-	}
-	if next.WorkflowConfigVersion != ref.Version {
-		t.Fatalf("recovered continue-as-new run should use history config version %s, got %+v", ref.Version, next)
-	}
-	if next.FirstRunID != run.ID {
-		t.Fatalf("recovered run FirstRunID should be %s, got %s", run.ID, next.FirstRunID)
-	}
-	if next.ContinuedRunID != run.ID {
-		t.Fatalf("recovered run ContinuedRunID should be %s, got %s", run.ID, next.ContinuedRunID)
-	}
-	nextHistory, err := mgr.GetEvents("run-recovered-continue-next")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if countEngineEvents(nextHistory, historypkg.EventWorkflowStarted) != 1 || countEngineEvents(nextHistory, historypkg.EventWorkflowTaskScheduled) != 1 {
-		t.Fatalf("unexpected next history: %+v", nextHistory)
 	}
 }
 

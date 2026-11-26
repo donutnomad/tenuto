@@ -10,7 +10,6 @@ import (
 
 	"github.com/donutnomad/tenuto/program"
 	"github.com/donutnomad/tenuto/program/programtest"
-	"github.com/donutnomad/tenuto/server/biz/domain/definition"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 	"github.com/donutnomad/tenuto/server/infra/memory"
 )
@@ -55,15 +54,7 @@ func TestExecutionTimeoutNotResetOnContinueAsNew(t *testing.T) {
 	// 时间前进后 continue-as-new：按新时刻重算会得到不同的 deadline。
 	clk.Advance(200 * time.Millisecond)
 	// 创建 continue-as-new run，继承旧 run 的 DeadlineAt
-	run2ID := execution.NewID()
-	err = server.startContinuedRunWithRef(ctx, run1ID, run2ID, nil, definition.WorkflowConfigRef{
-		Namespace:    ref.Namespace,
-		WorkflowType: ref.WorkflowType,
-		Version:      ref.Version,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	run2ID := continueAsNewForTest(t, server, mgr, run1ID, nil)
 
 	run2, err := mgr.Get(run2ID)
 	if err != nil {
@@ -113,15 +104,7 @@ func TestRunTimeoutResetsOnContinueAsNew(t *testing.T) {
 	}
 
 	clk.Advance(20 * time.Second)
-	run2ID := execution.NewID()
-	err = server.startContinuedRunWithRef(ctx, run1ID, run2ID, nil, definition.WorkflowConfigRef{
-		Namespace:    ref.Namespace,
-		WorkflowType: ref.WorkflowType,
-		Version:      ref.Version,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	run2ID := continueAsNewForTest(t, server, mgr, run1ID, nil)
 	run2, err := mgr.Get(run2ID)
 	if err != nil {
 		t.Fatal(err)

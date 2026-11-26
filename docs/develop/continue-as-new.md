@@ -71,7 +71,7 @@ if info.GetContinueAsNewSuggested() {
 
 ## Run Segment
 
-每次 Continue-As-New 产生的 Segment 都有独立 Run ID 和 Event History。Workflow ID 把这些 Segment 关联为线性 Run Chain。按 Workflow ID 发送的 Signal、Query 和 Update 解析到 current Run，即最新的 Segment。
+每次 Continue-As-New 产生的 Segment 都有独立 Run ID 和 Event History。Workflow ID 把这些 Segment 关联为线性 Run Chain。按 Workflow ID 发送的 Signal、Query 和 Update 解析到 current Run，即最新的 Segment。上一段的终态事件、它的关闭状态与下一段 Run 在同一个事务里提交，按 Workflow ID 的请求不会落到已关闭的上一段。
 
 Console 和 Trace 提供上一段、当前段、下一段导航。
 

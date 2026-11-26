@@ -180,7 +180,7 @@ func TestResetActivity_NonRunningWorkflowRejected(t *testing.T) {
 		ID:           "run-reset-completed",
 		WorkflowID:   "wf",
 		WorkflowType: "wf",
-		Status:       history.StatusCompleted,
+		Status:       history.StatusRunning,
 		CreatedAt:    time.Now(),
 	}
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(run)) }); err != nil {
@@ -195,6 +195,7 @@ func TestResetActivity_NonRunningWorkflowRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	markRunTerminalForTest(t, mgr, run.ID, history.StatusCompleted, nil)
 
 	err = server.ResetActivity("", run.ID, "step-completed-wf", execution.ResetActivityOptions{})
 	if err == nil {

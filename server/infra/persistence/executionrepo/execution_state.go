@@ -298,6 +298,15 @@ func (t *gormExecutionTx) appendEvent(runID, treeID, branchID string, event hist
 	if err != nil {
 		return 0, false, err
 	}
+	// 终态之后只认已记录过的去重事件（重复的终态写入等），其余追加拒绝。
+	if state.IsTerminal() {
+		if dedupeKey != nil {
+			if id, found, err := findDedupedEventID(db, branchID, *dedupeKey); err != nil || found {
+				return id, false, err
+			}
+		}
+		return 0, false, execution.RunClosedError(runID, event)
+	}
 	// 两个后端的写入顺序相同：没有时间的事件取仓储时钟的当前时刻，归一化失败载荷，带上 ID，编码成 JSON。
 	// 存下的就是这份 JSON，event_size_bytes 与历史限额记账用的是它的长度，读回的事件与它一一对应。
 	event, err = execution.NormalizeEventFailures(execution.StampEvent(event, s.clock.Now()))
@@ -365,16 +374,25 @@ func runNamespace(db *gorm.DB, runID string) (string, error) {
 // dedupedEventID 返回 branch 上已有的同 dedupe key 事件的 node_id。加锁读取最新已提交的行，
 // 不受事务较早建立的一致性读快照影响。
 func dedupedEventID(db *gorm.DB, branchID, dedupeKey string) (int64, error) {
+	id, found, err := findDedupedEventID(db, branchID, dedupeKey)
+	if err != nil {
+		return 0, err
+	}
+	if !found {
+		return 0, fmt.Errorf("append event %s: dedupe key %q conflicted but no event holds it", branchID, dedupeKey)
+	}
+	return id, nil
+}
+
+// findDedupedEventID 加锁读取 branch 上持有 dedupeKey 的事件的 node_id，found=false 表示没有这样的事件。
+func findDedupedEventID(db *gorm.DB, branchID, dedupeKey string) (int64, bool, error) {
 	existing, err := gsql.From[EventPO](EventSchema).
 		Where(
 			EventSchema.BranchID.Eq(branchID),
 			EventSchema.DedupeKey.Eq(&dedupeKey),
 		).ForUpdate().Take(db)
-	if err != nil {
-		return 0, err
+	if err != nil || existing == nil {
+		return 0, false, err
 	}
-	if existing == nil {
-		return 0, fmt.Errorf("append event %s: dedupe key %q conflicted but no event holds it", branchID, dedupeKey)
-	}
-	return existing.NodeID, nil
+	return existing.NodeID, true, nil
 }
