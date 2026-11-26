@@ -184,14 +184,16 @@ func (s *Server) StartWorkflowVersion(ctx context.Context, configRef definition.
 }
 
 // StartWorkflowForCron 由 Schedule 触发，新 Run 标记 Initiator=Cron、带 searchAttributes（Schedule ID 与名义触发时间）。
-// 启动规则与 StartWorkflow 相同：workflowID 的 current Run 仍在进行时返回 ErrCurrentRunConflict，触发不会接替运行中的 Run。
+// workflowID 由 Schedule ID 与到期点确定，同时用作 requestID：同一个到期点重复触发（上一次启动已提交、推进 NextRunAt
+// 之前进程退出）返回已启动的 Run。其余启动规则与 StartWorkflow 相同：workflowID 的 current Run 仍在进行时返回
+// ErrCurrentRunConflict，触发不会接替运行中的 Run。
 func (s *Server) StartWorkflowForCron(ctx context.Context, namespace, workflowType, workflowID string, input map[string]any, searchAttributes map[string]string) (string, error) {
 	if workflowID == "" {
 		return "", protocol.InvalidRequestf("workflow id is empty")
 	}
 	run, err := s.startWorkflow(ctx, startRequest{
 		namespace: namespace, workflowType: workflowType, workflowID: workflowID, input: input,
-		initiator: execution.InitiatorEnums.Cron, searchAttributes: searchAttributes,
+		initiator: execution.InitiatorEnums.Cron, requestID: workflowID, searchAttributes: searchAttributes,
 	})
 	if err != nil {
 		return "", err

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/donutnomad/gsql"
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -100,4 +101,16 @@ func ConfigureMySQL(cfg *mysqldriver.Config) error {
 		return fmt.Errorf("MySQL DSN with interpolateParams=true: %w", err)
 	}
 	return nil
+}
+
+// Find 执行 gsql 列表查询并返回全部行，读取结果集的错误照常返回。gsql 的 QueryBuilderG.Find 在读取第一行失败
+// （如连接中断）时只看到 0 行，返回空结果、丢弃错误，仓储会把它当成「不存在」。这里用 gsql 生成的同一条 SQL
+// 经 gorm 的 Scan 执行，Scan 返回 rows.Err()。没有行时返回 nil。
+func Find[T any](db gsql.IDB, query *gsql.QueryBuilderG[T]) ([]*T, error) {
+	expr := query.ToExpr()
+	var rows []*T
+	if err := db.Session(&gorm.Session{Initialized: true}).Raw(expr.SQL, expr.Vars...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
 }

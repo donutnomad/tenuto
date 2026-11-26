@@ -87,7 +87,7 @@ func (s *Repository) AcquireTaskDispatch(task protocol.Task, leaseTTL time.Durat
 
 	// 回读确认这一轮的赢家是不是自己：lease_id 是本次新生成的 UUID，
 	// 读到它等价于"上面那条语句真的把租约写到了本调用名下"。
-	storedRows, err := taskDispatchQuery(task).Find(s.db)
+	storedRows, err := infradb.Find(s.db, taskDispatchQuery(task))
 	if err != nil {
 		return dispatch.Lease{}, false, err
 	}
@@ -156,7 +156,7 @@ func (s *Repository) ReleaseTaskDispatch(task protocol.Task, errMsg string) erro
 // GetTaskDispatch 读取 task 的派发记录。
 func (s *Repository) GetTaskDispatch(task protocol.Task) (dispatch.State, bool, error) {
 	task = dispatch.NormalizeTask(task)
-	rows, err := taskDispatchQuery(task).Find(s.db)
+	rows, err := infradb.Find(s.db, taskDispatchQuery(task))
 	if err != nil {
 		return dispatch.State{}, false, err
 	}

@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/donutnomad/tenuto/server/biz/domain/schedule"
 	"github.com/donutnomad/tenuto/server/biz/usecase/schedules"
 	"github.com/donutnomad/tenuto/server/infra/memory"
+	"github.com/donutnomad/tenuto/server/infra/systemclock"
 )
 
 // ============================================
@@ -843,7 +846,7 @@ func TestTrigger_StartFailure(t *testing.T) {
 }
 
 func TestFireDue_StartFailureKeepsDueTime(t *testing.T) {
-	// Error Case: 启动 Run 失败时 NextRunAt 恢复为到期点，下一轮扫描重新触发
+	// Error Case: 启动 Run 失败时 NextRunAt 保持为到期点，下一轮扫描重新触发
 	store := memory.NewScheduleRepository()
 	firer := newFakeFirer(store)
 	due := time.Now().Add(-1 * time.Minute).Truncate(time.Millisecond)
@@ -860,7 +863,7 @@ func TestFireDue_StartFailureKeepsDueTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.NextRunAt == nil || !got.NextRunAt.Equal(due) {
-		t.Fatalf("expected next_run_at restored to %v after a failed start, got %v", due, got.NextRunAt)
+		t.Fatalf("expected next_run_at kept at %v after a failed start, got %v", due, got.NextRunAt)
 	}
 
 	firer.mu.Lock()
@@ -875,6 +878,87 @@ func TestFireDue_StartFailureKeepsDueTime(t *testing.T) {
 	if got.RunCount != 1 || got.NextRunAt == nil || !got.NextRunAt.After(time.Now()) {
 		t.Fatalf("expected the retried fire to record the run and advance next_run_at, got run_count=%d next_run_at=%v", got.RunCount, got.NextRunAt)
 	}
+}
+
+// 启动 Run 时 NextRunAt 仍是这次到期点：启动之后、推进之前进程退出时这次触发不会丢失。
+func TestFireDue_StartsBeforeAdvancingNextRunAt(t *testing.T) {
+	store := memory.NewScheduleRepository()
+	due := time.Now().Add(-1 * time.Minute).Truncate(time.Millisecond)
+	if err := store.CreateSchedule(newTestSchedule("sch-order", "wf-order", "0 0 * * *", "ALLOW_ALL", &due)); err != nil {
+		t.Fatal(err)
+	}
+	firer := &nextRunAtObservingFirer{fakeFirer: newFakeFirer(store), store: store, scheduleID: "sch-order"}
+	schedules.NewUseCase(store, firer, systemclock.Clock{}, slog.New(slog.DiscardHandler)).FireDue(context.Background())
+
+	if firer.observed == nil || !firer.observed.Equal(due) {
+		t.Fatalf("next_run_at when the run started = %v, want the due time %v", firer.observed, due)
+	}
+}
+
+// 推进 NextRunAt 失败（模拟启动后、推进前进程退出）：下一轮扫描以同一个 Workflow ID 再次启动，Run 只记录一次。
+func TestFireDue_RetriesTheSameFireTimeWhenAdvanceFails(t *testing.T) {
+	store := memory.NewScheduleRepository()
+	due := time.Now().Add(-1 * time.Minute).Truncate(time.Millisecond)
+	if err := store.CreateSchedule(newTestSchedule("sch-crash", "wf-crash", "0 0 * * *", "ALLOW_ALL", &due)); err != nil {
+		t.Fatal(err)
+	}
+	failing := &casErrorStore{Repository: store, fail: true}
+	firer := newFakeFirer(failing)
+	uc := newTestUseCase(firer)
+
+	uc.FireDue(context.Background())
+	got, err := store.GetSchedule("default", "sch-crash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.NextRunAt == nil || !got.NextRunAt.Equal(due) || got.RunCount != 0 {
+		t.Fatalf("after the failed advance: next_run_at=%v run_count=%d, want %v and 0", got.NextRunAt, got.RunCount, due)
+	}
+
+	failing.fail = false
+	uc.FireDue(context.Background())
+	got, err = store.GetSchedule("default", "sch-crash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RunCount != 1 || got.NextRunAt == nil || !got.NextRunAt.After(time.Now()) {
+		t.Fatalf("after the retry: run_count=%d next_run_at=%v, want 1 and a future time", got.RunCount, got.NextRunAt)
+	}
+	firer.mu.Lock()
+	defer firer.mu.Unlock()
+	if len(firer.startCalls) != 2 || firer.startCalls[0].workflowID != firer.startCalls[1].workflowID {
+		t.Fatalf("start calls = %+v, want two with the same workflow id", firer.startCalls)
+	}
+}
+
+// nextRunAtObservingFirer 在启动 Run 时读取仓储里的 NextRunAt。
+type nextRunAtObservingFirer struct {
+	*fakeFirer
+	store      schedule.Repository
+	scheduleID string
+	observed   *time.Time
+}
+
+func (f *nextRunAtObservingFirer) StartWorkflowForCron(ctx context.Context, namespace, workflowType, workflowID string, input map[string]any, attributes map[string]string) (string, error) {
+	stored, err := f.store.GetSchedule(namespace, f.scheduleID)
+	if err != nil {
+		return "", err
+	}
+	f.observed = stored.NextRunAt
+	return f.fakeFirer.StartWorkflowForCron(ctx, namespace, workflowType, workflowID, input, attributes)
+}
+
+// casErrorStore 在 fail 为 true 时让 UpdateScheduleNextRunAtCAS 返回错误。
+type casErrorStore struct {
+	schedule.Repository
+	fail bool
+}
+
+func (c *casErrorStore) UpdateScheduleNextRunAtCAS(entity *schedule.Schedule, old *time.Time) (bool, error) {
+	if c.fail {
+		return false, errors.New("database unavailable")
+	}
+	return c.Repository.UpdateScheduleNextRunAtCAS(entity, old)
 }
 
 func TestFireDue_RecordsRun(t *testing.T) {

@@ -186,7 +186,8 @@ func GetWorkerStopChannel(ctx context.Context) <-chan struct{} {
 	return runtimectx.WorkerStopFrom(ctx)
 }
 
-// RecordHeartbeat 上报一次心跳并附带进度详情。Workflow 请求取消这个 Activity、Run 已关闭、
+// RecordHeartbeat 上报一次心跳并附带进度详情。Worker 对心跳节流：两次请求的最小间隔为 HeartbeatTimeout 的 80%
+// （未设置时 30s，上限 60s），间隔内的调用只保留最新的 details，间隔结束时发出。Workflow 请求取消这个 Activity、Run 已关闭、
 // 这次 attempt 已超时或被重置时 ctx 被取消。取消只经心跳送达：不心跳的 Activity 只能在返回或超时时结束。
 // Workflow 请求取消后，Activity 返回 ctx.Err() 或 apperror.NewCanceled(details...) 即确认取消
 // （ActivityCancelled）；返回成功仍按完成上报。

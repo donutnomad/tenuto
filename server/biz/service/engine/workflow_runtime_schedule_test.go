@@ -144,22 +144,47 @@ func TestScheduleAllowAllRunsInParallel(t *testing.T) {
 	assertScheduleRun(t, mgr, second.LastRunID, created.RunWorkflowID(firstDue.Add(5*time.Minute)), "wf-allow-all", history.StatusRunning)
 }
 
-// 同一个到期点的 Workflow ID 已有运行中的 Run 时，Schedule 的启动不接替它：返回 ErrCurrentRunConflict。
+// 同一个到期点的 Workflow ID 已有其他启动创建、运行中的 Run 时，Schedule 的启动不接替它：返回 ErrCurrentRunConflict。
 func TestStartWorkflowForCronDoesNotReplaceARunningRun(t *testing.T) {
 	ctx := context.Background()
 	server := newTestServer()
 	defer server.Stop()
 	registerScheduleWorkflow(t, server, "wf-cron-conflict")
 
-	runID, err := server.StartWorkflowForCron(ctx, "", "wf-cron-conflict", "schedule-x-2026-11-10T09:05:00Z", nil, nil)
+	run, err := server.StartWorkflow(ctx, "", "wf-cron-conflict", "schedule-x-2026-11-10T09:05:00Z", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := server.StartWorkflowForCron(ctx, "", "wf-cron-conflict", "schedule-x-2026-11-10T09:05:00Z", nil, nil); !errors.Is(err, execution.ErrCurrentRunConflict) {
-		t.Fatalf("second start: err = %v, want ErrCurrentRunConflict", err)
+		t.Fatalf("cron start: err = %v, want ErrCurrentRunConflict", err)
 	}
-	if status, _ := server.GetRunStatus(runID); status != history.StatusRunning {
+	if status, _ := server.GetRunStatus(run.ID); status != history.StatusRunning {
 		t.Fatalf("first run status = %s, want running", status)
+	}
+}
+
+// 同一个到期点重复触发（启动已提交、推进 NextRunAt 之前进程退出）返回已启动的 Run：运行中与已结束时都不启动第二个 Run。
+func TestStartWorkflowForCronReturnsTheRunOfTheSameFireTime(t *testing.T) {
+	ctx := context.Background()
+	server := newTestServer()
+	defer server.Stop()
+	registerScheduleWorkflow(t, server, "wf-cron-dedupe")
+	const workflowID = "schedule-x-2026-11-10T09:10:00Z"
+
+	runID, err := server.StartWorkflowForCron(ctx, "", "wf-cron-dedupe", workflowID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := server.StartWorkflowForCron(ctx, "", "wf-cron-dedupe", workflowID, nil, nil)
+	if err != nil || again != runID {
+		t.Fatalf("repeated start while running = %s, %v; want %s", again, err, runID)
+	}
+	if err := server.TerminateWorkflow(ctx, "", "", runID, "done"); err != nil {
+		t.Fatal(err)
+	}
+	again, err = server.StartWorkflowForCron(ctx, "", "wf-cron-dedupe", workflowID, nil, nil)
+	if err != nil || again != runID {
+		t.Fatalf("repeated start after the run closed = %s, %v; want %s", again, err, runID)
 	}
 }
 

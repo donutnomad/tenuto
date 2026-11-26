@@ -8,6 +8,7 @@ import (
 	"github.com/donutnomad/gsql"
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/server/biz/domain/dispatch"
+	infradb "github.com/donutnomad/tenuto/server/infra/db"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -46,11 +47,11 @@ func (s *Repository) UpsertActivityWorkerVersionInNamespace(namespace string, wo
 		return protocol.ActivityWorkerVersion{}, fmt.Errorf("marshal activity worker contracts: %w", err)
 	}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		existing, err := gsql.From[ActivityWorkerVersionPO](ActivityWorkerVersionSchema).Where(
+		existing, err := infradb.Find(tx, gsql.From[ActivityWorkerVersionPO](ActivityWorkerVersionSchema).Where(
 			ActivityWorkerVersionSchema.Namespace.Eq(worker.Namespace),
 			ActivityWorkerVersionSchema.Identity.Eq(worker.Identity),
 			ActivityWorkerVersionSchema.BuildID.Eq(worker.BuildID),
-		).Find(tx)
+		))
 		if err != nil {
 			return err
 		}
@@ -138,10 +139,10 @@ func (s *Repository) HeartbeatActivityWorkerVersionInNamespace(namespace, identi
 		ActivityWorkerVersionSchema.BuildID.Eq(buildID),
 	}
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		ttls, err := gsql.PluckG[string](ActivityWorkerVersionSchema.HeartbeatTTL).
+		ttls, err := infradb.Find(tx, gsql.PluckG[string](ActivityWorkerVersionSchema.HeartbeatTTL).
 			From(ActivityWorkerVersionSchema).
 			Where(worker...).
-			Distinct().Find(tx)
+			Distinct())
 		if err != nil {
 			return err
 		}
@@ -197,13 +198,13 @@ func (s *Repository) ListActivityWorkerVersionsOfWorker(namespace, identity stri
 }
 
 func (s *Repository) listRoutes(conditions ...gsql.Expression) ([]protocol.ActivityWorkerVersion, error) {
-	rows, err := gsql.From[ActivityWorkerVersionPO](ActivityWorkerVersionSchema).
+	rows, err := infradb.Find(s.db, gsql.From[ActivityWorkerVersionPO](ActivityWorkerVersionSchema).
 		Where(conditions...).
 		Order(ActivityWorkerVersionSchema.Namespace).
 		Order(ActivityWorkerVersionSchema.ActivityType).
 		Order(ActivityWorkerVersionSchema.BuildID).
 		Order(ActivityWorkerVersionSchema.TaskQueue).
-		Order(ActivityWorkerVersionSchema.Identity).Find(s.db)
+		Order(ActivityWorkerVersionSchema.Identity))
 	if err != nil {
 		return nil, err
 	}

@@ -179,8 +179,8 @@ func (s *Repository) ListOperations(filter batch.ListFilter) ([]*batch.Operation
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := query.Order(BatchOperationSchema.CreatedAt, false).Order(BatchOperationSchema.ID, false).
-		Offset(max(filter.Offset, 0)).Limit(limit).Find(s.db)
+	rows, err := infradb.Find(s.db, query.Order(BatchOperationSchema.CreatedAt, false).Order(BatchOperationSchema.ID, false).
+		Offset(max(filter.Offset, 0)).Limit(limit))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -189,9 +189,9 @@ func (s *Repository) ListOperations(filter batch.ListFilter) ([]*batch.Operation
 }
 
 func (s *Repository) ListActiveOperations() ([]*batch.Operation, error) {
-	rows, err := gsql.From[BatchOperationPO](BatchOperationSchema).
+	rows, err := infradb.Find(s.db, gsql.From[BatchOperationPO](BatchOperationSchema).
 		Where(BatchOperationSchema.Status.In(string(batch.StatusEnums.Pending), string(batch.StatusEnums.Running))).
-		Order(BatchOperationSchema.CreatedAt).Order(BatchOperationSchema.ID).Find(s.db)
+		Order(BatchOperationSchema.CreatedAt).Order(BatchOperationSchema.ID))
 	if err != nil {
 		return nil, err
 	}

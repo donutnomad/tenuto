@@ -108,7 +108,7 @@ cancel() // 只取消 Search
 
 ### Activity 如何得知取消
 
-取消只经 Heartbeat 送达：**Activity 要可取消就必须 Heartbeat**（并配置 `HeartbeatTimeout`）。Workflow 请求取消某个 Activity 后，下一次 `activity.RecordHeartbeat` 的响应带回取消，Worker 取消 Activity 的 `ctx`。Activity 在 `ctx.Done()` 后释放数据库事务、锁、临时文件和第三方会话，然后返回 `ctx.Err()` 或 `apperror.NewCanceled(details...)`（details 写进 `ActivityCancelled`）确认取消；不 Heartbeat 的 Activity 收不到取消，只在自己返回或超时时结束。
+取消只经 Heartbeat 送达：**Activity 要可取消就必须 Heartbeat**（并配置 `HeartbeatTimeout`）。Workflow 请求取消某个 Activity 后，下一次心跳请求的响应带回取消（心跳由 Worker 节流，见 [Heartbeat](/develop/activity-execution#heartbeat)），Worker 取消 Activity 的 `ctx`。Activity 在 `ctx.Done()` 后释放数据库事务、锁、临时文件和第三方会话，然后返回 `ctx.Err()` 或 `apperror.NewCanceled(details...)`（details 写进 `ActivityCancelled`）确认取消；不 Heartbeat 的 Activity 收不到取消，只在自己返回或超时时结束。
 
 Workflow 的取消请求本身不取消任何 Activity：Run 收到取消请求后 Activity 照常开始与执行，直到 Workflow 代码取消它们所在的作用域。清理 Activity 因此能在取消之后调度并运行。
 
