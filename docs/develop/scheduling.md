@@ -147,7 +147,7 @@ err = handle.Delete(ctx)
 | `Trigger` | 立即启动一次并返回它的 `WorkflowRun`，同样遵守 Overlap Policy：`SKIP` 下上一次触发的 Run 仍在运行时返回 `ErrConflict`（`previous scheduled run is still running`，HTTP 409）；启动失败时返回错误，下一次执行时间保持原值 |
 | `Delete` | 删除 Schedule |
 
-`Describe` 返回的 `ScheduleDescription` 包含 `NextRunAt`、`LastRunAt`、`LastRunID` 和 `RunCount`，用于观察执行情况。
+`Describe` 返回的 `ScheduleDescription` 包含 `NextRunAt`、`LastRunAt`、`LastRunID`、`RunCount` 与跳过计数 `MissedCatchupWindow`、`BufferDropped`、`StartFailed`，用于观察执行情况。
 
 ## 触发流程与错过触发
 
@@ -155,10 +155,12 @@ err = handle.Delete(ctx)
 
 1. 到期点落后当前时间超过 `CatchupWindow`：不触发，计入 `MissedCatchupWindow`，处理下一个到期点。
 2. `SKIP` 策略下检查上一次触发的执行链是否仍在运行，仍在运行就跳过这个到期点，推进下一次执行时间。
-3. 以这个到期点的 Workflow ID（`schedule-<Schedule ID>-<到期点>`）启动 Workflow。这个 Workflow ID 的 Run 已在运行时（上一次启动其实已提交，或另一个副本刚启动了它）不再启动第二个，直接推进下一次执行时间。启动失败时下一次执行时间不动，调度器在下一轮扫描重试这次触发，直到超出 `CatchupWindow`。
+3. 以这个到期点的 Workflow ID（`schedule-<Schedule ID>-<到期点>`）启动 Workflow。这个 Workflow ID 的 Run 已在运行时（上一次启动其实已提交，或另一个副本刚启动了它）不再启动第二个，直接推进下一次执行时间。启动失败的处理见下文。
 4. 用 CAS 把下一次执行时间推进到这个到期点之后的下一个 cron 时刻（错过的后续到期点接着处理）；多个 Server 副本同时触发同一个到期点时只有一个推进成功，由它记录 `LastRunAt`、`LastRunID`、`RunCount`。
 
 先启动再推进：两步之间进程退出时，下一次执行时间仍是这个到期点，下一轮以同一个 Workflow ID 重新启动，得到已启动的那个 Run，不会重复执行。
+
+启动失败分两类处理（同 Temporal scheduler）：Workflow 类型没有部署、输入不合法、载荷超限这类配置或请求错误不重试，这个到期点直接丢弃；存储或网络暂时不可用等其他错误按退避（1 秒起翻倍，最长 60 秒）重试，到期点之后 1 小时仍没有启动成功就丢弃（Temporal 启动 Workflow 的本地 Activity 的 `ScheduleToCloseTimeout` 上限）。丢弃的到期点计入 `start_failed`，下一次执行时间推进到它之后的到期点，后面的到期点照常处理；重试期间 catch-up 检查照常进行，到期点先超出 `catchup_window` 时计入 `missed_catchup_window`。因此启动持续失败时下一次执行时间最多落后当前时间 1 小时，修好之后只补出这 1 小时内的到期点（按 Overlap Policy）。补触发时已落后 1 小时以上的到期点只尝试一次。重试状态保存在 leader 的内存里，leader 切换后从新的一次尝试开始退避。`Describe` 返回的 `StartFailed` 是累计丢弃的到期点数，Server 每次丢弃记 ERROR `schedule driver: start workflow failed, dropping this fire time`（`config_error` 区分两类），每次重试前记 WARN `schedule driver: start workflow failed, will retry`。
 
 Server 停机或数据库不可用期间错过的到期点在恢复后补触发。错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，同 Temporal 保留最早的 1000 个，buffer 满之后到达的到期点（到当前时刻为止）计入 `buffer_dropped`；保留的处理完后从当前时刻之后的到期点继续，buffer 没满时 `buffer_dropped` 不增长。超出窗口的那一段只计数，不逐个处理，长期停机后第一轮扫描不会变慢。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。 不希望停机后补跑的 Schedule 把 `CatchupWindow` 设小（例如 `time.Minute`）；`Describe` 返回的 `MissedCatchupWindow` 与 `BufferDropped` 是累计跳过的到期点数。需要补齐每个周期的业务在 Workflow 输入或业务数据库里记录处理进度，由 Workflow 自己计算要处理的区间。
 

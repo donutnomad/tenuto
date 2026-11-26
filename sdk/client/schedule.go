@@ -97,9 +97,11 @@ type ScheduleDescription struct {
 	// RunCount 是累计触发次数。
 	RunCount int
 	// MissedCatchupWindow 是因超出 CatchupWindow 没有触发的到期点数；BufferDropped 是停机恢复后待补的到期点超过
-	// 1000 个时，保留最早的 1000 个之后丢弃的到期点数。
+	// 1000 个时，保留最早的 1000 个之后丢弃的到期点数；StartFailed 是启动失败而丢弃的到期点数（配置错误立即丢弃，
+	// 暂时性错误重试 1 小时后丢弃）。
 	MissedCatchupWindow int64
 	BufferDropped       int64
+	StartFailed         int64
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -237,7 +239,7 @@ func scheduleDescription(s runtimeapi.Schedule) ScheduleDescription {
 		ID: s.ID, WorkflowType: s.WorkflowType, CronExpression: s.CronExpression, TimeZone: s.Timezone,
 		Description: s.Description, OverlapPolicy: ScheduleOverlapPolicy(s.OverlapPolicy), Paused: s.Paused,
 		CatchupWindow: s.CatchupWindow, Input: s.Input, LastRunAt: s.LastRunAt, LastRunID: s.LastRunID, NextRunAt: s.NextRunAt,
-		RunCount: s.RunCount, MissedCatchupWindow: s.MissedCatchupWindow, BufferDropped: s.BufferDropped,
+		RunCount: s.RunCount, MissedCatchupWindow: s.MissedCatchupWindow, BufferDropped: s.BufferDropped, StartFailed: s.StartFailed,
 		CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 	}
 }

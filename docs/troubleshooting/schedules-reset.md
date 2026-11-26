@@ -10,7 +10,7 @@ status: Preview
 
 ## Schedule 错过触发
 
-检查 paused、next_run_at、时区、Cron、Schedule Driver leader 和 Server 日志。落后超过 `catchup_window`（缺省 365 天）的到期点不触发，计入 `missed_catchup_window`；待补的到期点超过 1000 个时较早的计入 `buffer_dropped`。
+检查 paused、next_run_at、时区、Cron、Schedule Driver leader 和 Server 日志。落后超过 `catchup_window`（缺省 365 天）的到期点不触发，计入 `missed_catchup_window`；待补的到期点超过 1000 个时较早的计入 `buffer_dropped`。启动失败的到期点（配置错误立即、其他错误重试 1 小时后）被丢弃并计入 `start_failed`，Server 日志有 `schedule driver: start workflow failed`，见[触发流程与错过触发](/develop/scheduling#触发流程与错过触发)。
 
 ## Schedule 重复触发
 

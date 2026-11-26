@@ -38,6 +38,7 @@ type fakeFirer struct {
 	mu                sync.Mutex
 	store             schedule.Repository
 	startCalls        []startCall
+	startAttempts     int
 	startErr          error
 	runStatuses       map[string]history.Status
 	runStatusErr      error
@@ -62,6 +63,7 @@ func newFakeFirer(store schedule.Repository) *fakeFirer {
 func (f *fakeFirer) StartWorkflowForCron(_ context.Context, namespace, workflowType, workflowID string, input map[string]any, attributes map[string]string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.startAttempts++
 	if f.startErr != nil {
 		return "", f.startErr
 	}

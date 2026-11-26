@@ -26,6 +26,7 @@ type SchedulePatch struct {
 	RunCount            mo.Option[int]
 	MissedCatchupWindow mo.Option[int64]
 	BufferDropped       mo.Option[int64]
+	StartFailed         mo.Option[int64]
 	BufferDropFrom      mo.Option[*time.Time]
 	BufferDropUntil     mo.Option[*time.Time]
 	CreatedAt           mo.Option[time.Time]
@@ -110,6 +111,11 @@ func (s *Schedule) setMissedCatchupWindow(missedCatchupWindow int64) {
 func (s *Schedule) setBufferDropped(bufferDropped int64) {
 	s.BufferDropped = bufferDropped
 	s.patch.BufferDropped = mo.Some(bufferDropped)
+}
+
+func (s *Schedule) setStartFailed(startFailed int64) {
+	s.StartFailed = startFailed
+	s.patch.StartFailed = mo.Some(startFailed)
 }
 
 func (s *Schedule) setBufferDropFrom(bufferDropFrom *time.Time) {

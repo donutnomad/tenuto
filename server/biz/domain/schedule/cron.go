@@ -51,8 +51,8 @@ func (c Cron) CountBetween(from, to time.Time) int64 {
 	cursor := from
 	for cursor.Before(to) {
 		local := cursor.In(c.loc)
-		dayStart := firstOccurrence(time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, c.loc))
-		dayEnd := firstOccurrence(time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, c.loc))
+		dayStart := startOfLocalDay(local.Year(), local.Month(), local.Day(), c.loc)
+		dayEnd := startOfLocalDay(local.Year(), local.Month(), local.Day()+1, c.loc)
 		if !dayEnd.After(cursor) {
 			dayEnd = cursor.Add(time.Hour)
 		}
@@ -72,6 +72,25 @@ func (c Cron) CountBetween(from, to time.Time) int64 {
 		cursor = dayEnd
 	}
 	return n
+}
+
+// startOfLocalDay 返回 loc 中 year-month-day（允许溢出，按 time.Date 归一）这一天的第一个时刻。0 点因夏令时前拨不存在时，
+// time.Date 可能把它归一化到前一天（如 America/Havana 的 00:00 → 前一天 23:00），这里改取切换时刻；整天被跳过时
+// （Pacific/Apia 2011-12-30）取之后第一天的开始。
+func startOfLocalDay(year int, month time.Month, day int, loc *time.Location) time.Time {
+	want := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	t := firstOccurrence(time.Date(year, month, day, 0, 0, 0, 0, loc))
+	for {
+		y, m, d := t.In(loc).Date()
+		if !time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Before(want) {
+			return t
+		}
+		_, end := t.ZoneBounds()
+		if !end.After(t) {
+			return t
+		}
+		t = end
+	}
 }
 
 // cronExpr represents a parsed 5-field cron expression: minute hour dom month dow.

@@ -354,11 +354,11 @@ export default function SchedulesPage() {
                         {s.run_count ?? 0}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground" title={`missed ${s.missed_catchup_window ?? 0} outside the catch-up window, ${s.buffer_dropped ?? 0} dropped over the buffer limit`}>
+                    <TableCell className="text-xs text-muted-foreground" title={`missed ${s.missed_catchup_window ?? 0} outside the catch-up window, ${s.buffer_dropped ?? 0} dropped over the buffer limit, ${s.start_failed ?? 0} dropped after failed starts`}>
                       <span className="font-mono">{formatCatchupWindow(s.catchup_window)}</span>
-                      {(s.missed_catchup_window ?? 0) + (s.buffer_dropped ?? 0) > 0 && (
+                      {(s.missed_catchup_window ?? 0) + (s.buffer_dropped ?? 0) + (s.start_failed ?? 0) > 0 && (
                         <span className="ml-1 text-yellow-500">
-                          missed {s.missed_catchup_window ?? 0} · dropped {s.buffer_dropped ?? 0}
+                          missed {s.missed_catchup_window ?? 0} · dropped {s.buffer_dropped ?? 0} · failed {s.start_failed ?? 0}
                         </span>
                       )}
                     </TableCell>
