@@ -341,7 +341,8 @@ func TestTrueFuture_CompletedActivity_GetReturnsResult(t *testing.T) {
 	if err := f.Get(workflowContext{}, &out); err != nil {
 		t.Fatalf("expected nil error for completed activity, got: %v", err)
 	}
-	if got, _ := out["ra"].(float64); got != 1 { // 与 Go 解码进 map[string]any 相同，数字是 float64
+	// 没有 Program 时不知道任何 Get 的目标类型，结果原样交出（见 payloadNormalizer）。
+	if got, _ := out["ra"].(int64); got != 1 {
 		t.Fatalf("expected out[ra]=1 from historical completion, got %#v", out)
 	}
 }

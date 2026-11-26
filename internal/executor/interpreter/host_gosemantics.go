@@ -75,6 +75,9 @@ func (api *runtimeWorkflowAPI) TypeIs(v any, target string) bool {
 
 // assertAnyContainer 判断 v 的动态类型是否为 target 对应的 []any 或 map[string]any，返回带 WLang 类型名的值；
 // 不是时返回 nil 值与 false。解释器里来自载荷与字面量的 []any、map[string]any 值的载体就是这两种 Go 类型。
+// 宿主只拿到载体，拿不到 WLang 的类型名：元素不是基础类型的类型化 slice（[]Order、[][]any、[]map[string]any）
+// 与 map（map[string]Order）的载体同样是 []any、map[string]any，放进 any 之后这里判为成立，Go 里不成立；放进
+// map[string]any 之后 WLang 也只保留载体，无法区分。文档列为差异。
 func assertAnyContainer(v any, target string) (types.Value, bool) {
 	switch target {
 	case "array<any>":

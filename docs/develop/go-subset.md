@@ -136,7 +136,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 - `make`：`make(map[K]V)`、`make([]T, 0)` 得到空容器；`xs := make([]T, n)` 与带容量的 `xs := make([]T, n, c)` 写成独立语句，得到 n 个零值、容量 c（`xs[:k]` 在 k 不超过 c 时有效）。
 - 类型转换：不改变数值表示的转换，`int` 与 `int64` 互转、`time.Duration(n)`（`n` 为整数）、具名字符串类型与 `string` 互转。
 - 取址输出参数：`&ident`、`&selector` 直接作为调用实参，用于 `Get(ctx, &out)` 等调用。
-- 类型断言 `x.(T)`、`v, ok := x.(T)`、type switch，以及赋值、`return`、表达式语句里的 `x.(T).Field`（生成器先把断言赋给临时变量）。载荷里的嵌套数组与嵌套对象用 `x.([]any)`、`x.(map[string]any)` 与 `case []any`、`case map[string]any` 读取，结果与 Go 相同：动态类型不对时非 comma-ok 形式 panic（Workflow Task 以 `workflow_panic` 失败），comma-ok 形式得到 nil 与 `false`。
+- 类型断言 `x.(T)`、`v, ok := x.(T)`、type switch，以及赋值、`return`、表达式语句里的 `x.(T).Field`（生成器先把断言赋给临时变量）。载荷里的嵌套数组与嵌套对象用 `x.([]any)`、`x.(map[string]any)` 与 `case []any`、`case map[string]any` 读取，结果与 Go 相同：动态类型不对时非 comma-ok 形式 panic（Workflow Task 以 `workflow_panic` 失败），comma-ok 形式得到 nil 与 `false`。差异：Workflow 代码里类型化的 slice、map 放进 `any` 之后（`var x any = []Order{...}`、`m["items"] = [][]any{...}`，以及 `[]map[string]any`、`map[string]Order`），解释器只保留它的元素值，`x.([]any)`、`x.(map[string]any)` 与对应的 case 判为成立，Go 里不成立；对这类值断言回它自己的类型（`x.([]Order)`）。
 
 ## 生成期拒绝的语法
 
@@ -247,10 +247,10 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 
 - 常量按 Go 的默认类型参与比较：`d["n"] == 3` 比较的是 `int`。
 - 载荷解进结构体时，`any` 字段、`map[string]any` 字段、`[]any` 字段里的 JSON 数字与 Go 的 `encoding/json` 一样是 `float64`：`{"V": 1}` 里 `in.V == 1` 是 `false`，`in.V == 1.0` 是 `true`，`in.V.(float64)` 成立，再编码成 JSON 仍是 `1`。
-- 载荷本身是 `map[string]any`（Workflow 输入、Signal、Update 参数、Query 输入，以及 `Get` 进 `map[string]any` 的 Activity 结果与子 Workflow 结果）时，其中各层的数字与 Go 的 `encoding/json` 一样是 `float64`：`{"amount": 3}` 里 `d["amount"].(float64)` 成立，`d["amount"] == 3` 是 `false`，`d["amount"] == 3.0` 是 `true`，再编码成 JSON 仍是 `3`。
+- 载荷本身是 `map[string]any`（Workflow 输入、Signal、Update 参数、Query 输入，以及 `Get` 进 `map[string]any` 的 Activity 结果与子 Workflow 结果；后三者要求同名载荷的各处 `Get` 都进 `map[string]any`，见下文）时，其中各层的数字与 Go 的 `encoding/json` 一样是 `float64`：`{"amount": 3}` 里 `d["amount"].(float64)` 成立，`d["amount"] == 3` 是 `false`，`d["amount"] == 3.0` 是 `true`，再编码成 JSON 仍是 `3`。
 - 存储与 HTTP 两侧保留整数的精确值；交给 Workflow 代码时按 `float64` 表示，超过 2^53 的整数（如 `9007199254740993`）在 `map[string]any` 与 `any` 里丢失精度，Go 解码进 `map[string]any` 时同样如此。需要精确的大整数时声明结构体字段 `int64`，或用字符串传递。
 - nil slice 与空 slice 可以区分：`var xs []T`、载荷里省略或为 `null` 的字段是 nil；`[]T{}`、`make([]T, 0)`、载荷里的 `[]` 不是 nil。map 同理。只关心有没有元素时写 `len(xs) == 0`。
-- 载荷里为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice、nil map 编码成 `null`）与 Go 一样是 nil：`len` 为 0、`range` 不执行、读 map 得到元素零值。Workflow 输入、Update 参数按声明类型解码；Activity 结果与子 Workflow 结果按 Program 里 `Get` 的目标类型解码。结果进入解释器时还不知道哪一处 `Get` 会读它，所以同一个 Activity type 或子 Workflow Type 的结果在几处 `Get` 进不同的类型、有一处 `Get` 进 `map[string]any` 或目标类型无法静态确定时，这个结果按 `map[string]any` 的规则处理：数字换成 `float64`，`null` 的键与 Go 一样存在。这时解进结构体的部分与 Go 有三处不同：`null` 集合字段在 `len`、`range` 之前先判断 `out.Tags != nil`；`any` 字段里的整数是 `int64`；`int64` 字段里超过 2^53 的整数丢失精度。
+- 载荷里为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice、nil map 编码成 `null`）与 Go 一样是 nil：`len` 为 0、`range` 不执行、读 map 得到元素零值。Workflow 输入、Update 参数按声明类型解码；Activity 结果与子 Workflow 结果按 Program 里 `Get` 的目标类型解码。Worker 在 `Get` 时不知道 out 的类型（解进结构体的转换在 WLang 内部完成），只能在结果进入解释器时按 Program 里全部 `Get` 的目标类型决定，所以同一个 Signal 名、Activity type 或子 Workflow Type 的载荷在几处 `Get` 进不同的类型（例如一处结构体、一处 `map[string]any`），或有一处目标类型无法静态确定时，载荷原样交给解释器：解进结构体时 `int64` 字段（例如雪花 ID）保持精确；与 Go 不同的是，`null` 集合字段在 `len`、`range` 之前先判断 `out.Tags != nil`，结构体 `any` 字段与 `map[string]any` 里的整数是 `int64`（`d["n"].(float64)` 不成立）。
 - `any` 里的具名基础类型值（`type Status string`）按底层类型比较：`var x any = Status("a")` 时 `x == "a"` 为 `true`，Go 里动态类型不同为 `false`。与具名类型比较时先断言 `s, ok := x.(Status)`。
 
 ## 执行预算

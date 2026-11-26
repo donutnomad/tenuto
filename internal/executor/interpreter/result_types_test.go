@@ -51,9 +51,9 @@ func W(ctx workflow.Context, input map[string]any) (int, error) {
 `
 
 // 同一个 Activity type 的结果在不同调用处 Get 进不同的类型时，结果进入解释器时不知道哪一处会读它：按其中一个
-// 类型去掉 null 字段会改变另一个类型的读法（Loose.Inner 是 map[string]any，null 的键在 Go 里存在），所以按
-// map[string]any 处理，null 保留。只有一个解码类型的位置按这个类型规范化。
-func TestPayloadNormalizerKeepsNullsForConflictingTargets(t *testing.T) {
+// 类型规范化会改变另一个类型的读法（Loose.Inner 是 map[string]any，null 的键在 Go 里存在；结构体的 int64 字段
+// 换成 float64 会丢精度），所以原样交给解释器。只有一个解码类型的位置按这个类型规范化。
+func TestPayloadNormalizerPassesConflictingTargetsThrough(t *testing.T) {
 	normalizer := newPayloadNormalizer(compileSource(t, resultTargetsSrc))
 	payload := func() map[string]any {
 		return map[string]any{"Tags": nil, "Inner": map[string]any{"Tags": nil}}

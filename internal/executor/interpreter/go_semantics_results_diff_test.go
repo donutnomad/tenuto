@@ -42,6 +42,17 @@ func TestResultNullCollectionsDifferential(t *testing.T) {
 		}
 		return canonicalJSON(t, summarizeMapNumbers(d))
 	}
+	mixed := func(raw string) string {
+		var s DiffSnowflake
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &s); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			t.Fatal(err)
+		}
+		return canonicalJSON(t, summarizeMixedTargets(s, m))
+	}
 	nilResult, _ := json.Marshal(DiffResult{Inner: &DiffResult{}})
 	for _, tc := range []struct {
 		name   string
@@ -58,6 +69,8 @@ func TestResultNullCollectionsDifferential(t *testing.T) {
 		{"DiffChildResult", `{"Attrs": {"k": "v"}, "Inner": {"Tags": null, "Attrs": {"x": "y"}}}`, typed},
 		{"DiffActivityRawResult", `{"Tags": null, "Name": "a"}`, untyped},
 		{"DiffActivityResult", `{"V": 1, "M": {"n": 1, "list": [2]}}`, typed},
+		{"DiffActivityMixedTargets", `{"ID": 9007199254740993, "Name": "x"}`, mixed},
+		{"DiffActivityMixedTargets", `{"ID": 18014398509481985, "Name": "y"}`, mixed},
 		{"DiffActivityMapNumbers", `{"amount": 1, "list": [2], "nested": {"n": 3}}`, mapped},
 		{"DiffActivityMapNumbers", `{"amount": 1.5, "list": []}`, mapped},
 		{"DiffChildResult", `{"V": 2.5, "M": {"n": 1}}`, typed},

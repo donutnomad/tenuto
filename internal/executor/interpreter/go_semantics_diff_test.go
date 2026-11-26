@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,8 +201,11 @@ func canonicalJSON(t *testing.T, value any) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 数字按字面量比较（UseNumber），超过 2^53 的整数不在比较前丢失精度。
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.UseNumber()
 	var generic any
-	if err := json.Unmarshal(encoded, &generic); err != nil {
+	if err := decoder.Decode(&generic); err != nil {
 		t.Fatal(err)
 	}
 	encoded, err = json.Marshal(generic)

@@ -446,3 +446,28 @@ func DiffAssertNested(ctx workflow.Context, input map[string]any) (DiffOut, erro
 	meta := input["meta"].(map[string]any)
 	return DiffOut{Count: len(items) + 10*len(meta)}, nil
 }
+
+type DiffSnowflake struct {
+	ID   int64
+	Name string
+}
+
+// 同一个 Activity 的结果一处 Get 进含 int64 字段的结构体，一处 Get 进 map[string]any：结构体里超过 2^53 的整数
+// 保持精确（例如雪花 ID）。
+func DiffActivityMixedTargets(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	future := workflow.ExecuteActivity(ctx, "load-id", input, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
+	var s DiffSnowflake
+	if err := future.Get(ctx, &s); err != nil {
+		return DiffOut{}, err
+	}
+	var m map[string]any
+	if err := future.Get(ctx, &m); err != nil {
+		return DiffOut{}, err
+	}
+	return summarizeMixedTargets(s, m), nil
+}
+
+func summarizeMixedTargets(s DiffSnowflake, m map[string]any) DiffOut {
+	_, ok := m["ID"]
+	return DiffOut{Sum: int(s.ID), Text: s.Name, Flag: ok}
+}
