@@ -36,8 +36,7 @@ func (r *Run) MarkTerminal(status history.Status, output map[string]any) error {
 
 // ReconcileRunStatus writes the status of the Run's latest lifecycle event,
 // and the output of a WorkflowCompleted event, onto the Run. Recovery uses it
-// for a Run whose terminal event committed before its status: continue-as-new
-// and retried failures close the Run only when the next Run is created.
+// for a Run whose status projection lags its History.
 func ReconcileRunStatus(tx ExecutionTx, run *Run, event history.Event, status history.Status) error {
 	run.setStatus(status)
 	if status == history.StatusCompleted && event.WorkflowCompleted != nil {
@@ -87,10 +86,10 @@ func TerminationReason(reason string) string {
 
 // AppendWorkflowFailed writes the terminal WorkflowFailed event inside the
 // caller's transaction and marks the Run failed in the same transaction. A
-// failure that is retried (NewExecutionRunID set) keeps the Run running until
-// CommitRetryRun creates the retry Run and closes this one: recovery finds the
-// Run by its running status and starts the retry. inserted=false means History
-// already holds a terminal event and the Run stays untouched.
+// failure that is retried (NewExecutionRunID set) leaves the Run to
+// CommitRetryRun, which the caller runs in the same transaction: it creates the
+// retry Run and closes this one. inserted=false means History already holds a
+// terminal event and the Run stays untouched.
 func AppendWorkflowFailed(tx ExecutionTx, run *Run, treeID, branchID string, failed history.Event) (inserted bool, err error) {
 	if failed.WorkflowFailed == nil {
 		return false, fmt.Errorf("workflow failed event required for run %s", run.ID)

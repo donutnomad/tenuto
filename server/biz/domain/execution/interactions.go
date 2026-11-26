@@ -86,6 +86,15 @@ func StartSearchAttributes(events []history.Event) (map[string]string, error) {
 
 var errWorkflowStartedMissing = errors.New("history has no WorkflowStarted event")
 
+// StartRequestID 返回 History 开头的 WorkflowStarted 记录的启动幂等键。重试与 continue-as-new 派生的 Run 把它写进
+// 自己的 WorkflowStarted：按 current Run 的第一个事件去重的启动请求在接续链推进之后仍能认出这条链。
+func StartRequestID(events []history.Event) string {
+	if len(events) == 0 || events[0].WorkflowStarted == nil {
+		return ""
+	}
+	return events[0].WorkflowStarted.RequestID
+}
+
 // SearchAttributesAtEvent 重建 Run 在 throughEventID 时的搜索属性，供 Reset 新 Run 使用：
 // 启动值加 through 及之前的全部写入，与 Temporal 重建 mutable state 一致。
 func SearchAttributesAtEvent(events []history.Event, throughEventID int64) (map[string]string, error) {

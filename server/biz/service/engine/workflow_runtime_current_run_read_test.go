@@ -40,21 +40,35 @@ func countSignaledEvents(events []history.Event) int {
 	return n
 }
 
-func seedRun(t *testing.T, mgr execution.ExecutionManager, id, workflowID string, status history.Status, isCurrent bool) {
+// seedRun 建 Run 行；给了 events 时 Run 先以 Running 建好、写入 events，再落 status：存储拒绝在终态之后追加事件。
+func seedRun(t *testing.T, mgr execution.ExecutionManager, id, workflowID string, status history.Status, isCurrent bool, events ...history.Event) {
 	t.Helper()
+	createStatus := status
+	if len(events) > 0 {
+		createStatus = history.StatusRunning
+	}
 	run := &execution.Run{
 		ID:                    id,
 		Namespace:             protocol.DefaultNamespace,
 		WorkflowID:            workflowID,
 		WorkflowType:          workflowID,
 		WorkflowConfigVersion: "v1",
-		Status:                status,
+		Status:                createStatus,
 		IsCurrent:             isCurrent,
 		CreatedAt:             time.Now(),
 	}
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(run)) }); err != nil {
 		t.Fatal(err)
 	}
+	for _, event := range events {
+		if _, err := mgr.Append(id, id, id, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if createStatus == status {
+		return
+	}
+	markRunTerminalForTest(t, mgr, id, status, nil)
 }
 
 func TestGetRun_RunIDPath_BehaviorUnchanged(t *testing.T) {
@@ -190,10 +204,7 @@ func TestQueryWorkflow_TerminalCurrent_StillResolvable(t *testing.T) {
 	// Edge Case: current 是终态（failed）run，runID 空 Query 仍找到它并汇总失败原因
 	ctx := context.Background()
 	svc, mgr := newCurrentReadRuntime(t)
-	seedRun(t, mgr, "run-qf", "wf-qf", history.StatusFailed, true)
-	if _, err := mgr.Append("run-qf", "run-qf", "run-qf", history.NewWorkflowFailedEvent("boom", "")); err != nil {
-		t.Fatal(err)
-	}
+	seedRun(t, mgr, "run-qf", "wf-qf", history.StatusFailed, true, history.NewWorkflowFailedEvent("boom", ""))
 
 	result, err := svc.QueryWorkflow(ctx, protocol.DefaultNamespace, "wf-qf", "", "state", nil)
 	if err != nil {

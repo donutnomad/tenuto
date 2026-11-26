@@ -47,8 +47,8 @@ type WorkflowTaskCommit struct {
 //
 // CompleteWorkflow and CancelWorkflow close the Run in this transaction.
 // FailWorkflow has no command event; the caller appends WorkflowFailed in the
-// same transaction with AppendWorkflowFailed. ContinueAsNew keeps the Run
-// running until the transaction that creates the continued Run closes it.
+// same transaction with AppendWorkflowFailed. ContinueAsNew leaves the Run to
+// CommitContinuedRun, which the caller runs in the same transaction.
 func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTaskCompletionResult, error) {
 	run := commit.Run
 	if run == nil {

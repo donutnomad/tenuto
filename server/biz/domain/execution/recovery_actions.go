@@ -56,24 +56,3 @@ func (r *Runtime) ChildCloseRecoveryActionFor(current *Run, status history.Statu
 		return ChildCloseRecoveryAction{}, false, nil
 	}
 }
-
-type ContinuationRecoveryAction struct {
-	NextRunID             string
-	WorkflowType          string
-	WorkflowConfigVersion string
-	Input                 map[string]any
-}
-
-func PendingContinuation(events []history.Event, runExists func(string) bool) (ContinuationRecoveryAction, bool) {
-	for _, event := range events {
-		continuation := event.WorkflowContinuedAsNew
-		if continuation == nil || continuation.NextRunID == "" || runExists(continuation.NextRunID) {
-			continue
-		}
-		return ContinuationRecoveryAction{
-			NextRunID: continuation.NextRunID, WorkflowType: continuation.Name,
-			WorkflowConfigVersion: continuation.WorkflowConfigVersion, Input: continuation.Input,
-		}, true
-	}
-	return ContinuationRecoveryAction{}, false
-}

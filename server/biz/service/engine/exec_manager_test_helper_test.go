@@ -331,3 +331,21 @@ func WithRootBranch(run *execution.Run) *execution.Run {
 	}
 	return run
 }
+
+// markRunTerminalForTest 把 Run 行置为终态 status。夹具先以 Running 建 Run、写好 History，再调用它：
+// 存储拒绝在终态之后追加事件。
+func markRunTerminalForTest(t *testing.T, mgr execution.ExecutionManager, runID string, status history.Status, output map[string]any) {
+	t.Helper()
+	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error {
+		run, err := tx.GetRunForUpdate(runID)
+		if err != nil {
+			return err
+		}
+		if err := run.MarkTerminal(status, output); err != nil {
+			return err
+		}
+		return tx.UpdateRun(run)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

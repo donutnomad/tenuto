@@ -21,8 +21,6 @@ type startPlan struct {
 	expectedCurrent  string
 	treeID, branchID string
 	started          history.Event
-	// continued 为 true 时 run 是 continue-as-new 的接续 Run，提交时在同一事务里关闭 expectedCurrent 这个旧 Run。
-	continued bool
 }
 
 // planStart 是 Start、SignalWithStart、UpdateWithStart 共用的启动判定：
@@ -77,13 +75,7 @@ func (s *Server) commitStart(ctx context.Context, plan *startPlan, with func(tx 
 	defer func() { tenutotel.FinishSpan(span, err) }()
 	// CreateRun + Append 同事务原子提交（崩溃在两步之间不再产生"有 run 无 started 事件"的不一致）。
 	if err := s.telemetry.runInTx(ctx, "create_started_run", s.mgr, func(tx execution.ExecutionTx) error {
-		var err error
-		if plan.continued {
-			err = execution.CommitContinuedRun(tx, plan.expectedCurrent, run, plan.treeID, plan.branchID, plan.started)
-		} else {
-			err = execution.CommitStartedRun(tx, run, plan.expectedCurrent, plan.treeID, plan.branchID, plan.started)
-		}
-		if err != nil {
+		if err := execution.CommitStartedRun(tx, run, plan.expectedCurrent, plan.treeID, plan.branchID, plan.started); err != nil {
 			return err
 		}
 		if with != nil {
@@ -162,8 +154,8 @@ func (s *Server) startWorkflow(ctx context.Context, req startRequest) (*executio
 	return plan.run, nil
 }
 
-// runStartedByRequest 在 requestID 非空、且 workflowID 的 current Run 由它启动时返回这个 Run；否则返回 nil。
-// 只读 current Run 的第一个事件（WorkflowStarted）。
+// runStartedByRequest 在 requestID 非空、且 workflowID 的 current Run 属于它启动的 Run 链时返回这个 Run；否则返回 nil。
+// 只读 current Run 的第一个事件（WorkflowStarted）：失败重试与 continue-as-new 派生的 Run 继承链首的 RequestID。
 func (s *Server) runStartedByRequest(namespace, workflowID, requestID string) (*execution.Run, error) {
 	if requestID == "" {
 		return nil, nil
@@ -245,46 +237,47 @@ func (s *Server) newWorkflowVersionRun(workflowID string, configRef definition.W
 	})
 }
 
-func (s *Server) startContinuedRunWithRef(ctx context.Context, oldRunID string, newRunID string, input map[string]any, configRef definition.WorkflowConfigRef) error {
+// prepareContinuedRun 在事务外备好 continue-as-new 的接续 Run 与它的 WorkflowStarted。接续 Run 与旧 Run 的终态事件
+// 同事务提交（execution.CommitContinuedRun），提交时在锁下重读旧 Run 取有效策略。
+func (s *Server) prepareContinuedRun(oldRunID, newRunID string, input map[string]any, configRef definition.WorkflowConfigRef) (*startPlan, error) {
 	if configRef.WorkflowType == "" || configRef.Version == "" {
-		return protocol.InvalidRequestf("continued workflow config ref is incomplete")
+		return nil, protocol.InvalidRequestf("continued workflow config ref is incomplete")
 	}
-	oldRun, err := s.continuedRunSource(oldRunID)
+	oldRun, err := s.mgr.Get(oldRunID)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	oldStart, err := s.mgr.GetEventsRange(oldRunID, 0, 1)
+	if err != nil {
+		return nil, err
 	}
 	run := execution.NewContinuedRun(oldRun, newRunID, configRef.Namespace, configRef.WorkflowType, configRef.Version, input, s.clock.Now())
-	// 旧 Run 的 ContinuedAsNew 状态与接续 Run 同事务提交（execution.CommitContinuedRun）：接续 Run 建好之前旧 Run
-	// 保持 Running，恢复扫描据此补建接续 Run。接续 Run 的有效策略取事务内锁下读到的旧 Run。
-	if err := s.createStartedRun(ctx, run, nil); err != nil {
-		return err
+	plan := &startPlan{run: run, expectedCurrent: oldRunID}
+	if plan.treeID, plan.branchID, plan.started, err = s.prepareStartedRun(run); err != nil {
+		return nil, err
 	}
-	s.runClosed(oldRunID)
-	return nil
+	plan.started.WorkflowStarted.RequestID = execution.StartRequestID(oldStart)
+	return plan, nil
 }
 
-// createStartedRun 用于首次 start / 子workflow（首次）/ 主动 CAN（切代）路径：
-// current 的 CAS expectedOld 直接取 run.ContinuedRunID（首次为空，CAN 为旧run），CAN 的旧 Run 在同一事务里关闭。
-// with 非空时在建 Run 的同一事务里执行（子 Run 的父侧 started 状态）。
+// createStartedRun 用于按配置版本启动与子 Workflow 首次启动：Workflow ID 的 current Run 已结束时以它为 CAS 旧值接替，
+// 仍在进行时返回 ErrCurrentRunConflict。with 非空时在建 Run 的同一事务里执行（子 Run 的父侧 started 状态）。
 func (s *Server) createStartedRun(ctx context.Context, run *execution.Run, with func(tx execution.ExecutionTx) error) error {
-	expected := run.ContinuedRunID
-	if expected == "" {
-		current, err := s.mgr.GetCurrentRunID(run.Namespace, run.WorkflowID)
-		if err == nil {
-			status, err := s.GetRunStatus(current)
-			if err != nil {
-				return err
-			}
-			if !history.IsTerminalStatus(status) {
-				return execution.ErrCurrentRunConflict
-			}
-			expected = current
-		} else if !errors.Is(err, execution.ErrNoCurrentRun) {
+	var expected string
+	current, err := s.mgr.GetCurrentRunID(run.Namespace, run.WorkflowID)
+	if err == nil {
+		status, err := s.GetRunStatus(current)
+		if err != nil {
 			return err
 		}
+		if !history.IsTerminalStatus(status) {
+			return execution.ErrCurrentRunConflict
+		}
+		expected = current
+	} else if !errors.Is(err, execution.ErrNoCurrentRun) {
+		return err
 	}
-	plan := &startPlan{run: run, expectedCurrent: expected, continued: run.ContinuedRunID != ""}
-	var err error
+	plan := &startPlan{run: run, expectedCurrent: expected}
 	plan.treeID, plan.branchID, plan.started, err = s.prepareStartedRun(run)
 	if err != nil {
 		return err
@@ -308,18 +301,12 @@ func (s *Server) prepareStartedRun(run *execution.Run) (string, string, history.
 }
 
 func (s *Server) activateStartedRun(ctx context.Context, run *execution.Run) error {
-	// 事务外（本质非事务）：队列入队 + 内存 timer，对标 startRetryRun。截止时间已随 Run 写入。
+	// 事务外（本质非事务）：队列入队 + 内存 timer。截止时间已随 Run 写入。
 	if err := s.scheduleWorkflowTask(ctx, run.ID); err != nil {
 		return err
 	}
 	s.armRunTimers(run)
 	return nil
-}
-
-// continuedRunSource 在事务之外读取接续 Run 所派生的旧 Run，用来构造接续 Run 与读取它的配置。提交接续 Run 的
-// 事务用 execution.CommitContinuedRun 在锁下重读旧 Run。
-func (s *Server) continuedRunSource(runID string) (*execution.Run, error) {
-	return s.mgr.Get(runID)
 }
 
 func (s *Server) continuedWorkflowType(runID string, requestedType string) (string, error) {

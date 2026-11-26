@@ -82,10 +82,11 @@ func TestActivityFailedFailureRoundTrip(t *testing.T) {
 	}
 }
 
-// WorkflowFailed 带结构化失败可回读；同 Run 的 message-only 失败保持 Type 为空。
+// WorkflowFailed 带结构化失败可回读；message-only 失败保持 Type 为空。终态之后 History 不再接受事件，两个失败各写一个 Run。
 func TestWorkflowFailedFailureRoundTrip(t *testing.T) {
 	store := newTestStore(t)
 	createTestRun(t, store, "run-workflow-failure")
+	createTestRun(t, store, "run-workflow-failure-plain")
 	structured := protocol.Failure{Message: "card declined", Type: "PaymentDeclined", Details: matrixFailurePayload()}
 	structuredEvent, err := history.NewWorkflowFailedFailureEvent(structured, "")
 	if err != nil {
@@ -99,7 +100,7 @@ func TestWorkflowFailedFailureRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorkflowFailedFailureEvent: %v", err)
 	}
-	if _, err := store.Append("run-workflow-failure", "run-workflow-failure", "run-workflow-failure", legacyEvent); err != nil {
+	if _, err := store.Append("run-workflow-failure-plain", "run-workflow-failure-plain", "run-workflow-failure-plain", legacyEvent); err != nil {
 		t.Fatalf("Append message-only: %v", err)
 	}
 
@@ -107,9 +108,14 @@ func TestWorkflowFailedFailureRoundTrip(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("GetEvents: %v", readErr)
 	}
-	if len(events) != 2 {
-		t.Fatalf("events = %d, want 2", len(events))
+	plainEvents, readErr := store.GetEvents("run-workflow-failure-plain")
+	if readErr != nil {
+		t.Fatalf("GetEvents: %v", readErr)
 	}
+	if len(events) != 1 || len(plainEvents) != 1 {
+		t.Fatalf("events = %d and %d, want 1 each", len(events), len(plainEvents))
+	}
+	events = append(events, plainEvents...)
 	first := events[0].WorkflowFailed
 	if first == nil || first.Failure == nil {
 		t.Fatalf("first WorkflowFailed lost its failure: %+v", events[0])

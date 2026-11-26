@@ -14,7 +14,7 @@ Event 是已经发生并提交的事实。每个 Run/Branch 的 Event ID 从 1 �
 
 | Event | 关键字段 | 说明 |
 | --- | --- | --- |
-| `WorkflowStarted` | workflowId、input、attempt、initiator、searchAttributes、requestId | Run 起点；searchAttributes 是启动时的搜索属性（Schedule 启动的 Run 带 `TemporalScheduledById` 与 `TemporalScheduledStartTime`），requestId 是启动请求的幂等键 |
+| `WorkflowStarted` | workflowId、input、attempt、initiator、searchAttributes、requestId | Run 起点；searchAttributes 是启动时的搜索属性（Schedule 启动的 Run 带 `TemporalScheduledById` 与 `TemporalScheduledStartTime`），requestId 是启动请求的幂等键，失败重试与 Continue-As-New 派生的 Run 沿用链首的值 |
 | `WorkflowCompleted` | output | 成功终态 |
 | `WorkflowFailed` | error、timeoutType、retryState、newExecutionRunId | 失败终态或 Retry 链接；配置了 RetryPolicy 时 retryState 记录重试判定（InProgress / NonRetryableFailure / MaximumAttemptsReached / Timeout） |
 | `WorkflowCancellationRequested` | cause | 取消请求；Worker 在这条事件之后、协程推进之前取消 Workflow 的根 Context。重复请求不写第二条 |

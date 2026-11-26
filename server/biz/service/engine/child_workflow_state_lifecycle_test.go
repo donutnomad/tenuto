@@ -163,14 +163,13 @@ func TestRecoverChildPropagatesClosedChild(t *testing.T) {
 			return err
 		}
 		output := map[string]any{"ok": true}
+		if _, err := tx.Append(childRunID, childRunID, childRunID, history.NewWorkflowCompletedEvent(output)); err != nil {
+			return err
+		}
 		if err := child.MarkTerminal(history.StatusCompleted, output); err != nil {
 			return err
 		}
-		if err := tx.UpdateRun(child); err != nil {
-			return err
-		}
-		_, err = tx.Append(childRunID, childRunID, childRunID, history.NewWorkflowCompletedEvent(output))
-		return err
+		return tx.UpdateRun(child)
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -142,23 +142,11 @@ func (s *Server) reconcileRun(ctx context.Context, runID string, force bool) (di
 
 // reconcileClosedRun 补齐 history 已终态的 run 的后续动作，最后才把终态写回 Run：
 // Status 在此之前保持 Running，后续动作失败时下一轮扫描还能找到它。
-// 终态事件的载荷（重试 run ID、输出）取自 History。
+// 终态事件的载荷（输出）取自 History。
 func (s *Server) reconcileClosedRun(ctx context.Context, run *execution.Run) error {
 	event, status, found, err := s.runtime.StatusEventFromHistory(run.ID)
 	if err != nil {
 		return err
-	}
-	switch {
-	case status == history.StatusContinuedAsNew:
-		if err := s.recoverContinueAsNew(ctx, run); err != nil {
-			return err
-		}
-	case event.WorkflowFailed != nil && event.WorkflowFailed.NewExecutionRunID != "":
-		// 失败后重试：重试 run 与旧 run 的 Failed 状态同事务提交，重试 run 存在即已收敛。
-		if s.runExists(event.WorkflowFailed.NewExecutionRunID) {
-			return nil
-		}
-		return s.startRetryRun(ctx, run.ID, event.WorkflowFailed.NewExecutionRunID)
 	}
 	if err := s.recoverClosedChildWorkflow(ctx, run, status); err != nil {
 		return err
@@ -272,22 +260,6 @@ func (s *Server) recoverClosedChildWorkflow(ctx context.Context, run *execution.
 		return err
 	}
 	return s.propagateChildWorkflowClose(ctx, run.ID, run.ParentRunID, action.EventType, action.Output, action.Reason, action.Failure)
-}
-
-func (s *Server) recoverContinueAsNew(ctx context.Context, run *execution.Run) error {
-	events, err := s.mgr.GetEvents(run.ID)
-	if err != nil {
-		return err
-	}
-	action, needed := execution.PendingContinuation(events, s.runExists)
-	if !needed {
-		return nil
-	}
-	configRef, err := s.workflowConfigRef(run.Namespace, action.WorkflowType, action.WorkflowConfigVersion)
-	if err != nil {
-		return err
-	}
-	return s.startContinuedRunWithRef(ctx, run.ID, action.NextRunID, action.Input, configRef)
 }
 
 // recoverWorkflowTasks 重投 execution state 记录的 open WFT，trace context 取自它的调度事件。

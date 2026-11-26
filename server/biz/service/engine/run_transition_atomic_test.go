@@ -156,8 +156,8 @@ func TestTerminalCommandCommitsEventWithRunStatus(t *testing.T) {
 	}
 }
 
-// 旧 Run 的 ContinuedAsNew 状态与接续 Run 在同一事务：写旧 Run 失败时接续 Run 不存在、旧 Run 保持 Running，
-// 补偿扫描据此重建接续 Run 并关闭旧 Run。
+// WorkflowContinuedAsNew、旧 Run 的 ContinuedAsNew 状态与接续 Run 在 WFT 完成的同一事务：写旧 Run 失败时三者都不存在，
+// 旧 Run 保持 Running、WFT 保持 open，同一次完成重做后一起生效。
 func TestContinueAsNewClosesOldRunWithContinuedRun(t *testing.T) {
 	ctx := context.Background()
 	mgr := newTxFaultManager()
@@ -168,12 +168,25 @@ func TestContinueAsNewClosesOldRunWithContinuedRun(t *testing.T) {
 	}
 	lease := pollWorkflowTaskAs(t, server, "worker-a")
 	taskCtx := protocol.WithWorkflowTaskToken(ctx, lease.Task.TaskToken)
+	commands := []history.Command{{Type: history.CmdContinueAsNew, Input: map[string]any{"page": int64(2)}}}
 
 	mgr.setFault(failUpdateRun)
-	err = server.HandleWorkflowTaskCompleted(taskCtx, runID, lease.Task.ScheduledEventID,
-		[]history.Command{{Type: history.CmdContinueAsNew, Input: map[string]any{"page": int64(2)}}}, "worker-a")
+	err = server.HandleWorkflowTaskCompleted(taskCtx, runID, lease.Task.ScheduledEventID, commands, "worker-a")
 	if !errors.Is(err, errInjectedWrite) {
 		t.Fatalf("complete err = %v, want the injected failure", err)
+	}
+	for _, event := range runEvents(t, mgr, runID) {
+		if event.WorkflowContinuedAsNew != nil || event.WorkflowTaskCompleted != nil {
+			t.Fatalf("a failed commit must not keep %s", event.EventType())
+		}
+	}
+	if run := mustRun(t, mgr, runID); run.Status != history.StatusRunning {
+		t.Fatalf("old run status = %s, want running", run.Status)
+	}
+
+	mgr.setFault(nil)
+	if err := server.HandleWorkflowTaskCompleted(taskCtx, runID, lease.Task.ScheduledEventID, commands, "worker-a"); err != nil {
+		t.Fatal(err)
 	}
 	var nextRunID string
 	for _, event := range runEvents(t, mgr, runID) {
@@ -181,22 +194,8 @@ func TestContinueAsNewClosesOldRunWithContinuedRun(t *testing.T) {
 			nextRunID = event.WorkflowContinuedAsNew.NextRunID
 		}
 	}
-	if nextRunID == "" {
-		t.Fatal("the workflow task commit must keep WorkflowContinuedAsNew")
-	}
-	if _, err := mgr.Get(nextRunID); !errors.Is(err, execution.ErrRunNotFound) {
-		t.Fatalf("continued run after a failed commit: err = %v, want not found", err)
-	}
-	if run := mustRun(t, mgr, runID); run.Status != history.StatusRunning {
-		t.Fatalf("old run status = %s, want running until the continued run exists", run.Status)
-	}
-
-	mgr.setFault(nil)
-	if _, err := server.reconcileRun(ctx, runID, false); err != nil {
-		t.Fatal(err)
-	}
 	if run := mustRun(t, mgr, runID); run.Status != history.StatusContinuedAsNew {
-		t.Fatalf("old run status after reconcile = %s, want continued-as-new", run.Status)
+		t.Fatalf("old run status = %s, want continued-as-new", run.Status)
 	}
 	if run := mustRun(t, mgr, nextRunID); run.Status != history.StatusRunning {
 		t.Fatalf("continued run status = %s, want running", run.Status)

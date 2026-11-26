@@ -186,13 +186,14 @@ func TestWorkflowRuntimeDispatchPendingTasksSkipsTerminalRuns(t *testing.T) {
 	workflowTasks := newTestTaskQueue()
 	server := assembleServer(mgr, workflowTasks, newTestTaskQueue())
 
-	run := &execution.Run{ID: "run-terminal-dispatch", WorkflowID: "wf", WorkflowType: "wf", Status: historypkg.StatusCompleted, CreatedAt: time.Now()}
+	run := &execution.Run{ID: "run-terminal-dispatch", WorkflowID: "wf", WorkflowType: "wf", Status: historypkg.StatusRunning, CreatedAt: time.Now()}
 	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(run)) }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := mgr.Append(run.ID, run.ID, run.ID, historypkg.NewWorkflowTaskScheduledEvent(0)); err != nil {
 		t.Fatal(err)
 	}
+	markRunTerminalForTest(t, mgr, run.ID, historypkg.StatusCompleted, nil)
 
 	result, err := server.DispatchPendingTasks(ctx)
 	if err != nil {

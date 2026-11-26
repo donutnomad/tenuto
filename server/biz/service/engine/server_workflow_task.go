@@ -23,7 +23,7 @@ func (s *Server) HandleWorkflowTaskCompleted(ctx context.Context, runID string, 
 		attribute.Int64(tenutotel.AttrScheduledEventID, scheduledEventID),
 	)
 	defer func() { tenutotel.FinishSpan(span, err) }()
-	// WFT 处理内部的 retry/CAN/child 派生新 run 均走不拿 keyed lock 的 createStartedRun/startRetryRun，
+	// WFT 处理内部的 retry/CAN 派生 Run 随 WFT 事务提交，子 Run 走不拿 keyed lock 的 createStartedRun，
 	// 故同 workflowID 锁不会重入。
 	open, release, err := s.lockOpenWorkflowTask(ctx, runID, scheduledEventID)
 	if err != nil {
@@ -137,17 +137,32 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	treeID, branchID := open.branch.treeID, open.branch.branchID
 	closeEvent := history.NewWorkflowTaskCompletedEvent(workflowTaskScheduledID, workerIdentity)
 
-	// CmdFailWorkflow 没有命令事件：重试还是终结在提交前决定，WorkflowFailed 与 WFT 完成同事务落库，
-	// 不重试时 Run 的 Failed 状态也在这个事务里。重试时 Run 保持 Running 到重试 run 建好，建重试 run
-	// 失败时 reconcileRun 可重做。
+	// 终态命令派生的接续 Run 在事务外备好，与终态事件、旧 Run 的终态状态、current 切换同事务提交：
+	// History 写下终态之后，同 Workflow ID 的启动、Signal 与 Update 看到的只有接续 Run。
+	//   - CmdContinueAsNew：接续 Run 经 execution.CommitContinuedRun 提交；
+	//   - CmdFailWorkflow：没有命令事件，重试还是终结在提交前决定；重试 run 与它的 backoff timer 经
+	//     execution.CommitRetryRun 提交，不重试时 Run 的 Failed 状态随 WorkflowFailed 提交。
+	var continued *startPlan
+	if i := slices.IndexFunc(commands, func(command history.Command) bool { return command.Type == history.CmdContinueAsNew }); i >= 0 {
+		if continued, err = s.prepareContinuedRun(runID, prepared.ContinuedRunIDs[i], commands[i].Input, definition.WorkflowConfigRef(prepared.ContinuedRefs[i])); err != nil {
+			return err
+		}
+	}
 	var workflowFailed *history.Event
-	var retryRunID string
+	var retry *retryRunStart
 	if i := slices.IndexFunc(commands, func(command history.Command) bool { return command.Type == history.CmdFailWorkflow }); i >= 0 {
-		failed, id, err := s.prepareWorkflowFailure(runID, workflowFailure(commands[i]), "")
+		failed, retryRunID, err := s.prepareWorkflowFailure(runID, workflowFailure(commands[i]), "")
 		if err != nil {
 			return err
 		}
-		workflowFailed, retryRunID = &failed, id
+		workflowFailed = &failed
+		if retryRunID != "" {
+			start, err := s.prepareRetryRun(ctx, runID, retryRunID)
+			if err != nil {
+				return err
+			}
+			retry = &start
+		}
 	}
 
 	now := s.clock.Now()
@@ -155,6 +170,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		run                    *execution.Run
 		promoted               bool
 		result                 execution.WorkflowTaskCompletionResult
+		continuedInserted      bool
 		workflowFailedInserted bool
 	)
 	if txErr := s.telemetry.runInTx(ctx, "complete_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
@@ -171,10 +187,23 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 			SeenThroughEventID: activatedThroughEventID(ctx),
 			ProgramVersion:     programVersion, Now: now,
 		})
-		if err != nil || !result.ClosedInserted || workflowFailed == nil {
+		if err != nil || !result.ClosedInserted {
 			return err
 		}
+		if continued != nil {
+			if continuedInserted, err = continueAsNewInserted(commands, result); err != nil || !continuedInserted {
+				return err
+			}
+			return execution.CommitContinuedRun(tx, runID, continued.run, continued.treeID, continued.branchID, continued.started)
+		}
+		if workflowFailed == nil {
+			return nil
+		}
 		workflowFailedInserted, err = execution.AppendWorkflowFailed(tx, run, treeID, branchID, *workflowFailed)
+		if err != nil || !workflowFailedInserted || retry == nil {
+			return err
+		}
+		_, err = execution.CommitRetryRun(tx, retry.commit)
 		return err
 	}); txErr != nil {
 		var limitErr *history.HistoryLimitExceededError
@@ -208,10 +237,25 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	}
 	// 提交后的动作（派发 Activity、挂 timer、唤醒 Update 等待方、终态的后续动作）先于激活回执执行：
 	// 回执出错只让 Worker 丢弃本地缓存，已提交的决策照常推进。
-	if err := s.runWorkflowTaskPostCommit(context.WithoutCancel(ctx), run, commands, result, prepared, traceContext, workflowFailedInserted, retryRunID, now); err != nil {
+	if err := s.runWorkflowTaskPostCommit(context.WithoutCancel(ctx), run, commands, result, prepared, traceContext, workflowFailedInserted, continued, retry, now); err != nil {
 		return err
 	}
 	return s.captureWorkflowTaskCompletion(ctx, result, closeEvent, commandEvents, commands)
+}
+
+// continueAsNewInserted 报告本次提交是否插入了 CmdContinueAsNew 的 WorkflowContinuedAsNew 事件。终态事件先到先得，
+// 同一批里更早的终态命令或别处已写入的终态让它不插入。
+func continueAsNewInserted(commands []history.Command, result execution.WorkflowTaskCompletionResult) (bool, error) {
+	actions, err := execution.WorkflowTaskActions(commands, result)
+	if err != nil {
+		return false, err
+	}
+	for _, action := range actions {
+		if action.Command.Type == history.CmdContinueAsNew {
+			return action.Event.Inserted, nil
+		}
+	}
+	return false, nil
 }
 
 // runWorkflowTaskPostCommit 执行已提交的 WFT 决策的事务外动作。每一步失败都可由 reconcileRun 按持久化状态补做。
@@ -223,7 +267,8 @@ func (s *Server) runWorkflowTaskPostCommit(
 	prepared execution.PreparedWorkflowTask,
 	traceContext map[string]string,
 	workflowFailedInserted bool,
-	retryRunID string,
+	continued *startPlan,
+	retry *retryRunStart,
 	now time.Time,
 ) error {
 	runID := run.ID
@@ -326,11 +371,13 @@ func (s *Server) runWorkflowTaskPostCommit(
 				)
 			}
 		case history.CmdContinueAsNew:
-			// 终态事件先到先得；未插入表示终态已由别处写入，由写入方落状态。
+			// 终态事件先到先得；未插入表示终态已由别处写入，由写入方落状态。接续 Run 已随终态事件提交。
 			if !eventResult.Inserted {
 				return nil
 			}
-			return s.startContinuedRunWithRef(postCommitCtx, runID, prepared.ContinuedRunIDs[action.Index], cmd.Input, definition.WorkflowConfigRef(prepared.ContinuedRefs[action.Index]))
+			err := s.activateStartedRun(postCommitCtx, continued.run)
+			s.runClosed(runID)
+			return err
 		case history.CmdCompleteWorkflowUpdate:
 			if eventResult.Inserted {
 				scheduleNextWorkflowTask = true
@@ -348,8 +395,9 @@ func (s *Server) runWorkflowTaskPostCommit(
 			if !workflowFailedInserted {
 				return nil
 			}
-			if retryRunID != "" {
-				return s.startRetryRun(postCommitCtx, runID, retryRunID)
+			if retry != nil {
+				s.activateRetryRun(*retry)
+				return nil
 			}
 			return s.workflowFailedAfterCommit(run, workflowFailure(cmd))
 		case history.CmdCancelWorkflow:

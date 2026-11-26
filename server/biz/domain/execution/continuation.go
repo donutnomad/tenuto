@@ -24,9 +24,9 @@ func NewContinuedRun(old *Run, newID, namespace, workflowType, configVersion str
 	return next
 }
 
-// CommitContinuedRun 在一个事务里建接续 Run next（经 CommitStartedRun，current 从旧 Run 切到它）并把旧 Run 置为
-// ContinuedAsNew。WorkflowContinuedAsNew 事件先随 Workflow Task 提交，接续 Run 建好之前旧 Run 保持 Running，
-// 恢复扫描据此补建接续 Run。旧 Run 在写入任何内容之前用 GetRunForUpdate 读取，next 的有效策略取旧 Run 此刻的值。
+// CommitContinuedRun 建接续 Run next（经 CommitStartedRun，current 从旧 Run 切到它）并把旧 Run 置为 ContinuedAsNew。
+// 调用方在写入 WorkflowContinuedAsNew 的同一个事务里调用它：终态事件、旧 Run 的状态与接续 Run 一起提交。
+// 旧 Run 用 GetRunForUpdate 在锁下重读，next 的有效策略取旧 Run 此刻的值。
 func CommitContinuedRun(tx ExecutionTx, oldRunID string, next *Run, treeID, branchID string, started history.Event) error {
 	old, err := tx.GetRunForUpdate(oldRunID)
 	if err != nil {

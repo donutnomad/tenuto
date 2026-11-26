@@ -2,10 +2,17 @@ package execution
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 )
+
+// RunClosedError 返回追加 event 到已结束的 runID 时的错误，它满足 errors.Is(err, ErrRunClosed)。
+func RunClosedError(runID string, event history.Event) error {
+	return fmt.Errorf("append %s to run %s: %w", event.EventType(), runID, ErrRunClosed)
+}
 
 type WorkflowTaskCommandEventResult struct {
 	EventID  int64
@@ -104,6 +111,10 @@ var (
 	ErrNoCurrentRun            = errors.New("no current run")
 	ErrRunOrWorkflowIDRequired = errors.New("run id or workflow id required")
 	ErrCurrentRunConflict      = errors.New("current run conflict")
+	// ErrRunClosed 表示 Run 的 History 已有终态事件。存储在持有 execution state 锁的事务内拒绝在终态之后追加事件，
+	// 带去重键且已记录过的事件除外（返回已记录的事件、inserted=false）。它满足 errors.Is(err, protocol.ErrInvalidRequest)：
+	// 打到已结束 Run 的 Signal、Update 与取消请求按请求错误应答。
+	ErrRunClosed = protocol.InvalidRequestf("run is closed")
 	// ErrTreeNotTerminal 表示整棵 History 树还有未终态的 Run，DeleteTree 不删除它。保留期扫描据此把
 	// 任务推后重试，不计入失败次数。
 	ErrTreeNotTerminal = errors.New("history tree still has non-terminal runs")

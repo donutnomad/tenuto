@@ -21,7 +21,7 @@ func TestGORMExecutionProjection_AtomicAppendAndRollback(t *testing.T) {
 	// Integration: event 与 projection 同事务提交，重复与回滚保持统计及 ID 稳定。
 	store := newTestStore(t)
 	createTestRun(t, store, "projection-run")
-	event := history.Event{Timestamp: time.Unix(1, 0), WorkflowCompleted: &history.WorkflowCompletedEvent{}}
+	event := history.Event{Timestamp: time.Unix(1, 0), TimerScheduled: &history.TimerScheduledEvent{TimerID: "t1"}}
 	id, inserted, err := store.Executions.AppendIdempotent("projection-run", "tree", "projection-branch", event)
 	if err != nil || !inserted || id != 1 {
 		t.Fatalf("first append = id:%d inserted:%v err:%v", id, inserted, err)
@@ -33,7 +33,7 @@ func TestGORMExecutionProjection_AtomicAppendAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.HistoryEventCount != 1 || state.Status != history.StatusCompleted || state.NextEventID != 2 {
+	if state.HistoryEventCount != 1 || state.NextEventID != 2 {
 		t.Fatalf("unexpected projection: %+v", state)
 	}
 	rollbackErr := errors.New("rollback")

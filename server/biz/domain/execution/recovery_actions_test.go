@@ -41,17 +41,6 @@ func TestChildCloseRecoveryActionUsesTerminalHistory(t *testing.T) {
 	}
 }
 
-func TestPendingContinuationSelectsMissingRun(t *testing.T) {
-	events := []history.Event{
-		history.NewWorkflowContinuedAsNewEvent("OrderFlow", "existing", "v1", nil),
-		history.NewWorkflowContinuedAsNewEvent("OrderFlow", "next", "v2", map[string]any{"n": 2}),
-	}
-	action, needed := PendingContinuation(events, func(id string) bool { return id == "existing" })
-	if !needed || action.NextRunID != "next" || action.WorkflowType != "OrderFlow" || action.WorkflowConfigVersion != "v2" {
-		t.Fatalf("action=%+v needed=%t", action, needed)
-	}
-}
-
 func TestTerminationChecks(t *testing.T) {
 	store := &statusTestStore{events: []history.Event{history.NewWorkflowCompletedEvent(nil)}}
 	runtime := NewRuntime(store)

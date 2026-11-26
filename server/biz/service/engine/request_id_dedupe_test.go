@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/donutnomad/tenuto/program"
+	"github.com/donutnomad/tenuto/program/programtest"
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
@@ -45,6 +47,54 @@ func TestStartWorkflowWithRequestIDIsIdempotent(t *testing.T) {
 
 	if _, err := server.StartWorkflow(ctx, "", "wf-start-request", "order-2", strings.Repeat("x", execution.MaxRequestIDLength+1), nil); !errors.Is(err, protocol.ErrInvalidRequest) {
 		t.Fatalf("oversized request id: err = %v, want ErrInvalidRequest", err)
+	}
+}
+
+// 重发的启动请求在接续链推进之后（失败重试、continue-as-new）得到这条链的 current Run，不报冲突、不启动第二次执行：
+// 派生 Run 的 WorkflowStarted 继承链首的 RequestID。
+func TestStartWorkflowWithRequestIDFollowsDerivedRuns(t *testing.T) {
+	ctx := context.Background()
+	server := newTestServer()
+	defer server.Stop()
+	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{
+		Type: "wf-start-request-chain", Program: programtest.Noop(),
+		RetryPolicy: &program.RetryPolicy{MaxAttempts: 3, InitialInterval: "1h"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := server.StartWorkflow(ctx, "", ref.WorkflowType, "chain-retry", "req-retry", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wftID := openWorkflowTaskForTest(t, server.mgr, first.ID)
+	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, first.ID, wftID), first.ID, wftID,
+		[]history.Command{{Type: history.CmdFailWorkflow, Error: "boom"}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	retryRunID := retryRunIDForTest(t, server.mgr, first.ID)
+	again, err := server.StartWorkflow(ctx, "", ref.WorkflowType, "chain-retry", "req-retry", nil)
+	if err != nil || again.ID != retryRunID {
+		t.Fatalf("retried start after a workflow retry = %v, %v; want retry run %s", again, err, retryRunID)
+	}
+
+	first, err = server.StartWorkflow(ctx, "", ref.WorkflowType, "chain-can", "req-can", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextRunID := continueAsNewForTest(t, server, server.mgr, first.ID, nil)
+	again, err = server.StartWorkflow(ctx, "", ref.WorkflowType, "chain-can", "req-can", nil)
+	if err != nil || again.ID != nextRunID {
+		t.Fatalf("retried start after continue-as-new = %v, %v; want continued run %s", again, err, nextRunID)
+	}
+	// 链结束之后的重发同样得到链的最后一个 Run。
+	if err := server.completeWorkflow(nextRunID, nil); err != nil {
+		t.Fatal(err)
+	}
+	again, err = server.StartWorkflow(ctx, "", ref.WorkflowType, "chain-can", "req-can", nil)
+	if err != nil || again.ID != nextRunID {
+		t.Fatalf("retried start after the chain closed = %v, %v; want run %s", again, err, nextRunID)
 	}
 }
 

@@ -269,30 +269,12 @@ func TestListRuns_TerminalRun_NotBlocked(t *testing.T) {
 	svc, mgr := newCurrentReadRuntime(t)
 
 	// completed 终态
-	seedRun(t, mgr, "run-done", "wf-done", history.StatusCompleted, true)
-	schedID, err := mgr.Append("run-done", "run-done", "run-done", history.NewWorkflowTaskScheduledEvent(0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := mgr.Append("run-done", "run-done", "run-done", history.NewWorkflowTaskCompletedEvent(schedID, "")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := mgr.Append("run-done", "run-done", "run-done", history.NewWorkflowCompletedEvent(nil)); err != nil {
-		t.Fatal(err)
-	}
+	seedRun(t, mgr, "run-done", "wf-done", history.StatusCompleted, true,
+		history.NewWorkflowTaskScheduledEvent(0), history.NewWorkflowTaskCompletedEvent(1, ""), history.NewWorkflowCompletedEvent(nil))
 
 	// failed 终态：最后一个 WFT 是 Completed（drive 出 CmdFailWorkflow），末事件 WorkflowFailed
-	seedRun(t, mgr, "run-failed", "wf-failed", history.StatusFailed, true)
-	sched2, err := mgr.Append("run-failed", "run-failed", "run-failed", history.NewWorkflowTaskScheduledEvent(0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := mgr.Append("run-failed", "run-failed", "run-failed", history.NewWorkflowTaskCompletedEvent(sched2, "")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := mgr.Append("run-failed", "run-failed", "run-failed", history.NewWorkflowFailedEvent("boom", "")); err != nil {
-		t.Fatal(err)
-	}
+	seedRun(t, mgr, "run-failed", "wf-failed", history.StatusFailed, true,
+		history.NewWorkflowTaskScheduledEvent(0), history.NewWorkflowTaskCompletedEvent(1, ""), history.NewWorkflowFailedEvent("boom", ""))
 
 	result, err := svc.View().ListRuns(execution.RunListFilter{IncludeTerminal: true})
 	if err != nil {

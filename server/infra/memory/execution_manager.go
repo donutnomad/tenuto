@@ -344,6 +344,9 @@ func (t *memExecutionTx) AppendIdempotent(runID, treeID, branchID string, event 
 			}
 		}
 	}
+	if err := t.checkOpen(runID, event); err != nil {
+		return 0, false, err
+	}
 	id := t.nextEventID(runID)
 	event.ID = id
 	event, size, err := storedEvent(event)
@@ -366,6 +369,9 @@ func (t *memExecutionTx) Append(runID, treeID, branchID string, event history.Ev
 		return 0, err
 	}
 	event = normalized
+	if err := t.checkOpen(runID, event); err != nil {
+		return 0, err
+	}
 	id := t.nextEventID(runID)
 	event.ID = id
 	event, size, err := storedEvent(event)
@@ -395,6 +401,9 @@ func (t *memExecutionTx) AppendWorkflowTaskClosed(runID, treeID, branchID string
 		if history.IsWorkflowTaskCloseEventType(existing.EventType()) && existing.FlatScheduledEventID() == event.FlatScheduledEventID() {
 			return existing.ID, false, nil
 		}
+	}
+	if err := t.checkOpen(runID, event); err != nil {
+		return 0, false, err
 	}
 	id := t.nextEventID(runID)
 	event.ID = id
@@ -488,6 +497,19 @@ func (t *memExecutionTx) BeginWorkflowActivation(runID string, scheduledEventID,
 }
 
 // requireRun 接受已提交的 run 与本事务内 CreateRun 的 run。
+// checkOpen 与 gorm 后端的 appendEvent 对齐：本事务可见的 execution state 已终态时拒绝追加 event。
+// 去重命中的事件在调用前已返回。
+func (t *memExecutionTx) checkOpen(runID string, event history.Event) error {
+	state, err := t.GetWorkflowExecutionStateForUpdate(runID)
+	if err != nil {
+		return err
+	}
+	if state.IsTerminal() {
+		return execution.RunClosedError(runID, event)
+	}
+	return nil
+}
+
 func (t *memExecutionTx) requireRun(runID string) error {
 	for _, run := range t.pendingRuns {
 		if run.ID == runID {
