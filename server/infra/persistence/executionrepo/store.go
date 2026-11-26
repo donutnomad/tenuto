@@ -127,13 +127,18 @@ type runCountRow struct {
 	Count     int64
 }
 
-func (s *Repository) CountRuns() ([]execution.RunCount, error) {
-	rows, err := infradb.Find(s.db, gsql.SelectG[runCountRow](
+// CountRuns 按 (namespace, status) 分组计数，走 idx_workflow_runs_namespace_status 的索引扫描；给出 namespace 时只扫
+// 这个 namespace 的索引区间。
+func (s *Repository) CountRuns(namespace string) ([]execution.RunCount, error) {
+	query := gsql.SelectG[runCountRow](
 		RunSchema.Namespace,
 		RunSchema.Status,
 		RunSchema.ID.Count().As("count"),
-	).From(RunSchema).
-		GroupBy(RunSchema.Namespace, RunSchema.Status))
+	).From(RunSchema)
+	if namespace != "" {
+		query = query.Where(RunSchema.Namespace.Eq(namespace))
+	}
+	rows, err := infradb.Find(s.db, query.GroupBy(RunSchema.Namespace, RunSchema.Status))
 	if err != nil {
 		return nil, err
 	}
@@ -236,17 +241,19 @@ func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreList
 			return execution.StoreListResult{}, err
 		}
 	}
+	// 多取一行判断是否还有下一页。
 	rows, err := infradb.Find(s.db, query.Order(RunSchema.CreatedAt, !filter.OrderDesc).
 		Order(RunSchema.ID, !filter.OrderDesc).
-		Offset(filter.Offset).Limit(limit))
+		Offset(filter.Offset).Limit(limit+1))
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}
-	runs, err := runRowsToDomain(rows)
+	hasMore := len(rows) > limit
+	runs, err := runRowsToDomain(rows[:min(len(rows), limit)])
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}
-	return execution.StoreListResult{Runs: runs, Total: int(total)}, nil
+	return execution.StoreListResult{Runs: runs, Total: int(total), HasMore: hasMore}, nil
 }
 
 // splitSearchAttributeFilter 把属性条件分成 SQL 可表达的全等条件与需要在 Go 中判定的条件。
@@ -308,7 +315,11 @@ func (s *Repository) listByAttributeScan(runConds, stateConds []gsql.Expression,
 		}
 	}
 	result := execution.StoreListResult{Total: len(matched)}
+	if filter.SkipTotal {
+		result.Total = 0
+	}
 	page := matched[min(max(filter.Offset, 0), len(matched)):]
+	result.HasMore = len(page) > limit
 	page = page[:min(limit, len(page))]
 	if len(page) == 0 {
 		return result, nil

@@ -1,0 +1,69 @@
+package persistence
+
+import (
+	"testing"
+	"time"
+
+	historypkg "github.com/donutnomad/tenuto/protocol/history"
+	"github.com/donutnomad/tenuto/server/biz/domain/execution"
+)
+
+// startCaseRun 建一个已启动的 Run（Run 行、WorkflowStarted 与 current 指针）。
+func startCaseRun(t *testing.T, store *Store, runID, workflowID string) *execution.Run {
+	t.Helper()
+	run := execution.NewRun(execution.NewRunOptions{ID: runID, WorkflowID: workflowID, WorkflowType: "wf", WorkflowConfigVersion: "v1", CreatedAt: time.Now()})
+	started := historypkg.NewWorkflowStartedEvent(nil, runID, "", workflowID, "Workflow", 0)
+	if err := store.Executions.RunInTx(func(tx execution.ExecutionTx) error {
+		return execution.CommitStartedRun(tx, run, "", runID, runID, started)
+	}); err != nil {
+		t.Fatalf("start workflow id %q: %v", workflowID, err)
+	}
+	return run
+}
+
+// 只差大小写的 Workflow ID 各有自己的 current Run（tenuto_runs 的排序规则是 utf8mb4_bin）。
+func TestWorkflowIDIsCaseSensitiveOnMySQL(t *testing.T) {
+	store := requireMySQL(t)
+	upper := startCaseRun(t, store, "run-case-upper", "Order-aB")
+	lower := startCaseRun(t, store, "run-case-lower", "order-Ab")
+	for _, run := range []*execution.Run{upper, lower} {
+		current, err := store.Executions.GetCurrentRunID("default", run.WorkflowID)
+		if err != nil || current != run.ID {
+			t.Errorf("GetCurrentRunID(%q) = %q, %v, want %q", run.WorkflowID, current, err, run.ID)
+		}
+	}
+}
+
+// 只差大小写的两个 Signal requestID 是两次请求：tenuto_events.dedupe_key 区分大小写，两条 Signal 都记下。
+func TestSignalRequestIDDedupeIsCaseSensitiveOnMySQL(t *testing.T) {
+	store := requireMySQL(t)
+	const runID = "run-case-signal"
+	startCaseRun(t, store, runID, "wf-case-signal")
+	ids := map[string]int64{}
+	for _, requestID := range []string{"req-Ab", "req-aB"} {
+		if err := store.Executions.RunInTx(func(tx execution.ExecutionTx) error {
+			run, err := tx.GetRunForUpdate(runID)
+			if err != nil {
+				return err
+			}
+			id, err := execution.RecordSignal(tx, run, runID, runID, "pay", requestID, map[string]any{"request": requestID})
+			ids[requestID] = id
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := store.Executions.GetEvents(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signals := 0
+	for _, event := range events {
+		if event.WorkflowSignaled != nil {
+			signals++
+		}
+	}
+	if signals != 2 || ids["req-Ab"] == ids["req-aB"] {
+		t.Fatalf("signals with request ids differing only in case = %d events (ids %v), want 2", signals, ids)
+	}
+}

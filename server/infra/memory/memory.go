@@ -392,13 +392,14 @@ func (s *RunStore) list(filter execution.StoreListFilter, projection func(run *e
 	if end > total {
 		end = total
 	}
+	hasMore := end < total
 	if filter.SkipTotal {
 		total = 0
 	}
-	return execution.StoreListResult{Runs: filtered[offset:end], Total: total}, nil
+	return execution.StoreListResult{Runs: filtered[offset:end], Total: total, HasMore: hasMore}, nil
 }
 
-func (s *RunStore) CountRuns() ([]execution.RunCount, error) {
+func (s *RunStore) CountRuns(namespace string) ([]execution.RunCount, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -408,7 +409,11 @@ func (s *RunStore) CountRuns() ([]execution.RunCount, error) {
 	}
 	grouped := make(map[key]int)
 	for _, run := range s.runs {
-		grouped[key{protocol.NormalizeNamespace(run.Namespace), run.Status}]++
+		runNamespace := protocol.NormalizeNamespace(run.Namespace)
+		if namespace != "" && runNamespace != namespace {
+			continue
+		}
+		grouped[key{runNamespace, run.Status}]++
 	}
 	counts := make([]execution.RunCount, 0, len(grouped))
 	for group, count := range grouped {

@@ -63,7 +63,8 @@ type StoreListFilter struct {
 	OrderDesc bool
 	Offset    int
 	Limit     int
-	// SkipTotal 为 true 时不计算 StoreListResult.Total（保持 0），按游标翻页的扫描用它省掉每页一次的计数。
+	// SkipTotal 为 true 时不计算 StoreListResult.Total（保持 0）：按游标翻页的扫描与只需要「是否有下一页」的
+	// 列表页用它省掉每页一次的计数。
 	SkipTotal bool
 }
 
@@ -78,10 +79,12 @@ func CursorOf(run *Run) RunCursor {
 	return RunCursor{CreatedAt: run.CreatedAt, RunID: run.ID}
 }
 
-// StoreListResult.Total 是满足全部过滤条件的 Run 总数，与分页无关。
+// StoreListResult.Total 是满足全部过滤条件的 Run 总数，与分页无关（SkipTotal 时为 0）；HasMore 表示这一页之后
+// 还有满足条件的 Run。
 type StoreListResult struct {
-	Runs  []*Run
-	Total int
+	Runs    []*Run
+	Total   int
+	HasMore bool
 }
 
 // RunCount 是一组 (namespace, status) 下的 Run 数量。
@@ -100,8 +103,8 @@ type Store interface {
 	SetResetRunID(runID, resetRunID string) error
 	GetCurrentRunID(namespace, workflowID string) (string, error)
 	List(filter StoreListFilter) (StoreListResult, error)
-	// CountRuns 返回按 namespace 与 Run 行状态分组的 Run 数量。
-	CountRuns() ([]RunCount, error)
+	// CountRuns 返回按 namespace 与 Run 行状态分组的 Run 数量；namespace 非空时只统计这个 namespace。
+	CountRuns(namespace string) ([]RunCount, error)
 	// ListRecoveryRunIDs 返回周期补偿要处理的 Running Run 的 ID（去重、升序），即满足任一条件的 Run：
 	//   - Run 的执行截止时间或 Run 截止时间早于 dueBefore；
 	//   - 有 deadline 早于 dueBefore 的 Scheduled timer；

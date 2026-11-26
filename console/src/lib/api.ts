@@ -97,6 +97,7 @@ export const api = {
     offset?: number
     limit?: number
     order_desc?: boolean
+    skip_total?: boolean
   }) => post<RunListResult>('/list', { filter }),
 
   // 后端 get-run 返回 { run, blocked, terminal_failure } 包装（后两者是响应层派生字段）。

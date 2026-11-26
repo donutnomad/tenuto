@@ -309,6 +309,43 @@ func TestWriteRuntimeErrorSetsRetryAfterOnUnavailable(t *testing.T) {
 	}
 }
 
+// 请求在生效之前被取消（等 keyed lock 时 context 结束）应答 503 与 Retry-After，不应答空 body 的 200；
+// 非幂等端点同样是 503，因为取消只发生在提交之前。
+func TestWriteRuntimeErrorAnswersCancelledRequestsWith503(t *testing.T) {
+	for _, path := range []string{runtimeapi.WorkflowRuntimeSignalPath, runtimeapi.WorkflowRuntimeResetPath} {
+		for _, requestCancelled := range []bool{false, true} {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestCtx, cancel := context.WithCancel(context.Background())
+			if requestCancelled {
+				cancel()
+			}
+			c.Request = httptest.NewRequest(http.MethodPost, path, nil).WithContext(requestCtx)
+			c.Set(loggerKey, slog.New(slog.DiscardHandler))
+			writeRuntimeError(c, fmt.Errorf("lock workflow: %w", context.Canceled))
+			cancel()
+			if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Retry-After") != retryAfterSeconds || recorder.Body.Len() == 0 {
+				t.Errorf("%s (request cancelled %v) = %d, Retry-After %q, body %q", path, requestCancelled,
+					recorder.Code, recorder.Header().Get("Retry-After"), recorder.Body.String())
+			}
+		}
+	}
+}
+
+// 长轮询在请求方仍在等待时因停机结束（context.Canceled）应答 204。
+func TestRuntimePollErrorMapsShutdownToNoContent(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, runtimeapi.WorkflowTaskRuntimePollPath, nil)
+	if err := runtimePollError(c, context.Canceled); !errors.Is(err, errSkipResponse) {
+		t.Fatalf("err = %v, want errSkipResponse", err)
+	}
+	c.Writer.WriteHeaderNow()
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", recorder.Code)
+	}
+}
+
 // 目标不存在是 404，响应体是 err.Error() 的纯文本。
 func TestRuntimeHTTPMapsNotFoundTo404(t *testing.T) {
 	handler := newRuntimeHTTPRouteTestHandler(t)

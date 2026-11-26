@@ -2,16 +2,19 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	taskqgormstore "github.com/donutnomad/taskq/store/gormstore"
+	"github.com/donutnomad/tenuto/protocol/runtimeapi"
 	"github.com/donutnomad/tenuto/server/http/runtimehttp"
 	"gorm.io/gorm"
 )
@@ -38,6 +41,29 @@ func newHTTPHandler(runtime http.Handler, health *healthState, partitions partit
 	mux.Handle("/admin/partitions", auth.require(health.requireReady(partitionHandler(partitions))))
 	return mux
 }
+
+// limitInFlight 限制同时处理的非长轮询请求数：超出 limit 时立即应答 503 与 Retry-After，请求没有被处理，
+// 客户端可以重发（含非幂等端点）。长轮询（runtimeapi.IsLongPoll）不计入。
+func limitInFlight(next http.Handler, limit int) http.Handler {
+	slots := make(chan struct{}, limit)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if runtimeapi.IsLongPoll(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+			next.ServeHTTP(w, r)
+		default:
+			w.Header().Set("Retry-After", inFlightRetryAfter)
+			http.Error(w, "too many requests in flight; retry", http.StatusServiceUnavailable)
+		}
+	})
+}
+
+// inFlightRetryAfter 是在途请求数超限时 503 应答的 Retry-After（秒）。
+const inFlightRetryAfter = "1"
 
 // mux 返回只含 /health/live 与 /health/ready 的路由。
 func (h *healthState) mux() *http.ServeMux {
@@ -94,6 +120,46 @@ func (h *healthState) readiness(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeHealth(w, http.StatusOK, "ok")
+}
+
+// dbProbe 用一条专用连接检查数据库可达。readiness 因此不在业务连接池上排队：池被业务请求占满时探针照常通过，
+// 不会让所有副本同时摘除；数据库失联时 Ping 失败。连接坏掉后丢弃，下一次检查重新取一条。
+// 它长期占用连接池的一个连接。
+type dbProbe struct {
+	db   *sql.DB
+	mu   sync.Mutex
+	conn *sql.Conn
+}
+
+func (p *dbProbe) check(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn != nil {
+		if err := p.conn.PingContext(ctx); err == nil {
+			return nil
+		}
+		_ = p.conn.Close()
+		p.conn = nil
+	}
+	conn, err := p.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	if err := conn.PingContext(ctx); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	p.conn = conn
+	return nil
+}
+
+func (p *dbProbe) close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn != nil {
+		_ = p.conn.Close()
+		p.conn = nil
+	}
 }
 
 func (h *healthState) requireReady(next http.Handler) http.Handler {

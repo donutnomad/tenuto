@@ -248,6 +248,19 @@ func (s *WorkerVersionRepository) DeregisterActivityWorkerVersionInNamespace(nam
 	return nil
 }
 
+func (s *WorkerVersionRepository) DeleteExpiredActivityWorkerVersions(before time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var deleted int64
+	for key, worker := range s.workers {
+		if !worker.ExpiresAt.IsZero() && worker.ExpiresAt.Before(before) {
+			delete(s.workers, key)
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
 func (s *WorkerVersionRepository) ListActiveActivityWorkerVersions(now time.Time) ([]protocol.ActivityWorkerVersion, error) {
 	return s.listRoutes(func(worker protocol.ActivityWorkerVersion) bool {
 		return worker.ExpiresAt.IsZero() || now.Before(worker.ExpiresAt)

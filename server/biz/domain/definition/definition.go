@@ -33,14 +33,20 @@ func CloneWorkflowConfig(wf *program.WorkflowConfig) (*program.WorkflowConfig, e
 	return &cloned, nil
 }
 
-// ValidateWorkflowConfig 校验配置能否作为内容版本保存：Type 必填，WLang 程序产物有效，
+// ValidateWorkflowConfig 校验配置能否作为 namespace 的内容版本保存：Type 必填，namespace 与 Type 不超过列宽，WLang 程序产物有效，
 // run_timeout 不超过 execution_timeout。
-func ValidateWorkflowConfig(workflow *program.WorkflowConfig) error {
+func ValidateWorkflowConfig(namespace string, workflow *program.WorkflowConfig) error {
 	if workflow == nil {
 		return fmt.Errorf("workflow config is nil")
 	}
 	if workflow.Type == "" {
 		return protocol.InvalidRequestf("workflow type is empty")
+	}
+	if err := errors.Join(
+		protocol.CheckLength("namespace", namespace, protocol.MaxNamespaceLength),
+		protocol.CheckLength("workflow type", workflow.Type, protocol.MaxWorkflowTypeLength),
+	); err != nil {
+		return err
 	}
 	if err := workflow.Program.ValidateArtifact(); err != nil {
 		return err

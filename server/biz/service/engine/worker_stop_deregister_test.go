@@ -60,3 +60,32 @@ func TestWorkerStopDeregistersActivityRoutes(t *testing.T) {
 		t.Fatalf("registration records after stop = %d, want 1 kept", len(known))
 	}
 }
+
+// 注销后的路由保留一天供 Console 查看，到期超过一天后由 PurgeExpiredActivityWorkerVersions 删除。
+func TestPurgeExpiredActivityWorkerVersionsKeepsOneDay(t *testing.T) {
+	server, clk := newFakeClockServer(memory.NewExecutionManager(), newTestTaskQueue(), newTestTaskQueue())
+	worker := protocol.ActivityWorkerVersion{Identity: "pod-1", BuildID: "v1", TaskQueues: []string{"payments"}, ActivityTypes: []string{"payments.Capture"}}
+	if err := server.RegisterActivityWorkerVersion(context.Background(), worker); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.DeregisterActivityWorkerVersionInNamespace(context.Background(), protocol.DefaultNamespace, "pod-1", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(expiredWorkerVersionRetention - time.Second)
+	if purged, err := server.PurgeExpiredActivityWorkerVersions(); err != nil || purged != 0 {
+		t.Fatalf("purge within retention = %d, %v", purged, err)
+	}
+	clk.Advance(2 * time.Second)
+	if purged, err := server.PurgeExpiredActivityWorkerVersions(); err != nil || purged != 1 {
+		t.Fatalf("purge after retention = %d, %v; want 1", purged, err)
+	}
+	known, err := server.workerVersions.ListActiveActivityWorkerVersions(time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range known {
+		if route.Identity == "pod-1" {
+			t.Fatalf("purged route still listed: %+v", route)
+		}
+	}
+}

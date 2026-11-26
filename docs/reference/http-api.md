@@ -16,17 +16,34 @@ Tenuto 的 Go Client 使用 JSON Runtime HTTP API。业务系统通过 SDK 调�
 
 | 状态码 | 含义 | 例子 |
 | --- | --- | --- |
-| 400 | 请求本身的问题：参数不合法，或请求与目标当前的状态不相容。改正请求后重试 | `workflow type is empty`、`invalid cron_expression: ...`、对已结束的 Run 发 Signal（`workflow <run> is completed`）、过期的 task token |
+| 400 | 请求本身的问题：参数不合法，或请求与目标当前的状态不相容。改正请求后重试 | `workflow type is empty`、`invalid cron_expression: ...`、对已结束的 Run 发 Signal（`workflow <run> is completed`）、过期的 task token、标识超过长度上限（`workflow id has 200 characters, the limit is 191`，上限见下文[标识长度](#标识长度)） |
 | 401 | Server 配置了 `WORKFLOW_HTTP_AUTH_TOKEN`，请求没有带 `Authorization: Bearer <token>` 或 token 不对；应答带 `WWW-Authenticate: Bearer realm="tenuto"` | `unauthorized` |
 | 404 | 目标不存在 | Run、Workflow ID 没有 current Run（`no current run`）、Workflow Config、Definition、Schedule、Batch Operation |
 | 409 | 与已有记录或并发写入冲突。重新读取后重试 | Schedule ID 已存在、Schedule 被并发修改、current Run 已被其他请求切换、Run ID 已存在、取消已结束的 Batch Operation |
 | 415 | POST 的 `Content-Type` 不是 `application/json`（可带 `charset` 等参数），没有请求体的端点也一样 | 表单或 `text/plain` 提交：`Content-Type must be application/json` |
 | 500 | Server 故障：数据库返回的非瞬时错误（缺表、数据超长等）或代码错误。原因看 Server 日志 | `internal server error` |
 | 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发 | `service temporarily unavailable; the request may have taken effect` |
-| 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable` |
+| 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）；在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`；请求在生效之前被取消。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable`、`too many requests in flight; retry`、`request cancelled before taking effect; retry` |
 | 504 | 请求在 Server 端等待超时 | `context deadline exceeded` |
 
+成功应答总带 JSON 响应体（长轮询的 204 除外）；2xx 空响应体说明应答没有完整送达，Go SDK 把它当作传输错误。
+
 Update validator 的拒绝是 400，响应体是 `protocol.Failure` 的 JSON。长轮询到期没有任务时返回 204，没有响应体：请求的等待到期与队列（TaskQ）的长轮询先到期都是这个应答。
+
+## 标识长度
+
+标识按字符计数（不是字节），超过上限的请求应答 400：
+
+| 标识 | 上限 |
+| --- | --- |
+| Namespace、Task Queue、Build ID、Schedule 时区 | 64 |
+| Activity Type、Worker identity | 128 |
+| Workflow ID、Workflow Type、Activity ID、Timer ID、Update ID、Schedule 描述与 cron 表达式 | 191 |
+| Batch Operation 的 `reason` | 1024 |
+
+子 Workflow 的 Workflow ID 是 `<父 Run ID>/<ChildID>`，整体不超过 191。Workflow 代码发出的命令（Timer ID、子 Workflow ID 与 Type、Activity ID、Activity Type、Task Queue）超长时，Workflow Task 以 `bad_start_timer_attributes`、`bad_start_child_workflow_attributes` 或 `bad_schedule_activity_attributes` 失败，Run 显示 Blocked，修复代码后恢复。
+
+MySQL 表的排序规则是 `utf8mb4_bin`：标识区分大小写与重音，`order-ab12` 与 `order-AB12`、`Prod` 与 `prod` 是不同的 Workflow 与 Namespace，与内存后端一致。
 
 ## Namespace 与寻址
 
@@ -49,7 +66,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 | POST | `/runtime/workflow/start-version` | 按 Config Version 启动 Workflow |
 | POST | `/runtime/workflow/get-run` | 获取 Run |
 | POST | `/runtime/workflow/wait-closed` | 长轮询等待 Run 结束；请求体见「等待 Run 结束」 |
-| POST | `/runtime/workflow/list` | 查询 Run List；给出 `run_ids` 时已结束的 Run 也返回，结束的 Run 带 `closed_at`。`limit` 缺省 50、最大 1000，`offset` 不能为负，`run_ids` 最多 1000 个，越界返回 400 |
+| POST | `/runtime/workflow/list` | 查询 Run List；给出 `run_ids` 时已结束的 Run 也返回，结束的 Run 带 `closed_at`。`limit` 缺省 50、最大 1000，`offset` 不能为负，`run_ids` 最多 1000 个，越界返回 400。应答 `{items, total, has_more}`：`total` 是满足条件的 Run 总数，`has_more` 表示这一页之后还有 Run；`filter.skip_total: true` 时不计算总数（`total` 为 0），Run 很多时这一页更快，翻页看 `has_more` |
 | POST | `/runtime/workflow/history` | 读取完整 Event History |
 | POST | `/runtime/workflow/history-page` | 分页读取 Event History |
 | POST | `/runtime/workflow/signal` | 发送 Signal |
@@ -104,7 +121,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 | POST | `/runtime/workflow/list-configs` | Workflow Definition 列表 |
 | POST | `/runtime/workflow/list-workers` | Worker 列表 |
 | POST | `/runtime/workflow/list-task-queues` | Task Queue 列表 |
-| POST | `/runtime/workflow/run-stats` | Run 聚合统计 |
+| POST | `/runtime/workflow/run-stats` | 一个 Namespace 内按状态聚合的 Run 数量 |
 | POST | `/runtime/workflow/activity-states` | Activity mutable state |
 | POST | `/runtime/workflow/register-activity-worker-version` | 注册 Activity Worker Build ID |
 | POST | `/runtime/workflow/heartbeat-activity-worker-version` | 刷新 Activity Worker Build ID TTL |

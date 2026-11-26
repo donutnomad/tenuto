@@ -83,10 +83,10 @@ page, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
     Limit:            50,
     NewestFirst:      true,
 })
-// page.Executions（WorkflowID、RunID、WorkflowType、Status、StartTime、CloseTime、SearchAttributes、HistoryLength、FailureReason）、page.Total
+// page.Executions（WorkflowID、RunID、WorkflowType、Status、StartTime、CloseTime、SearchAttributes、HistoryLength、FailureReason）、page.Total、page.HasMore
 ```
 
-`Statuses` 为空时不按状态过滤；`Limit` 缺省 50、最大 1000。`DescribeWorkflowExecution` 还带 `ConfigError`（Run 暂停的原因）与 `UpgradeError`（最近一次自动升级失败）；结果用 `Get` 读。
+`Statuses` 为空时不按状态过滤；`Limit` 缺省 50、最大 1000。`SkipTotal: true` 时不计算 `Total`（为 0），翻页看 `HasMore`，Run 很多时更快。`DescribeWorkflowExecution` 还带 `ConfigError`（Run 暂停的原因）与 `UpgradeError`（最近一次自动升级失败）；结果用 `Get` 读。
 
 ## Signal、Query
 

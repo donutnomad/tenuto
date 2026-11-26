@@ -121,9 +121,9 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		// Activity Worker 尚未上线：关闭本次 WFT 并退避重试，Run 显示为 Blocked。
 		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, WorkflowTaskFailedCauseActivityRouteUnavailable, err.Error())
 	}
-	if errors.Is(err, execution.ErrBadScheduleActivityAttributes) {
+	if cause, ok := execution.BadCommandAttributesCause(err); ok {
 		// Workflow 代码的确定性错误：关闭本次 WFT 并退避重试，Run 显示为 Blocked，修复代码后恢复。
-		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, execution.WorkflowTaskFailedCauseBadScheduleActivityAttributes, err.Error())
+		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, cause, err.Error())
 	}
 	if err != nil {
 		return err
@@ -211,7 +211,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 			return s.closeWorkflowForHistoryLimit(ctx, runID, treeID, branchID, closeEvent, limitErr)
 		}
 		if errors.Is(txErr, execution.ErrScheduleActivityDuplicateID) {
-			// 与 ErrBadScheduleActivityAttributes 同类的确定性错误：关闭本次 WFT 并退避重试，Run 显示为 Blocked。
+			// 与 BadCommandAttributesCause 同类的确定性错误：关闭本次 WFT 并退避重试，Run 显示为 Blocked。
 			return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, execution.WorkflowTaskFailedCauseScheduleActivityDuplicateID, txErr.Error())
 		}
 		return txErr

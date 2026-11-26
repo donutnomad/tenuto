@@ -38,6 +38,9 @@ func (r definitionRoutes) ValidateWorkflowConfigInNamespace(namespace string, wo
 // worker.ActivityWorkerVersionRegistryAPI。
 func (s *Server) RegisterActivityWorkerVersion(ctx context.Context, worker protocol.ActivityWorkerVersion) error {
 	worker.Namespace = protocol.NormalizeNamespace(worker.Namespace)
+	if err := dispatch.ValidateWorkerVersionIdentifiers(worker); err != nil {
+		return err
+	}
 	ttl, err := dispatch.WorkerVersionTTL(worker)
 	if err != nil {
 		return err
@@ -51,6 +54,16 @@ func (s *Server) RegisterActivityWorkerVersion(ctx context.Context, worker proto
 func (s *Server) HeartbeatActivityWorkerVersionInNamespace(ctx context.Context, namespace, identity, buildID string) error {
 	namespace = protocol.NormalizeNamespace(namespace)
 	return s.workerVersions.HeartbeatActivityWorkerVersionInNamespace(namespace, identity, buildID, s.clock.Now(), protocol.DefaultActivityWorkerVersionTTL)
+}
+
+// expiredWorkerVersionRetention 是 Activity Worker 路由到期后保留的时长：Console 在这段时间里仍能看到刚下线的
+// Worker，之后由 PurgeExpiredActivityWorkerVersions 删除。
+const expiredWorkerVersionRetention = 24 * time.Hour
+
+// PurgeExpiredActivityWorkerVersions 删除到期超过 expiredWorkerVersionRetention 的 Activity Worker 路由，返回删除的行数。
+// identity 含 Pod 名的 Worker 每次发布都留下一组到期的行；由应用入口的 leader 周期任务调用。
+func (s *Server) PurgeExpiredActivityWorkerVersions() (int64, error) {
+	return s.workerVersions.DeleteExpiredActivityWorkerVersions(s.clock.Now().Add(-expiredWorkerVersionRetention))
 }
 
 // DeregisterActivityWorkerVersionInNamespace 注销一个 Activity Worker：它的路由立刻退出选路。

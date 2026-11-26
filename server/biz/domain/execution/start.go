@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"errors"
 	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
@@ -46,6 +47,13 @@ func NewWorkflowVersionRun(opts WorkflowStartOptions) (*Run, error) {
 	}
 	if opts.WorkflowID == "" {
 		return nil, protocol.InvalidRequestf("workflow id is empty")
+	}
+	if err := errors.Join(
+		protocol.CheckLength("namespace", opts.Namespace, protocol.MaxNamespaceLength),
+		protocol.CheckLength("workflow id", opts.WorkflowID, protocol.MaxWorkflowIDLength),
+		protocol.CheckLength("workflow type", opts.WorkflowType, protocol.MaxWorkflowTypeLength),
+	); err != nil {
+		return nil, err
 	}
 	return NewRun(NewRunOptions{
 		Namespace:             opts.Namespace,

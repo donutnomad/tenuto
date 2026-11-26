@@ -109,7 +109,7 @@ func run(ctx context.Context, url, namespace string) error {
 4. 到期后取消仍在运行的任务的 `ctx` 并等它们返回。因停止而结束的 Activity（宽限期内返回 `activity.ErrWorkerStopping`，或 `ctx` 被取消后返回）不上报失败，Worker 调 `POST /runtime/activity/release` 交还 Attempt，Server 以同一序号立即重新派发、不消耗重试次数；未完成的 Workflow Task 不上报，由 Server 的 Workflow Task 超时重新调度。
 5. 向 Server 注销本 Worker 的 Activity 路由（这个 build 立刻退出选路；尽力而为，上限 3 秒），关闭 Execution Cache。
 
-`Stop` 可重复、并发调用，都在停止完成后返回；没有在途任务时立即返回；忽略 `ctx` 的 Activity 会让它一直等。部署平台在 `SIGTERM` 后留出大于 `GracefulStopTimeout` 的终止宽限期。进程崩溃时路由靠心跳 TTL 到期，已开始的 Attempt 靠 StartToClose 或 Heartbeat 超时重试。
+`Stop` 可重复、并发调用，都在停止完成后返回；没有在途任务时立即返回；忽略 `ctx` 的 Activity 会让它一直等。部署平台在 `SIGTERM` 后留出大于 `GracefulStopTimeout` 的终止宽限期。进程崩溃时路由靠心跳 TTL 到期，已开始的 Attempt 靠 StartToClose 或 Heartbeat 超时重试。到期的登记再保留一天（指定 Target Worker 的 Run 仍按它最后登记的队列排队），之后由 Server 的全量补偿删除，指定这个 Identity 的 Activity 改为 `activity_route_unavailable` 退避等待，Worker 重新登记后恢复。
 
 定义经 Worker 所用 Client 的连接登记到它的 Namespace。
 

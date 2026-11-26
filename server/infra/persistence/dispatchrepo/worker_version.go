@@ -186,6 +186,13 @@ func (s *Repository) DeregisterActivityWorkerVersionInNamespace(namespace, ident
 		}).Error
 }
 
+func (s *Repository) DeleteExpiredActivityWorkerVersions(before time.Time) (int64, error) {
+	result := gsql.From[ActivityWorkerVersionPO](ActivityWorkerVersionSchema).
+		Where(ActivityWorkerVersionSchema.ExpiresAt.Lt(before)).
+		Delete(s.db)
+	return result.RowsAffected, result.Error
+}
+
 func (s *Repository) ListActiveActivityWorkerVersions(now time.Time) ([]protocol.ActivityWorkerVersion, error) {
 	return s.listRoutes(ActivityWorkerVersionSchema.ExpiresAt.Gt(now))
 }

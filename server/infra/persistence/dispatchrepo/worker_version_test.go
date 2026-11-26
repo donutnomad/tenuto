@@ -164,3 +164,42 @@ func TestListActiveReportsCorruptContracts(t *testing.T) {
 		t.Fatal("corrupt contracts_json was swallowed")
 	}
 }
+
+// 只删除在 before 之前到期的路由：仍有效与刚到期的行保留。
+func TestDeleteExpiredActivityWorkerVersions(t *testing.T) {
+	repository := newTestRepository(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	for _, worker := range []struct {
+		identity     string
+		registeredAt time.Time
+	}{
+		{"gone-pod", now.Add(-48 * time.Hour)},
+		{"recent-pod", now.Add(-2 * time.Hour)},
+		{"live-pod", now},
+	} {
+		if _, err := repository.UpsertActivityWorkerVersionInNamespace(protocol.DefaultNamespace, protocol.ActivityWorkerVersion{
+			Identity: worker.identity, BuildID: "build-1", TaskQueues: []string{"q1", "q2"}, ActivityTypes: []string{"charge"},
+		}, worker.registeredAt, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleted, err := repository.DeleteExpiredActivityWorkerVersions(now.Add(-24 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 2 {
+		t.Fatalf("deleted = %d, want the 2 rows of gone-pod", deleted)
+	}
+	var rows []ActivityWorkerVersionPO
+	if err := repository.db.Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Identity == "gone-pod" {
+			t.Fatalf("expired row kept: %+v", row)
+		}
+	}
+	if len(rows) != 4 {
+		t.Fatalf("remaining rows = %d, want 4", len(rows))
+	}
+}

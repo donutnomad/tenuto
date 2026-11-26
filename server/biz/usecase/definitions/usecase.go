@@ -71,7 +71,7 @@ func (u *UseCase) RegisterWorkflowInNamespace(namespace string, workflow *progra
 
 // activateConfig 校验配置与 Activity 路由后保存并激活；校验失败时 active 保持不变。
 func (u *UseCase) activateConfig(namespace string, workflow *programpkg.WorkflowConfig) (definition.WorkflowConfigRef, error) {
-	if err := definition.ValidateWorkflowConfig(workflow); err != nil {
+	if err := definition.ValidateWorkflowConfig(namespace, workflow); err != nil {
 		return definition.WorkflowConfigRef{}, err
 	}
 	if err := u.routes.ValidateWorkflowConfigInNamespace(namespace, workflow); err != nil {
@@ -84,7 +84,7 @@ func (u *UseCase) activateConfig(namespace string, workflow *programpkg.Workflow
 // Worker 与应用启动加载既有产物走这条路径，旧版本重启时 active 留在原版本。
 func (u *UseCase) RegisterWorkflowArtifactInNamespace(namespace string, workflow *programpkg.WorkflowConfig) (definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
-	if err := definition.ValidateWorkflowConfig(workflow); err != nil {
+	if err := definition.ValidateWorkflowConfig(namespace, workflow); err != nil {
 		return definition.WorkflowConfigRef{}, err
 	}
 	return u.configs.SaveWorkflowConfigArtifactInNamespace(namespace, workflow)
@@ -120,7 +120,7 @@ func (u *UseCase) EnrollWorkflowInNamespace(namespace string, workflow *programp
 		return definition.WorkflowConfigRef{}, err
 	}
 	namespace = protocol.NormalizeNamespace(namespace)
-	if err := definition.ValidateWorkflowConfig(workflow); err != nil {
+	if err := definition.ValidateWorkflowConfig(namespace, workflow); err != nil {
 		return definition.WorkflowConfigRef{}, err
 	}
 	version, err := programpkg.WorkflowConfigVersion(workflow)

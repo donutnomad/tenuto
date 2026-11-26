@@ -161,6 +161,9 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 	if updateID == "" {
 		updateID = uuid.NewString()
 	}
+	if err := protocol.CheckLength("update id", updateID, protocol.MaxUpdateIDLength); err != nil {
+		return protocol.WorkflowUpdateResult{}, err
+	}
 	// 无状态 args 校验：在 Register waiter、进 lease 之前。拒绝时零 history、不注册 waiter、不 ScheduleWFT，
 	// 直接返回 error（对标 Temporal reject）。只看 name+args，不读 workflow 状态 → 无副作用泄漏、无需 replay。
 	if v, ok := s.lookupUpdateValidator(name); ok {
@@ -220,8 +223,10 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 // awaitUpdateResult 等待 runID 上已接受的 Update 完成，结果总从 History 读取：Update 完成时是 handler 的结果，
 // Run 先结束时是 History 里记下的失败终态（见 execution.UpdateRecordsFromEvents）。
 // 每一轮先读 Run 的 NextEventID 再读 History，未完成时经 runWatch 等 Run 变化，Run 在哪个副本上变化都会唤醒。
-// 软超时时仍未完成则返回 Accepted，不报错，让 client 再来（对标 Temporal）。
+// 软超时、ctx 结束或 StopLongPolls 时仍未完成则返回 Accepted，不报错，让 client 再来（对标 Temporal）。
 func (s *Server) awaitUpdateResult(ctx context.Context, namespace, runID, updateID string, result protocol.WorkflowUpdateResult) protocol.WorkflowUpdateResult {
+	ctx, cancel := s.longPollContext(ctx)
+	defer cancel()
 	deadline := s.clock.Now().Add(s.updateSoftTimeout)
 	for {
 		state, err := s.mgr.GetWorkflowExecutionState(runID)
@@ -271,6 +276,9 @@ func (s *Server) UpdateWithStart(
 	namespace = protocol.NormalizeNamespace(namespace)
 	if updateID == "" {
 		updateID = uuid.NewString()
+	}
+	if err := protocol.CheckLength("update id", updateID, protocol.MaxUpdateIDLength); err != nil {
+		return "", protocol.WorkflowUpdateResult{}, err
 	}
 	stage, err = protocol.NormalizeUpdateWaitStage(stage)
 	if err != nil {
@@ -378,13 +386,13 @@ func (s *Server) validateInteraction(namespace, workflowID, runID, name string) 
 	return nil
 }
 
-// closeEventScan 是读取结束事件时向前查看的事件数：结束事件之后不再追加事件，留出余量即可。
-const closeEventScan = 8
-
-// WaitRunClosed 等待请求寻址的 Run 结束，返回结束后的 Run 与它的结束事件；ctx 先结束时返回 ctx 的错误。
+// WaitRunClosed 等待请求寻址的 Run 结束，返回结束后的 Run 与它的结束事件；ctx 先结束或 StopLongPolls 时返回
+// context 的错误。
 // 每一轮先读 Run 的 execution state，未结束时经 runWatch 等 Run 变化：Run 在哪个副本上结束都会唤醒。
 // 只等这一个 Run，continue-as-new 与重试产生的下一个 Run 由调用方按结束事件跟随。
 func (s *Server) WaitRunClosed(ctx context.Context, namespace, workflowID, runID string) (*execution.Run, history.Event, error) {
+	ctx, cancel := s.longPollContext(ctx)
+	defer cancel()
 	ref, err := s.resolveRunRef(namespace, workflowID, runID)
 	if err != nil {
 		return nil, history.Event{}, err
@@ -409,7 +417,7 @@ func (s *Server) closedRun(runID string, lastEventID int64) (*execution.Run, his
 	if err != nil {
 		return nil, history.Event{}, err
 	}
-	events, err := s.mgr.GetEventsRange(runID, max(0, lastEventID-closeEventScan), lastEventID)
+	events, err := s.mgr.GetEventsRange(runID, max(0, lastEventID-execution.CloseEventScan), lastEventID)
 	if err != nil {
 		return nil, history.Event{}, err
 	}
@@ -418,5 +426,5 @@ func (s *Server) closedRun(runID string, lastEventID int64) (*execution.Run, his
 			return run, events[i], nil
 		}
 	}
-	return nil, history.Event{}, fmt.Errorf("run %s is %s but its last %d events have no closing event", runID, run.Status, closeEventScan)
+	return nil, history.Event{}, fmt.Errorf("run %s is %s but its last %d events have no closing event", runID, run.Status, execution.CloseEventScan)
 }
