@@ -66,7 +66,6 @@ type StoreListFilter struct {
 	// 翻页期间离开或进入过滤条件的 Run 不会让后续页漂移。
 	After     *RunCursor
 	OrderDesc bool
-	Offset    int
 	Limit     int
 	// SkipTotal 为 true 时不计算 StoreListResult.Total（保持 0）：按游标翻页的扫描与只需要「是否有下一页」的
 	// 列表页用它省掉每页一次的计数。
@@ -84,8 +83,8 @@ func CursorOf(run *Run) RunCursor {
 	return RunCursor{CreatedAt: run.CreatedAt, RunID: run.ID}
 }
 
-// StoreListResult.Total 是满足全部过滤条件的 Run 总数，与分页无关（SkipTotal 时为 0）；HasMore 表示这一页之后
-// 还有满足条件的 Run。
+// StoreListResult.Total 是满足全部过滤条件的 Run 总数，与分页（After、Limit）无关（SkipTotal 时为 0）；HasMore 表示
+// 这一页之后还有满足条件的 Run。
 type StoreListResult struct {
 	Runs    []*Run
 	Total   int

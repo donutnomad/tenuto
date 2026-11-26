@@ -28,6 +28,7 @@ var poModels = []any{
 	&executionrepo.RunPO{},
 	&executionrepo.EventPO{},
 	&executionrepo.WorkflowExecutionStatePO{},
+	&executionrepo.RunSearchAttributePO{},
 	&executionrepo.HistoryTreePO{},
 	&executionrepo.ActivityStatePO{},
 	&executionrepo.TimerStatePO{},

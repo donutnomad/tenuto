@@ -89,6 +89,8 @@ export interface RunListResult {
   // total 是满足条件的 Run 总数；请求带 skip_total 时为 0。
   total: number
   has_more: boolean
+  // next_page_token 是下一页请求的 page_token；没有下一页时省略。
+  next_page_token?: string
 }
 
 export interface WorkflowConfigSummary {

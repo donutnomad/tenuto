@@ -699,6 +699,72 @@ var RunSchema = RunSchemaType{
 	fieldType:              RunPO{},
 }
 
+type RunSearchAttributeSchemaType struct {
+	RunID     gsql.StringField   // string
+	AttrHash  gsql.StringField   // []byte
+	Namespace gsql.StringField   // string
+	CreatedAt gsql.DateTimeField // time.Time
+	fieldType RunSearchAttributePO
+	alias     string
+	tableName string
+}
+
+func (t RunSearchAttributeSchemaType) TableName() string {
+	return t.tableName
+}
+
+func (t RunSearchAttributeSchemaType) Alias() string {
+	return t.alias
+}
+
+func (t *RunSearchAttributeSchemaType) WithTable(tableName string) {
+	tn := gsql.TN(tableName)
+	t.RunID = t.RunID.WithTable(&tn)
+	t.AttrHash = t.AttrHash.WithTable(&tn)
+	t.Namespace = t.Namespace.WithTable(&tn)
+	t.CreatedAt = t.CreatedAt.WithTable(&tn)
+}
+
+func (t RunSearchAttributeSchemaType) As(alias string) RunSearchAttributeSchemaType {
+	var ret = t
+	ret.alias = alias
+	ret.WithTable(alias)
+	return ret
+}
+
+func (t RunSearchAttributeSchemaType) ModelType() *RunSearchAttributePO {
+	return &t.fieldType
+}
+
+func (t RunSearchAttributeSchemaType) ModelTypeAny() any {
+	return &t.fieldType
+}
+
+func (t RunSearchAttributeSchemaType) AllFields() field.BaseFields {
+	return field.BaseFields{
+		t.RunID,
+		t.AttrHash,
+		t.Namespace,
+		t.CreatedAt,
+	}
+}
+
+func (t RunSearchAttributeSchemaType) Star() field.IField {
+	if t.alias != "" {
+		return gsql.StarWith(t.alias)
+	}
+	return gsql.StarWith(t.tableName)
+}
+
+var RunSearchAttributeSchema = RunSearchAttributeSchemaType{
+	tableName: "tenuto_run_search_attributes",
+	RunID:     gsql.StringFieldOf[string]("tenuto_run_search_attributes", "run_id"),
+	AttrHash:  gsql.StringFieldOf[[]byte]("tenuto_run_search_attributes", "attr_hash"),
+	Namespace: gsql.StringFieldOf[string]("tenuto_run_search_attributes", "namespace"),
+	CreatedAt: gsql.DateTimeFieldOf[time.Time]("tenuto_run_search_attributes", "created_at"),
+	fieldType: RunSearchAttributePO{},
+}
+
 type TimerStateSchemaType struct {
 	RunID            gsql.StringField   // string
 	ScheduledEventID gsql.IntField      // int64

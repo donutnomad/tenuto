@@ -153,7 +153,7 @@ stopped, err := c.StopBatchOperation(ctx, op.ID) // 已结束的 Batch 返回 cl
 
 HTTP：`start-batch` 的 body 是 `{"req":{"namespace","type","filter","reason","reset_type"}}`，应答 202；`get-batch`、`cancel-batch` 是 `{namespace, operation_id}`；`list-batches` 是 `{namespace, offset, limit}`，从新到旧。
 
-- 选择：过滤器匹配的 Run，`offset`、`limit` 不参与；给了 `run_ids` 时目标就是这些 Run（含已结束的）。只处理 Batch 创建时（那一毫秒）及之前创建的 Run，Reset 产生的新 Run 与之后启动的 Run 不在内，Batch 必然结束。驱动按 `(created_at, id)` 游标翻页，每页读取当时仍匹配的 Run：处理到之前离开过滤器的 Run 不处理。先用同一个过滤器 `c.ListWorkflow` 预览（Batch 的 `Statuses` 为空时只选运行中的 Run，`ListWorkflow` 为空时不过滤状态）。
+- 选择：过滤器匹配的 Run，`page_token`、`limit`、`order_desc` 不参与；给了 `run_ids` 时目标就是这些 Run（含已结束的）。只处理 Batch 创建时（那一毫秒）及之前创建的 Run，Reset 产生的新 Run 与之后启动的 Run 不在内，Batch 必然结束。驱动按 `(created_at, id)` 游标翻页，每页读取当时仍匹配的 Run：处理到之前离开过滤器的 Run 不处理。先用同一个过滤器 `c.ListWorkflow` 预览（Batch 的 `Statuses` 为空时只选运行中的 Run，`ListWorkflow` 为空时不过滤状态）。
 - 状态：`pending` → `running` → `completed` / `failed`（有失败且没有成功），`pending` / `running` → `cancelled`。计数 `succeeded_count`、`failed_count`、`skipped_count`；`total_count` 首页时取匹配数，结束时改为实际处理数；`errors` 最多 20 条 `{run_id, message}` 样本。时间 `created_at`、`started_at`、`finished_at`、`updated_at`。
 - `cancel` 的 succeeded 是「已请求取消」：Batch 在全部请求发出后就是 `completed`，Run 可能仍在运行。已结束的 Run 对 cancel / terminate 计为 skipped；Run 在 Batch 创建后已被 Reset 过对 reset 计为 skipped。
 - 取消 Batch：`pending` / `running` → `cancelled`，驱动在下一页之前停下，正在处理的那一页仍计入，已执行的动作不回滚。重复取消原样返回；取消已结束的 Batch 返回 409。

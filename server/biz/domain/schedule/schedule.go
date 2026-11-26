@@ -70,15 +70,15 @@ type Schedule struct {
 	// CatchupWindow 是到期点之后仍会补触发的最长延迟，逐个到期点判定。
 	CatchupWindow time.Duration `json:"catchup_window"`
 	LastRunAt     *time.Time    `json:"last_run_at,omitempty"`
-	NextRunAt      *time.Time     `json:"next_run_at,omitempty"`
-	LastRunID      string         `json:"last_run_id,omitempty"`
-	RunCount       int            `json:"run_count"`
+	NextRunAt     *time.Time    `json:"next_run_at,omitempty"`
+	LastRunID     string        `json:"last_run_id,omitempty"`
+	RunCount      int           `json:"run_count"`
 	// MissedCatchupWindow 是因超出 catchup window 而没有触发的到期点数（Temporal ScheduleInfo.MissedCatchupWindow）。
 	MissedCatchupWindow int64 `json:"missed_catchup_window"`
 	// BufferDropped 是补触发时因超出 MaxBufferSize 而丢弃的到期点数（Temporal ScheduleInfo.BufferDropped）。
-	BufferDropped int64         `json:"buffer_dropped"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	BufferDropped int64     `json:"buffer_dropped"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 	patch         SchedulePatch
 }
 

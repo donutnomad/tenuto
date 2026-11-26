@@ -100,7 +100,7 @@ type NewParams struct {
 	Reason    string
 }
 
-// New 校验参数并创建 pending 的批量操作。Filter 的 Offset 与 Limit 不参与：批量操作覆盖全部匹配的 Run；
+// New 校验参数并创建 pending 的批量操作。Filter 的 PageToken、Limit 与 OrderDesc 不参与：批量操作覆盖全部匹配的 Run；
 // 显式给出 RunIDs 时已结束的 Run 也在选择之内。
 func New(id string, params NewParams, now time.Time) (*Operation, error) {
 	switch params.Type {
@@ -121,7 +121,7 @@ func New(id string, params NewParams, now time.Time) (*Operation, error) {
 	namespace := protocol.NormalizeNamespace(params.Namespace)
 	filter := params.Filter
 	filter.Namespace = namespace
-	filter.Offset, filter.Limit, filter.OrderDesc = 0, 0, false
+	filter.PageToken, filter.Limit, filter.OrderDesc = "", 0, false
 	if len(filter.RunIDs) > 0 {
 		filter.IncludeTerminal = true
 	}

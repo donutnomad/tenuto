@@ -213,7 +213,7 @@ func createExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) 
 	return nil
 }
 
-// updateExecutionState 把 state 经 setter 改过的字段写回，没有改动时不写库。
+// updateExecutionState 把 state 经 setter 改过的字段写回，没有改动时不写库；搜索属性改过时同时改写 tenuto_run_search_attributes。
 // blocked_json 由四个投影字段合成，其中任何一个改过就重写这一列；needs_workflow_task 随 WFT 状态与 open WFT 重算。
 func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) error {
 	row, err := executionStateToRow(state)
@@ -244,6 +244,12 @@ func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) 
 		Where(WorkflowExecutionStateSchema.RunID.Eq(state.RunID)).
 		Update(db, patch).Error; err != nil {
 		return err
+	}
+	// 搜索属性的索引行与投影同事务改写。
+	if changed.SearchAttributes.IsPresent() {
+		if err := rewriteRunSearchAttributes(db, state.RunID, state.SearchAttributes); err != nil {
+			return err
+		}
 	}
 	state.ClearPatch()
 	return nil

@@ -73,22 +73,24 @@ func TestListRunsFiltersBeforePagingOnBothBackends(t *testing.T) {
 		filter    execution.RunListFilter
 		wantIDs   []string
 		wantTotal int
+		// pages 是先按 next_page_token 翻过的页数。
+		pages int
 	}{
-		{"attribute first page", execution.RunListFilter{SearchAttributes: map[string]string{"tenant": "a"}, Limit: 2}, []string{"r1", "r3"}, 4},
-		{"attribute second page", execution.RunListFilter{SearchAttributes: map[string]string{"tenant": "a"}, Limit: 2, Offset: 2}, []string{"r4", "r5"}, 4},
-		{"attribute descending", execution.RunListFilter{SearchAttributes: map[string]string{"tenant": "a"}, Limit: 2, OrderDesc: true}, []string{"r5", "r4"}, 4},
-		{"attribute value is case sensitive", execution.RunListFilter{SearchAttributes: map[string]string{"tenant": "A"}}, []string{}, 0},
-		{"empty value matches a missing key", execution.RunListFilter{SearchAttributes: map[string]string{"absent": ""}, Limit: 3}, []string{"r1", "r2", "r3"}, 7},
-		{"blocked first page", execution.RunListFilter{BlockedOnly: true, Limit: 1}, []string{"r3"}, 2},
-		{"blocked second page", execution.RunListFilter{BlockedOnly: true, Limit: 1, Offset: 1}, []string{"r6"}, 2},
-		{"blocked and attribute", execution.RunListFilter{BlockedOnly: true, SearchAttributes: map[string]string{"tenant": "b"}}, []string{"r6"}, 1},
-		{"change version membership first page", execution.RunListFilter{SearchAttributes: map[string]string{changeVersion: "fix-1"}, Limit: 1}, []string{"r5"}, 2},
-		{"change version membership second page", execution.RunListFilter{SearchAttributes: map[string]string{changeVersion: "fix-1"}, Limit: 1, Offset: 1}, []string{"r7"}, 2},
-		{"change version with attribute", execution.RunListFilter{SearchAttributes: map[string]string{changeVersion: "fix-1", "tenant": "a"}}, []string{"r5"}, 1},
-		{"change version miss", execution.RunListFilter{SearchAttributes: map[string]string{changeVersion: "fix"}}, []string{}, 0},
-		{"key with a quote", execution.RunListFilter{SearchAttributes: map[string]string{`we"ird`: "v"}}, []string{"r7"}, 1},
-		{"run ids", execution.RunListFilter{RunIDs: []string{"r6", "r2", "missing"}}, []string{"r2", "r6"}, 2},
-		{"run ids with attribute", execution.RunListFilter{RunIDs: []string{"r1", "r2"}, SearchAttributes: map[string]string{"tenant": "b"}}, []string{"r2"}, 1},
+		{"attribute first page", execution.RunListFilter{SearchAttributes: map[string]string{"tenant": "a"}, Limit: 2}, []string{"r1", "r3"}, 4, 0},
+		{"attribute second page", execution.RunListFilter{SearchAttributes: map[string]string{"tenant": "a"}, Limit: 2}, []string{"r4", "r5"}, 4, 1},
+		{"attribute descending", execution.RunListFilter{SearchAttributes: map[string]string{"tenant": "a"}, Limit: 2, OrderDesc: true}, []string{"r5", "r4"}, 4, 0},
+		{"attribute value is case sensitive", execution.RunListFilter{SearchAttributes: map[string]string{"tenant": "A"}}, []string{}, 0, 0},
+		{"empty value does not match a missing key", execution.RunListFilter{SearchAttributes: map[string]string{"absent": ""}, Limit: 3}, []string{}, 0, 0},
+		{"blocked first page", execution.RunListFilter{BlockedOnly: true, Limit: 1}, []string{"r3"}, 2, 0},
+		{"blocked second page", execution.RunListFilter{BlockedOnly: true, Limit: 1}, []string{"r6"}, 2, 1},
+		{"blocked and attribute", execution.RunListFilter{BlockedOnly: true, SearchAttributes: map[string]string{"tenant": "b"}}, []string{"r6"}, 1, 0},
+		{"change version membership first page", execution.RunListFilter{SearchAttributes: map[string]string{changeVersion: "fix-1"}, Limit: 1}, []string{"r5"}, 2, 0},
+		{"change version membership second page", execution.RunListFilter{SearchAttributes: map[string]string{changeVersion: "fix-1"}, Limit: 1}, []string{"r7"}, 2, 1},
+		{"change version with attribute", execution.RunListFilter{SearchAttributes: map[string]string{changeVersion: "fix-1", "tenant": "a"}}, []string{"r5"}, 1, 0},
+		{"change version miss", execution.RunListFilter{SearchAttributes: map[string]string{changeVersion: "fix"}}, []string{}, 0, 0},
+		{"key with a quote", execution.RunListFilter{SearchAttributes: map[string]string{`we"ird`: "v"}}, []string{"r7"}, 1, 0},
+		{"run ids", execution.RunListFilter{RunIDs: []string{"r6", "r2", "missing"}}, []string{"r2", "r6"}, 2, 0},
+		{"run ids with attribute", execution.RunListFilter{RunIDs: []string{"r1", "r2"}, SearchAttributes: map[string]string{"tenant": "b"}}, []string{"r2"}, 1, 0},
 	}
 	for backendName, newStore := range backends {
 		t.Run(backendName, func(t *testing.T) {
@@ -96,7 +98,15 @@ func TestListRunsFiltersBeforePagingOnBothBackends(t *testing.T) {
 			seedListFilterRuns(t, store)
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
-					result, err := execution.ListRuns(store, tc.filter)
+					filter := tc.filter
+					for range tc.pages {
+						page, err := execution.ListRuns(store, filter)
+						if err != nil {
+							t.Fatal(err)
+						}
+						filter.PageToken = page.NextPageToken
+					}
+					result, err := execution.ListRuns(store, filter)
 					if err != nil {
 						t.Fatal(err)
 					}

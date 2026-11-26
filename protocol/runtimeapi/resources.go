@@ -92,19 +92,22 @@ type RunListFilter struct {
 	Statuses         []history.Status  `json:"statuses,omitempty"`
 	SearchAttributes map[string]string `json:"search_attributes,omitempty"`
 	IncludeTerminal  bool              `json:"include_terminal,omitempty"`
-	Offset           int               `json:"offset,omitempty"`
 	Limit            int               `json:"limit,omitempty"`
 	OrderDesc        bool              `json:"order_desc,omitempty"`
 	BlockedOnly      bool              `json:"blocked_only,omitempty"`
-	// SkipTotal 为 true 时 Server 不计算 Total（应答 0），翻页看 HasMore。
+	// SkipTotal 为 true 时 Server 不计算 Total（应答 0），翻页看 NextPageToken。
 	SkipTotal bool `json:"skip_total,omitempty"`
+	// PageToken 是上一页应答的 next_page_token，为空时从第一页开始；过滤条件变了再用返回 400。
+	PageToken string `json:"page_token,omitempty"`
 }
 
-// RunListResult 是一页 Run。Total 是满足条件的 Run 总数（SkipTotal 时为 0），HasMore 表示这一页之后还有 Run。
+// RunListResult 是一页 Run。Total 是满足条件的 Run 总数（SkipTotal 时为 0），HasMore 表示这一页之后还有 Run，
+// 此时 NextPageToken 是下一页的 page_token。
 type RunListResult struct {
-	Items   []RunListItem `json:"items"`
-	Total   int           `json:"total"`
-	HasMore bool          `json:"has_more"`
+	Items         []RunListItem `json:"items"`
+	Total         int           `json:"total"`
+	HasMore       bool          `json:"has_more"`
+	NextPageToken string        `json:"next_page_token,omitempty"`
 }
 
 type RunListItem struct {

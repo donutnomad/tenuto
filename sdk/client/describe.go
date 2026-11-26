@@ -157,12 +157,14 @@ type ListWorkflowOptions struct {
 	Statuses []WorkflowExecutionStatus
 	// SearchAttributes 要求每个键的值完全相等。
 	SearchAttributes map[string]string
-	// Offset 与 Limit 分页；Limit 为 0 时用 Server 的缺省页大小 50，最大 1000，超出或 Offset 为负时 Server 返回 400。
-	Offset int
-	Limit  int
+	// Limit 是页大小；为 0 时用 Server 的缺省页大小 50，最大 1000，超出时 Server 返回 400。
+	Limit int
+	// NextPageToken 是上一页 ListWorkflowResult.NextPageToken，为空时从第一页开始；它绑定签发时的过滤条件（WorkflowID、
+	// Statuses、SearchAttributes、NewestFirst），条件变了再用返回 ErrInvalidArgument。
+	NextPageToken string
 	// NewestFirst 按启动时间倒序；缺省升序。
 	NewestFirst bool
-	// SkipTotal 为 true 时 Server 不计算满足条件的 Run 总数（Total 为 0），翻页看 HasMore；Run 很多时这一页更快。
+	// SkipTotal 为 true 时 Server 不计算满足条件的 Run 总数（Total 为 0），翻页看 NextPageToken；Run 很多时这一页更快。
 	SkipTotal bool
 }
 
@@ -181,11 +183,12 @@ type WorkflowExecutionInfo struct {
 	FailureReason string
 }
 
-// ListWorkflowResult 是一页结果；Total 是满足条件的 Run 总数（SkipTotal 时为 0），HasMore 表示这一页之后还有 Run。
+// ListWorkflowResult 是一页结果；Total 是满足条件的 Run 总数（SkipTotal 时为 0）。还有下一页时 NextPageToken 非空，
+// 放进 ListWorkflowOptions.NextPageToken 取下一页（同 Temporal ListWorkflow 的 next page token）。
 type ListWorkflowResult struct {
-	Executions []WorkflowExecutionInfo
-	Total      int
-	HasMore    bool
+	Executions    []WorkflowExecutionInfo
+	Total         int
+	NextPageToken string
 }
 
 func (c *workflowClient) ListWorkflow(ctx context.Context, options ListWorkflowOptions) (*ListWorkflowResult, error) {
@@ -196,12 +199,12 @@ func (c *workflowClient) ListWorkflow(ctx context.Context, options ListWorkflowO
 	result, err := c.workflows().ListRuns(ctx, runtimeapi.RunListFilter{
 		Namespace: c.namespace, WorkflowID: options.WorkflowID, Statuses: statuses,
 		SearchAttributes: options.SearchAttributes, IncludeTerminal: true,
-		Offset: options.Offset, Limit: options.Limit, OrderDesc: options.NewestFirst, SkipTotal: options.SkipTotal,
+		PageToken: options.NextPageToken, Limit: options.Limit, OrderDesc: options.NewestFirst, SkipTotal: options.SkipTotal,
 	})
 	if err != nil {
 		return nil, mapError(callOther, err)
 	}
-	out := &ListWorkflowResult{Total: result.Total, HasMore: result.HasMore, Executions: make([]WorkflowExecutionInfo, len(result.Items))}
+	out := &ListWorkflowResult{Total: result.Total, NextPageToken: result.NextPageToken, Executions: make([]WorkflowExecutionInfo, len(result.Items))}
 	for i, item := range result.Items {
 		out.Executions[i] = WorkflowExecutionInfo{
 			WorkflowID: item.WorkflowID, RunID: item.RunID, WorkflowType: item.WorkflowType,

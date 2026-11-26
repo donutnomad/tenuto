@@ -14,7 +14,7 @@ Batch Operation 对 Run List Filter 选中的全部 Run 逐个执行 `cancel`、
 
 ## 选择哪些 Run
 
-- 目标是 Filter 匹配的全部 Run，Filter 里的 `offset` 与 `limit` 不参与；提供 `run_ids` 时目标就是这些 Run，已结束的也在内。
+- 目标是 Filter 匹配的全部 Run，Filter 里的 `page_token`、`limit` 与 `order_desc` 不参与；提供 `run_ids` 时目标就是这些 Run，已结束的也在内。
 - **只处理 Batch 创建之前创建的 Run**（精确到创建时刻所在的那一毫秒）。Reset 产生的新 Run、Batch 运行期间新启动的 Run 都不在目标之内，Batch 一定会结束。
 - 选择在翻页时按条件实时求值：驱动按 Run 的 `(created_at, id)` 顺序用游标翻页，每页读取当时仍匹配 Filter 的 Run。处理到之前就离开 Filter 的 Run（例如在别处被终止、不再是 running）不再处理。
 - `total_count` 在处理第一页时取当时的匹配数；Batch 结束时改为实际处理的 Run 数。

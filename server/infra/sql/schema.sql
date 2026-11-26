@@ -121,6 +121,19 @@ CREATE TABLE `tenuto_execution_states` (
   INDEX `idx_wf_exec_states_sticky_fallback` (`sticky_worker_identity`, `sticky_expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
+-- tenuto_run_search_attributes 是搜索属性过滤的索引：每个 (Run, term) 一行，term 见 execution.SearchAttributeTerms
+-- （普通键是键与值，TemporalChangeVersion 按成员展开）。attr_hash = SHA-256(键 0x00 值)，键与值不限长度。
+-- 与 execution state 的 search_attributes_json 同事务维护，Run 删除时一起删除。namespace 与 created_at 抄自 Run，
+-- 按属性过滤的列表沿 (namespace, attr_hash, created_at, run_id) 的索引顺序读一页。
+CREATE TABLE `tenuto_run_search_attributes` (
+  `run_id`     VARCHAR(191) NOT NULL,
+  `attr_hash`  BINARY(32)   NOT NULL,
+  `namespace`  VARCHAR(191) NOT NULL,
+  `created_at` DATETIME(3)  NOT NULL,
+  PRIMARY KEY (`run_id`, `attr_hash`),
+  INDEX `idx_run_search_attributes_lookup` (`namespace`, `attr_hash`, `created_at`, `run_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
+
 -- tenuto_history_tree 持久化 history branch 拓扑（fork/reset 的核心表）。
 CREATE TABLE `tenuto_history_tree` (
   `tree_id`    VARCHAR(191) NOT NULL,

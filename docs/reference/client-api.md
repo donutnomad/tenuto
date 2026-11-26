@@ -153,15 +153,16 @@ type ListWorkflowOptions struct {
     WorkflowID       string
     Statuses         []WorkflowExecutionStatus
     SearchAttributes map[string]string
-    Offset, Limit    int
+    Limit            int
     NewestFirst      bool
-    SkipTotal        bool // 不计算 Total（为 0），翻页看 HasMore
+    SkipTotal        bool   // 不计算 Total（为 0）
+    NextPageToken    string // 上一页的 ListWorkflowResult.NextPageToken；过滤条件变了再用返回 ErrInvalidArgument
 }
 
 type ListWorkflowResult struct {
-    Executions []WorkflowExecutionInfo
-    Total      int
-    HasMore    bool
+    Executions    []WorkflowExecutionInfo
+    Total         int
+    NextPageToken string // 有下一页时非空
 }
 
 type ResetWorkflowExecutionOptions struct {
