@@ -111,7 +111,7 @@ func TestValidateWorkflowConfig(t *testing.T) {
 			wantErr: "run_timeout (2h) must not exceed execution_timeout (1h)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := definition.ValidateWorkflowConfig(tc.workflow)
+			err := definition.ValidateWorkflowConfig("default", tc.workflow)
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatalf("error = %v", err)

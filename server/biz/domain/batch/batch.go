@@ -2,6 +2,7 @@
 package batch
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -110,6 +111,12 @@ func New(id string, params NewParams, now time.Time) (*Operation, error) {
 		}
 	default:
 		return nil, protocol.InvalidRequestf("unknown batch operation type: %q", params.Type)
+	}
+	if err := errors.Join(
+		protocol.CheckLength("namespace", params.Namespace, protocol.MaxNamespaceLength),
+		protocol.CheckLength("reason", params.Reason, protocol.MaxBatchReasonLength),
+	); err != nil {
+		return nil, err
 	}
 	namespace := protocol.NormalizeNamespace(params.Namespace)
 	filter := params.Filter

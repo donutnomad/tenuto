@@ -162,6 +162,8 @@ type ListWorkflowOptions struct {
 	Limit  int
 	// NewestFirst 按启动时间倒序；缺省升序。
 	NewestFirst bool
+	// SkipTotal 为 true 时 Server 不计算满足条件的 Run 总数（Total 为 0），翻页看 HasMore；Run 很多时这一页更快。
+	SkipTotal bool
 }
 
 // WorkflowExecutionInfo 是 ListWorkflow 返回的一行。
@@ -179,10 +181,11 @@ type WorkflowExecutionInfo struct {
 	FailureReason string
 }
 
-// ListWorkflowResult 是一页结果；Total 是满足条件的 Run 总数。
+// ListWorkflowResult 是一页结果；Total 是满足条件的 Run 总数（SkipTotal 时为 0），HasMore 表示这一页之后还有 Run。
 type ListWorkflowResult struct {
 	Executions []WorkflowExecutionInfo
 	Total      int
+	HasMore    bool
 }
 
 func (c *workflowClient) ListWorkflow(ctx context.Context, options ListWorkflowOptions) (*ListWorkflowResult, error) {
@@ -193,12 +196,12 @@ func (c *workflowClient) ListWorkflow(ctx context.Context, options ListWorkflowO
 	result, err := c.workflows().ListRuns(ctx, runtimeapi.RunListFilter{
 		Namespace: c.namespace, WorkflowID: options.WorkflowID, Statuses: statuses,
 		SearchAttributes: options.SearchAttributes, IncludeTerminal: true,
-		Offset: options.Offset, Limit: options.Limit, OrderDesc: options.NewestFirst,
+		Offset: options.Offset, Limit: options.Limit, OrderDesc: options.NewestFirst, SkipTotal: options.SkipTotal,
 	})
 	if err != nil {
 		return nil, mapError(callOther, err)
 	}
-	out := &ListWorkflowResult{Total: result.Total, Executions: make([]WorkflowExecutionInfo, len(result.Items))}
+	out := &ListWorkflowResult{Total: result.Total, HasMore: result.HasMore, Executions: make([]WorkflowExecutionInfo, len(result.Items))}
 	for i, item := range result.Items {
 		out.Executions[i] = WorkflowExecutionInfo{
 			WorkflowID: item.WorkflowID, RunID: item.RunID, WorkflowType: item.WorkflowType,

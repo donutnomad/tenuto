@@ -19,7 +19,7 @@ type RunReader interface {
 	execution.VisibilityStore
 	Get(runID string) (*execution.Run, error)
 	GetCurrentRunID(namespace, workflowID string) (string, error)
-	CountRuns() ([]execution.RunCount, error)
+	CountRuns(namespace string) ([]execution.RunCount, error)
 	GetEvents(runID string) ([]history.Event, error)
 	GetWorkflowExecutionState(runID string) (*execution.WorkflowExecutionState, error)
 	ListActivityStates(runID string) ([]*execution.ActivityState, error)

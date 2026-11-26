@@ -3,7 +3,6 @@ package execution
 import (
 	"errors"
 	"fmt"
-	"unicode/utf8"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
@@ -24,11 +23,45 @@ type WorkflowCommandResolver interface {
 	CheckWorkflowInput(ref WorkflowTargetRef, input map[string]any) error
 }
 
-// ErrBadScheduleActivityAttributes 表示 Workflow 发出的调度 Activity 命令缺少必填属性。
+// ErrBadScheduleActivityAttributes 表示 Workflow 发出的调度 Activity 命令缺少必填属性或属性超长。
 var ErrBadScheduleActivityAttributes = errors.New("bad schedule activity attributes")
 
 // WorkflowTaskFailedCauseBadScheduleActivityAttributes 是调度 Activity 命令被拒绝时 WorkflowTaskFailed 的 cause。
 const WorkflowTaskFailedCauseBadScheduleActivityAttributes = "bad_schedule_activity_attributes"
+
+// ErrBadStartTimerAttributes 表示 Workflow 发出的 Timer 命令属性不合法（TimerID 超长）。
+var ErrBadStartTimerAttributes = errors.New("bad start timer attributes")
+
+// WorkflowTaskFailedCauseBadStartTimerAttributes 是 Timer 命令被拒绝时 WorkflowTaskFailed 的 cause。
+const WorkflowTaskFailedCauseBadStartTimerAttributes = "bad_start_timer_attributes"
+
+// ErrBadStartChildWorkflowAttributes 表示 Workflow 发出的启动子 Workflow 命令属性不合法（子 Workflow ID 或 Workflow Type 超长）。
+var ErrBadStartChildWorkflowAttributes = errors.New("bad start child workflow attributes")
+
+// WorkflowTaskFailedCauseBadStartChildWorkflowAttributes 是启动子 Workflow 命令被拒绝时 WorkflowTaskFailed 的 cause。
+const WorkflowTaskFailedCauseBadStartChildWorkflowAttributes = "bad_start_child_workflow_attributes"
+
+// ErrBadRecordMarkerAttributes 表示 Workflow 发出的 RecordMarker 命令属性不合法（marker 名或 ID 超长）。
+var ErrBadRecordMarkerAttributes = errors.New("bad record marker attributes")
+
+// WorkflowTaskFailedCauseBadRecordMarkerAttributes 是 RecordMarker 命令被拒绝时 WorkflowTaskFailed 的 cause。
+const WorkflowTaskFailedCauseBadRecordMarkerAttributes = "bad_record_marker_attributes"
+
+// BadCommandAttributesCause 返回命令校验错误（ValidateWorkflowCommand 的结果）对应的 WorkflowTaskFailed cause。
+// 这类错误由 Workflow 代码决定，重试同一批命令得到同样的结果：Workflow Task 记为失败，Run 显示 Blocked。
+func BadCommandAttributesCause(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ErrBadScheduleActivityAttributes):
+		return WorkflowTaskFailedCauseBadScheduleActivityAttributes, true
+	case errors.Is(err, ErrBadStartTimerAttributes):
+		return WorkflowTaskFailedCauseBadStartTimerAttributes, true
+	case errors.Is(err, ErrBadStartChildWorkflowAttributes):
+		return WorkflowTaskFailedCauseBadStartChildWorkflowAttributes, true
+	case errors.Is(err, ErrBadRecordMarkerAttributes):
+		return WorkflowTaskFailedCauseBadRecordMarkerAttributes, true
+	}
+	return "", false
+}
 
 // ErrScheduleActivityDuplicateID 表示调度 Activity 命令的 ActivityID 与本 Run 里仍未关闭的 Activity 重复。
 var ErrScheduleActivityDuplicateID = errors.New("schedule activity duplicate id")
@@ -36,19 +69,47 @@ var ErrScheduleActivityDuplicateID = errors.New("schedule activity duplicate id"
 // WorkflowTaskFailedCauseScheduleActivityDuplicateID 是 ActivityID 重复时 WorkflowTaskFailed 的 cause。
 const WorkflowTaskFailedCauseScheduleActivityDuplicateID = "schedule_activity_duplicate_id"
 
-// MaxActivityIDLength 是 ActivityID 的最大字符数，与 tenuto_activity_states.activity_id 的列宽一致。
-const MaxActivityIDLength = 191
+// ValidateWorkflowCommand 校验 runID 的 Workflow Task 提交的一条命令。标识不超过 protocol 的长度上限（子 Workflow 的
+// Workflow ID 是 <runID>/<ChildID>，整体受 MaxWorkflowIDLength 限制）；调度 Activity 命令另见 ValidateScheduleActivityCommand。
+func ValidateWorkflowCommand(runID string, command history.Command) error {
+	switch command.Type {
+	case history.CmdScheduleActivity:
+		return ValidateScheduleActivityCommand(command)
+	case history.CmdScheduleTimer:
+		if err := protocol.CheckLength("TimerID", command.TimerID, protocol.MaxTimerIDLength); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadStartTimerAttributes, err)
+		}
+	case history.CmdStartChildWorkflow:
+		if err := errors.Join(
+			protocol.CheckLength("child workflow id", ChildWorkflowID(runID, command.ChildID), protocol.MaxWorkflowIDLength),
+			protocol.CheckLength("child workflow type", command.WorkflowType, protocol.MaxWorkflowTypeLength),
+		); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadStartChildWorkflowAttributes, err)
+		}
+	case history.CmdRecordMarker:
+		if err := errors.Join(
+			protocol.CheckLength("marker name", command.MarkerName, protocol.MaxMarkerNameLength),
+			protocol.CheckLength("marker id", command.MarkerID, protocol.MaxMarkerIDLength),
+		); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRecordMarkerAttributes, err)
+		}
+	}
+	return nil
+}
 
-// ValidateScheduleActivityCommand 校验调度 Activity 命令：ActivityID 非空且不超过 MaxActivityIDLength 个字符；
-// StartToCloseTimeout 与 ScheduleToCloseTimeout 至少设置一个。attempt 开始后它的存活只由超时判定，
-// 没有超时的 attempt 在 Worker 消失后无法重试。
+// ValidateScheduleActivityCommand 校验调度 Activity 命令：ActivityID 非空，ActivityID、ActivityType 与 TaskQueue
+// 不超过 protocol 的长度上限；StartToCloseTimeout 与 ScheduleToCloseTimeout 至少设置一个。attempt 开始后它的存活
+// 只由超时判定，没有超时的 attempt 在 Worker 消失后无法重试。
 func ValidateScheduleActivityCommand(command history.Command) error {
 	if command.ActivityID == "" {
 		return fmt.Errorf("%w: activity of type %s has an empty ActivityID", ErrBadScheduleActivityAttributes, command.ActivityType)
 	}
-	if n := utf8.RuneCountInString(command.ActivityID); n > MaxActivityIDLength {
-		return fmt.Errorf("%w: ActivityID of activity type %s has %d characters, the limit is %d",
-			ErrBadScheduleActivityAttributes, command.ActivityType, n, MaxActivityIDLength)
+	if err := errors.Join(
+		protocol.CheckLength("ActivityID", command.ActivityID, protocol.MaxActivityIDLength),
+		protocol.CheckLength("ActivityType", command.ActivityType, protocol.MaxActivityTypeLength),
+		protocol.CheckLength("TaskQueue", command.TaskQueue, protocol.MaxTaskQueueLength),
+	); err != nil {
+		return fmt.Errorf("%w: activity %.64q: %w", ErrBadScheduleActivityAttributes, command.ActivityID, err)
 	}
 	if command.StartToCloseTimeout <= 0 && command.ScheduleToCloseTimeout <= 0 {
 		return fmt.Errorf("%w: activity %q (type %s) sets neither StartToCloseTimeout nor ScheduleToCloseTimeout",
@@ -77,10 +138,10 @@ func PrepareWorkflowTask(runID string, commands []history.Command, traceContext 
 		ContinuedRefs:   make(map[int]WorkflowTargetRef),
 	}
 	for i, command := range commands {
+		if err := ValidateWorkflowCommand(runID, command); err != nil {
+			return PreparedWorkflowTask{}, err
+		}
 		if command.Type == history.CmdScheduleActivity {
-			if err := ValidateScheduleActivityCommand(command); err != nil {
-				return PreparedWorkflowTask{}, err
-			}
 			resolved, err := resolver.ResolveActivityCommand(runID, command)
 			if err != nil {
 				return PreparedWorkflowTask{}, err

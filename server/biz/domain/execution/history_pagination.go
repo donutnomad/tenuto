@@ -36,6 +36,9 @@ type HistoryPage struct {
 	HistorySizeBytes   int64           `json:"history_size_bytes"`
 }
 
+// CloseEventScan 是读取 Run 结束事件时从最后一个事件向前查看的事件数：结束事件之后不再追加事件，留出余量即可。
+const CloseEventScan = 8
+
 type HistoryPageStore interface {
 	GetEventPage(request HistoryPageRequest) (HistoryPage, error)
 	GetEventsRange(runID string, afterExclusive, throughInclusive int64) ([]history.Event, error)

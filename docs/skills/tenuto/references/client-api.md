@@ -24,7 +24,7 @@ SDK 在传输层统一重试瞬时错误（Server 滚动重启、网关切换）
 | 连接没有建立、HTTP 429 / 503 | 重试 | 重试 |
 | 连接中断、读应答中断、HTTP 502 / 504 | 重试 | 不重试 |
 
-- 可以重发：`ExecuteWorkflow`（SDK 生成 request ID，`ID` 为空时也生成 Workflow ID；Server 对同一 request ID 返回这次启动开启的 Run 链的 current Run，失败重试、continue-as-new 之后是接替的 Run，链已结束也一样）、`SignalWorkflow` / `SignalWithStartWorkflow`（request ID：同一 Run 上只记一条 Signal）、Update（`UpdateID` 为空时 SDK 生成）、`CancelWorkflow`、`TerminateWorkflow` 与 Schedule 的 `Delete`（第一次应答丢失时重发报告 Run 已结束 / Schedule 不存在）、`UpsertSearchAttributes`、`UpdateWorkflowExecutionOptions`、Schedule 的 `Update` / `Pause` / `Unpause`、`StopBatchOperation`、全部读取与长轮询（`Get`、Update 句柄的 `Get`、Worker poll），以及 Worker 的任务上报（task token 定界）。
+- 可以重发：`ExecuteWorkflow`（SDK 生成 request ID，`ID` 为空时也生成 Workflow ID；Server 对同一 request ID 返回这次启动开启的 Run 链的 current Run，失败重试、continue-as-new 之后是接替的 Run，链已结束也一样）、`SignalWorkflow` / `SignalWithStartWorkflow`（request ID：同一 Run 上只记一条 Signal；SignalWithStart 的 request ID 同时记在 `WorkflowStarted`，重发时 current Run（含已结束）或链首记过这条 Signal 就返回第一次的 Run 与 `event_id`，不启动新 Run）、Update（`UpdateID` 为空时 SDK 生成）、`CancelWorkflow`、`TerminateWorkflow` 与 Schedule 的 `Delete`（第一次应答丢失时重发报告 Run 已结束 / Schedule 不存在）、`UpsertSearchAttributes`、`UpdateWorkflowExecutionOptions`、Schedule 的 `Update` / `Pause` / `Unpause`、`StopBatchOperation`、全部读取与长轮询（`Get`、Update 句柄的 `Get`、Worker poll），以及 Worker 的任务上报（task token 定界）。
 - 再执行一次：`ResetWorkflowExecution`、Schedule 的 `Create` 与 `Trigger`、`StartBatchOperation`。遇到连接中断 / 502 / 504 时先读状态确认第一次是否生效，再决定是否重发。
 - 应用代码自己再调用一次 `SignalWorkflow` 是另一个 Signal（新的 request ID）；需要跨进程去重时在 Signal 载荷里带业务幂等键。
 - Worker 轮询在重试用尽后再按 100ms 起、最长 10s 退避；一段连续失败只记一条 WARN（`poll failed; retrying with backoff`），其余 DEBUG，恢复时 INFO（`poll recovered`）。
@@ -83,10 +83,10 @@ page, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
     Limit:            50,
     NewestFirst:      true,
 })
-// page.Executions（WorkflowID、RunID、WorkflowType、Status、StartTime、CloseTime、SearchAttributes、HistoryLength、FailureReason）、page.Total
+// page.Executions（WorkflowID、RunID、WorkflowType、Status、StartTime、CloseTime、SearchAttributes、HistoryLength、FailureReason）、page.Total、page.HasMore
 ```
 
-`Statuses` 为空时不按状态过滤；`Limit` 缺省 50、最大 1000。`DescribeWorkflowExecution` 还带 `ConfigError`（Run 暂停的原因）与 `UpgradeError`（最近一次自动升级失败）；结果用 `Get` 读。
+`Statuses` 为空时不按状态过滤；`Limit` 缺省 50、最大 1000。`SkipTotal: true` 时不计算 `Total`（为 0），翻页看 `HasMore`，Run 很多时更快。`DescribeWorkflowExecution` 还带 `ConfigError`（Run 暂停的原因）与 `UpgradeError`（最近一次自动升级失败）；结果用 `Get` 读。
 
 ## Signal、Query
 
@@ -195,7 +195,7 @@ Server 的非 2xx 应答是 `*client.ServiceError{StatusCode, Message}`，用 `e
 | `list` | `{filter}` | Run 列表 |
 | `history`、`history-page` | Run 定位字段 | Event 列表 / 分页 |
 | `signal` | `{namespace, workflow_id, run_id, name, input, request_id?}`；同一 Run 上同一 `request_id` 只记一条 | `{event_id}` |
-| `signal-with-start` | `{namespace, workflow_type, workflow_id?, start_input, signal_name, signal_input, request_id?}` | `{run_id, workflow_id, event_id}` |
+| `signal-with-start` | `{namespace, workflow_type, workflow_id?, start_input, signal_name, signal_input, request_id?}`；同一个 request ID 的重发：current Run（运行中或已结束）记过这条 Signal，或 current Run 的链（continue-as-new、失败重试）由这个 request ID 启动时，返回第一次的 Run 与 `event_id`，不启动新 Run、不再记 Signal | `{run_id, workflow_id, event_id}` |
 | `query` | `{namespace, workflow_id, run_id, name, input}` | `{query_result, query_rejected, query_error}` |
 | `update` | `{namespace, workflow_id, run_id, name, update_id, wait_stage, args:[{encoding:"json/plain-v1", data:<base64 JSON>}]}` | Update 阶段与结果 |
 | `update-with-start` | `{namespace, workflow_type, workflow_id?, start_input, update_name, update_id, update_args, wait_stage}` | Update 阶段与结果，含 `workflow_id` |

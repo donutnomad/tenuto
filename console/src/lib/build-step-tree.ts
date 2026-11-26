@@ -110,6 +110,8 @@ export function buildStepTree(events: Event[], runStatus?: string, activityState
         step.error = e.error ?? null
         step.completedAt = event.timestamp
         step.completedEventID = event.id
+        // Workflow Reset 打断已开始的 Activity 时，失败事件带着原 Run 里最后一次心跳的详情。
+        if (e.lastHeartbeatDetails) step.heartbeat = e.lastHeartbeatDetails
         if (step.startedAt) {
           step.duration =
             new Date(event.timestamp).getTime() - new Date(step.startedAt).getTime()

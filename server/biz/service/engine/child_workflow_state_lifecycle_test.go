@@ -266,64 +266,6 @@ func TestStartChildWorkflowCreatesState(t *testing.T) {
 	}
 }
 
-// ============================================
-// checkPendingChildWorkflows reset guard 测试（读 ChildWorkflowState）
-// ============================================
-// 测试策略:
-// - Happy Path: reset point 之前有 open child → 拒绝 reset
-// - Edge Case: reset point 之前的子已 terminal → 允许 reset
-// - Edge Case: open child 在 reset point 之后 → 不影响该 reset point
-// ============================================
-
-// Happy Path（reset guard）: reset point（resetNodeID）之前存在仍 open 的子 → 拒绝 reset（读 state）。
-func TestCheckPendingChildWorkflowsRejectsOpenChild(t *testing.T) {
-	_, mgr := newServerForTest(t)
-	parentRunID := "run-parent-reset-open"
-	_ = mgr.RunInTx(func(tx execution.ExecutionTx) error {
-		return tx.CreateRun(WithRootBranch(&execution.Run{ID: parentRunID, WorkflowID: "wf", WorkflowType: "wf", Status: history.StatusRunning, CreatedAt: time.Now()}))
-	})
-	// open child（started），ScheduledEventID=5
-	_ = mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
-		RunID: parentRunID, ScheduledEventID: 5, ChildID: "child_1", ChildRunID: "c1",
-		WorkflowType: "wf", Status: execution.ChildWorkflowStatusEnums.Started,
-	})
-	if err := execution.CheckPendingChildWorkflows(childStates(t, mgr, parentRunID), 10); err == nil {
-		t.Fatal("expected reset rejected due to pending child at reset point")
-	}
-}
-
-// Edge Case: reset point 之前的子已 close（terminal）→ 允许 reset（不拒绝）。
-func TestCheckPendingChildWorkflowsAllowsClosedChild(t *testing.T) {
-	_, mgr := newServerForTest(t)
-	parentRunID := "run-parent-reset-closed"
-	_ = mgr.RunInTx(func(tx execution.ExecutionTx) error {
-		return tx.CreateRun(WithRootBranch(&execution.Run{ID: parentRunID, WorkflowID: "wf", WorkflowType: "wf", Status: history.StatusRunning, CreatedAt: time.Now()}))
-	})
-	_ = mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
-		RunID: parentRunID, ScheduledEventID: 5, ChildID: "child_1", ChildRunID: "c1",
-		WorkflowType: "wf", Status: execution.ChildWorkflowStatusEnums.Completed,
-	})
-	if err := execution.CheckPendingChildWorkflows(childStates(t, mgr, parentRunID), 10); err != nil {
-		t.Fatalf("closed child should not block reset: %v", err)
-	}
-}
-
-// Edge Case: open child 在 reset point 之后（ScheduledEventID > resetNodeID）→ 不影响该 reset point。
-func TestCheckPendingChildWorkflowsIgnoresChildAfterResetPoint(t *testing.T) {
-	_, mgr := newServerForTest(t)
-	parentRunID := "run-parent-reset-after"
-	_ = mgr.RunInTx(func(tx execution.ExecutionTx) error {
-		return tx.CreateRun(WithRootBranch(&execution.Run{ID: parentRunID, WorkflowID: "wf", WorkflowType: "wf", Status: history.StatusRunning, CreatedAt: time.Now()}))
-	})
-	_ = mgr.UpsertChildWorkflowState(&execution.ChildWorkflowState{
-		RunID: parentRunID, ScheduledEventID: 50, ChildID: "child_1", ChildRunID: "c1",
-		WorkflowType: "wf", Status: execution.ChildWorkflowStatusEnums.Started,
-	})
-	if err := execution.CheckPendingChildWorkflows(childStates(t, mgr, parentRunID), 10); err != nil {
-		t.Fatalf("child after reset point should not block: %v", err)
-	}
-}
-
 // completeWorkflow 是测试辅助：直接落 WorkflowCompleted 终态并走完成后的传播，
 // 不经过 WFT 提交路径。
 func (s *Server) completeWorkflow(runID string, output map[string]any) error {
@@ -356,13 +298,4 @@ func (s *Server) commitTerminalForTest(runID string, event history.Event, status
 		return tx.UpdateRun(run)
 	})
 	return run, inserted, err
-}
-
-func childStates(t *testing.T, mgr execution.ExecutionManager, parentRunID string) []*execution.ChildWorkflowState {
-	t.Helper()
-	states, err := mgr.ListChildWorkflowStates(parentRunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return states
 }

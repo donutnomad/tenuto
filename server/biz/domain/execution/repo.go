@@ -41,6 +41,8 @@ type EventStore interface {
 	AppendWorkflowTaskCompletedWithEvents(runID, treeID, branchID string, closeEvent history.Event, commandEvents []history.Event) (WorkflowTaskCompletionResult, error)
 	// GetWorkflowTaskScheduledEvent 返回持久化的 WorkflowTaskScheduled 事件，供复用 open WFT 的调度读取 trace context。
 	GetWorkflowTaskScheduledEvent(runID string, scheduledEventID int64) (history.Event, bool, error)
+	// GetEventIDByDedupeKey 返回 Run 的 branch 上去重键（history.DedupeKey）为 dedupeKey 的事件 ID。
+	GetEventIDByDedupeKey(runID, branchID, dedupeKey string) (eventID int64, found bool, err error)
 }
 
 // StoreListFilter 的全部条件都由存储层在分页之前应用。
@@ -63,7 +65,8 @@ type StoreListFilter struct {
 	OrderDesc bool
 	Offset    int
 	Limit     int
-	// SkipTotal 为 true 时不计算 StoreListResult.Total（保持 0），按游标翻页的扫描用它省掉每页一次的计数。
+	// SkipTotal 为 true 时不计算 StoreListResult.Total（保持 0）：按游标翻页的扫描与只需要「是否有下一页」的
+	// 列表页用它省掉每页一次的计数。
 	SkipTotal bool
 }
 
@@ -78,10 +81,12 @@ func CursorOf(run *Run) RunCursor {
 	return RunCursor{CreatedAt: run.CreatedAt, RunID: run.ID}
 }
 
-// StoreListResult.Total 是满足全部过滤条件的 Run 总数，与分页无关。
+// StoreListResult.Total 是满足全部过滤条件的 Run 总数，与分页无关（SkipTotal 时为 0）；HasMore 表示这一页之后
+// 还有满足条件的 Run。
 type StoreListResult struct {
-	Runs  []*Run
-	Total int
+	Runs    []*Run
+	Total   int
+	HasMore bool
 }
 
 // RunCount 是一组 (namespace, status) 下的 Run 数量。
@@ -89,6 +94,12 @@ type RunCount struct {
 	Namespace string
 	Status    history.Status
 	Count     int
+}
+
+// TargetWorker 是 Run 指定的 Activity Worker（Run.TargetWorkerIdentity）及其 namespace。
+type TargetWorker struct {
+	Namespace string
+	Identity  string
 }
 
 // Store 是 Run 的读取与少量单列写入。Run 的状态变更经 ExecutionTx.UpdateRun 与同一业务事实的 History、
@@ -100,8 +111,11 @@ type Store interface {
 	SetResetRunID(runID, resetRunID string) error
 	GetCurrentRunID(namespace, workflowID string) (string, error)
 	List(filter StoreListFilter) (StoreListResult, error)
-	// CountRuns 返回按 namespace 与 Run 行状态分组的 Run 数量。
-	CountRuns() ([]RunCount, error)
+	// CountRuns 返回按 namespace 与 Run 行状态分组的 Run 数量；namespace 非空时只统计这个 namespace。
+	CountRuns(namespace string) ([]RunCount, error)
+	// ListRunningTargetWorkers 返回 Running Run 指定的 Activity Worker（去重）：这些 Run 的 Activity 只投给这个
+	// Identity，它的登记即使已到期也要保留，Run 才能按它最后登记的队列排队。
+	ListRunningTargetWorkers() ([]TargetWorker, error)
 	// ListRecoveryRunIDs 返回周期补偿要处理的 Running Run 的 ID（去重、升序），即满足任一条件的 Run：
 	//   - Run 的执行截止时间或 Run 截止时间早于 dueBefore；
 	//   - 有 deadline 早于 dueBefore 的 Scheduled timer；

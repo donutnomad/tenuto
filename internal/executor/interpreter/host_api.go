@@ -234,7 +234,6 @@ type runtimeWorkflowAPI struct {
 	// 收敛后按 name 查它、InvokeClosure 求值一次。
 	queryHandlers map[string]*wlruntime.Closure
 	activityQueue map[string]string
-	signalReads   map[string]int
 
 	// laneCounters 是 per-lane 确定键的计数器：activity/timer/child/random 的 ID = lanePath + lane 内
 	// 局部序号。lane 身份在声明期固定、lane 内程序顺序固定，所以键在任意次 replay 中相同，与兄弟 lane
@@ -409,16 +408,13 @@ func (api *runtimeWorkflowAPI) registerActivityCancel(ctx workflowContext, call 
 	})
 }
 
+// WaitSignal 返回等待 name 的下一条 Signal 的 Future。调用本身不占序号：Future 第一次被消费
+// （Get 返回或 Selector 回调执行）时才取走该名称下一条未消费的 Signal，见 SignalFuture。
 func (api *runtimeWorkflowAPI) WaitSignal(ctx workflowContext, name string) types.Value {
-	if api.signalReads == nil {
-		api.signalReads = make(map[string]int)
-	}
-	index := api.signalReads[name]
-	api.signalReads[name] = index + 1
 	return types.NewValue("workflow.SignalFuture", SignalFuture{
 		executor: api.executor,
 		name:     name,
-		index:    index,
+		claim:    &signalClaim{},
 	})
 }
 

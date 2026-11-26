@@ -73,12 +73,17 @@ func (r Reconciler) reconcile(ctx context.Context) {
 }
 
 // reconcileAll 逐页批量检查全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 补建、
-// 终态写回、父关闭策略、子 Run 取消请求补发）。
+// 终态写回、父关闭策略、子 Run 取消请求补发），再删除到期超过一天的 Activity Worker 路由。
 func (r Reconciler) reconcileAll(ctx context.Context) {
 	started := r.Server.clock.Now()
 	result, err := r.Server.DispatchPendingTasks(ctx)
 	if err != nil {
 		r.Server.logger.Error("workflow full reconciliation incomplete", "err", err)
+	}
+	if purged, err := r.Server.PurgeExpiredActivityWorkerVersions(); err != nil {
+		r.Server.logger.Error("purge expired activity worker versions failed", "err", err)
+	} else if purged > 0 {
+		r.Server.logger.Info("expired activity worker versions purged", "rows", purged)
 	}
 	r.Server.logger.Info("workflow full reconciliation finished",
 		"duration", r.Server.clock.Now().Sub(started),

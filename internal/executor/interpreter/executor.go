@@ -41,10 +41,12 @@ type WorkflowExecutor struct {
 	unclaimedActivities map[string][]int64
 	awaitingActivities  map[string]*activityCall
 	signals             map[string][]map[string]any
-	updateAccepted      map[string][]history.WorkflowUpdateRecord
-	updateCompleted     map[string]map[string]any
-	timersScheduled     map[string]history.Event
-	timersFired         map[string]bool
+	// signalsConsumed 是每个 Signal 名称已被 SignalFuture 消费的条数，见 SignalFuture。
+	signalsConsumed map[string]int
+	updateAccepted  map[string][]history.WorkflowUpdateRecord
+	updateCompleted map[string]map[string]any
+	timersScheduled map[string]history.Event
+	timersFired     map[string]bool
 	// rootScope 是根 Context 的取消作用域：WorkflowCancellationRequested 灌入后、本批协程推进前取消。
 	rootScope *cancelScope
 	// timerCanceled / childCanceled 记录 Workflow 代码一侧已按取消结束的操作：取消请求发出即返回的
@@ -221,6 +223,7 @@ func NewWorkflowExecutorWithContext(ctx context.Context, workflow *program.Workf
 		unclaimedActivities: make(map[string][]int64),
 		awaitingActivities:  make(map[string]*activityCall),
 		signals:             make(map[string][]map[string]any),
+		signalsConsumed:     make(map[string]int),
 		updateAccepted:      make(map[string][]history.WorkflowUpdateRecord),
 		updateCompleted:     make(map[string]map[string]any),
 		timersScheduled:     make(map[string]history.Event),
