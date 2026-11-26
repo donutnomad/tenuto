@@ -65,7 +65,7 @@ func (s *Server) FireOverdueTimers(ctx context.Context, grace time.Duration) (Ov
 // 代价与到期或待处理的事项数成正比，与 Running Run 总数无关。lookahead 不短于两次调用的间隔时，定时器在到期前
 // 至少被一轮挂上，下线副本持有的定时器仍按原截止时间触发。
 //
-// 没有到期索引的崩溃窗口（子 Run 与接续 Run 补建、终态写回、父关闭策略、子 Run 取消请求补发）不在这里处理，
+// 没有到期索引的崩溃窗口（子 Run 补建、终态写回、父关闭策略、子 Run 取消请求补发）不在这里处理，
 // 由低频的全量补偿 DispatchPendingTasks 兜底。
 func (s *Server) Reconcile(ctx context.Context, grace, lookahead time.Duration) (dispatch.WorkflowDispatchResult, OverdueTimerResult, error) {
 	var dispatched dispatch.WorkflowDispatchResult

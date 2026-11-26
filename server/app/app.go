@@ -753,7 +753,7 @@ func (a *application) reconcile(ctx context.Context) {
 	}
 }
 
-// reconcileAll 逐个补偿全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 与接续 Run 补建、
+// reconcileAll 逐个补偿全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 补建、
 // 终态写回、父关闭策略、子 Run 取消请求补发）。
 func (a *application) reconcileAll(ctx context.Context) {
 	started := a.clock.Now()

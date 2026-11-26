@@ -22,11 +22,11 @@ func (s *Server) RecoverRunningWorkflows(ctx context.Context) error {
 // 单个 run 失败不影响其余 run，错误汇总返回，未完成的补偿留给下一轮；ctx 取消时停止。
 //
 // 周期补偿（Reconcile）只处理 ListRecoveryRunIDs 选出的有到期或待处理事项的 run；没有到期索引的崩溃窗口
-// 由这里的全量扫描兜底：子 run 未建或终态未传播、接续 run 或重试 run
-// 未建、终态未写回 Run、父关闭策略未做完、子 Run 的取消请求未发出。
+// 由这里的全量扫描兜底：子 run 未建或终态未传播、终态未写回 Run、父关闭策略未做完、子 Run 的取消请求未发出。
+// 接续 run（continue-as-new / 重试）与旧 run 的终态在同一个事务里提交，没有补建窗口。
 //
-// 只扫 Running 就能覆盖终态后续动作未完成的 run：接续 run（continue-as-new / 重试）建好之前
-// Run 的 Status 列保持 Running（见 reconcileClosedRun）；已落终态的子 run 未传播给父 run 时，
+// 只扫 Running 就能覆盖终态后续动作未完成的 run：History 已终态而后续动作未做完时，Run 的 Status 列
+// 保持 Running（见 reconcileClosedRun）；已落终态的子 run 未传播给父 run 时，
 // 由 Running 的父 run 凭 open ChildWorkflowState 补传播（见 recoverChildWorkflows）；父 run 已关闭而
 // 父关闭策略没有做完时，由 Running 的子 run 凭父 run 的 execution state 与子关联补做（见 recoverParentClosePolicy）。
 func (s *Server) reconcileRunningRuns(ctx context.Context, force bool) (dispatch.WorkflowDispatchResult, error) {

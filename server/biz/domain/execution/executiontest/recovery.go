@@ -88,9 +88,23 @@ func RecoveryRunIDsContract(t *testing.T, newManager func(t *testing.T) executio
 	})); err != nil {
 		t.Fatal(err)
 	}
-	// 已结束的 Run 即使留有到期的 timer 也不返回。
+	// 已结束的 Run 即使留有到期的 timer、未结束的 Activity、待处理的 Signal 与 open WFT 也不返回：
+	// 结束 Run 不改这些 state 行，候选查询按 Run 状态过滤。
 	newRun("run-closed", nil, &past)
 	timer("run-closed", 3, past, execution.TimerStatusEnums.Scheduled)
+	startedActivity("run-closed", now.Add(-2*time.Hour), 0)
+	inTx(t, manager, func(tx execution.ExecutionTx) error {
+		return tx.UpsertActivityState(&execution.ActivityState{
+			RunID: "run-closed", ScheduledEventID: 6, ActivityID: "b", ActivityType: "A", TaskQueue: "q",
+			Attempt: 1, Stamp: 1, Status: execution.ActivityStatusEnums.Scheduled, ScheduledTime: now, CreatedAt: now, UpdatedAt: now,
+		})
+	})
+	if _, _, err := manager.AppendWorkflowTaskScheduled("run-closed", "run-closed", "run-closed", history.NewWorkflowTaskScheduledEvent(1000)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Append("run-closed", "run-closed", "run-closed", history.NewWorkflowSignaledEvent("s", nil)); err != nil {
+		t.Fatal(err)
+	}
 	closed, err := manager.Get("run-closed")
 	if err != nil {
 		t.Fatal(err)

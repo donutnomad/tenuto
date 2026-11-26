@@ -128,13 +128,12 @@ type runCountRow struct {
 }
 
 func (s *Repository) CountRuns() ([]execution.RunCount, error) {
-	rows, err := gsql.SelectG[runCountRow](
+	rows, err := infradb.Find(s.db, gsql.SelectG[runCountRow](
 		RunSchema.Namespace,
 		RunSchema.Status,
 		RunSchema.ID.Count().As("count"),
 	).From(RunSchema).
-		GroupBy(RunSchema.Namespace, RunSchema.Status).
-		Find(s.db)
+		GroupBy(RunSchema.Namespace, RunSchema.Status))
 	if err != nil {
 		return nil, err
 	}
@@ -286,14 +285,13 @@ type runAttributesRow struct {
 // 过滤后再分页，页内容与 Total 都来自过滤后的集合。候选集已经过全部 SQL 条件收窄。
 func (s *Repository) listByAttributeScan(runConds, stateConds []gsql.Expression, attributes map[string]string, filter execution.StoreListFilter, limit int) (execution.StoreListResult, error) {
 	states := WorkflowExecutionStateSchema
-	candidates, err := gsql.SelectG[runAttributesRow](states.RunID, states.SearchAttributesJSON).
+	candidates, err := infradb.Find(s.db, gsql.SelectG[runAttributesRow](states.RunID, states.SearchAttributesJSON).
 		From(states).
 		Join(gsql.InnerJoin(RunSchema).On(RunSchema.ID.EqF(states.RunID))).
 		Where(runConds...).
 		Where(stateConds...).
 		Order(RunSchema.CreatedAt, !filter.OrderDesc).
-		Order(RunSchema.ID, !filter.OrderDesc).
-		Find(s.db)
+		Order(RunSchema.ID, !filter.OrderDesc))
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}

@@ -228,12 +228,11 @@ func (s *Repository) LatestWorkflowConfigRefInNamespace(namespace, workflowType 
 // 按 (workflow_type, created_at, version) 排序。Console definitions 页依赖它展示版本列表。
 func (s *Repository) ListWorkflowConfigRefsInNamespace(namespace string) ([]definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
-	rows, err := gsql.From[WorkflowConfigPO](WorkflowConfigSchema).
+	rows, err := infradb.Find(s.db, gsql.From[WorkflowConfigPO](WorkflowConfigSchema).
 		Where(WorkflowConfigSchema.Namespace.Eq(namespace)).
 		Order(WorkflowConfigSchema.WorkflowType).
 		Order(WorkflowConfigSchema.CreatedAt).
-		Order(WorkflowConfigSchema.Version).
-		Find(s.db)
+		Order(WorkflowConfigSchema.Version))
 	if err != nil {
 		return nil, err
 	}
@@ -248,10 +247,9 @@ func (s *Repository) ListWorkflowConfigRefsInNamespace(namespace string) ([]defi
 // Console 的 Active 标记与 latest 版本仍可展示。
 func (s *Repository) ActiveWorkflowConfigRefsInNamespace(namespace string) ([]definition.WorkflowConfigRef, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
-	rows, err := gsql.From[WorkflowConfigActivePO](WorkflowConfigActiveSchema).
+	rows, err := infradb.Find(s.db, gsql.From[WorkflowConfigActivePO](WorkflowConfigActiveSchema).
 		Where(WorkflowConfigActiveSchema.Namespace.Eq(namespace)).
-		Order(WorkflowConfigActiveSchema.WorkflowType).
-		Find(s.db)
+		Order(WorkflowConfigActiveSchema.WorkflowType))
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,6 @@
 ---
 name: tenuto
-description: 当编写或修改 Tenuto 的 Workflow、Activity、Worker（@Workflow / @Activity 注解、tenuto-workflow-gen 生成、sdk/workflow 与 sdk/activity API），启动 Run 或向 Run 发送 Signal / Query / Update，升级已上线的 Workflow 或 Activity（GetVersion、pinned / auto_upgrade、BuildID、契约），以及诊断暂停或失败的 Run（ConfigError contract mismatch、UpgradeError、nondeterministic、UnknownUpdate、activity route unavailable、生成器报错）时使用。
+description: 当编写或修改 Tenuto 的 Workflow、Activity、Worker（@Workflow / @Activity 注解、tenuto-workflow-gen 生成、sdk/workflow 与 sdk/activity API），启动 Run 或向 Run 发送 Signal / Query / Update，升级已上线的 Workflow 或 Activity（GetVersion、pinned / auto_upgrade、BuildID、契约），以及诊断暂停或失败的 Run（ConfigError、UpgradeError、nondeterministic、UnknownUpdate、activity route unavailable、生成器报错）时使用。
 ---
 
 # Tenuto
@@ -171,7 +171,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - `blocked`（get-run / list 的派生字段）只描述 `running` 的 Run 的 Workflow Task 连续失败；Run 结束后清空，`blocked_only` 列表不返回已结束的 Run。Console 的失败 Run 显示 Failure 卡片，Pending 页签取自 `activity-states`；Server 连不上时提示 `Cannot connect to Tenuto Server at <地址>.`，与 Server 返回的错误分开显示（见 `references/operations.md`）。
 - 跨副本等待：Update 等 `Completed` 与 `run.Get`（`wait-closed` 长轮询）在受理请求的副本上等待；其他副本提交的完成或 Run 结束最多晚 100ms 被看到（有等待者时每副本每 100ms 一条批量读取，没有等待者时不读库）。副本重启时等待中的调用返回连接错误，对同一个句柄再调用一次（见 `references/messaging.md#跨副本等待`）。
 - 数据库访问量：TaskQ 分区的行都已投递或确认时 poll 与可见性扫描不读库；内嵌 Workflow Worker 的 Workflow Task 长轮询持续 `TASKQ_POLL_TIMEOUT`（默认 30s）。每个 Workflow 的语句数按入口分组看 `TestStatementBudgetPerWorkflow`（`TENUTO_TEST_MYSQL=1`，见 `references/operations.md`），事务外读 Run 与 execution state 的次数看 `TestRepositoryReadsPerWorkflow`（内存后端）。Server 给 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN` 设置 `parseTime=true`、`loc=UTC`、`interpolateParams=true`，字符集用 `utf8mb4`。
-- Server 补偿分两档，都只在 leader 上运行：周期补偿（`WORKFLOW_RECONCILE_INTERVAL`，默认 30s）按到期索引只处理有到期或待处理事项的 Running Run，代价与 Running Run 总数无关；全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`，默认 10m）逐页检查全部 Running Run，补建崩溃后缺失的子 Run、接续 / 重试 Run，补做终态传播、终态写回、父关闭策略与子 Run 取消请求。
+- Server 补偿分两档，都只在 leader 上运行：周期补偿（`WORKFLOW_RECONCILE_INTERVAL`，默认 30s）按到期索引只处理有到期或待处理事项的 Running Run，代价与 Running Run 总数无关；全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`，默认 10m）逐页检查全部 Running Run，补建崩溃后缺失的子 Run，补做终态传播、终态写回、父关闭策略与子 Run 取消请求。
 - 投递在队列里丢失时 Run 不会停住：已入队却超过等待时长（30s 宽限期起按派发次数翻倍，最长 8 分钟）仍没被领取的 open Workflow Task 与 Scheduled Activity attempt 由 leader 的 reconciler 再投一份（日志 `task dispatched but not claimed; redelivering`）。已关闭 WFT 的陈旧投递由 Server 领取时确认丢弃，不交给 Worker。
 - 配置了 Workflow RetryPolicy 的 Run 不再重试时，终态 `WorkflowFailed` 的 `retryState` 写明原因（`MaximumAttemptsReached`、`NonRetryableFailure`、`Timeout`）；没有 RetryPolicy 时为空。
 - 新旧 Activity build 并存时 BuildID 必须不同：相同 BuildID 的登记互相覆盖，引擎分不出新旧契约。

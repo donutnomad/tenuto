@@ -8,10 +8,11 @@ import (
 	"github.com/donutnomad/gsql"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
+	infradb "github.com/donutnomad/tenuto/server/infra/db"
 )
 
-// ListRecoveryRunIDs 实现 execution.Store 的周期补偿候选查询。每个条件一条走索引的查询，结果在 Go 里合并去重，
-// 最后只保留仍为 Running 的 Run：
+// ListRecoveryRunIDs 实现 execution.Store 的周期补偿候选查询。每个条件一条走索引的查询，只取仍为 Running 的 Run
+// （state 表按 run_id 关联 runs 过滤状态：已结束 Run 遗留的 Activity、Workflow Task 投影不再被选中），结果在 Go 里合并去重：
 //
 //	Run 截止时间          idx_workflow_runs_status_deadline / idx_workflow_runs_status_run_deadline
 //	Scheduled timer       idx_timer_states_status (status, deadline)
@@ -23,22 +24,25 @@ import (
 func (s *Repository) ListRecoveryRunIDs(dueBefore time.Time) ([]string, error) {
 	running := string(history.StatusRunning)
 	runs, timers, activities, states := RunSchema, TimerStateSchema, ActivityStateSchema, WorkflowExecutionStateSchema
+	timersOfRunning := gsql.InnerJoin(&runs).On(runs.ID.EqF(timers.RunID)).And(runs.Status.Eq(running))
+	activitiesOfRunning := gsql.InnerJoin(&runs).On(runs.ID.EqF(activities.RunID)).And(runs.Status.Eq(running))
+	statesOfRunning := gsql.InnerJoin(&runs).On(runs.ID.EqF(states.RunID)).And(runs.Status.Eq(running))
 	queries := []*gsql.QueryBuilderG[string]{
 		gsql.PluckG[string](runs.ID).From(runs).Where(runs.Status.Eq(running), runs.DeadlineAt.Lt(&dueBefore)),
 		gsql.PluckG[string](runs.ID).From(runs).Where(runs.Status.Eq(running), runs.RunDeadlineAt.Lt(&dueBefore)),
-		gsql.PluckG[string](timers.RunID).From(timers).
+		gsql.PluckG[string](timers.RunID).From(timers).Join(timersOfRunning).
 			Where(timers.Status.Eq(string(execution.TimerStatusEnums.Scheduled)), timers.Deadline.Lt(dueBefore)),
-		gsql.PluckG[string](activities.RunID).From(activities).
+		gsql.PluckG[string](activities.RunID).From(activities).Join(activitiesOfRunning).
 			Where(activities.Status.Eq(string(execution.ActivityStatusEnums.Scheduled))),
-		gsql.PluckG[string](activities.RunID).From(activities).
+		gsql.PluckG[string](activities.RunID).From(activities).Join(activitiesOfRunning).
 			Where(activities.Status.Eq(string(execution.ActivityStatusEnums.Started)), activities.TimeoutAt.Lt(&dueBefore)),
-		gsql.PluckG[string](states.RunID).From(states).Where(states.OpenWorkflowTaskEventID.Gt(0)),
-		gsql.PluckG[string](states.RunID).From(states).Where(states.NeedsWorkflowTask.Eq(true)),
-		gsql.PluckG[string](states.RunID).From(states).Where(states.Blocked.Eq(true)),
+		gsql.PluckG[string](states.RunID).From(states).Join(statesOfRunning).Where(states.OpenWorkflowTaskEventID.Gt(0)),
+		gsql.PluckG[string](states.RunID).From(states).Join(statesOfRunning).Where(states.NeedsWorkflowTask.Eq(true)),
+		gsql.PluckG[string](states.RunID).From(states).Join(statesOfRunning).Where(states.Blocked.Eq(true)),
 	}
 	candidates := map[string]struct{}{}
 	for _, query := range queries {
-		rows, err := query.Distinct().Find(s.db)
+		rows, err := infradb.Find(s.db, query.Distinct())
 		if err != nil {
 			return nil, err
 		}
@@ -46,19 +50,9 @@ func (s *Repository) ListRecoveryRunIDs(dueBefore time.Time) ([]string, error) {
 			candidates[*row] = struct{}{}
 		}
 	}
-	if len(candidates) == 0 {
+	runIDs := slices.Sorted(maps.Keys(candidates))
+	if len(runIDs) == 0 {
 		return nil, nil
 	}
-	rows, err := gsql.PluckG[string](runs.ID).From(runs).
-		Where(runs.ID.In(slices.Collect(maps.Keys(candidates))...), runs.Status.Eq(running)).
-		Find(s.db)
-	if err != nil {
-		return nil, err
-	}
-	runIDs := make([]string, 0, len(rows))
-	for _, row := range rows {
-		runIDs = append(runIDs, *row)
-	}
-	slices.Sort(runIDs)
 	return runIDs, nil
 }

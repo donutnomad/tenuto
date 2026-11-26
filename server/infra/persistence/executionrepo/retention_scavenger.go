@@ -6,6 +6,7 @@ import (
 
 	"github.com/donutnomad/gsql"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
+	infradb "github.com/donutnomad/tenuto/server/infra/db"
 )
 
 // 兜底扫描（scavenger）回收主 GC 路径**结构上够不着**的残留。
@@ -71,15 +72,14 @@ func (s *Repository) scavengeOrphanEvents(now time.Time, minAge time.Duration, l
 	runExists := gsql.Select(gsql.Lit(1).As("_")).
 		From(runs).
 		Where(runs.ID.EqF(events.RunID))
-	candidates, err := gsql.SelectG[orphanEventCandidate](
+	candidates, err := infradb.Find(s.db, gsql.SelectG[orphanEventCandidate](
 		events.RunID,
 	).
 		From(events).
 		Where(events.RunID.Not(""), gsql.NotExists(runExists)).
 		GroupBy(events.RunID).
 		Having(events.Timestamp.Max().Lte(cutoff)).
-		Limit(limit).
-		Find(s.db)
+		Limit(limit))
 	if err != nil {
 		return 0, err
 	}
@@ -111,12 +111,11 @@ func (s *Repository) scavengeOrphanTreeRows(limit int) (int, error) {
 	eventsForTree := gsql.Select(gsql.Lit(1).As("_")).
 		From(events).
 		Where(events.TreeID.EqF(trees.TreeID))
-	treeRows, err := gsql.PluckG[string](trees.TreeID).
+	treeRows, err := infradb.Find(s.db, gsql.PluckG[string](trees.TreeID).
 		From(trees).
 		Where(gsql.NotExists(eventsForTree)).
 		GroupBy(trees.TreeID).
-		Limit(limit).
-		Find(s.db)
+		Limit(limit))
 	if err != nil {
 		return 0, err
 	}
