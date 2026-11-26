@@ -123,7 +123,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - IO、环境变量、数据库、HTTP 放进 Activity。Workflow 里可以调用一组列明的确定性标准库函数（`strings` 的 `ToUpper`/`Split`/`TrimSpace` 等、`strconv.Itoa`/`Atoi`/`ParseInt` 等、`fmt.Sprintf`/`Sprint`/`Errorf`、`math.Max`/`Round`/`Sqrt` 等），结果与 Go 相同；清单之外的标准库函数（`sort.*`、`time.Parse`、`math.Pow`、`strconv.Quote`）与其他包的函数生成期报 `file:line`。清单与 `fmt` 格式串规则见 `references/go-subset.md`。
 - Workflow 可以调用同包普通函数与值接收者方法（含其他文件里的、递归、带 `workflow.Context` 调度 Activity 的）：函数体一起翻译进产物，改它就改变内容版本。泛型、可变参数、指针接收者、包级变量、函数当值在生成期报错。
 - 决定 Activity 调度顺序、协程启动顺序、Selector case 顺序的数据用 slice。Workflow 里的 `range m` 按 key 升序遍历（确定、可重放），但升序通常不是业务顺序。
-- 翻译后的 WLang 与 Go 源码行为一致（结构体是值、slice 共享底层数组、nil slice 输出 `null`、`for` 条件每轮求值、`any` 与 nil 的比较、map 缺失 key 得到零值）；做不到一致的写法在生成期报错（如定长数组 `[N]T`，改用 slice），清单见 `references/go-subset.md`。
+- 翻译后的 WLang 与 Go 源码行为一致（结构体是值、slice 共享底层数组、nil slice 输出 `null` 且可以 `append`、`for` 条件每轮求值、`any` 与 nil 的比较、指向 struct 的指针按地址比较、map 缺失 key 得到零值、载荷里 `type Status string` 这类具名字段与常量比较）；做不到一致的写法在生成期报错（如定长数组 `[N]T`，改用 slice）。生成期不报错的差异（`make` 的容量只是提示、`any` 里 `int` 与 `int64` 及具名类型与底层类型不区分、装着 nil 指针的 `any` 等于 nil、其他指针按内容比较）见 `references/go-subset.md`。
 - Workflow 接触的数据类型（子 Workflow / Activity / continue-as-new 实参、Signal、Update、Query 载荷，任意嵌套深度，含递归类型与契约包类型）都登记进类型表；channel、函数、嵌入字段等无法编码的类型在生成期按 `file:line` 与类型路径报错，见 `references/go-subset.md` 的「数据类型」。
 - `workflow.Await` 的条件闭包与 Query Handler 只读 Workflow 内存变量：它们在重放时反复求值，Query 产生的命令被丢弃。
 - 对已有运行中 Run 的 Workflow，新增、删除、重排 Activity / Timer / Child / `SideEffect` / `RandomUUID` / `RandomInt` / 协程 / Selector case 需要 `GetVersion` 保护或 `pinned`：这些改动改变命令序列。重放按 Workflow Task 逐批比对，把命令挪到另一个 Workflow Task（并行改成先后执行或反过来）同样需要保护。

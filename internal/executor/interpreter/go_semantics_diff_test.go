@@ -80,7 +80,6 @@ func TestGoSemanticsDifferential(t *testing.T) {
 		{DiffMissingKeyStruct, "DiffMissingKeyStruct", `{}`},
 		{DiffMissingKeyStructCommaOK, "DiffMissingKeyStructCommaOK", `{}`},
 		{DiffMissingKeyStructArgument, "DiffMissingKeyStructArgument", `{}`},
-		{DiffSliceWithinCap, "DiffSliceWithinCap", `{}`},
 		{DiffSizedSliceWithCap, "DiffSizedSliceWithCap", `{}`},
 		{DiffSliceBeyondCap, "DiffSliceBeyondCap", `{}`},
 		{DiffAnyUncomparable, "DiffAnyUncomparable", `{}`},

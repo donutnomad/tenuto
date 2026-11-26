@@ -469,6 +469,12 @@ func Equal(a, b any) bool {
 	return a == b
 }
 
+// SamePointer 报告指针 a 与 b 是否指向同一个对象，即 Go 的 a == b。
+// 生成器把两侧都是指向 struct 的指针的 == / != 改写成这个调用，Workflow 代码直接写运算符即可。
+func SamePointer(a, b any) bool {
+	return a == b
+}
+
 // IsNil 报告 v 是否为 nil 值：nil 接口，或 nil 的 slice、map、指针、函数。
 // 生成器把 slice、map 与 nil 的比较改写成这个调用；空 slice（[]T{}、make([]T, 0)）与空 map 不是 nil。
 func IsNil(v any) bool {
@@ -480,16 +486,4 @@ func IsNil(v any) bool {
 		return value.IsNil()
 	}
 	return false
-}
-
-// SetCap 把 *s 换成元素相同、容量为 capacity 的新 slice，对应 make([]T, n, capacity) 的容量；
-// capacity 小于长度时 panic（与 Go 的 make 相同）。生成器把带容量的 make 改写成 make 加这个调用。
-func SetCap(s any, capacity int) {
-	target := reflect.ValueOf(s).Elem()
-	if capacity < target.Len() {
-		panic("makeslice: cap out of range")
-	}
-	grown := reflect.MakeSlice(target.Type(), target.Len(), capacity)
-	reflect.Copy(grown, target)
-	target.Set(grown)
 }

@@ -10,7 +10,8 @@ import (
 
 // 生成器把 WLang 运算符与 Go 不一致的写法改写成下面的 workflow 包调用（见 compiler/sdkgen 的 lowerTyped）：
 // 操作数含 any 的 == / != 与 any 上的 switch 改写成 Equal，slice、map 与 nil 的比较改写成 IsNil，
-// 带容量的 make 改写成 make 加 SetCap，目标是 []any、map[string]any 的类型断言改写成 TypeAssert、TypeAssertOK、
+// 两侧都是指针的比较改写成 SamePointer，
+// 目标是 []any、map[string]any 的类型断言改写成 TypeAssert、TypeAssertOK、
 // TypeIs（解释器里这两种值的类型名与断言目标不同，WLang 的断言永远不成立）。
 
 // Equal 按 Go 的接口比较规则比较 a 与 b：动态类型与值都相等时为 true；动态类型相同但不可比较
@@ -21,6 +22,13 @@ func (api *runtimeWorkflowAPI) Equal(a, b any) bool {
 		panic(err)
 	}
 	return equal
+}
+
+// SamePointer 是 Go 的指针 a == b，a、b 指向 struct：指向同一个对象时为 true。解释器里指向结构体的指针的载体是
+// 共享的 *types.Record，`p := q`、经 map、slice、字段传递的指针都是同一个载体，载体相同即地址相同。生成器只对
+// 指向 struct 的指针改写成这个调用；其他指针的载体是指向的值本身（slice、map 不可比较）。
+func (api *runtimeWorkflowAPI) SamePointer(a, b any) bool {
+	return a == b
 }
 
 // IsNil 报告 v 是否为 nil 值。nil slice（var xs []T、JSON 缺省或 null 的字段）与 nil map 是 nil，
@@ -34,22 +42,6 @@ func (api *runtimeWorkflowAPI) IsNil(v any) bool {
 		return value.IsNil()
 	}
 	return false
-}
-
-// SetCap 把输出参数指向的 slice 换成元素相同、容量为 capacity 的新 slice。
-func (api *runtimeWorkflowAPI) SetCap(out any, capacity int64) error {
-	target := reflect.ValueOf(out)
-	if target.Kind() != reflect.Pointer || target.Elem().Kind() != reflect.Slice {
-		return fmt.Errorf("workflow.SetCap expects a pointer to a slice, got %T", out)
-	}
-	target = target.Elem()
-	if capacity < int64(target.Len()) {
-		panic("makeslice: cap out of range")
-	}
-	grown := reflect.MakeSlice(target.Type(), target.Len(), int(capacity))
-	reflect.Copy(grown, target)
-	target.Set(grown)
-	return nil
 }
 
 // TypeAssert 是 Go 的 v.(T)，T 是 []any（target "array<any>"）或 map[string]any（"map<string,any>"）：

@@ -188,19 +188,16 @@ func DiffMissingKeyStructArgument(ctx workflow.Context, input map[string]any) (D
 	return DiffOut{Count: len(items), Sum: first.Qty, Text: first.Name}, nil
 }
 
-func DiffSliceWithinCap(ctx workflow.Context, input map[string]any) (DiffOut, error) {
-	a := make([]int, 0, 10)
-	b := a[:3]
-	b[2] = 7
-	return DiffOut{Sum: len(b), Count: cap(a) + b[2]}, nil
-}
-
+// DiffSizedSliceWithCap：带容量的 make 之后 append、range 与 Go 结果相同（容量只是提示，不比较 cap）。
 func DiffSizedSliceWithCap(ctx workflow.Context, input map[string]any) (DiffOut, error) {
 	n := 2
 	a := make([]int, n, n+3)
 	a = append(a, 5)
-	b := a[:5]
-	return DiffOut{Sum: len(a) + b[2], Count: cap(a)}, nil
+	sum := 0
+	for _, v := range a {
+		sum += v
+	}
+	return DiffOut{Sum: len(a) + a[2], Count: sum}, nil
 }
 
 func DiffSliceBeyondCap(ctx workflow.Context, input map[string]any) (DiffOut, error) {

@@ -1,6 +1,7 @@
 package sdkgen
 
 import (
+	"cmp"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -40,13 +41,6 @@ func lowerWorkflowSource(src []byte, filename, funcName string) ([]byte, error) 
 		pass.lowerExprs(fn)
 		if pass.err != nil {
 			return nil, pass.err
-		}
-		if pass.needsWorkflowImport && workflowImportAlias(file) == "" {
-			edit, err := workflowImportEdit(fset, file, src, filename)
-			if err != nil {
-				return nil, err
-			}
-			pass.edits = append(pass.edits, edit)
 		}
 		if len(pass.edits) == 0 {
 			return src, nil
@@ -97,8 +91,6 @@ type lowerPass struct {
 	names map[string]bool
 	edits []sourceEdit
 	err   error
-	// needsWorkflowImport 表示改写引入了 workflow 包的调用，文件没有导入它时补一条 import。
-	needsWorkflowImport bool
 }
 
 // importTable 收集 import 别名 → path；没有显式别名时取路径末段（跳过 v2 这类版本段）。
@@ -205,14 +197,6 @@ var wallClockReplacements = map[string]string{
 	"NewTicker": "循环里的 workflow.Sleep(ctx, d)",
 }
 
-// unsupportedConversions 是没有 WLang 对应写法的数值/字符串类型转换。
-// int 与 int64 在 WLang 里是同一个类型，转换直接省略（见 foldProgram）。
-var unsupportedConversions = map[string]bool{
-	"int8": true, "int16": true, "int32": true, "uint": true, "uint8": true, "uint16": true,
-	"uint32": true, "uint64": true, "uintptr": true, "byte": true, "rune": true,
-	"float32": true, "float64": true, "string": true, "complex64": true, "complex128": true,
-}
-
 // reject 拒绝在 workflow 里没有确定性语义、或运行期必然失败的写法。
 func (p *lowerPass) reject(fn *ast.FuncDecl) {
 	// callArgs 是直接作为调用实参的表达式：&x 只在这里有意义（输出参数）。
@@ -240,7 +224,6 @@ func (p *lowerPass) reject(fn *ast.FuncDecl) {
 		case *ast.SelectorExpr:
 			p.rejectPackageUse(x)
 		case *ast.CallExpr:
-			p.rejectCall(x)
 			for _, arg := range x.Args {
 				callArgs[arg] = true
 			}
@@ -287,16 +270,6 @@ func (p *lowerPass) rejectPackageUse(sel *ast.SelectorExpr) {
 		p.fail(sel, "workflow 里不能用 %s（IO 与环境读取在 replay 时不同）；把它放进 Activity，或用 workflow.SideEffect 记录一次结果", name)
 	case path == "errors":
 		p.fail(sel, "workflow 里不能用 %s；构造错误用 fmt.Errorf 或 workflow.NewApplicationError，判断错误用 workflow.IsApplicationError、workflow.IsCanceledError", name)
-	}
-}
-
-func (p *lowerPass) rejectCall(call *ast.CallExpr) {
-	ident, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return
-	}
-	if ident.Obj == nil && unsupportedConversions[ident.Name] && len(call.Args) == 1 {
-		p.fail(call, "workflow 里不支持类型转换 %s(...)；WLang 的数值运算要求两侧类型一致，int 与 int64 可以互转，其余转换放进 Activity", ident.Name)
 	}
 }
 
@@ -418,8 +391,8 @@ func (p *lowerPass) lowerFuncLits(stmt ast.Stmt) {
 }
 
 // lowerMakeAssign 把 `x := make([]T, n)` 展开成空切片加循环追加零值。n 在清空 x 之前求值一次，
-// `x = make([]T, len(x))` 因此得到与原切片等长的结果。带容量的 `x := make([]T, n, c)` 在此之后调用
-// workflow.SetCap(&x, c)，容量与 Go 相同，`x[:k]`（k 不超过 c）按容量判断越界。
+// `x = make([]T, len(x))` 因此得到与原切片等长的结果。带容量的 `x := make([]T, n, c)` 按 `make([]T, n)` 生成：
+// c 照常求值，小于 n 时与 Go 一样 panic，容量本身只是提示（解释器的 slice 不保留指定的容量，见 go-subset 的差异）。
 func (p *lowerPass) lowerMakeAssign(stmt *ast.AssignStmt) bool {
 	if len(stmt.Lhs) != 1 || len(stmt.Rhs) != 1 || (stmt.Tok != token.DEFINE && stmt.Tok != token.ASSIGN) {
 		return false
@@ -446,16 +419,14 @@ func (p *lowerPass) lowerMakeAssign(stmt *ast.AssignStmt) bool {
 	if withCap {
 		capacity = p.freeName("zzMakeCap")
 		parts = append(parts, fmt.Sprintf("%s := (%s)", capacity, p.source(call.Args[2])))
+		length := cmp.Or(size, "0")
+		parts = append(parts, fmt.Sprintf("if %s < %s { panic(\"makeslice: cap out of range\") }", capacity, length))
 	}
 	parts = append(parts, fmt.Sprintf("%s %s %s{}", target.Name, stmt.Tok, typeText))
 	if sized {
 		index := p.freeName("zzMake")
 		parts = append(parts, fmt.Sprintf("for %s := 0; %s < %s; %s++ { %s = append(%s, %s) }",
 			index, index, size, index, target.Name, target.Name, p.zeroLiteral(array.Elt)))
-	}
-	if withCap {
-		parts = append(parts, fmt.Sprintf("workflow.SetCap(&%s, %s)", target.Name, capacity))
-		p.needsWorkflowImport = true
 	}
 	p.replace(stmt, strings.Join(parts, "; "))
 	return true
@@ -674,7 +645,7 @@ func (p *lowerPass) lowerMake(call *ast.CallExpr, listed map[ast.Stmt]bool) {
 			p.replace(call, p.source(target)+"{}")
 			return
 		}
-		p.fail(call, "%s 只能写成独立的赋值语句：`x := %s`（生成器把它展开成追加零值，带容量时再设置容量）", p.source(call), p.source(call))
+		p.fail(call, "%s 只能写成独立的赋值语句：`x := %s`（生成器把它展开成追加零值）", p.source(call), p.source(call))
 	}
 }
 
