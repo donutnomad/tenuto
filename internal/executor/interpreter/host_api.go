@@ -147,7 +147,8 @@ func (e *WorkflowExecutor) executeWLang(wf *programpkg.WorkflowConfig) error {
 	}
 	scope := wlruntime.NewScope()
 	scope.LetReadOnly("ctx", types.NewValue("workflow.Context", workflowContext{scope: e.rootScope}))
-	untypedInput := types.NewValue("map<string,any>", e.input)
+	// 不经类型解码的入参与 Go 解码进 map[string]any 相同：数字是 float64。
+	untypedInput := types.NewValue("map<string,any>", executor.GoJSONNumbers(e.input))
 	scope.LetReadOnly("input", untypedInput)
 	// 入口参数按 Entry.InputVar（Go 形参名，如 `in`、`req`）绑定：翻译产物的 body 直接按形参名引用入口参数
 	// （产物形如 {"var":"in.Amount"}），换个名字会让 body 找不到符号。有 descriptor 的入参按类型解码，

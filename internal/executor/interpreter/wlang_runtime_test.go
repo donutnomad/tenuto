@@ -671,7 +671,7 @@ func RollingWorkflow(ctx workflow.Context, input map[string]any) error {
 	if len(commands) != 1 || commands[0].Type != history.CmdContinueAsNew {
 		t.Fatalf("expected continue-as-new command, got %+v", commands)
 	}
-	if commands[0].WorkflowType != "rolling-flow" || commands[0].Input["page"] != int64(10) {
+	if commands[0].WorkflowType != "rolling-flow" || commands[0].Input["page"] != float64(10) {
 		t.Fatalf("unexpected continue-as-new command: %+v", commands[0])
 	}
 }

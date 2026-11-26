@@ -54,7 +54,8 @@ func (api *runtimeWorkflowAPI) SetCap(out any, capacity int64) error {
 // goEqual 是 Go 的 a == b（a、b 是接口值）在解释器值上的实现。
 //
 // 解释器里的值与 Go 的对应关系：int 与 int64 都是 int64；struct 是 *types.Record，类型名与各字段相等时相等；
-// History 载荷里 map[string]any 的数字是 json.Number，Go 的 encoding/json 把它解码成 float64，这里按 float64 比较。
+// 载荷里的数字在进入解释器时已换成与 Go 相同的 float64（executor.GoJSONNumbers、NormalizeTypedPayload）；
+// 仍是 json.Number 的值按 float64 比较。
 func goEqual(a, b any) (bool, error) {
 	a, b = normalizeDynamic(a), normalizeDynamic(b)
 	if a == nil || b == nil {

@@ -165,8 +165,9 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 
 - 一侧是 `any` 的 `==` / `!=` → `workflow.Equal`：动态类型与值都相等才为 `true`；`switch` 的 tag 或 case 是 `any` 时每个 case 同样比较。
 - slice / map 与 `nil` 比较 → `workflow.IsNil`：`var xs []T`、载荷省略或 `null` 的字段是 nil，`[]T{}`、`make([]T, 0)`、载荷的 `[]` 不是。只关心有无元素写 `len(xs) == 0`。
-- 载荷里 `null` 的 slice / map 字段（Go 把 nil slice、nil map 编码成 `null`）与 Go 相同：nil，`len` 为 0，读 map 得零值。覆盖 Workflow 输入、Update 参数，以及按 `Get` 目标类型解码的 Activity / 子 Workflow 结果；同一 Activity type 或子 Workflow Type 的几处 `Get` 目标类型不同、有一处是 `map[string]any` 或目标类型无法静态确定时原样解码，结构体里的 `null` 集合字段先判 `out.Tags != nil`。
-- 载荷解进结构体时 `any`、`map[string]any`、`[]any` 字段里的数字是 `float64`（与 `encoding/json` 相同）：`in.V == 1` 为 `false`，`in.V == 1.0` 为 `true`，`in.V.(float64)` 成立。载荷本身是 `map[string]any` 时数字按 `float64` 比较：`d["n"] == 3` 为 `false`，`d["n"] == 3.0` 为 `true`；按数字取值用 struct DTO。
+- 载荷里 `null` 的 slice / map 字段（Go 把 nil slice、nil map 编码成 `null`）与 Go 相同：nil，`len` 为 0，读 map 得零值。覆盖 Workflow 输入、Update 参数，以及按 `Get` 目标类型解码的 Activity / 子 Workflow 结果；同一 Activity type 或子 Workflow Type 的几处 `Get` 目标类型不同、有一处是 `map[string]any` 或目标类型无法静态确定时按 `map[string]any` 处理（数字换成 `float64`、保留 `null`），解进结构体的部分里 `null` 集合字段先判 `out.Tags != nil`，`any` 字段的整数是 `int64`，`int64` 字段超过 2^53 的整数丢失精度。
+- 载荷解进结构体时 `any`、`map[string]any`、`[]any` 字段里的数字是 `float64`（与 `encoding/json` 相同）：`in.V == 1` 为 `false`，`in.V == 1.0` 为 `true`，`in.V.(float64)` 成立。载荷本身是 `map[string]any`（Workflow 输入、Signal、Update 参数、Query 输入、`Get` 进 map 的 Activity / 子 Workflow 结果）时各层数字同样是 `float64`：`d["amount"].(float64)` 成立，`d["amount"] == 3` 为 `false`。超过 2^53 的整数在 `map[string]any` / `any` 里丢失精度（Go 相同），需要精确时用 `int64` 结构体字段或字符串。
+- 差异：`x.([]any)`、`x.(map[string]any)` 断言不成立；嵌套对象与数组声明成 struct DTO 读取。
 - 差异：`any` 里的具名基础类型值（`type Status string`）按底层类型比较，`var x any = Status("a"); x == "a"` 为 `true`（Go 为 `false`）；先断言成具名类型再比较。
 - Side Effect 与 Marker 的值经过 JSON 持久化，超过 2^53 的整数用字符串表示。
 

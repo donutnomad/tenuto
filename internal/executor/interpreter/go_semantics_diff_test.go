@@ -1,7 +1,6 @@
 package interpreter
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"reflect"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/donutnomad/tenuto/compiler/sdkgen"
 	"github.com/donutnomad/tenuto/internal/executor"
+	"github.com/donutnomad/tenuto/internal/jsonvalue"
 	"github.com/donutnomad/tenuto/protocol/history"
 )
 
@@ -60,6 +60,10 @@ func TestGoSemanticsDifferential(t *testing.T) {
 		{DiffInputNilFields, "DiffInputNilFields", `{"Children": [{"Tags": null, "Attrs": null}, {"Tags": ["a"], "Attrs": {}}], "Lookup": {"k": null}}`},
 		{DiffInputNilFields, "DiffInputNilFields", `{"Children": null, "Lookup": null}`},
 		{DiffInitNilMap, "DiffInitNilMap", `{}`},
+		{DiffMapInputNumbers, "DiffMapInputNumbers", `{"amount": 1, "list": [2, "x"], "nested": {"n": 3}}`},
+		{DiffMapInputNumbers, "DiffMapInputNumbers", `{"amount": 1.5}`},
+		{DiffMapInputNumbers, "DiffMapInputNumbers", `{"amount": "1"}`},
+		{DiffMapInputNumbers, "DiffMapInputNumbers", `{"amount": 9007199254740993}`},
 		{DiffInputAny, "DiffInputAny", `{"V": 1, "M": {"n": 1}}`},
 		{DiffInputAny, "DiffInputAny", `{"V": 1.5, "M": {"n": 2, "list": [1, {"x": 3}]}}`},
 		{DiffInputAny, "DiffInputAny", `{"V": "1", "M": {"n": "1"}}`},
@@ -101,17 +105,16 @@ func runNativeDiff(t *testing.T, fn any, input string) (outcome string) {
 	return canonicalJSON(t, results[0].Interface())
 }
 
-// runInterpretedDiff 生成 name 的 WLang 程序并由解释器执行；输入按 History 事件的方式解码（数字是 json.Number）。
+// runInterpretedDiff 生成 name 的 WLang 程序并由解释器执行；输入按存储读回 History 的方式解码（jsonvalue：整数是
+// int64，带小数的是 float64）。
 func runInterpretedDiff(t *testing.T, src []byte, name, input string) string {
 	t.Helper()
 	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: name, FuncName: name, Filename: diffWorkflowsFile})
 	if err != nil {
 		t.Fatalf("%s: generate: %v", name, err)
 	}
-	decoder := json.NewDecoder(bytes.NewReader([]byte(input)))
-	decoder.UseNumber()
 	var payload map[string]any
-	if err := decoder.Decode(&payload); err != nil {
+	if err := jsonvalue.Unmarshal([]byte(input), &payload); err != nil {
 		t.Fatal(err)
 	}
 	started := history.NewWorkflowStartedEvent(payload, "", "", "", "", 0)

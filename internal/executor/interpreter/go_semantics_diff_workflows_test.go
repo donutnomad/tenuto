@@ -319,6 +319,67 @@ func DiffActivityRawResult(ctx workflow.Context, input map[string]any) (DiffOut,
 	return summarizeRawResult(d), nil
 }
 
+// summarizeMapNumbers 对 map[string]any 载荷里来自 JSON 的数字做比较、断言、算术与再编码：Go 的
+// encoding/json 把它们解成 float64。每一项占一位。
+func summarizeMapNumbers(d map[string]any) DiffOut {
+	flags := 0
+	if d["amount"] == 1 {
+		flags += 1
+	}
+	if d["amount"] == 1.0 {
+		flags += 2
+	}
+	text := "not-float"
+	if f, ok := d["amount"].(float64); ok {
+		text = "float"
+		if f*3 > 2.5 {
+			flags += 4
+		}
+	}
+	if _, ok := d["amount"].(int64); ok {
+		flags += 8
+	}
+	if _, ok := d["amount"].(int); ok {
+		flags += 16
+	}
+	switch d["amount"] {
+	case 1:
+		flags += 128
+	case 1.0:
+		flags += 256
+	}
+	return DiffOut{Sum: flags, Text: text, Value: d}
+}
+
+func DiffMapInputNumbers(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	return summarizeMapNumbers(input), nil
+}
+
+func DiffSignalNumbers(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var d map[string]any
+	if err := workflow.WaitSignal(ctx, "pay").Get(ctx, &d); err != nil {
+		return DiffOut{}, err
+	}
+	return summarizeMapNumbers(d), nil
+}
+
+func DiffUpdateMapNumbers(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	if err := workflow.SetUpdateHandler(ctx, "probe", func(ctx workflow.Context, in map[string]any) (DiffOut, error) {
+		return summarizeMapNumbers(in), nil
+	}); err != nil {
+		return DiffOut{}, err
+	}
+	return DiffOut{}, workflow.Await(ctx, func() bool { return false })
+}
+
+func DiffActivityMapNumbers(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var d map[string]any
+	if err := workflow.ExecuteActivity(ctx, "load-map", input, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}).Get(ctx, &d); err != nil {
+		return DiffOut{}, err
+	}
+	return summarizeMapNumbers(d), nil
+}
+
 func summarizeRawResult(d map[string]any) DiffOut {
 	_, ok := d["Tags"]
 	return DiffOut{Flag: ok && d["Tags"] == nil, Count: len(d)}

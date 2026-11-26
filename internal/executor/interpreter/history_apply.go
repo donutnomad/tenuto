@@ -35,7 +35,7 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 		if ev := event.WorkflowStarted; ev != nil {
 			e.input = ev.Input
 		} else if ev := event.WorkflowSignaled; ev != nil {
-			e.signals[ev.Name] = append(e.signals[ev.Name], ev.Input)
+			e.signals[ev.Name] = append(e.signals[ev.Name], e.normalizePayload(program.PayloadSignal, ev.Name, ev.Input))
 		} else if ev := event.WorkflowUpdateAccepted; ev != nil {
 			e.updateAccepted[ev.Name] = append(e.updateAccepted[ev.Name], history.WorkflowUpdateRecord{
 				UpdateID:        ev.UpdateID,
@@ -65,7 +65,7 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 			if started := e.childStarted[ev.ChildID].ChildWorkflowStarted; started != nil {
 				childType = started.Name
 			}
-			e.childCompleted[ev.ChildID] = e.normalizeResult(program.PayloadChildResult, childType, ev.Output)
+			e.childCompleted[ev.ChildID] = e.normalizePayload(program.PayloadChildResult, childType, ev.Output)
 			delete(e.childStarted, ev.ChildID)
 			delete(e.childFailures, ev.ChildID)
 		} else if ev := event.ChildWorkflowFailed; ev != nil {
@@ -90,7 +90,7 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 			e.bindActivityScheduled(ev.ActivityID, event.ID)
 			e.activityTypes[event.ID] = ev.ActivityType
 		} else if ev := event.ActivityCompleted; ev != nil {
-			e.completed[ev.ScheduledEventID] = e.normalizeResult(program.PayloadActivityResult, cmp.Or(ev.ActivityType, e.activityTypes[ev.ScheduledEventID]), ev.Output)
+			e.completed[ev.ScheduledEventID] = e.normalizePayload(program.PayloadActivityResult, cmp.Or(ev.ActivityType, e.activityTypes[ev.ScheduledEventID]), ev.Output)
 			delete(e.failed, ev.ScheduledEventID)
 		} else if ev := event.ActivityCancelled; ev != nil {
 			// 取消确认是 Activity 的终态结果，与失败走同一张事实表：Future 返回取消错误。

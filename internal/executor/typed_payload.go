@@ -29,29 +29,20 @@ func DecodeTypedJSON(reg *wlregistry.Registry, typeName string, raw json.RawMess
 //   - 去掉结构体里为 null 的 slice、map 字段：wlang 把 null 解成没有载体的值，len、range、读 map 会报 E_TYPE；
 //     字段缺省时它取类型的零值（nil slice、nil map），与 Go 解码 null 的结果相同，workflow.IsNil 仍为 true。
 //     map 的元素与 slice 的元素保留 null：Go 里它们是存在的条目。
-//   - 结构体里声明类型是 any 的位置（any 字段、map[string]any 字段的值、[]any 字段的元素，及其内部）里的数字
-//     写成带小数点的字面量：wlang 把不带小数点的 JSON 数字解成 int64，Go 解成 float64；带小数点时它同样解成
-//     float64，取值、断言、比较与再编码都与 Go 相同。载荷本身是 map[string]any 时不改，与 Workflow 输入、
-//     Signal 的 map[string]any 载荷一致（数字是 json.Number，workflow.Equal 按 float64 比较）。
+//   - 声明类型是 any 的位置（any 字段、map[string]any 的值、[]any 的元素，及其内部，含载荷本身是
+//     map[string]any 的情况）里的数字写成带小数点的字面量：wlang 把不带小数点的 JSON 数字解成 int64，Go 解成
+//     float64；带小数点时它同样解成 float64，取值、断言、比较与再编码都与 Go 相同。
 //
 // 只能用于解码成 typeID 的载荷：解码目标是 map[string]any 时 null 的键在 Go 里存在，不能去掉。
 func NormalizeTypedPayload(reg *wlregistry.Registry, typeID string, value any) any {
-	return normalizeTyped(reg, typeID, value, false)
-}
-
-// normalizeTyped 是 NormalizeTypedPayload 的遍历；inRecord 表示 value 位于某个结构体之内。
-func normalizeTyped(reg *wlregistry.Registry, typeID string, value any, inRecord bool) any {
 	if value == nil {
 		return nil
 	}
 	if typeID == wltypes.TAny {
-		if inRecord {
-			return floatNumbers(value)
-		}
-		return value
+		return floatNumbers(value)
 	}
 	if elem, ok := genericCollectionElem(typeID); ok {
-		return mapCollection(reg, elem, value, inRecord)
+		return mapCollection(reg, elem, value)
 	}
 	descriptor, ok := reg.Descriptor(typeID)
 	if !ok {
@@ -59,11 +50,11 @@ func normalizeTyped(reg *wlregistry.Registry, typeID string, value any, inRecord
 	}
 	switch descriptor.Kind {
 	case wltypes.TypeKindAlias:
-		return normalizeTyped(reg, descriptor.Underlying, value, inRecord)
+		return NormalizeTypedPayload(reg, descriptor.Underlying, value)
 	case wltypes.TypeKindPointer:
-		return normalizeTyped(reg, descriptor.Elem, value, inRecord)
+		return NormalizeTypedPayload(reg, descriptor.Elem, value)
 	case wltypes.TypeKindSlice, wltypes.TypeKindArray, wltypes.TypeKindMap:
-		return mapCollection(reg, descriptor.Elem, value, inRecord)
+		return mapCollection(reg, descriptor.Elem, value)
 	case wltypes.TypeKindRecord:
 		object, ok := value.(map[string]any)
 		if !ok {
@@ -86,9 +77,60 @@ func normalizeTyped(reg *wlregistry.Registry, typeID string, value any, inRecord
 			if item == nil && isCollectionType(reg, field.TypeID) {
 				continue
 			}
-			out[key] = normalizeTyped(reg, field.TypeID, item, true)
+			out[key] = NormalizeTypedPayload(reg, field.TypeID, item)
 		}
 		return out
+	}
+	return value
+}
+
+// GoJSONNumbers 返回 value 的副本，其中 map[string]any、[]any 里的数字（json.Number 与各种整数、浮点类型）
+// 换成 float64，与 Go 的 encoding/json 解码进 map[string]any 的结果相同：`d["n"].(float64)` 成立，
+// `d["n"] == 3` 为 false。用于直接交给解释器、不经类型解码的 map[string]any 载荷（Workflow 输入、Signal、
+// 解进 map[string]any 的 Activity 与子 Workflow 结果、Query 输入）。
+//
+// 存储与 HTTP 两侧按 jsonvalue 保留整数的精确值；交给 Workflow 代码时与 Go 一样按 float64 表示，
+// 超过 2^53 的整数在这里丢失精度，Go 里同样如此。
+func GoJSONNumbers(value any) any {
+	switch current := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(current))
+		for key, item := range current {
+			out[key] = GoJSONNumbers(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(current))
+		for i, item := range current {
+			out[i] = GoJSONNumbers(item)
+		}
+		return out
+	case json.Number:
+		if parsed, err := strconv.ParseFloat(current.String(), 64); err == nil {
+			return parsed
+		}
+	case int:
+		return float64(current)
+	case int8:
+		return float64(current)
+	case int16:
+		return float64(current)
+	case int32:
+		return float64(current)
+	case int64:
+		return float64(current)
+	case uint:
+		return float64(current)
+	case uint8:
+		return float64(current)
+	case uint16:
+		return float64(current)
+	case uint32:
+		return float64(current)
+	case uint64:
+		return float64(current)
+	case float32:
+		return float64(current)
 	}
 	return value
 }
@@ -104,6 +146,8 @@ func floatNumbers(value any) any {
 		return floatLiteral(strconv.Itoa(current), value)
 	case int64:
 		return floatLiteral(strconv.FormatInt(current, 10), value)
+	case uint64:
+		return floatLiteral(strconv.FormatUint(current, 10), value)
 	case []any:
 		out := make([]any, len(current))
 		for i, item := range current {
@@ -133,18 +177,18 @@ func floatLiteral(raw string, original any) any {
 	return json.Number(text)
 }
 
-func mapCollection(reg *wlregistry.Registry, elem string, value any, inRecord bool) any {
+func mapCollection(reg *wlregistry.Registry, elem string, value any) any {
 	switch collection := value.(type) {
 	case []any:
 		out := make([]any, len(collection))
 		for i, item := range collection {
-			out[i] = normalizeTyped(reg, elem, item, inRecord)
+			out[i] = NormalizeTypedPayload(reg, elem, item)
 		}
 		return out
 	case map[string]any:
 		out := make(map[string]any, len(collection))
 		for key, item := range collection {
-			out[key] = normalizeTyped(reg, elem, item, inRecord)
+			out[key] = NormalizeTypedPayload(reg, elem, item)
 		}
 		return out
 	}

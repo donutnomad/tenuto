@@ -247,9 +247,11 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 
 - 常量按 Go 的默认类型参与比较：`d["n"] == 3` 比较的是 `int`。
 - 载荷解进结构体时，`any` 字段、`map[string]any` 字段、`[]any` 字段里的 JSON 数字与 Go 的 `encoding/json` 一样是 `float64`：`{"V": 1}` 里 `in.V == 1` 是 `false`，`in.V == 1.0` 是 `true`，`in.V.(float64)` 成立，再编码成 JSON 仍是 `1`。
-- 载荷本身是 `map[string]any`（Workflow 输入、Signal、Update 参数或结果直接 `Get` 进 `map[string]any`）时，数字按 `float64` 比较：`{"n": 3}` 里 `d["n"] == 3` 是 `false`，`d["n"] == 3.0` 是 `true`。按数字取值时声明结构体 DTO。
+- 载荷本身是 `map[string]any`（Workflow 输入、Signal、Update 参数、Query 输入，以及 `Get` 进 `map[string]any` 的 Activity 结果与子 Workflow 结果）时，其中各层的数字与 Go 的 `encoding/json` 一样是 `float64`：`{"amount": 3}` 里 `d["amount"].(float64)` 成立，`d["amount"] == 3` 是 `false`，`d["amount"] == 3.0` 是 `true`，再编码成 JSON 仍是 `3`。
+- 存储与 HTTP 两侧保留整数的精确值；交给 Workflow 代码时按 `float64` 表示，超过 2^53 的整数（如 `9007199254740993`）在 `map[string]any` 与 `any` 里丢失精度，Go 解码进 `map[string]any` 时同样如此。需要精确的大整数时声明结构体字段 `int64`，或用字符串传递。
+- 断言 `x.([]any)`、`x.(map[string]any)` 不成立（comma-ok 得到 `false`，非 comma-ok 让 Workflow Task 以 `workflow_panic` 失败），与 Go 不同。载荷里嵌套的对象与数组声明成结构体 DTO 读取。
 - nil slice 与空 slice 可以区分：`var xs []T`、载荷里省略或为 `null` 的字段是 nil；`[]T{}`、`make([]T, 0)`、载荷里的 `[]` 不是 nil。map 同理。只关心有没有元素时写 `len(xs) == 0`。
-- 载荷里为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice、nil map 编码成 `null`）与 Go 一样是 nil：`len` 为 0、`range` 不执行、读 map 得到元素零值。Workflow 输入、Update 参数按声明类型解码；Activity 结果与子 Workflow 结果按 Program 里 `Get` 的目标类型解码。结果进入解释器时还不知道哪一处 `Get` 会读它，所以同一个 Activity type 或子 Workflow Type 的结果在几处 `Get` 进不同的类型、有一处 `Get` 进 `map[string]any` 或目标类型无法静态确定时，这个结果原样解码（结构体里 `any` 字段的整数随之是 `int64`）：`map[string]any` 里 `null` 的键与 Go 一样存在，解进结构体的 `null` 集合字段在 `len`、`range` 之前先判断 `out.Tags != nil`。
+- 载荷里为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice、nil map 编码成 `null`）与 Go 一样是 nil：`len` 为 0、`range` 不执行、读 map 得到元素零值。Workflow 输入、Update 参数按声明类型解码；Activity 结果与子 Workflow 结果按 Program 里 `Get` 的目标类型解码。结果进入解释器时还不知道哪一处 `Get` 会读它，所以同一个 Activity type 或子 Workflow Type 的结果在几处 `Get` 进不同的类型、有一处 `Get` 进 `map[string]any` 或目标类型无法静态确定时，这个结果按 `map[string]any` 的规则处理：数字换成 `float64`，`null` 的键与 Go 一样存在。这时解进结构体的部分与 Go 有三处不同：`null` 集合字段在 `len`、`range` 之前先判断 `out.Tags != nil`；`any` 字段里的整数是 `int64`；`int64` 字段里超过 2^53 的整数丢失精度。
 - `any` 里的具名基础类型值（`type Status string`）按底层类型比较：`var x any = Status("a")` 时 `x == "a"` 为 `true`，Go 里动态类型不同为 `false`。与具名类型比较时先断言 `s, ok := x.(Status)`。
 
 ## 执行预算

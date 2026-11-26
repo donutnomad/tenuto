@@ -66,7 +66,7 @@ func TestSelectorFuture_ActivityCompleted_CallbackRuns(t *testing.T) {
 		t.Fatalf("应完成工作流, got %+v", cmds)
 	}
 	got, _ := cmd.Output["got"].(map[string]any)
-	if got["answer"] != int64(42) {
+	if got["answer"] != float64(42) {
 		t.Fatalf("回调内 Get 应取到历史 Output(answer=42), got %v", cmd.Output)
 	}
 }
