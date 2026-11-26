@@ -17,7 +17,7 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 | `upgrade_error` 非空，`auto upgrade to ... failed ...; retrying with backoff` | 不阻塞：留在旧内容，按退避重试升级 | 发布兼容内容，或 `SetRunPolicy(..., "pinned")` |
 | `blocked.cause` 为 `non_deterministic_error`，reason 含 `nondeterministic workflow: ...` | Workflow Task 反复失败 | 修复代码（恢复命令序列或补 `GetVersion`）后重新发布，下一次重试自动继续 |
 | `blocked.cause` 为 `activity_route_unavailable` | 没声明队列，路由目录里没有可用的 Activity Worker 或路由歧义 | 启动注册了该 `type` 的 Worker 或声明队列，自动继续 |
-| `status` 是 `running`、无错误、History 末尾是 `ActivityScheduled` | Activity 没被领取或正在执行；Server 日志反复 `activity claim refused` 时在线 Worker 的契约与声明不一致 | 核对队列与 Worker（`workers.md`）；看 Activity 状态；契约不一致时让契约一致的 build 上线，或 `SetRunPolicy(..., "auto_upgrade")` |
+| `status` 是 `running`、无错误、History 末尾是 `ActivityScheduled` | Activity 没被领取或正在执行；Server 日志反复 `activity claim refused` 时在线 Worker 的契约与声明不兼容 | 核对队列与 Worker（`workers.md`）；看 Activity 状态；契约不兼容时让契约兼容的 build 上线，或 `SetRunPolicy(..., "auto_upgrade")` |
 | `status` 是 `running`、无错误、`__stack_trace` 的 `waiting.type` 是 `timer`，或 `waiting` 为空（等 Signal、`Await` 条件） | 正常等待 | 推进它等待的事件 |
 | `status` 是 `failed` | 终态 | `terminal_failure`，或 `c.GetWorkflow(...).Get` 的错误 `errors.As` 到 `*apperror.Error` 看 Type 与 details；需要重跑时 Reset |
 
@@ -27,7 +27,7 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 
 | 原文 | 成因 |
 | --- | --- |
-| `activity "T" contract mismatch on worker "W" (namespace "N" queue "Q" build "B"): <input\|output> expected "X" actual "Y"`（Server 日志 `activity claim refused` 的 `err`） | 领取时 Program 声明的契约（expected）与领取 Worker 的上报（actual）不一致，这次领取被拒绝，任务稍后重新投递 |
+| `activity "T" contract mismatch on worker "W" (namespace "N" queue "Q" build "B"): <input\|output> expected "X" actual "Y"`（Server 日志 `activity claim refused` 的 `err`） | 领取时 Program 声明的契约（expected）与领取 Worker 的上报（actual）不兼容，这次领取被拒绝，任务稍后重新投递；两侧都有 wire 结构时末尾括号里列出不兼容的字段路径 |
 | `auto upgrade to V failed at workflow task N: non_deterministic_error: ...; retrying with backoff` | `auto_upgrade` 的 Run 用新 Program 重放旧 History 失配 |
 | `auto upgrade to V refused: payloads recorded in history cannot be read by the candidate program: <位置>: <旧类型> -> <新类型>: <字段路径>: <原因>` | 换版前的载荷检查：History 里该位置的载荷在 latest 的类型下读不回（字段删除、改名、改类型） |
 | `auto upgrade to V refused: the payload check cannot prove that payloads recorded in history stay readable: <current\|candidate> program: <载荷> decoded into <类型> at <WLang 路径> (<原因>); <种类> types differ between the two versions` | 换版前的载荷检查：该解码处的名字或类型无法静态确定，而这种载荷的类型在两个版本间变了 |
@@ -68,7 +68,7 @@ HTTP `set-policy`：`{"namespace":"orders","run_id":"...","policy":"auto_upgrade
 
 准备 Workflow Task 失败（`workflow task cannot be prepared: ...`）暂停的 Run 恢复方式相同：先修复原因（例如重新登记那一版 Program），再 set-policy；原因仍在时 Run 再次暂停。存储读取出错、超时这类暂时性失败不暂停，任务按队列租约重投。
 
-前提不成立时错误会再次出现：`pinned` 再次记 `ConfigError`；`auto_upgrade` 记 `UpgradeError` 并留在旧内容。Activity 契约不一致不暂停 Run，不在这里处理：任务留在队列里，契约一致的 build 上线后自动继续，或 set-policy `auto_upgrade` 让新 build 领取。Console 的对应按钮：`Pin current content`、`Resume with latest (AutoUpgrade)`。成因与发布顺序见 `versioning.md`。
+前提不成立时错误会再次出现：`pinned` 再次记 `ConfigError`；`auto_upgrade` 记 `UpgradeError` 并留在旧内容。Activity 契约不兼容不暂停 Run，不在这里处理：任务留在队列里，契约兼容的 build 上线后自动继续，或 set-policy `auto_upgrade` 让新 build 领取。Console 的对应按钮：`Pin current content`、`Resume with latest (AutoUpgrade)`。成因与发布顺序见 `versioning.md`。
 
 ## Workflow Reset
 

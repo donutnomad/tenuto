@@ -12,7 +12,7 @@ status: Stable
 
 检查 ActivityScheduled 的 Namespace、Task Queue 和 Activity Type，再检查 active Worker、Version Heartbeat 和 TaskQ physical queue。队列能确定时（调用处 `ActivityOptions.TaskQueue` 或 `@Activity(queue)`），调度不看此刻有没有在线 Worker：队列上没有 Worker 时任务一直留在 Scheduled，Server 日志记 `activity task queue has no known active worker`（队列名拼错时这是唯一的线索）。
 
-Server 日志反复出现 `activity claim refused: worker contract is incompatible` 时，在线 Worker 的契约都与 Run 当前 Program 的声明不一致，每次领取被拒绝后任务约 1s 重新投递；Run 不暂停。处理：让契约一致的 build 重新上线（例如 `pinned` Run 所需的旧 build），它领取后 Run 自动继续；或把 Run 改成 `auto_upgrade`，Run 切到最新 Program 后由新 build 领取；或者等 `ScheduleToStartTimeout` 到期。
+Server 日志反复出现 `activity claim refused: worker contract is incompatible` 时，在线 Worker 的契约都与 Run 当前 Program 的声明不兼容，每次领取被拒绝后任务约 1s 重新投递；Run 不暂停。处理：让契约兼容的 build 重新上线（例如 `pinned` Run 所需的旧 build），它领取后 Run 自动继续；或把 Run 改成 `auto_upgrade`，Run 切到最新 Program 后由新 build 领取；或者等 `ScheduleToStartTimeout` 到期。
 
 ## Run Blocked：`activity_route_unavailable`
 

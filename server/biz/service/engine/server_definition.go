@@ -97,7 +97,7 @@ func (s *Server) resolveActivityCommand(runID, programVersion string, cmd histor
 	// 声明契约参与选路：目录里有多个候选时优先选上报兼容的那个。
 	if wfErr == nil {
 		if declared := dispatch.DeclaredActivityContract(wf, cmd.ActivityType); declared != nil {
-			ref.Input, ref.Output = declared.Input, declared.Output
+			ref.Input, ref.Output, ref.InputWire, ref.OutputWire = declared.Input, declared.Output, declared.InputWire, declared.OutputWire
 		}
 	}
 	route, err := s.resolveActivityRoute(ref)

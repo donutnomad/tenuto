@@ -1,7 +1,6 @@
 package scenario
 
 import (
-	"slices"
 	"strings"
 	"time"
 
@@ -168,9 +167,9 @@ func (e *Env) parallel(runID, a, b string) bool {
 
 // parkedRuns 是升级之前启动、停在 Signal 等待点上的 Run。
 type parkedRuns struct {
-	orderAuto, orderPinned, orderWaiting, orderToLatest string
-	returnPinned, returnAuto, returnOldType             string
-	returnBrokenToPin, returnBrokenToPublish            string
+	orderAuto, orderPinned, orderOffline     string
+	returnPinned, returnAuto, returnOldType  string
+	returnBrokenToPin, returnBrokenToPublish string
 }
 
 func (e *Env) park() parkedRuns {
@@ -197,15 +196,14 @@ func (e *Env) park() parkedRuns {
 	// order-flow 的注解是 auto_upgrade，需要固定的 Run 用 set-policy 改成 pinned。
 	p.orderAuto = order("order-auto", policyAutoUpgrade)
 	p.orderPinned = order("order-pinned", policyPinned)
-	p.orderWaiting = order("order-waiting", policyPinned)
-	p.orderToLatest = order("order-to-latest", policyPinned)
+	p.orderOffline = order("order-v1-offline", policyPinned)
 	// return-flow 的注解是 pinned，需要跟随最新 Program 的 Run 用 set-policy 改成 auto_upgrade。
 	p.returnPinned = ret("return-pinned", policyPinned)
 	p.returnAuto = ret("return-auto", policyAutoUpgrade)
 	p.returnOldType = ret("return-old-type", policyPinned)
 	p.returnBrokenToPin = ret("return-broken-pin", policyAutoUpgrade)
 	p.returnBrokenToPublish = ret("return-broken-publish", policyAutoUpgrade)
-	e.checkpoint("9 个 Run 停在 Signal 等待点，全部在 v1 Program 上")
+	e.checkpoint("8 个 Run 停在 Signal 等待点，全部在 v1 Program 上")
 	return p
 }
 
@@ -224,7 +222,7 @@ func (e *Env) rolloutAppA(p parkedRuns) {
 	e.signal(mid, "confirm")
 	midDone := e.waitCompleted(mid)
 	e.expect("Program", e.program(mid), "order-flow v1 ("+short(midDone.WorkflowConfigVersion)+")")
-	e.expectRoute(mid, "fulfillment.reserve", "app-a-v1", str(midDone.Output, "reserved_by"))
+	e.expectServed(mid, "fulfillment.reserve", str(midDone.Output, "reserved_by"))
 	e.expectServed(mid, "fulfillment.quote", str(midDone.Output, "quoted_by"))
 
 	e.step("场景 5：新启动的 return-flow Run 用 v2 Program，走新步骤 fulfillment.notify")
@@ -286,7 +284,7 @@ func (e *Env) rolloutAppB(p parkedRuns) {
 	e.signal(p.orderPinned, "confirm")
 	pinned := e.waitCompleted(p.orderPinned)
 	e.expect("Program", e.program(p.orderPinned), "order-flow v1 ("+short(pinned.WorkflowConfigVersion)+")")
-	e.expectRoute(p.orderPinned, "fulfillment.reserve", "app-a-v1", str(pinned.Output, "reserved_by"))
+	e.expectServed(p.orderPinned, "fulfillment.reserve", str(pinned.Output, "reserved_by"))
 	e.expect("场景 1：warehouse（旧调用方不传新字段）", str(pinned.Output, "warehouse"), "west")
 	e.expectServed(p.orderPinned, "fulfillment.quote", str(pinned.Output, "quoted_by"))
 	e.expect("场景 2：ship_fee（旧 type：不含税）", num(pinned.Output, "ship_fee"), int64(1000))
@@ -320,47 +318,17 @@ func (e *Env) oldBuildOffline(p parkedRuns) {
 	e.expect("label_fee（旧 type fulfillment.quote：不含税）", num(oldType.Output, "label_fee"), int64(500))
 	e.expectRoute(p.returnOldType, "fulfillment.quote", "app-a-v2", str(oldType.Output, "quoted_by"))
 
-	e.step("order-waiting 与 order-to-latest（pinned，order-flow v1）：Signal 之后调度 fulfillment.reserve，它的入参在 v2 加了字段")
-	for _, runID := range []string{p.orderWaiting, p.orderToLatest} {
-		e.signal(runID, "confirm")
-		e.waitForRun(runID, "fulfillment.reserve scheduled", func() bool {
-			return slices.Contains(e.scheduledTypes(runID), "fulfillment.reserve")
-		})
-	}
-	// 在线的只有 app-a-v2，它的入参契约与 v1 声明不一致：领取被拒绝，任务约 1s 后重新投递。多等几轮确认 Run 不暂停、reserve 不开始。
-	time.Sleep(3 * time.Second)
-	var waiting *runtimeapi.Run
-	for _, runID := range []string{p.orderWaiting, p.orderToLatest} {
-		waiting = e.run(runID)
-		e.expect("status", waiting.Status, history.StatusRunning)
-		e.expect("ConfigError（契约不一致不暂停 Run）", waiting.ConfigError, "")
-		e.expect("fulfillment.reserve 没有开始执行", e.routed(runID, "fulfillment.reserve"), "")
-	}
-
-	e.checkpoint("reserve 已调度到 fulfillment 队列，app-a-v2 的领取被拒绝，任务等待契约一致的 build")
-
-	e.step("恢复方式一：旧 build 保持离线，把 order-to-latest 改成 auto_upgrade")
-	// set-policy 开启一个新的 Workflow Task，Run 在它上面切到 latest（v2）。领取时的契约对照读 Run 当前的 Program，
-	// v2 声明 reserve 的新入参，在线的 app-a-v2 领取已在队列里的 reserve。这次调度的入参是 v1 写的，没有 warehouse 字段。
-	e.setPolicy(p.orderToLatest, policyAutoUpgrade)
-	upgraded := e.waitCompleted(p.orderToLatest)
-	e.expect("Program", e.program(p.orderToLatest), "order-flow v2 ("+short(upgraded.WorkflowConfigVersion)+")")
-	e.expect("启动时的 Program 保留在 original 字段", upgraded.OriginalWorkflowConfigVersion, waiting.WorkflowConfigVersion)
-	e.expectRoute(p.orderToLatest, "fulfillment.reserve", "app-a-v2", str(upgraded.Output, "reserved_by"))
-	e.printf("       warehouse = %s（reserve 的入参由 v1 写出）\n", str(upgraded.Output, "warehouse"))
-	// quote 与 reserve 在 v1 上一起调度，旧 type 的契约两个 build 相同，切到 v2 之前已由 app-a-v2 执行。
-	e.expectServed(p.orderToLatest, "fulfillment.quote", str(upgraded.Output, "quoted_by"))
-	e.expect("场景 2：ship_fee（旧 type：不含税）", num(upgraded.Output, "ship_fee"), int64(1000))
-
-	e.step("恢复方式二：旧 build 重新上线，order-waiting 的 reserve 由 app-a-v1 领取，Run 自动继续，不需要 set-policy")
-	e.start("app-a", "v1")
-	e.expect("return-flow 的 latest（旧二进制重启不会把 latest 改回去）", e.latest(returnFlow), "v2")
-	resumed := e.waitCompleted(p.orderWaiting)
-	e.expect("ConfigError", resumed.ConfigError, "")
-	e.expect("Program", e.program(p.orderWaiting), "order-flow v1 ("+short(resumed.WorkflowConfigVersion)+")")
-	e.expectRoute(p.orderWaiting, "fulfillment.reserve", "app-a-v1", str(resumed.Output, "reserved_by"))
-	e.expectServed(p.orderWaiting, "fulfillment.quote", str(resumed.Output, "quoted_by"))
-	e.expect("场景 2：ship_fee（旧 type：不含税）", num(resumed.Output, "ship_fee"), int64(1000))
+	e.step("order-v1-offline（pinned，order-flow v1）：Signal 之后调度 fulfillment.reserve，它的入参在 v2 加了可选字段 warehouse")
+	// v1 声明的入参写出 {sku, qty, ...}，app-a-v2 读的入参多一个 warehouse：指纹不同，按数据流向兼容（旧载荷里取零值），
+	// 领取时直接放行，不需要旧 build、不需要 set-policy。
+	e.signal(p.orderOffline, "confirm")
+	done := e.waitCompleted(p.orderOffline)
+	e.expect("ConfigError", done.ConfigError, "")
+	e.expect("Program", e.program(p.orderOffline), "order-flow v1 ("+short(done.WorkflowConfigVersion)+")")
+	e.expectRoute(p.orderOffline, "fulfillment.reserve", "app-a-v2", str(done.Output, "reserved_by"))
+	e.expect("warehouse（v1 的入参没有这个字段，app-a-v2 按零值处理）", str(done.Output, "warehouse"), "west")
+	e.expectServed(p.orderOffline, "fulfillment.quote", str(done.Output, "quoted_by"))
+	e.expect("场景 2：ship_fee（旧 type：不含税）", num(done.Output, "ship_fee"), int64(1000))
 }
 
 // ---------- 不兼容的 Program ----------

@@ -181,28 +181,30 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 每个 `@Activity` 生成三维契约：`type`、`input` 指纹、`output` 指纹（指纹形如 `wire:<hash>`，由 JSON 字段名与类型算出，见 `codegen.md`）。
 
 - Workflow 侧：契约随 Program 写进 `workflow.json`。
-- Worker 侧：`RegisterActivities` 把契约放进注册表，Worker `Start` 时随路由上报。
-- Server 只在领取时对照，比较逻辑在 `server/biz/domain/dispatch/activity_contract.go`；Worker 注册、定义登记与调度都不做这项对照。调度时（`server/biz/service/engine/server_definition.go` 的 `resolveActivityCommand`）队列确定后照常写入 `ActivityScheduled` 并入队；没声明队列、目录里有多个候选时优先选上报一致的那个。
-  - 领取时（`server/biz/service/engine/server_activity.go` 的 `RefuseIncompatibleActivityClaim`）：任务投到队列，不带 build，队列上任一 build 都能领到；开始 Attempt 之前按领取者这个 BuildID 的上报对照 Run 当前 Program 的声明。不一致时 `BeginActivityTask` 返回 `worker_contract_mismatch`：Attempt 不开始、不消耗重试次数，任务在 Workflow Task 失败退避的首个间隔（缺省 1s）之后重新投递。在线 build 都不一致时任务一直留在队列里，Run 不暂停；契约一致的 build 上线后自动领取，或 `SetRunPolicy(..., "auto_upgrade")` 让 Run 切到 latest 后由新 build 领取（领取时对照的是 Run 当前的 Program）。
+- Worker 侧：`RegisterActivities` 把契约放进注册表（`activity.ContractOf` 从 Go 类型算出指纹与 wire 结构），Worker `Start` 时随路由上报。
+- 对照规则（`protocol/activity_contract.go` 的 `CompareActivityContracts`）：指纹相同即兼容；不同时按数据流向用 `protocol.CompareWireTypes` 比较结构，input 是 (声明, 上报)、output 是 (上报, 声明)，即写方 → 读方。写方的每个字段读方都要有，类型相同或无损放宽（整数变宽、`T` → `*T`）；读方多出的字段取零值。声明侧的结构由 Server 按指纹在 Program 的类型表里找到；任一侧没有结构时只比较指纹。
+- Server 只在领取时对照，比较逻辑在 `server/biz/domain/dispatch/activity_contract.go`；Worker 注册、定义登记与调度都不做这项对照。调度时（`server/biz/service/engine/server_definition.go` 的 `resolveActivityCommand`）队列确定后照常写入 `ActivityScheduled` 并入队；没声明队列、目录里有多个候选时优先选上报兼容的那个。
+  - 领取时（`server/biz/service/engine/server_activity.go` 的 `RefuseIncompatibleActivityClaim`）：任务投到队列，不带 build，队列上任一 build 都能领到；开始 Attempt 之前按领取者这个 BuildID 的上报对照 Run 当前 Program 的声明。不兼容时 `BeginActivityTask` 返回 `worker_contract_mismatch`：Attempt 不开始、不消耗重试次数，任务在 Workflow Task 失败退避的首个间隔（缺省 1s）之后重新投递。在线 build 都不兼容时任务一直留在队列里，Run 不暂停；契约兼容的 build 上线后自动领取，或 `SetRunPolicy(..., "auto_upgrade")` 让 Run 切到 latest 后由新 build 领取（领取时对照的是 Run 当前的 Program）。
 
 拒绝原因（Server 日志 `activity claim refused` 的 `err`）：
 
 ```text
-activity "order.charge" contract mismatch on worker "pay-1" (namespace "orders" queue "payments" build "pay-v2"): input expected "wire:ab12…" actual "wire:cd34…"
+activity "order.charge" contract mismatch on worker "pay-1" (namespace "orders" queue "payments" build "pay-v2"): input expected "wire:ab12…" actual "wire:cd34…" (amount: type changed from int64 to string)
 ```
 
-`expected` 是 Program 的声明，`actual` 是 Worker 的上报；字段是 `input`、`output` 之一。
+`expected` 是 Program 的声明，`actual` 是 Worker 的上报；字段是 `input`、`output` 之一；括号里是两侧都有结构时找到的不兼容位置。
 
 ### Activity 改动的分类
 
 | 改动 | 写法 | 契约变化 |
 | --- | --- | --- |
 | 内部实现，结构与语义不变 | 只改实现 | 无 |
-| 输入或输出加字段 | 加字段，`type` 保持不变；实现把零值当「未提供」 | 指纹改变 |
+| 输入加字段 | 加字段，`type` 保持不变；实现把零值当「未提供」 | 指纹改变，与旧声明兼容：新 build 直接执行旧 Program 的调用 |
+| 输出加字段 | 加字段，`type` 保持不变；Workflow 把零值当「未提供」 | 指纹改变，与旧声明不兼容（旧 Workflow 的类型里没有这个字段）：旧 Program 的调用需要旧 build |
 | 语义改变，结构不变 | 新 `type`（如 `fulfillment.quote-taxed`），旧 `type` 原样保留；Workflow 改调新 `type`，在途 Run 已记过旧 `type` 的位置用 `GetVersion` 分支 | 新 type 是一份新契约，旧 type 不变 |
 | 破坏性改动（字段改名、改类型、删除）且有 Run 跨越这次改动 | 新 `type`（如 `order.charge-v2`）+ Workflow 里 `GetVersion` 分支；新旧实现都注册 | 新 type 是一份新契约，旧 type 不变 |
 
-契约是相等对照：加字段也让新旧 Program 与新旧 Worker 互不匹配，所以新旧并存期间两个 build 都要在线；旧 build 提前下线时旧声明的任务在队列里等待。
+不兼容的改动（输出加字段、删字段、改名、改类型）让旧 Program 的调用只能由旧 build 执行，新旧并存期间两个 build 都要在线；旧 build 提前下线时旧声明的任务在队列里等待。
 
 ## BuildID
 
@@ -214,7 +216,7 @@ activity "order.charge" contract mismatch on worker "pay-1" (namespace "orders" 
 - `workflow.ActivityOptions` 没有 `BuildID` 字段：Go 源码里写它编译不过；手写产物里写它时 Workflow Task 以未知字段失败。
 - `ActivityStarted` 的 `workerIdentity` / `workerBuildId` 记录实际执行者，只用于观测。
 - `ActivityWorkerVersionDefault` / `ActivityWorkerVersionWeight` 只在 Activity 没有指定队列、多个队列都承接它的类型时参与选择队列，不决定由哪个 build 执行。
-- 运维规则：旧 build 下线前先排空只有它满足契约的 Activity（`pinned` 在旧 Program 上的 Run）。旧 build 已经下线时这些任务留在队列里，新 build 每次领取都被拒绝，直到旧 build 回来或 `ScheduleToStartTimeout` 到期。契约不变的发布（只改实现）没有这个限制：旧 build 下线后重试与排队中的投递由新 build 领取。
+- 运维规则：旧 build 下线前先排空只有它满足契约的 Activity（`pinned` 在旧 Program 上的 Run）。旧 build 已经下线时这些任务留在队列里，新 build 每次领取都被拒绝，直到旧 build 回来或 `ScheduleToStartTimeout` 到期。契约不变（只改实现）或只做兼容改动（入参新增字段）的发布没有这个限制：旧 build 下线后重试与排队中的投递由新 build 领取。
 
 ## 发布顺序
 
@@ -232,9 +234,9 @@ Worker `Start` 内部的顺序是「上报路由与契约 → 登记定义（新
 
 | Run | 新 Program 发布后 |
 | --- | --- |
-| 新启动的 Run | 用新 Program，Activity 由契约一致的新 build 执行 |
+| 新启动的 Run | 用新 Program，Activity 由契约兼容的新 build 执行 |
 | `auto_upgrade` 的存量 Run | 下一个 Workflow Task 边界换到新 Program 并重放；通过后由新 build 执行 |
-| `pinned` 的存量 Run | 留在旧 Program，Activity 由契约一致的旧 build 执行；新 build 领到时被拒绝，任务约 1s 后重新投递 |
+| `pinned` 的存量 Run | 留在旧 Program；契约兼容的 build（兼容改动时包括新 build）执行 Activity，不兼容的 build 领到时被拒绝，任务约 1s 后重新投递 |
 
 ## 升级失败的两种状态
 
@@ -255,7 +257,7 @@ auto upgrade to <version> failed at workflow task <N>: non_deterministic_error: 
 
 - Run 状态仍是 `running`，Server 停止为它派发 Workflow Task，`config_error` 保存原因。
 - 处理：修复原因后 `SetRunPolicy(..., "pinned")` 留在当前内容，或 `SetRunPolicy(..., "auto_upgrade")` 换到 latest（新 Program 要能重放已有 History）。两者都清除 `ConfigError`。
-- Activity 契约不一致不写 `ConfigError`：任务留在队列里等契约一致的 build（见「Activity 契约」）。
+- Activity 契约不兼容不写 `ConfigError`：任务留在队列里等契约兼容的 build（见「Activity 契约」）。
 
 读取这两个字段：`c.DescribeWorkflowExecution(...)` 返回的 `ConfigError` / `UpgradeError`，HTTP `get-run` 响应里的 `run.config_error` / `run.upgrade_error`。
 

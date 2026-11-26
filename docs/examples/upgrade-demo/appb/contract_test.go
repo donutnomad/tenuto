@@ -12,6 +12,7 @@ import (
 	"github.com/donutnomad/tenuto/program"
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/sdk/activity"
+	"github.com/donutnomad/tenuto/server/biz/domain/dispatch"
 )
 
 // app-b 声明的远程契约（生成产物 workflow.json 的 activities 里 fulfillment.* 的条目）与 app-a 同一版本
@@ -42,6 +43,38 @@ func TestUpgradeChangesExactlyOneContract(t *testing.T) {
 	want := []string{"fulfillment.reserve: input"}
 	if strings.Join(diff, "; ") != strings.Join(want, "; ") {
 		t.Fatalf("mismatches = %v, want %v", diff, want)
+	}
+}
+
+// 指纹差的那一条是兼容的改动：Server 领取时按数据流向比较结构，app-b v1 写出的 reserve 入参 app-a v2 都能读
+// （v2 只多了 warehouse），所以 v1 Program 上的调用可以由 app-a v2 执行。
+func TestUpgradedContractsAcceptOldDeclarations(t *testing.T) {
+	data, err := os.ReadFile("v1/workflow.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow program.WorkflowConfig
+	if err := json.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	registry := activity.NewRegistry()
+	if err := appav2.RegisterActivities(registry); err != nil {
+		t.Fatal(err)
+	}
+	reported := map[string]protocol.ActivityContract{}
+	for _, contract := range registry.Contracts() {
+		reported[contract.Type] = contract
+	}
+	for activityType, declared := range dispatch.DeclaredActivityContracts(&workflow) {
+		if !strings.HasPrefix(activityType, "fulfillment.") {
+			continue
+		}
+		if declared.InputWire == nil || declared.OutputWire == nil {
+			t.Fatalf("%s: declared contract has no wire structure", activityType)
+		}
+		if mismatched := protocol.CompareActivityContracts(declared, []protocol.ActivityContract{reported[activityType]}); len(mismatched) != 0 {
+			t.Fatalf("%s: %+v", activityType, mismatched)
+		}
 	}
 }
 

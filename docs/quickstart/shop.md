@@ -63,7 +63,7 @@ func (g *Gateway) Register(registry *activity.Registry) error {
 }
 ```
 
-Worker 上线时把契约（type、入参出参指纹）报给 Server；Worker 领取任务时 Server 核对 Workflow 声明的契约与它上报的一致，不一致的领取被拒绝，任务稍后重新投递。队列上没有在线 Worker 时任务在队列里等待，见[运行 Worker](/develop/workers)。
+Worker 上线时把契约（type、入参出参指纹）报给 Server；Worker 领取任务时 Server 核对它上报的契约与 Workflow 的声明兼容（例如入参新增字段兼容，删字段、改类型不兼容），不兼容的领取被拒绝，任务稍后重新投递。队列上没有在线 Worker 时任务在队列里等待，见[运行 Worker](/develop/workers)。
 
 ## Workflow
 

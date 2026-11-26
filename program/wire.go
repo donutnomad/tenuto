@@ -12,11 +12,16 @@ func WLangWireFingerprint(typeID string, types map[string]WLangTypeDescriptor) (
 	if typeID == "" {
 		return "", nil
 	}
-	schema, err := resolveWireType(typeID, types, nil)
+	schema, err := WLangWireType(typeID, types)
 	if err != nil {
 		return "", err
 	}
 	return protocol.WireFingerprint(schema), nil
+}
+
+// WLangWireType 把 WLang type descriptor ID 转成 wire 结构，与 activity.ContractOf 从 Go 类型得到的结构同构。
+func WLangWireType(typeID string, types map[string]WLangTypeDescriptor) (protocol.WireType, error) {
+	return resolveWireType(typeID, types, nil)
 }
 
 // resolveWireType 把描述符 ID 转成 wire 结构。stack 是正在展开的具名类型（record 与 alias 描述符），

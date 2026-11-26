@@ -16,11 +16,11 @@ Server、Workflow Worker、Activity Worker、Workflow Program 和 Console 具有
 
 命令序列变化使用 `GetVersion`。发布前用真实 History 样本 Replay，并覆盖 Child、Continue-As-New、并发、Handler 和 Side Effect。
 
-仓库 `docs/examples/upgrade-demo` 用三个独立进程演示一次完整发布：新旧 build 并存、Activity 契约变化、旧 build 下线后任务在队列里等待与两种恢复、没有版本保护的 Program 触发 `UpgradeError`。
+仓库 `docs/examples/upgrade-demo` 用三个独立进程演示一次完整发布：新旧 build 并存、Activity 契约变化、旧 build 下线后新 build 承接入参新增了字段的 Activity、没有版本保护的 Program 触发 `UpgradeError`。
 
 ## Worker 灰度
 
-先用独立的 Task Queue 验证 canary Build ID 的 Activity：同一队列上的任务不带 build，任何在线 build 都可能领取。旧 build 下线前先排空：Program 声明的契约只有旧 build 满足的 Activity（`pinned` 在旧 Program 上的 Run）一直等它，旧 build 下线后这些任务留在队列里，新 build 每次领取都被拒绝，直到旧 build 回来或 `ScheduleToStartTimeout` 到期；契约不变的发布没有这个限制。旧 build 下线时让进程走完 `Worker.Stop()`：它停止拉取，在 `GracefulStopTimeout` 内等在途任务结束，把因停止而结束的 Activity Attempt 交还给 Server 重新派发（不消耗重试次数），再注销 Activity 路由，这个 build 立刻退出选路；被强杀的进程靠心跳 TTL（默认 30s）到期。Workflow Worker canary 关注 replay error、blocked Run、cache miss 和 Workflow Task latency。
+先用独立的 Task Queue 验证 canary Build ID 的 Activity：同一队列上的任务不带 build，任何在线 build 都可能领取。旧 build 下线前先排空：Program 声明的契约只有旧 build 满足的 Activity（`pinned` 在旧 Program 上的 Run）一直等它，旧 build 下线后这些任务留在队列里，新 build 每次领取都被拒绝，直到旧 build 回来或 `ScheduleToStartTimeout` 到期；契约不变、或只做兼容改动（入参新增字段）的发布没有这个限制。旧 build 下线时让进程走完 `Worker.Stop()`：它停止拉取，在 `GracefulStopTimeout` 内等在途任务结束，把因停止而结束的 Activity Attempt 交还给 Server 重新派发（不消耗重试次数），再注销 Activity 路由，这个 build 立刻退出选路；被强杀的进程靠心跳 TTL（默认 30s）到期。Workflow Worker canary 关注 replay error、blocked Run、cache miss 和 Workflow Task latency。
 
 ## Sticky Cache
 

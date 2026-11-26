@@ -115,8 +115,8 @@ func run(ctx context.Context, url, namespace string) error {
 
 ## 路由要点
 
-- Activity 路由登记的标识是 `namespace + activity type + queue + BuildID`，每个 build 的契约分开保存。Activity 任务只按队列投递（Run 固定了目标 Worker 时只交给这个 Identity），不带 build；队列上任一 build 都能领取，开始执行前按它这个 build 的契约对照 Run 当前 Program 的声明，不一致时拒绝（`worker_contract_mismatch`），任务约 1s 后重新投递。
-- Activity 的队列能确定时（调用处 `ActivityOptions.TaskQueue` 或 `@Activity(queue)`），调度照常写入 `ActivityScheduled` 并入队，与此刻有没有在线 Worker、在线 Worker 契约是否一致无关；任务在队列里等 Worker，`ScheduleToStartTimeout` 从调度时起算。契约不一致只拒绝领取，不暂停 Run。
+- Activity 路由登记的标识是 `namespace + activity type + queue + BuildID`，每个 build 的契约分开保存。Activity 任务只按队列投递（Run 固定了目标 Worker 时只交给这个 Identity），不带 build；队列上任一 build 都能领取，开始执行前按它这个 build 的契约对照 Run 当前 Program 的声明，不兼容时拒绝（`worker_contract_mismatch`），任务约 1s 后重新投递。
+- Activity 的队列能确定时（调用处 `ActivityOptions.TaskQueue` 或 `@Activity(queue)`），调度照常写入 `ActivityScheduled` 并入队，与此刻有没有在线 Worker、在线 Worker 契约是否兼容无关；任务在队列里等 Worker，`ScheduleToStartTimeout` 从调度时起算。契约不兼容只拒绝领取，不暂停 Run。
 - 队列不能确定时（两处都没写、目录里没有这个类型或路由歧义），Workflow Task 以 `activity_route_unavailable` 失败并按退避重试，Run 显示 Blocked；Worker 上线后自动继续。因此 Activity Worker 与定义的上线先后不影响最终结果，推荐顺序是 Activity Worker 先就绪。
 - 路由目录在每种部署形态下都存在、规则相同：没有任何 Worker 登记时是空目录，未指定 Task Queue 的 Activity 同样以 `activity_route_unavailable` 等待 Worker 登记；与 Server 同进程运行的 Worker 也向 Server 登记自己的路由。
 - Server 缓存路由目录：本副本上的登记与注销立即生效，其他副本上的最多 5 秒后生效。

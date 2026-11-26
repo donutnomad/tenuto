@@ -358,7 +358,7 @@ func (e *Env) expectRoute(runID, activityType, wantBuild, servedBy string) {
 // expectServed 用于契约在新旧 build 上相同的 Activity：两个 build 都可以领取，断言执行它的 build 就是领取它的 build。
 func (e *Env) expectServed(runID, activityType, servedBy string) {
 	e.expect(activityType+" 实际执行的 build 与领取它的 build 一致", servedBy, e.routed(runID, activityType))
-	e.printf("       %s 由 %s 执行（契约在新旧 build 上相同，两个 build 都可以承接）\n", activityType, servedBy)
+	e.printf("       %s 由 %s 执行（新旧 build 的契约都与声明兼容，两个 build 都可以承接）\n", activityType, servedBy)
 }
 
 func str(m map[string]any, key string) string {

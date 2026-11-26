@@ -179,7 +179,7 @@ Worker 在 `Start` 时把 registry 里的全部契约随路由一起上报。`@R
 
 ### 契约对照
 
-Workflow 侧声明了契约的 Activity（桥调用、指向注解函数的直接调用），Worker 领取任务时 Server 把 Run 当前 Program 声明的输入指纹、输出指纹逐项与这个 Worker 上报的值对照。值不同或 Worker 没有上报该项时拒绝这次领取：Attempt 不开始、不消耗重试次数，任务约 1s 后重新投递，Server 日志记 `activity claim refused`，原因是 `contract mismatch` 错误（写出 Activity Type、Worker identity、期望值与实际值）。Run 不暂停，契约一致的 Worker 上线后自动领取。调度本身不对照契约：队列确定后照常写入 `ActivityScheduled` 并入队。Workflow 侧没有声明契约的 Activity 不对照。
+Workflow 侧声明了契约的 Activity（桥调用、指向注解函数的直接调用），Worker 领取任务时 Server 把 Run 当前 Program 声明的输入、输出与这个 Worker 的上报逐项对照：指纹相同即兼容；指纹不同时按数据流向比较 wire 结构：`input` 由 Workflow 写、Worker 读，`output` 由 Worker 写、Workflow 读，写方的每个字段读方都要有、类型相同或无损放宽（如 `int32` → `int64`、`T` → `*T`），读方多出的字段取零值。Worker 的上报由 `activity.ContractOf` 从 Go 类型生成，带指纹与 wire 结构；声明侧的结构取自 Program 的类型表。不兼容或 Worker 没有上报该项时拒绝这次领取：Attempt 不开始、不消耗重试次数，任务约 1s 后重新投递，Server 日志记 `activity claim refused`，原因是 `contract mismatch` 错误（写出 Activity Type、Worker identity、期望值与实际值，以及不兼容的字段路径）。Run 不暂停，契约兼容的 Worker 上线后自动领取。调度本身不对照契约：队列确定后照常写入 `ActivityScheduled` 并入队。Workflow 侧没有声明契约的 Activity 不对照。
 
 契约是 `type`、输入指纹、输出指纹三项。指纹只描述结构：结构不变、结果的含义变了时，新含义用一个新的 `type`，旧 `type` 的实现保留到没有 Run 再调用它，见 [需要版本保护的变化](/develop/versioning#需要版本保护的变化)。
 

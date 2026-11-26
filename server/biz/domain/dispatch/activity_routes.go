@@ -42,14 +42,17 @@ type ActivityRouteRef struct {
 	Type       string
 	TaskQueue  string
 	RoutingKey string
-	// Input/Output 是 Workflow 静态声明的契约：目录里有多个候选时优先选上报兼容的那个。
-	Input  string
-	Output string
+	// Input/Output 是 Workflow 静态声明的契约指纹，InputWire/OutputWire 是对应的 wire 结构：
+	// 目录里有多个候选时优先选上报兼容的那个。
+	Input      string
+	Output     string
+	InputWire  *protocol.WireType
+	OutputWire *protocol.WireType
 }
 
 // declaredContract 是引用声明的契约；没有声明任何维度时 HasDeclaration 为 false。
 func (ref ActivityRouteRef) declaredContract() protocol.ActivityContract {
-	return protocol.ActivityContract{Type: ref.Type, Input: ref.Input, Output: ref.Output}
+	return protocol.ActivityContract{Type: ref.Type, Input: ref.Input, Output: ref.Output, InputWire: ref.InputWire, OutputWire: ref.OutputWire}
 }
 
 type ActivityRouteCatalog struct {
