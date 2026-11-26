@@ -16,7 +16,8 @@ status: Stable
 | `WORKFLOW_BACKEND` | `mysql-taskq` | `mysql-taskq` 或 `memory` |
 | `WORKFLOW_NODE_ID` | hostname | Server 节点唯一标识 |
 | `WORKFLOW_STARTUP_TIMEOUT` | `30s` | 数据库、membership、路由与内嵌 Workflow Worker 的启动期限；启动恢复在后台运行，不计入 |
-| `WORKFLOW_RECONCILE_INTERVAL` | `30s` | pending dispatch 对账与到期定时器接管的周期；MySQL 部署只有选为 leader 的副本执行 |
+| `WORKFLOW_RECONCILE_INTERVAL` | `30s` | 周期补偿的间隔：按到期索引只处理有到期或待处理事项的 Running Run（截止时间、timer、Activity 超时在两个周期内到期，或有 Scheduled Activity、open / 待调度的 Workflow Task、blocked），补投任务、接管到期定时器；MySQL 部署只有选为 leader 的副本执行 |
+| `WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL` | `10m` | 全量补偿的间隔：按游标逐页检查全部 Running Run，补齐没有到期索引的崩溃窗口（子 Run 与接续 / 重试 Run 补建、子 Run 终态传播、终态写回 Run、父关闭策略、子 Run 取消请求补发）；与周期补偿同一 leader 执行 |
 | `WORKFLOW_TASK_TOKEN_SECRET` | 生产后端必填 | Task Token HMAC Secret，至少 32 字节；所有 Server 副本配置同一值，任一副本签发的 Token 才能被其他副本校验；memory 后端提供开发默认值 |
 | `WORKFLOW_WORKER_ENABLED` | `true` | 在本进程内执行 Workflow Task；`false` 时由独立 workflow worker 消费 |
 | `WORKFLOW_WORKER_CONCURRENCY` | `8` | 内嵌 workflow worker 并发度 |

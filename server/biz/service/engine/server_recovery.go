@@ -18,8 +18,12 @@ func (s *Server) RecoverRunningWorkflows(ctx context.Context) error {
 	return err
 }
 
-// reconcileRunningRuns 逐个补偿 Running 的 run。单个 run 失败不影响其余 run，错误汇总返回，
-// 未完成的补偿留给下一轮；ctx 取消时停止。
+// reconcileRunningRuns 逐个补偿全部 Running 的 run，供启动恢复与低频全量补偿（DispatchPendingTasks）使用。
+// 单个 run 失败不影响其余 run，错误汇总返回，未完成的补偿留给下一轮；ctx 取消时停止。
+//
+// 周期补偿（Reconcile）只处理 ListRecoveryRunIDs 选出的有到期或待处理事项的 run；没有到期索引的崩溃窗口
+// 由这里的全量扫描兜底：子 run 未建或终态未传播、接续 run 或重试 run
+// 未建、终态未写回 Run、父关闭策略未做完、子 Run 的取消请求未发出。
 //
 // 只扫 Running 就能覆盖终态后续动作未完成的 run：接续 run（continue-as-new / 重试）建好之前
 // Run 的 Status 列保持 Running（见 reconcileClosedRun）；已落终态的子 run 未传播给父 run 时，
@@ -27,43 +31,47 @@ func (s *Server) RecoverRunningWorkflows(ctx context.Context) error {
 // 父关闭策略没有做完时，由 Running 的子 run 凭父 run 的 execution state 与子关联补做（见 recoverParentClosePolicy）。
 func (s *Server) reconcileRunningRuns(ctx context.Context, force bool) (dispatch.WorkflowDispatchResult, error) {
 	var result dispatch.WorkflowDispatchResult
-	runIDs, err := s.runningRunIDs(ctx)
-	errs := []error{err}
-	for _, runID := range runIDs {
-		if err := ctx.Err(); err != nil {
-			errs = append(errs, err)
-			break
+	var errs []error
+	err := s.forEachRunningRunPage(ctx, func(runIDs []string) {
+		for _, runID := range runIDs {
+			if ctx.Err() != nil {
+				return
+			}
+			dispatched, err := s.reconcileRun(ctx, runID, force)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("reconcile run %s: %w", runID, err))
+			}
+			result.WorkflowTasks += dispatched.WorkflowTasks
+			result.ActivityTasks += dispatched.ActivityTasks
 		}
-		dispatched, err := s.reconcileRun(ctx, runID, force)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("reconcile run %s: %w", runID, err))
-		}
-		result.WorkflowTasks += dispatched.WorkflowTasks
-		result.ActivityTasks += dispatched.ActivityTasks
-	}
-	return result, errors.Join(errs...)
+	})
+	return result, errors.Join(append(errs, err)...)
 }
 
-// runningRunIDs 分页列出 Running 的 run ID，reconcileRunningRuns 与 FireOverdueTimers 共用。
-// 先收齐 ID 再逐个处理：处理会让 run 离开 Running，
-// 边翻页边处理会使 offset 漂移而漏掉 run。出错时返回已读到的部分。
-func (s *Server) runningRunIDs(ctx context.Context) ([]string, error) {
-	var runIDs []string
-	filter := execution.StoreListFilter{Statuses: []history.Status{history.StatusRunning}, Limit: runScanPageSize}
+// forEachRunningRunPage 按 (created_at, id) 游标逐页列出 Running 的 run 交给 visit，不做计数。游标位置与
+// 处理无关：处理让 run 离开 Running 时后续页不漂移。ctx 取消时返回它的错误。
+func (s *Server) forEachRunningRunPage(ctx context.Context, visit func(runIDs []string)) error {
+	filter := execution.StoreListFilter{Statuses: []history.Status{history.StatusRunning}, Limit: runScanPageSize, SkipTotal: true}
 	for {
 		if err := ctx.Err(); err != nil {
-			return runIDs, err
+			return err
 		}
 		page, err := s.mgr.List(filter)
 		if err != nil {
-			return runIDs, err
+			return err
 		}
-		for _, run := range page.Runs {
-			runIDs = append(runIDs, run.ID)
+		if len(page.Runs) == 0 {
+			return nil
 		}
-		filter.Offset += len(page.Runs)
+		runIDs := make([]string, len(page.Runs))
+		for i, run := range page.Runs {
+			runIDs[i] = run.ID
+		}
+		visit(runIDs)
+		cursor := execution.CursorOf(page.Runs[len(page.Runs)-1])
+		filter.After = &cursor
 		if len(page.Runs) < runScanPageSize {
-			return runIDs, nil
+			return ctx.Err()
 		}
 	}
 }
@@ -74,7 +82,7 @@ func (s *Server) runningRunIDs(ctx context.Context) ([]string, error) {
 // force=true 是启动恢复：进程内没有任何定时器，已过期的超时立即触发。队列不持久（Durable 为 false）时
 // 队列里的任务随进程丢失，派发记录释放后重投；持久队列里的任务仍在，派发记录保持原状，
 // 已派发的任务不再入队，租约过期或派发失败的记录由派发本身重新取得。
-// force=false 是周期补偿：进程内定时器仍在，已过期的超时交给 FireOverdueTimers 按宽限期接管。
+// force=false 是周期补偿与低频全量补偿：进程内定时器仍在，已过期的超时交给 FireOverdueTimers 按宽限期接管。
 func (s *Server) reconcileRun(ctx context.Context, runID string, force bool) (dispatch.WorkflowDispatchResult, error) {
 	var result dispatch.WorkflowDispatchResult
 	run, err := s.mgr.Get(runID)

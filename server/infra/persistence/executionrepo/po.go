@@ -88,7 +88,10 @@ CREATE TABLE IF NOT EXISTS tenuto_runs (
   INDEX idx_workflow_runs_parent_run_id (parent_run_id),
   INDEX idx_workflow_runs_first_run_id (first_run_id),
   INDEX idx_workflow_runs_continued_run_id (continued_run_id),
-  INDEX idx_workflow_runs_status (status),
+  -- 周期补偿：(status, created_at, id) 支撑 Running Run 的游标翻页，两个截止时间索引支撑 ListRecoveryRunIDs 的到期查询。
+  INDEX idx_workflow_runs_status (status, created_at, id),
+  INDEX idx_workflow_runs_status_deadline (status, deadline_at),
+  INDEX idx_workflow_runs_status_run_deadline (status, run_deadline_at),
   INDEX idx_workflow_runs_is_current (namespace, workflow_id, is_current),
   UNIQUE INDEX uniq_run_current_marker (current_marker)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -185,6 +188,7 @@ type WorkflowExecutionStatePO struct {
 	IsReset                  bool       `gorm:"column:is_reset"`
 	BlockedJSON              []byte     `gorm:"column:blocked_json"`
 	Blocked                  bool       `gorm:"column:blocked"`
+	NeedsWorkflowTask        bool       `gorm:"column:needs_workflow_task"`
 	OpenWorkflowTaskEventID  int64      `gorm:"column:open_workflow_task_event_id"`
 	ExecutionGeneration      int64      `gorm:"column:execution_generation"`
 	CurrentActivationID      string     `gorm:"column:current_activation_id"`
@@ -217,6 +221,8 @@ CREATE TABLE IF NOT EXISTS tenuto_execution_states (
   is_reset                       BOOLEAN      NOT NULL DEFAULT FALSE,
   blocked_json                   LONGBLOB,
   blocked                        BOOLEAN      NOT NULL DEFAULT FALSE,
+  -- needs_workflow_task 投影 WorkflowExecutionState.NeedsWorkflowTask()：有新事实却没有 open WFT。
+  needs_workflow_task            BOOLEAN      NOT NULL DEFAULT FALSE,
   open_workflow_task_event_id    BIGINT       NOT NULL DEFAULT 0,
   execution_generation           BIGINT       NOT NULL DEFAULT 1,
   current_activation_id          VARCHAR(191) NOT NULL DEFAULT '',
@@ -230,6 +236,8 @@ CREATE TABLE IF NOT EXISTS tenuto_execution_states (
   PRIMARY KEY (run_id),
   INDEX idx_workflow_execution_states_status (status),
   INDEX idx_workflow_execution_states_blocked (blocked),
+  INDEX idx_workflow_execution_states_open_wft (open_workflow_task_event_id),
+  INDEX idx_workflow_execution_states_needs_wft (needs_workflow_task),
   INDEX idx_workflow_execution_states_is_reset (is_reset),
   -- sticky 回落扫描（ListExpiredStickyExecutions）的定向索引：
   -- 前缀列 sticky_worker_identity 绝大多数行是 ''（无 sticky），选择性良好；
@@ -260,6 +268,7 @@ type ActivityStatePO struct {
 	LastHeartbeatAt          *time.Time `gorm:"column:last_heartbeat_at"`
 	RetryLastFailure         string     `gorm:"column:retry_last_failure"`
 	NextAttemptAt            *time.Time `gorm:"column:next_attempt_at"`
+	TimeoutAt                *time.Time `gorm:"column:timeout_at"`
 	Status                   string     `gorm:"column:status"`
 	ScheduledTime            time.Time  `gorm:"column:scheduled_time"`
 	StartedTime              *time.Time `gorm:"column:started_time"`
@@ -296,6 +305,8 @@ CREATE TABLE IF NOT EXISTS tenuto_activity_states (
   last_heartbeat_at              DATETIME(3),
   retry_last_failure             LONGTEXT,
   next_attempt_at                DATETIME(3),
+  -- timeout_at 是已生效超时里最早的截止时间（execution.ActivityTimeoutAt），由每次写入按整份 state 重算。
+  timeout_at                     DATETIME(3),
   status                         VARCHAR(32)  NOT NULL,
   scheduled_time                 DATETIME(3)  NOT NULL,
   started_time                   DATETIME(3),
@@ -311,7 +322,7 @@ CREATE TABLE IF NOT EXISTS tenuto_activity_states (
   PRIMARY KEY (run_id, scheduled_event_id),
   INDEX idx_activity_states_run_id (run_id),
   INDEX idx_activity_states_activity_id (activity_id),
-  INDEX idx_activity_states_status (status)
+  INDEX idx_activity_states_status (status, timeout_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `
 }
@@ -348,7 +359,7 @@ CREATE TABLE IF NOT EXISTS tenuto_timer_states (
   PRIMARY KEY (run_id, scheduled_event_id),
   INDEX idx_timer_states_run_id (run_id),
   INDEX idx_timer_states_timer_id (timer_id),
-  INDEX idx_timer_states_status (status)
+  INDEX idx_timer_states_status (status, deadline)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `
 }

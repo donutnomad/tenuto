@@ -45,15 +45,17 @@ const (
 	//
 	// WriteTimeout 从读完请求头起算（不是从开始写响应起算），覆盖的是
 	// 「poll 阻塞 + 响应序列化」的总和，故在上界之上留 100% 余量。
-	defaultWriteTimeout            = 2 * runtimeapi.MaxRuntimePollTimeout
-	defaultReconcileInterval       = 30 * time.Second
-	defaultTaskQPollTimeout        = 30 * time.Second
-	defaultMembershipPollInterval  = 3 * time.Second
-	defaultMembershipReplicaPoints = 200
-	defaultDatabaseMaxOpenConns    = 50
-	defaultDatabaseMaxIdleConns    = 10
-	defaultDatabaseConnMaxLifetime = 30 * time.Minute
-	defaultDatabaseConnMaxIdleTime = 5 * time.Minute
+	defaultWriteTimeout      = 2 * runtimeapi.MaxRuntimePollTimeout
+	defaultReconcileInterval = 30 * time.Second
+	// 全量补偿兜底没有到期索引的崩溃窗口，频率远低于按到期索引的周期补偿。
+	defaultReconcileFullScanInterval = 10 * time.Minute
+	defaultTaskQPollTimeout          = 30 * time.Second
+	defaultMembershipPollInterval    = 3 * time.Second
+	defaultMembershipReplicaPoints   = 200
+	defaultDatabaseMaxOpenConns      = 50
+	defaultDatabaseMaxIdleConns      = 10
+	defaultDatabaseConnMaxLifetime   = 30 * time.Minute
+	defaultDatabaseConnMaxIdleTime   = 5 * time.Minute
 	// memory 后端未设 WORKFLOW_TASK_TOKEN_SECRET 时使用的开发密钥。
 	defaultDevelopmentTokenSecret = "workflow-task-token-development-secret"
 	defaultOTELServiceName        = "tenuto-server"
@@ -78,15 +80,18 @@ const (
 type Backend string
 
 type Config struct {
-	Backend           Backend
-	TaskTokenSecret   []byte
-	HTTP              HTTPConfig
-	Database          DatabaseConfig
-	TaskQ             TaskQConfig
-	Telemetry         telemetry.Config
-	NodeID            string
-	StartupTimeout    time.Duration
+	Backend         Backend
+	TaskTokenSecret []byte
+	HTTP            HTTPConfig
+	Database        DatabaseConfig
+	TaskQ           TaskQConfig
+	Telemetry       telemetry.Config
+	NodeID          string
+	StartupTimeout  time.Duration
+	// ReconcileInterval 是周期补偿的间隔：每轮只处理有到期或待处理事项的 Running Run。
 	ReconcileInterval time.Duration
+	// ReconcileFullScanInterval 是全量补偿的间隔：逐个检查全部 Running Run，兜底没有到期索引的崩溃窗口。
+	ReconcileFullScanInterval time.Duration
 	// Retention 控制终态数据的自动回收。零值 = 关闭，行为与引入 GC 之前完全一致。
 	Retention RetentionConfig
 	// Artifacts 控制启动时加载已生成的 Workflow 产物目录（WORKFLOW_ARTIFACTS）。
@@ -343,10 +348,11 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 			Dirs:      splitNonEmpty(envOrDefault(lookup, "WORKFLOW_ARTIFACTS", ""), ","),
 			Namespace: envOrDefault(lookup, "WORKFLOW_ARTIFACTS_NAMESPACE", "default"),
 		},
-		NodeID:            envOrDefault(lookup, "WORKFLOW_NODE_ID", hostname),
-		PprofAddr:         envOrDefault(lookup, "WORKFLOW_PPROF_ADDR", ""),
-		StartupTimeout:    defaultStartupTimeout,
-		ReconcileInterval: defaultReconcileInterval,
+		NodeID:                    envOrDefault(lookup, "WORKFLOW_NODE_ID", hostname),
+		PprofAddr:                 envOrDefault(lookup, "WORKFLOW_PPROF_ADDR", ""),
+		StartupTimeout:            defaultStartupTimeout,
+		ReconcileInterval:         defaultReconcileInterval,
+		ReconcileFullScanInterval: defaultReconcileFullScanInterval,
 		Retention: RetentionConfig{
 			Retention:        defaultRetention,
 			Jitter:           defaultRetentionJitter,
@@ -393,6 +399,7 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 	}{
 		{"WORKFLOW_STARTUP_TIMEOUT", &cfg.StartupTimeout},
 		{"WORKFLOW_RECONCILE_INTERVAL", &cfg.ReconcileInterval},
+		{"WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL", &cfg.ReconcileFullScanInterval},
 		{"WORKFLOW_HTTP_SHUTDOWN_TIMEOUT", &cfg.HTTP.ShutdownTimeout},
 		{"WORKFLOW_HTTP_READ_HEADER_TIMEOUT", &cfg.HTTP.ReadHeaderTimeout},
 		{"WORKFLOW_HTTP_READ_TIMEOUT", &cfg.HTTP.ReadTimeout},
@@ -496,7 +503,7 @@ func (c Config) validate(workflowDBInjected, taskQDBInjected bool) error {
 	if strings.TrimSpace(c.NodeID) == "" {
 		return fmt.Errorf("WORKFLOW_NODE_ID is empty")
 	}
-	if c.StartupTimeout <= 0 || c.ReconcileInterval <= 0 || c.HTTP.ShutdownTimeout <= 0 || c.HTTP.ReadHeaderTimeout <= 0 || c.HTTP.IdleTimeout <= 0 {
+	if c.StartupTimeout <= 0 || c.ReconcileInterval <= 0 || c.ReconcileFullScanInterval <= 0 || c.HTTP.ShutdownTimeout <= 0 || c.HTTP.ReadHeaderTimeout <= 0 || c.HTTP.IdleTimeout <= 0 {
 		return fmt.Errorf("workflow timeouts and reconcile interval must be positive")
 	}
 	// ReadTimeout / WriteTimeout 允许为 0（= 不限制，Go 的语义），但不允许为负。

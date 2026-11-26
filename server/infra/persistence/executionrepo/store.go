@@ -169,7 +169,7 @@ var terminalRunStatuses = []string{
 	string(history.StatusContinuedAsNew),
 }
 
-// List 在分页之前应用全部过滤条件，Total 是过滤后的总数。排序键是 (created_at, id)，
+// List 在分页之前应用全部过滤条件，Total 是过滤后的总数（SkipTotal 时不计数）。排序键是 (created_at, id)，
 // created_at 相同的 Run 跨页不重复也不丢失。
 //
 // blocked 与搜索属性取自 tenuto_execution_states 的投影列，经 EXISTS 子查询下推。
@@ -230,9 +230,12 @@ func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreList
 				Where(stateConds...),
 		))
 	}
-	total, err := query.Count(s.db)
-	if err != nil {
-		return execution.StoreListResult{}, err
+	var total int64
+	if !filter.SkipTotal {
+		var err error
+		if total, err = query.Count(s.db); err != nil {
+			return execution.StoreListResult{}, err
+		}
 	}
 	rows, err := infradb.Find(s.db, query.Order(RunSchema.CreatedAt, !filter.OrderDesc).
 		Order(RunSchema.ID, !filter.OrderDesc).

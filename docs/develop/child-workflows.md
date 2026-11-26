@@ -90,7 +90,7 @@ audit := workflow.ExecuteChildWorkflow(ctx, "audit-workflow", input, workflow.Ch
 - 策略作用在子 Workflow 的当前 Run 上：子 Workflow 自己 continue-as-new、重试或被 reset 之后，处理的是接替的 Run。
 - 已经结束的子 Workflow 不受影响。被终止的子 Workflow 按它自己启动的子 Workflow 的策略继续向下处理。
 - Abandon 的子 Workflow 在父 Run 关闭之后结束时，父 Run 的 History 不再追加事件。
-- 策略记录在父 Run 的 `ChildWorkflowStarted` 事件（`parentClosePolicy`）与子关联状态里。父 Run 关闭之后、处理子 Workflow 之前 Server 崩溃时，恢复扫描从仍在运行的子 Run 出发补做。
+- 策略记录在父 Run 的 `ChildWorkflowStarted` 事件（`parentClosePolicy`）与子关联状态里。父 Run 关闭之后、处理子 Workflow 之前 Server 崩溃时，启动恢复或全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`，默认 10m）从仍在运行的子 Run 出发补做。
 - 父 Run 关闭时还没建好的子 Run 不再建立。
 
 ## 并发启动多个 Child

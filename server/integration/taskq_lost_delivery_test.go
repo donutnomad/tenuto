@@ -129,7 +129,7 @@ func TestRealTaskQReconcileRedeliversLostWorkflowTask(t *testing.T) {
 	if _, err := f.poll(t, "worker-a", 500*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("poll before reconcile: err = %v, want no delivery", err)
 	}
-	_, overdue, err := f.server.Reconcile(context.Background(), 0)
+	_, overdue, err := f.server.Reconcile(context.Background(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

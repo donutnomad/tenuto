@@ -75,6 +75,28 @@ func OverdueActivityTimeout(state *ActivityState, cutoff time.Time) (protocol.Ti
 	return "", false
 }
 
+// ActivityTimeoutAt 返回 Activity 当前已生效的各类超时里最早的截止时间；没有生效的超时时返回 nil。
+// MySQL 后端把它存成 activity state 的 timeout_at 列，供 ListRecoveryRunIDs 按到期时间索引查询。
+func ActivityTimeoutAt(state *ActivityState) *time.Time {
+	var earliest *time.Time
+	for _, timeoutType := range activityTimeoutTypes {
+		if deadline, ok := ActivityTimeoutDeadline(state, timeoutType); ok && (earliest == nil || deadline.Before(*earliest)) {
+			earliest = &deadline
+		}
+	}
+	return earliest
+}
+
+// RecoveryCandidateActivity 报告 activity 是否让所属 Run 成为 ListRecoveryRunIDs 的候选：Scheduled 的 attempt
+// 每轮都要检查派发与重试退避，Started 的只在最早的超时截止时间早于 dueBefore 时检查。
+func RecoveryCandidateActivity(state *ActivityState, dueBefore time.Time) bool {
+	if state.IsScheduled() {
+		return true
+	}
+	timeoutAt := ActivityTimeoutAt(state)
+	return state.IsStarted() && timeoutAt != nil && timeoutAt.Before(dueBefore)
+}
+
 // ActivityTimeoutDeadline returns the persisted deadline of one timeout type,
 // reporting false when that type is not armed in the current state.
 // ScheduleToStart guards every attempt, counted from the moment the attempt

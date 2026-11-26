@@ -15,3 +15,11 @@ func TestRunListOrderContract(t *testing.T) {
 func TestRunListVisibilityContract(t *testing.T) {
 	executiontest.RunListVisibilityContract(t, func(*testing.T) execution.ExecutionManager { return memory.NewExecutionManager() })
 }
+
+func TestRecoveryRunIDsContract(t *testing.T) {
+	executiontest.RecoveryRunIDsContract(t, func(*testing.T) execution.ExecutionManager { return memory.NewExecutionManager() })
+}
+
+func TestRunScanWithoutTotalContract(t *testing.T) {
+	executiontest.RunScanWithoutTotalContract(t, func(*testing.T) execution.ExecutionManager { return memory.NewExecutionManager() })
+}
