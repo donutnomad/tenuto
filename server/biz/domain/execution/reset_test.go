@@ -88,36 +88,37 @@ func resetPendingEvents(events ...history.Event) []history.Event {
 	return events
 }
 
-func resetBaseActivity(scheduledEventID int64, activityID string) *execution.ActivityState {
-	scheduled := time.Unix(100, 0)
-	return &execution.ActivityState{
-		RunID: "base", ScheduledEventID: scheduledEventID, ActivityID: activityID, ActivityType: "Charge", TaskQueue: "payments",
-		TargetWorkerIdentity: "worker-a", Attempt: 3, Stamp: 7, StartedEventID: execution.TransientEventID,
-		Status: execution.ActivityStatusEnums.Started, ScheduledTime: scheduled, NextAttemptAt: &scheduled,
-		ScheduleToStartTimeoutMs: 1000, StartToCloseTimeoutMs: 2000, ScheduleToCloseTimeoutMs: 3000, HeartbeatTimeoutMs: 400,
-		RetryPolicy: &history.RetryPolicy{MaxAttempts: 5}, Input: map[string]any{"amount": 3},
-		LastHeartbeat: map[string]any{"offset": 42}, TraceContext: map[string]string{"traceparent": "t"},
-	}
+// resetBaseHeartbeat 是 base Run 上一个 Activity 的 state 行，PlanResetPendingWork 只从它取心跳详情。
+func resetBaseHeartbeat(scheduledEventID int64) *execution.ActivityState {
+	return &execution.ActivityState{RunID: "base", ScheduledEventID: scheduledEventID, ActivityID: "stale", ActivityType: "Stale",
+		Status: execution.ActivityStatusEnums.Started, LastHeartbeat: map[string]any{"offset": 42}}
+}
+
+func planPending(events []history.Event, cutoff int64, base []*execution.ActivityState, reason string, now time.Time) execution.ResetPendingWork {
+	return execution.PlanResetPendingWork(execution.ResetPendingInput{
+		Events: events, Cutoff: cutoff, BaseActivities: base, NewRunID: "next",
+		TargetWorkerIdentity: "worker-a", Reason: reason, Now: now,
+	})
 }
 
 // PlanResetPendingWork 按保留的 History 处理分叉点上未结束的 Activity 与 Timer。
 func TestPlanResetPendingWork(t *testing.T) {
 	now := time.Unix(500, 0)
-	deadline := time.Unix(450, 0)
 	started := func(scheduledEventID int64, attempt int) history.Event {
 		return history.NewActivityStartedEvent(history.ActivityStartedEvent{ScheduledEventID: scheduledEventID, Attempt: attempt, WorkerIdentity: "worker-a"})
 	}
 	attemptFailed := func(scheduledEventID int64, attempt int) history.Event {
 		return history.NewActivityAttemptFailedEvent(history.ActivityAttemptFailedEvent{ScheduledEventID: scheduledEventID, Attempt: attempt})
 	}
-	scheduled := history.NewActivityScheduledEvent(history.ActivityScheduledEvent{ActivityID: "a"})
+	scheduled := history.NewActivityScheduledEvent(history.ActivityScheduledEvent{
+		ActivityID: "a", ActivityType: "Charge", TaskQueue: "payments", Input: map[string]any{"amount": 3},
+		TraceContext:             map[string]string{"traceparent": "t"},
+		ScheduleToStartTimeoutMs: 1000, StartToCloseTimeoutMs: 2000, ScheduleToCloseTimeoutMs: 3000, HeartbeatTimeoutMs: 400,
+		RetryPolicy: &history.RetryPolicy{MaxAttempts: 5},
+	})
 
 	t.Run("Happy Path: an unstarted activity is redispatched from attempt 1 at the reset time", func(t *testing.T) {
-		events := resetPendingEvents(scheduled)
-		work, err := execution.PlanResetPendingWork(events, 1, []*execution.ActivityState{resetBaseActivity(1, "a")}, nil, "next", "fix", now)
-		if err != nil {
-			t.Fatal(err)
-		}
+		work := planPending(resetPendingEvents(scheduled), 1, []*execution.ActivityState{resetBaseHeartbeat(1)}, "fix", now)
 		if len(work.Events) != 0 || len(work.Activities) != 1 {
 			t.Fatalf("work = %+v, want one redispatched activity", work)
 		}
@@ -127,39 +128,46 @@ func TestPlanResetPendingWork(t *testing.T) {
 			!got.ScheduledTime.Equal(now) || got.NextAttemptAt != nil || got.LastHeartbeat != nil {
 			t.Fatalf("new state = %+v, want a fresh first attempt scheduled at the reset time", got)
 		}
-		if got.ActivityType != "Charge" || got.TaskQueue != "payments" || got.TargetWorkerIdentity != "worker-a" ||
-			got.ScheduleToCloseTimeoutMs != 3000 || got.HeartbeatTimeoutMs != 400 || got.RetryPolicy.MaxAttempts != 5 || got.Input["amount"] != 3 {
-			t.Fatalf("new state = %+v, want the base state's static fields", got)
+		if got.ActivityID != "a" || got.ActivityType != "Charge" || got.TaskQueue != "payments" || got.TargetWorkerIdentity != "worker-a" ||
+			got.ScheduleToStartTimeoutMs != 1000 || got.StartToCloseTimeoutMs != 2000 || got.ScheduleToCloseTimeoutMs != 3000 || got.HeartbeatTimeoutMs != 400 ||
+			got.RetryPolicy.MaxAttempts != 5 || got.Input["amount"] != 3 || got.TraceContext["traceparent"] != "t" {
+			t.Fatalf("new state = %+v, want the ActivityScheduled event's fields and the run's target worker", got)
 		}
 		if deadline, ok := execution.ActivityTimeoutDeadline(got, protocol.TimeoutTypeScheduleToClose); !ok || !deadline.Equal(now.Add(3*time.Second)) {
 			t.Fatalf("schedule-to-close deadline = %v, want 3s after the reset", deadline)
 		}
 	})
 
+	t.Run("Edge Case: an activity without a base state row is still carried over", func(t *testing.T) {
+		work := planPending(resetPendingEvents(scheduled), 1, nil, "fix", now)
+		if len(work.Activities) != 1 || work.Activities[0].ActivityType != "Charge" {
+			t.Fatalf("work = %+v, want the activity rebuilt from History", work)
+		}
+	})
+
 	t.Run("Edge Case: an activity waiting for its next attempt counts as unstarted", func(t *testing.T) {
-		events := resetPendingEvents(scheduled, started(1, 1), attemptFailed(1, 1))
-		work, err := execution.PlanResetPendingWork(events, 3, []*execution.ActivityState{resetBaseActivity(1, "a")}, nil, "next", "fix", now)
-		if err != nil || len(work.Events) != 0 || len(work.Activities) != 1 || work.Activities[0].Attempt != 1 {
-			t.Fatalf("work = %+v, err = %v; want a redispatch from attempt 1", work, err)
+		work := planPending(resetPendingEvents(scheduled, started(1, 1), attemptFailed(1, 1)), 3, nil, "fix", now)
+		if len(work.Events) != 0 || len(work.Activities) != 1 || work.Activities[0].Attempt != 1 {
+			t.Fatalf("work = %+v; want a redispatch from attempt 1", work)
 		}
 	})
 
 	t.Run("Edge Case: an activity reset after its start counts as unstarted", func(t *testing.T) {
 		events := resetPendingEvents(scheduled, started(1, 1), history.Event{ActivityReset: &history.ActivityResetEvent{ScheduledEventID: 1}})
-		work, err := execution.PlanResetPendingWork(events, 3, []*execution.ActivityState{resetBaseActivity(1, "a")}, nil, "next", "fix", now)
-		if err != nil || len(work.Events) != 0 || len(work.Activities) != 1 {
-			t.Fatalf("work = %+v, err = %v; want a redispatch", work, err)
+		if work := planPending(events, 3, nil, "fix", now); len(work.Events) != 0 || len(work.Activities) != 1 {
+			t.Fatalf("work = %+v; want a redispatch", work)
 		}
 	})
 
 	t.Run("Happy Path: a started activity fails with a non-retryable reset failure", func(t *testing.T) {
 		events := resetPendingEvents(scheduled, attemptFailed(1, 1), started(1, 2))
-		work, err := execution.PlanResetPendingWork(events, 3, []*execution.ActivityState{resetBaseActivity(1, "a")}, nil, "next", "bad deploy", now)
-		if err != nil || len(work.Activities) != 0 || len(work.Events) != 1 || work.Events[0].ActivityFailed == nil {
-			t.Fatalf("work = %+v, err = %v; want one ActivityFailed", work, err)
+		work := planPending(events, 3, []*execution.ActivityState{resetBaseHeartbeat(1)}, "bad deploy", now)
+		if len(work.Activities) != 0 || len(work.Events) != 1 || work.Events[0].ActivityFailed == nil {
+			t.Fatalf("work = %+v; want one ActivityFailed", work)
 		}
 		failed := work.Events[0].ActivityFailed
-		if failed.ScheduledEventID != 1 || failed.StartedEventID != 3 || failed.Attempt != 2 || failed.Identity != "worker-a" ||
+		if failed.ActivityID != "a" || failed.ActivityType != "Charge" || failed.TaskQueue != "payments" ||
+			failed.ScheduledEventID != 1 || failed.StartedEventID != 3 || failed.Attempt != 2 || failed.Identity != "worker-a" ||
 			failed.RetryState != "NonRetryableFailure" || failed.Error != "bad deploy" || failed.LastHeartbeatDetails["offset"] != 42 {
 			t.Fatalf("failed = %+v, want the started attempt interrupted by reset", failed)
 		}
@@ -168,14 +176,21 @@ func TestPlanResetPendingWork(t *testing.T) {
 		}
 	})
 
+	t.Run("Edge Case: a started activity without a base state row fails without heartbeat details", func(t *testing.T) {
+		work := planPending(resetPendingEvents(scheduled, started(1, 1)), 2, nil, "fix", now)
+		if len(work.Events) != 1 || work.Events[0].ActivityFailed == nil || work.Events[0].ActivityFailed.LastHeartbeatDetails != nil {
+			t.Fatalf("work = %+v; want an ActivityFailed without heartbeat details", work)
+		}
+	})
+
 	t.Run("Edge Case: a cancel-requested activity whose start was transient closes as cancelled", func(t *testing.T) {
 		events := resetPendingEvents(scheduled, started(1, 1), attemptFailed(1, 1),
 			history.Event{ActivityCancelRequested: &history.ActivityCancelRequestedEvent{ScheduledEventID: 1}})
-		work, err := execution.PlanResetPendingWork(events, 4, []*execution.ActivityState{resetBaseActivity(1, "a")}, nil, "next", "fix", now)
-		if err != nil || len(work.Activities) != 0 || len(work.Events) != 1 || work.Events[0].ActivityCancelled == nil {
-			t.Fatalf("work = %+v, err = %v; want one ActivityCancelled", work, err)
+		work := planPending(events, 4, nil, "fix", now)
+		if len(work.Activities) != 0 || len(work.Events) != 1 || work.Events[0].ActivityCancelled == nil {
+			t.Fatalf("work = %+v; want one ActivityCancelled", work)
 		}
-		if cancelled := work.Events[0].ActivityCancelled; cancelled.ScheduledEventID != 1 || cancelled.CancelRequestedEventID != 4 || cancelled.Attempt != 2 {
+		if cancelled := work.Events[0].ActivityCancelled; cancelled.ScheduledEventID != 1 || cancelled.CancelRequestedEventID != 4 || cancelled.Attempt != 2 || cancelled.ActivityType != "Charge" {
 			t.Fatalf("cancelled = %+v", cancelled)
 		}
 	})
@@ -183,31 +198,25 @@ func TestPlanResetPendingWork(t *testing.T) {
 	t.Run("Edge Case: closed activities and events after the cutoff are ignored", func(t *testing.T) {
 		events := resetPendingEvents(scheduled, history.Event{ActivityCompleted: &history.ActivityCompletedEvent{ScheduledEventID: 1}},
 			history.NewActivityScheduledEvent(history.ActivityScheduledEvent{ActivityID: "b"}))
-		work, err := execution.PlanResetPendingWork(events, 2, nil, nil, "next", "fix", now)
-		if err != nil || len(work.Events) != 0 || len(work.Activities) != 0 || len(work.Timers) != 0 {
-			t.Fatalf("work = %+v, err = %v; want nothing pending", work, err)
+		if work := planPending(events, 2, nil, "fix", now); len(work.Events) != 0 || len(work.Activities) != 0 || len(work.Timers) != 0 {
+			t.Fatalf("work = %+v; want nothing pending", work)
 		}
 	})
 
-	t.Run("Happy Path: a pending timer keeps its deadline; a fired one is dropped", func(t *testing.T) {
-		events := resetPendingEvents(history.NewTimerScheduledEvent("t1", nil, 1000), history.NewTimerScheduledEvent("t2", nil, 1000),
+	t.Run("Happy Path: a pending timer keeps TimerScheduled time plus its delay; a fired one is dropped", func(t *testing.T) {
+		scheduledAt := time.Unix(400, 0)
+		t1 := history.NewTimerScheduledEvent("t1", nil, 50_000)
+		t1.Timestamp = scheduledAt
+		t1.TimerScheduled.TraceContext = map[string]string{"traceparent": "timer"}
+		events := resetPendingEvents(t1, history.NewTimerScheduledEvent("t2", nil, 1000),
 			history.Event{TimerFired: &history.TimerFiredEvent{ScheduledEventID: 2}})
-		base := []*execution.TimerState{
-			{RunID: "base", ScheduledEventID: 1, TimerID: "t1", Kind: execution.TimerKindEnums.UserTimer, Deadline: deadline, Status: execution.TimerStatusEnums.RunClosed},
-			{RunID: "base", ScheduledEventID: 2, TimerID: "t2", Kind: execution.TimerKindEnums.UserTimer, Deadline: deadline, Status: execution.TimerStatusEnums.Fired},
+		work := planPending(events, 3, nil, "fix", now)
+		if len(work.Timers) != 1 {
+			t.Fatalf("work = %+v; want one timer", work)
 		}
-		work, err := execution.PlanResetPendingWork(events, 3, nil, base, "next", "fix", now)
-		if err != nil || len(work.Timers) != 1 {
-			t.Fatalf("work = %+v, err = %v; want one timer", work, err)
-		}
-		if got := work.Timers[0]; got.RunID != "next" || got.ScheduledEventID != 1 || got.TimerID != "t1" || !got.Deadline.Equal(deadline) || got.Status != execution.TimerStatusEnums.Scheduled {
+		if got := work.Timers[0]; got.RunID != "next" || got.ScheduledEventID != 1 || got.TimerID != "t1" || got.Kind != execution.TimerKindEnums.UserTimer ||
+			!got.Deadline.Equal(scheduledAt.Add(50*time.Second)) || got.Status != execution.TimerStatusEnums.Scheduled || got.TraceContext["traceparent"] != "timer" {
 			t.Fatalf("timer = %+v, want t1 scheduled at its original deadline", got)
-		}
-	})
-
-	t.Run("Error Case: a pending activity without base state", func(t *testing.T) {
-		if _, err := execution.PlanResetPendingWork(resetPendingEvents(scheduled), 1, nil, nil, "next", "fix", now); err == nil {
-			t.Fatal("expected an error for a missing activity state")
 		}
 	})
 }
@@ -228,8 +237,8 @@ func TestCommitResetRunWritesPendingWork(t *testing.T) {
 	}
 	now := time.Now()
 	next := execution.NewResetRun(base, "reset", base.ID, nil, now)
-	activity := resetBaseActivity(10, "a")
-	activity.RunID, activity.Status = next.ID, execution.ActivityStatusEnums.Scheduled
+	activity := &execution.ActivityState{RunID: next.ID, ScheduledEventID: 10, ActivityID: "a", ActivityType: "Charge",
+		Attempt: 1, Stamp: 1, Status: execution.ActivityStatusEnums.Scheduled, ScheduledTime: now, CreatedAt: now, UpdatedAt: now}
 	pending := execution.ResetPendingWork{
 		Events:     []history.Event{history.NewActivityFailedEvent(history.ActivityFailedEvent{ScheduledEventID: 11, Failure: &protocol.Failure{Type: protocol.ResetWorkflowFailureType}})},
 		Activities: []*execution.ActivityState{activity},

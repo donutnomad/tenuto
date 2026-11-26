@@ -22,7 +22,7 @@ Reset 用于从历史中的安全边界重新执行。Workflow Reset 创建新 R
 
 显式 Event ID 必须指向 Workflow Task 边界事件：`WorkflowTaskStarted`、`WorkflowTaskCompleted`、`WorkflowTaskFailed` 或 `WorkflowTaskTimedOut`。指向 `WorkflowTaskStarted` 时保留到该事件为止的 History，重新执行这一轮及之后的步骤；指向后三种关闭事件时映射到同一轮的 `WorkflowTaskStarted`。其他事件类型返回 `reset_event_id N is not a valid reset point: must be a workflow task boundary event (WorkflowTaskStarted/Completed/Failed/TimedOut)`；ID 不存在返回 `reset_event_id N not found`，超过最大事件 ID 返回 `reset_event_id N exceeds max event id M`。
 
-全部校验（定位解析、未关闭的子 Workflow）在终止原 Run 之前完成；校验失败时原 Run 继续运行。重置点上未结束的 Activity 与 Timer 不阻止 Reset，处理方式见[分叉点上未结束的 Activity 与 Timer](#分叉点上未结束的-activity-与-timer)。
+全部校验（定位解析、重置点上未结束的子 Workflow）在终止原 Run 之前完成；校验失败时原 Run 继续运行。重置点上未结束的 Activity 与 Timer 不阻止 Reset，处理方式见[分叉点上未结束的 Activity 与 Timer](#分叉点上未结束的-activity-与-timer)。
 
 ```text
 original branch: 1 ─ 2 ─ 3 ─ 4 ─ 5
@@ -62,7 +62,9 @@ Activity Reset 以 Run ID 和 Scheduled Event ID 定位 Call：
 
 补写的关闭事件写在 reset 标记（`WorkflowTaskFailed`，cause `reset_workflow`）之后、重新应用的 Signal / Update 之前，新 Run 的首个 Workflow Task 处理它们。原 Run 上仍在执行的 attempt 在原 Run 终止后失效：它的 task token 指向原 Run，迟到的完成与失败上报被拒绝（原 Run 已有终态事件，不再追加），不进入任何 History。
 
-未结束的子 Workflow 仍然阻止 Reset（见上文的校验）。
+重置点上未结束的子 Workflow 仍然阻止 Reset（错误 `cannot reset: pending child workflows exist at reset point`）：保留的 History 里有 `ChildWorkflowStarted`、没有它的关闭事件（`ChildWorkflowCompleted` / `Failed` / `Cancelled` / `Terminated`）。分叉点之后才关闭的子 Workflow 也算未结束。
+
+以上判定和新 Run 的 state 都按保留的 History 求出，包括 reset 继承的前缀：Activity 的类型、队列、输入、超时、重试策略与 Trace 取自 `ActivityScheduled`，Timer 的 deadline 取自 `TimerScheduled`。对 reset 出来的 Run 再 reset 到它的分叉点之前，结果与直接 reset 原 Run 相同。
 
 以上处理与 Temporal 一致（源码：`service/history/ndc/workflow_resetter.go` 的 `prepareResetWorkflow` 与 `failInflightActivity`，核对版本 `temporalio/temporal@67959df`），区别有两处：
 

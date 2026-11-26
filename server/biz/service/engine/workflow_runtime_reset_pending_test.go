@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -224,3 +225,91 @@ func firedTimerIDs(t *testing.T, mgr execution.ExecutionManager, runID string) [
 	return ids
 }
 
+// workflowTaskStartedAfter 返回 History 里 afterEventID 之后的第一个 WorkflowTaskStarted。
+func workflowTaskStartedAfter(t *testing.T, mgr execution.ExecutionManager, runID string, afterEventID int64) int64 {
+	t.Helper()
+	for _, event := range mustEvents(t, mgr, runID) {
+		if event.ID > afterEventID && event.WorkflowTaskStarted != nil {
+			return event.ID
+		}
+	}
+	t.Fatalf("run %s has no WorkflowTaskStarted after event %d", runID, afterEventID)
+	return 0
+}
+
+// closeOpenWorkflowTask 以不带命令的决策完成 Run 当前打开的 Workflow Task。
+func closeOpenWorkflowTask(t *testing.T, server *Server, runID string) {
+	t.Helper()
+	wftID := currentWFTScheduledID(t, server, runID)
+	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Regression: reset 的 reset，分叉点早于上一次分叉。Activity 在 A 里、B 的分叉点之前就已完成，B 上没有它的 state 行；
+// 把 B 分叉到 Activity 完成之前时，它按 History（ActivityScheduled）重建并重新派发。
+func TestResetOfResetBeforeEarlierForkRebuildsActivityFromHistory(t *testing.T) {
+	server, mgr, activityTasks, _ := newTimeoutServer(t)
+	runA, _ := scheduleTimedCommand(t, server, mgr, "reset-of-reset-activity", history.Command{
+		Type: history.CmdScheduleActivity, ActivityID: "charge", ActivityType: "slow", Input: map[string]any{"amount": 3},
+		StartToCloseTimeout: time.Minute, RetryPolicy: retryPolicy(3, time.Second),
+	})
+	task := waitForQueuedActivity(t, activityTasks, func(task protocol.Task) bool { return task.RunID == runA })
+	closeSecondWorkflowTask(t, server, mgr, runA)
+	if _, err := server.HandleActivityStartedWithMetadata(task, time.Minute, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.HandleActivityCompleted(context.Background(), runA, task.ScheduledEventID, task.Attempt, task.Stamp, map[string]any{"ok": true}); err != nil {
+		t.Fatal(err)
+	}
+	closeOpenWorkflowTask(t, server, runA)
+
+	runB := resetLastWorkflowTask(t, server, runA)
+	if states, _ := mgr.ListActivityStates(runB); len(states) != 0 {
+		t.Fatalf("B forks after the activity completed; want no activity state, got %+v", states)
+	}
+
+	runC, err := server.ResetWorkflow(context.Background(), execution.ResetWorkflowRequest{
+		RunID: runB, Reason: "earlier", ResetEventID: workflowTaskStartedAfter(t, mgr, runB, task.ScheduledEventID),
+	})
+	if err != nil {
+		t.Fatalf("reset of the reset run before its fork point: %v", err)
+	}
+	state, ok, err := server.GetActivityState(runC, task.ScheduledEventID)
+	if err != nil || !ok || !state.IsScheduled() || state.Attempt != 1 || state.ActivityType != "slow" || state.ActivityID != "charge" ||
+		state.StartToCloseTimeoutMs != time.Minute.Milliseconds() || fmt.Sprint(state.Input["amount"]) != "3" {
+		t.Fatalf("C activity state = %+v ok=%v err=%v, want the activity rebuilt from ActivityScheduled", state, ok, err)
+	}
+	waitForQueuedActivity(t, activityTasks, func(task protocol.Task) bool { return task.RunID == runC && task.Attempt == 1 })
+}
+
+// Regression: reset 的 reset 分叉到子 Workflow 关闭之前时被拒绝。子 Workflow 在 A 里、B 的分叉点之前就已关闭，
+// B 上没有它的 state 行；按 History 判定，新分叉点上它尚未结束。
+func TestResetOfResetBeforeChildClosedIsRejected(t *testing.T) {
+	ctx := context.Background()
+	srv, mgr := newServerForTest(t)
+	runA, childStartedID, childRunID := startChildWorkflow(t, srv, mgr, "run-reset-of-reset-child")
+	wftID := appendOpenWorkflowTaskForTest(t, mgr, runA)
+	if err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runA, wftID), runA, wftID, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.completeWorkflow(childRunID, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitForEngineEventCount(t, mgr, runA, history.EventChildWorkflowCompleted, 1, 5*time.Second)
+	closeOpenWorkflowTask(t, srv, runA)
+
+	runB := resetLastWorkflowTask(t, srv, runA)
+	if states, _ := mgr.ListChildWorkflowStates(runB); len(states) != 0 {
+		t.Fatalf("B carries no child state, got %+v", states)
+	}
+	_, err := srv.ResetWorkflow(ctx, execution.ResetWorkflowRequest{
+		RunID: runB, Reason: "earlier", ResetEventID: workflowTaskStartedAfter(t, mgr, runB, childStartedID),
+	})
+	if err == nil || !strings.Contains(err.Error(), "pending child workflows") {
+		t.Fatalf("reset before the child closed: err = %v, want pending child workflows", err)
+	}
+	if status, _ := srv.GetRunStatus(runB); status != history.StatusRunning {
+		t.Fatalf("a rejected reset must leave B running, got %s", status)
+	}
+}

@@ -101,7 +101,7 @@ HTTP `reset`：`{"run_id":"...","reason":"...","reset_type":"last_workflow_task"
 | `reset_type and reset_event_id are mutually exclusive` | 两个都给了 |
 | `unknown reset type: ...` | `reset_type` 取值错误 |
 | `reset_event_id N is not a valid reset point: must be a workflow task boundary event (WorkflowTaskStarted/Completed/Failed/TimedOut)` | 事件 ID 不是 Workflow Task 边界 |
-| `cannot reset: pending child workflows exist at reset point` | 重置点之前启动的子 Workflow 尚未结束：选更早的边界，或等它结束 |
+| `cannot reset: pending child workflows exist at reset point` | 重置点之前启动的子 Workflow 在重置点上尚未结束（按 History 判定，重置点之后才关闭的也算）：选更早的边界，或选它关闭之后的边界 |
 
 重置点上未结束的 Activity 与 Timer 不阻止 Reset（与 Temporal 一致）：未开始的 Activity 在新 Run 里以 Attempt 1 重新派发，Schedule-To-Start / Schedule-To-Close 从 reset 时刻起算；已开始的 Activity（History 里有当前 attempt 的 `ActivityStarted`，只有 `MaxAttempts: 1` 的 Activity 开始时就写；有重试的在 attempt 结束时才补写，所以执行中或退避中的按未开始处理）收到不可重试的 `ResetWorkflowError`，`ActivityFailed.lastHeartbeatDetails` 是原 Run 在 reset 时的最新心跳；已请求取消、开始只是 transient 的写 `ActivityCancelled`；Timer 按原 deadline 触发，reset 时已过期的立即触发。原 Run 上仍在执行的 attempt 的完成被拒绝。未关闭的子 Workflow 仍拒绝 Reset（见上表）。细节见文档 `operations/reset.md#分叉点上未结束的-activity-与-timer`。
 

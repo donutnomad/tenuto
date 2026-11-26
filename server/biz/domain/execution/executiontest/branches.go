@@ -78,7 +78,9 @@ func HistoryBranchContract(t *testing.T, newManager func(t *testing.T) execution
 		redispatch, _ := appendIdempotent(t, manager, base, history.NewActivityScheduledEvent(history.ActivityScheduledEvent{ActivityID: "redispatch", ActivityType: "T"}))
 		interrupted, _ := appendIdempotent(t, manager, base, history.NewActivityScheduledEvent(history.ActivityScheduledEvent{ActivityID: "interrupted", ActivityType: "T"}))
 		appendIdempotent(t, manager, base, history.NewActivityStartedEvent(history.ActivityStartedEvent{ScheduledEventID: interrupted, Attempt: 1, Stamp: 1}))
-		timerID, _ := appendIdempotent(t, manager, base, timer("t-pending"))
+		pendingTimer := history.NewTimerScheduledEvent("t-pending", nil, int64(time.Hour/time.Millisecond))
+		pendingTimer.Timestamp = contractNow
+		timerID, _ := appendIdempotent(t, manager, base, pendingTimer)
 		cutoff, _ := appendIdempotent(t, manager, base, history.NewWorkflowTaskScheduledEvent(0))
 		for id, activityID := range map[int64]string{redispatch: "redispatch", interrupted: "interrupted"} {
 			if err := manager.UpsertActivityState(&execution.ActivityState{RunID: base.ID, ScheduledEventID: id, ActivityID: activityID, ActivityType: "T",
@@ -87,19 +89,11 @@ func HistoryBranchContract(t *testing.T, newManager func(t *testing.T) execution
 				t.Fatal(err)
 			}
 		}
-		if err := manager.UpsertTimerState(&execution.TimerState{RunID: base.ID, ScheduledEventID: timerID, TimerID: "t-pending", Kind: execution.TimerKindEnums.UserTimer,
-			Deadline: contractNow.Add(time.Hour), Status: execution.TimerStatusEnums.Scheduled, CreatedAt: contractNow, UpdatedAt: contractNow}); err != nil {
-			t.Fatal(err)
-		}
 		events, err := manager.GetEvents(base.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		activities, err := manager.ListActivityStates(base.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		timers, err := manager.ListTimerStates(base.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,10 +108,9 @@ func HistoryBranchContract(t *testing.T, newManager func(t *testing.T) execution
 				t.Fatal(err)
 			}
 			resetAt := contractNow.Add(time.Minute)
-			pending, err := execution.PlanResetPendingWork(events, cutoff, activities, timers, newRunID, "fix", resetAt)
-			if err != nil {
-				t.Fatal(err)
-			}
+			pending := execution.PlanResetPendingWork(execution.ResetPendingInput{
+				Events: events, Cutoff: cutoff, BaseActivities: activities, NewRunID: newRunID, Reason: "fix", Now: resetAt,
+			})
 			next := execution.NewResetRun(base, newRunID, base.ID, forked.BranchToken, resetAt)
 			return manager.RunInTx(func(tx execution.ExecutionTx) error {
 				return execution.CommitResetRun(tx, execution.ResetRunCommit{
@@ -162,7 +155,7 @@ func HistoryBranchContract(t *testing.T, newManager func(t *testing.T) execution
 		}
 		timer, found, err := manager.GetTimerState("run-pending-reset", timerID)
 		if err != nil || !found || !timer.IsScheduled() || !timer.Deadline.Equal(contractNow.Add(time.Hour)) {
-			t.Fatalf("reset run timer = %+v found=%v err=%v, want the original deadline", timer, found, err)
+			t.Fatalf("reset run timer = %+v found=%v err=%v, want TimerScheduled time + delay", timer, found, err)
 		}
 	})
 

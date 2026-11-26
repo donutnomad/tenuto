@@ -75,11 +75,7 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 	if err != nil {
 		return execution.ResetRunCommit{}, err
 	}
-	children, err := s.mgr.ListChildWorkflowStates(req.RunID)
-	if err != nil {
-		return execution.ResetRunCommit{}, err
-	}
-	point, err := execution.PlanReset(events, children, req)
+	point, err := execution.PlanReset(events, req)
 	if err != nil {
 		return execution.ResetRunCommit{}, err
 	}
@@ -91,6 +87,21 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 
 	newRunID := execution.NewID()
 	newBranchID := newRunID
+	now := s.clock.Now()
+	// 新 run 的搜索属性与分叉点上未结束的 Activity / Timer 按 History 求出（base run 的 state 行只提供心跳详情），
+	// 在 fork 之前完成：读取或校验失败时不留下孤儿分支。
+	baseActivities, err := s.mgr.ListActivityStates(req.RunID)
+	if err != nil {
+		return execution.ResetRunCommit{}, err
+	}
+	searchAttributes, err := execution.SearchAttributesAtEvent(events, resetNodeID)
+	if err != nil {
+		return execution.ResetRunCommit{}, err
+	}
+	pending := execution.PlanResetPendingWork(execution.ResetPendingInput{
+		Events: events, Cutoff: resetNodeID, BaseActivities: baseActivities,
+		NewRunID: newRunID, TargetWorkerIdentity: oldRun.TargetWorkerIdentity, Reason: req.Reason, Now: now,
+	})
 
 	forkResp, err := s.mgr.ForkBranch(execution.ForkBranchRequest{
 		SourceRunID: req.RunID,
@@ -103,31 +114,14 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 		return execution.ResetRunCommit{}, fmt.Errorf("fork branch: %w", err)
 	}
 
-	now := s.clock.Now()
 	newRun := execution.NewResetRun(oldRun, newRunID, req.RunID, forkResp.BranchToken, now)
-	newRun.SearchAttributes, err = execution.SearchAttributesAtEvent(events, resetNodeID)
-	if err != nil {
-		return execution.ResetRunCommit{}, err
-	}
+	newRun.SearchAttributes = searchAttributes
 	// 新 run 继承 execution deadline，run deadline 从 reset 起算，随新 run 写入。配置读不到时 reset 照常
 	// 进行，新 run 不设截止时间。
 	if wf, err := s.workflowConfigs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: newRun.Namespace, WorkflowType: newRun.WorkflowType, Version: newRun.WorkflowConfigVersion}); err == nil {
 		applyRunTimeouts(newRun, wf, now)
 	} else {
 		s.logger.Warn("workflow config unavailable for reset run; run deadlines not set", "run_id", newRunID, "err", err)
-	}
-	// 分叉点上未结束的 Activity 与 Timer：静态字段、Timer 的 Deadline 与心跳详情取 base run 的 state 行。
-	baseActivities, err := s.mgr.ListActivityStates(req.RunID)
-	if err != nil {
-		return execution.ResetRunCommit{}, err
-	}
-	baseTimers, err := s.mgr.ListTimerStates(req.RunID)
-	if err != nil {
-		return execution.ResetRunCommit{}, err
-	}
-	pending, err := execution.PlanResetPendingWork(events, resetNodeID, baseActivities, baseTimers, newRunID, req.Reason, now)
-	if err != nil {
-		return execution.ResetRunCommit{}, err
 	}
 	// 进事务前构造好 newTreeID/newBranchIDVal/wftFailedEvent（gorm 单连接：事务内不能再开非事务读，会死锁）。
 	newTreeID, newBranchIDVal, err := runBranchInfoFromRun(newRun)

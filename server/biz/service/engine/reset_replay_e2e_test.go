@@ -173,11 +173,9 @@ func TestResetCarriesPendingWorkIntoNewRun(t *testing.T) {
 					}
 				}
 			} else {
-				pendingID = appendEvent(historypkg.NewTimerScheduledEvent("waiting", nil, int64(time.Hour/time.Millisecond)))
-				if err := mgr.UpsertTimerState(&execution.TimerState{RunID: base, ScheduledEventID: pendingID, TimerID: "waiting",
-					Kind: execution.TimerKindEnums.UserTimer, Deadline: now.Add(time.Hour), Status: execution.TimerStatusEnums.Scheduled, CreatedAt: now, UpdatedAt: now}); err != nil {
-					t.Fatal(err)
-				}
+				timer := historypkg.NewTimerScheduledEvent("waiting", nil, int64(time.Hour/time.Millisecond))
+				timer.Timestamp = now
+				pendingID = appendEvent(timer)
 			}
 			scheduled := appendEvent(historypkg.NewWorkflowTaskScheduledEvent(0))
 			boundary := appendEvent(historypkg.NewWorkflowTaskStartedEvent(scheduled, "workflow", "", 0))
