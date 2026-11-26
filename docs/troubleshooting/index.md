@@ -42,7 +42,8 @@ Server 日志的 WARN `task queue ack failed` 是 Worker 确认租约时任务�
 - Child Workflow：进入 Child Run 查看状态。
 - Workflow Task：检查 Workflow Worker 和 capability。
 - Signal / Update：确认外部事件名称和目标 Run。
-- Run Detail 出现 `ConfigError` 横幅：Run 因 Activity 契约不一致、`auto_upgrade` 换版前发现 History 里的载荷读不回新类型（`auto upgrade to ... refused: payloads recorded in history cannot be read by the candidate program: ...`；解码处的名字或类型无法静态确定时为 `... refused: the payload check cannot prove that payloads recorded in history stay readable: ...`，消息带 WLang 路径，见[换版前的载荷检查](/develop/versioning#换版前的载荷检查)），或准备 Workflow Task 时遇到每次都会重现的失败（`workflow task cannot be prepared: ...`，例如 Run 采用的 Program 版本读不到）而暂停。准备失败先修复原因再恢复。用横幅上的按钮恢复；恢复会关闭暂停时的 Workflow Task（History 里 `WorkflowTaskFailed`，`cause` 为 `run_resumed`）并开启新的一个。
+- Activity 一直 Scheduled、Server 日志反复 `activity claim refused`：在线 Worker 的契约与 Run 的声明不一致，见 [长时间 Scheduled](/troubleshooting/activities#长时间-scheduled)。
+- Run Detail 出现 `ConfigError` 横幅：Run 因 `auto_upgrade` 换版前发现 History 里的载荷读不回新类型（`auto upgrade to ... refused: payloads recorded in history cannot be read by the candidate program: ...`；解码处的名字或类型无法静态确定时为 `... refused: the payload check cannot prove that payloads recorded in history stay readable: ...`，消息带 WLang 路径，见[换版前的载荷检查](/develop/versioning#换版前的载荷检查)），或准备 Workflow Task 时遇到每次都会重现的失败（`workflow task cannot be prepared: ...`，例如 Run 采用的 Program 版本读不到）而暂停。准备失败先修复原因再恢复。用横幅上的按钮恢复；恢复会关闭暂停时的 Workflow Task（History 里 `WorkflowTaskFailed`，`cause` 为 `run_resumed`）并开启新的一个。
 
 ## Activity 重复执行
 

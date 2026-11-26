@@ -10,16 +10,17 @@ status: Stable
 
 ## 长时间 Scheduled
 
-检查 ActivityScheduled 的 Namespace、Task Queue 和 Activity Type，再检查 active Worker、Version Heartbeat 和 TaskQ physical queue。Server 日志反复出现 `activity claim refused: worker contract is incompatible` 时，在线 Worker 的契约都与 Run 当前 Program 的声明不一致：让契约兼容的 build 重新上线（例如 `pinned` Run 所需的旧 build），或者等 `ScheduleToStartTimeout` 到期。
+检查 ActivityScheduled 的 Namespace、Task Queue 和 Activity Type，再检查 active Worker、Version Heartbeat 和 TaskQ physical queue。队列能确定时（调用处 `ActivityOptions.TaskQueue` 或 `@Activity(queue)`），调度不看此刻有没有在线 Worker：队列上没有 Worker 时任务一直留在 Scheduled，Server 日志记 `activity task queue has no known active worker`（队列名拼错时这是唯一的线索）。
+
+Server 日志反复出现 `activity claim refused: worker contract is incompatible` 时，在线 Worker 的契约都与 Run 当前 Program 的声明不一致，每次领取被拒绝后任务约 1s 重新投递；Run 不暂停。处理：让契约一致的 build 重新上线（例如 `pinned` Run 所需的旧 build），它领取后 Run 自动继续；或把 Run 改成 `auto_upgrade`，Run 切到最新 Program 后由新 build 领取；或者等 `ScheduleToStartTimeout` 到期。
 
 ## Run Blocked：`activity_route_unavailable`
 
-调度时找不到能执行这个 Activity 的在线 Worker，任务不派发，History 不变，Worker 就绪或配置修正后 Run 按退避自动继续。按错误原文区分：
+调用处与定义都没有声明队列，路由目录也给不出唯一的队列：任务不派发，History 不变，Worker 就绪或配置修正后 Run 按退避自动继续。声明了队列的调用不会出现这个错误。按错误原文区分：
 
 | 错误原文 | 原因 | 处理 |
 | --- | --- | --- |
 | `... is not registered in activity route catalog` / `has no active route` | 这个 Namespace 里没有任何在线 Worker 登记这个 Activity 类型 | 启动登记了它的 Worker，核对 Namespace |
-| `declares a contract and no online worker on task queue <queue> reported one` | 定义或调用处指定了队列，该队列上没有提供它的 Worker | 让 Worker 拉这个队列（`@Activity(queue)` 登记的队列会自动拉取，调用处改派的队列要写进 `ActivityTaskQueues`） |
 | `declares no task queue and workers serve it on unrelated task queues [...]` | 定义与调用处都没有声明队列，几个服务在互不相关的队列上提供同一类型 | 在 `@Activity(queue=...)` 或 `ActivityOptions.TaskQueue` 声明队列后重新生成并发布，或停掉其中一个服务 |
 
 Console Workers 页的 Activity Routing 表列出每个 Activity 类型在哪些队列上有 Worker。队列的决定规则见 [Activity 的队列如何决定](/operations/namespaces-task-queues#activity-的队列如何决定)。

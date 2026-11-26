@@ -280,3 +280,70 @@ func TestPinnedRunActivityWaitsForCompatibleBuildUntilScheduleToStart(t *testing
 		t.Fatal("history has no ScheduleToStart ActivityTimedOut")
 	}
 }
+
+// 调度时队列上没有在线 Worker：Activity 照常记录 ActivityScheduled 并入队，Workflow Task 不失败；Worker 上线后直接领取。
+func TestScheduleWithoutOnlineWorkerQueuesTheActivity(t *testing.T) {
+	h := newBuildRoutingHarness(t)
+	// 生成的 Workflow 代码把 @Activity(queue) 写进命令的 TaskQueue。
+	runID := h.startRun("offline-schedule", execution.RunPolicyAutoUpgrade, "payments", "v1", historypkg.Command{TaskQueue: "payments"})
+
+	state, err := h.server.GetWorkflowExecutionState(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked := state.BlockedInfo(); blocked.Blocked {
+		t.Fatalf("an offline worker blocked the run: %+v", blocked)
+	}
+	h.register("pay-v1", "pay@v1", "payments", chargeContract("v1"))
+	h.mustClaim("pay-v1", "pay@v1", "payments", 1)
+}
+
+// 调度时队列上没有在线 Worker：ScheduleToStartTimeout 从调度时刻起算，Worker 一直不上线时 Activity 按时超时。
+func TestScheduleWithoutOnlineWorkerStartsScheduleToStart(t *testing.T) {
+	h := newBuildRoutingHarness(t)
+	runID := h.startRun("offline-timeout", execution.RunPolicyAutoUpgrade, "payments", "v1", historypkg.Command{TaskQueue: "payments", ScheduleToStartTimeout: 10 * time.Second})
+
+	h.clk.Advance(10 * time.Second)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		events, err := h.mgr.GetEvents(runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range events {
+			if event.ActivityTimedOut != nil && event.ActivityTimedOut.TimeoutType == protocol.TimeoutTypeScheduleToStart {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("history has no ScheduleToStart ActivityTimedOut")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// 调度时在线的只有契约不兼容的 Worker：Run 不暂停，任务入队；不兼容的 Worker 领取被拒绝，兼容的 build 上线后自动领取。
+func TestScheduleWithOnlyIncompatibleWorkerWaitsForCompatibleBuild(t *testing.T) {
+	h := newBuildRoutingHarness(t)
+	h.register("pay-v2", "pay@v2", "payments", chargeContract("v2"))
+	runID := h.startRun("incompatible-schedule", execution.RunPolicyPinned, "payments", "v1", historypkg.Command{})
+
+	run, err := h.mgr.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ConfigError != "" {
+		t.Fatalf("schedule-time contract mismatch paused the run: %q", run.ConfigError)
+	}
+	task, ok := h.poll("pay-v2", "pay@v2", "payments", 2*time.Second)
+	if !ok {
+		t.Fatal("the queued task was not offered to the v2 worker")
+	}
+	if result := h.begin(task); result.Execute || result.Reason != activitytasks.ReasonWorkerContractMismatch {
+		t.Fatalf("incompatible begin = %+v, want refused with %s", result, activitytasks.ReasonWorkerContractMismatch)
+	}
+
+	h.register("pay-v1", "pay@v1", "payments", chargeContract("v1"))
+	h.clk.Advance(time.Second)
+	h.mustClaim("pay-v1", "pay@v1", "payments", 1)
+}

@@ -139,10 +139,10 @@ func TestResolveTargetedActivityRoute(t *testing.T) {
 			want: ActivityRoute{Namespace: "default", Identity: "pay-worker", Type: "payments.charge", TaskQueue: "default"},
 		},
 		{
-			name:          "Error Case: a declared contract needs a registration to compare with",
+			name:          "Edge Case: a declared contract without a registration still goes to the requested queue for the target",
 			registrations: nil,
-			ref:           ActivityRouteRef{Namespace: "default", TargetWorkerIdentity: "pay-worker", ActivityID: "charge", Type: "payments.charge", Input: "ChargeInput.v2"},
-			wantErr:       ErrActivityRouteUnavailable,
+			ref:           ActivityRouteRef{Namespace: "default", TargetWorkerIdentity: "pay-worker", ActivityID: "charge", Type: "payments.charge", TaskQueue: "payments", Input: "ChargeInput.v2"},
+			want:          ActivityRoute{Namespace: "default", Identity: "pay-worker", Type: "payments.charge", TaskQueue: "payments"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

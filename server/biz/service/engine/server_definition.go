@@ -94,7 +94,7 @@ func (s *Server) resolveActivityCommand(runID, programVersion string, cmd histor
 		TaskQueue:            cmd.TaskQueue,
 		RoutingKey:           activityCommandRoutingKey(namespace, runID, cmd.ActivityID, cmd.ActivityType),
 	}
-	// 声明契约参与选路：同一 type/queue 下有多个活跃 build 时，用契约兼容的 Worker 的上报对照。
+	// 声明契约参与选路：目录里有多个候选时优先选上报兼容的那个。
 	if wfErr == nil {
 		if declared := dispatch.DeclaredActivityContract(wf, cmd.ActivityType); declared != nil {
 			ref.Input, ref.Output = declared.Input, declared.Output
@@ -105,16 +105,8 @@ func (s *Server) resolveActivityCommand(runID, programVersion string, cmd histor
 		return history.Command{}, err
 	}
 	// 路由只确定队列：执行它的 build 不在这里决定，也不随 Activity 保存，任务投到队列由领取的 Worker 执行。
+	// 契约在领取时按领取 Worker 自己的上报对照（RefuseIncompatibleActivityClaim），调度不依赖此刻哪些 Worker 在线。
 	cmd.TaskQueue = route.TaskQueue
-	// 调度时确认声明的契约能被至少一个在线 Worker 满足：没有时命令不派发，WFT 失败保留 history，
-	// 修复 worker 上报后既有 WFT retry 重新执行同一条命令即可恢复。领取时再按领取 Worker 自己的上报校验。
-	if wfErr == nil {
-		if err := dispatch.CheckDeclaredActivityContract(wf, route, cmd.ActivityType); err != nil {
-			// 确定性契约冲突：任务不派发，暂停 Run 等待人工修复；同一配置不再无限重试。
-			s.pauseRunForConfigError(runID, err)
-			return history.Command{}, err
-		}
-	}
 	return cmd, nil
 }
 

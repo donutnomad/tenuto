@@ -161,7 +161,7 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 | 新增、删除 SideEffect / RandomUUID / RandomInt 调用 | Marker 对应关系改变 |
 | 修改 Update / Query Handler 名称 | 调用端契约改变 |
 
-Activity 内部实现可以常规发布；它的输入输出结构和错误 Type 保持业务兼容。Activity 的契约是 `type`、`input` 指纹、`output` 指纹三项。Activity 输入输出结构变化时，Server 在调度该 Activity 时对照 Program 声明的契约与在线 Worker 上报的契约，没有契约一致的在线 Worker 时 Run 记录 `ConfigError` 并暂停；Worker 领取时再按领取者自己的上报对照一次，不兼容的领取被拒绝后任务重新投递。新旧 build 同时在线且契约不同时，任务可能先被不兼容的 build 领到，每次拒绝让这次投递晚约 1s。
+Activity 内部实现可以常规发布；它的输入输出结构和错误 Type 保持业务兼容。Activity 的契约是 `type`、`input` 指纹、`output` 指纹三项。Server 调度 Activity 时不对照契约，任务照常写入 `ActivityScheduled` 并投到队列；Worker 领取时 Server 按领取者自己的上报对照 Program 声明的契约（逐维度相等），不兼容的领取被拒绝，任务约 1s 后重新投递。在线 Worker 全都不兼容时任务在队列里等待，Run 不暂停，契约一致的 build 上线后自动领取；设置了 `ScheduleToStartTimeout` 时按它超时。新旧 build 同时在线且契约不同时，任务可能先被不兼容的 build 领到，每次拒绝让这次投递晚约 1s。
 
 结构不变、结果的含义变了（例如运费从不含税改成含税）时，指纹不变，Server 分不出新旧含义。新含义用一个新的 `type`，旧 `type` 的实现留在 Worker 里，直到所有 Program 都不再调用它、旧 Program 上的 Run 都已结束。在途 Run 的 History 里已经记过旧 `type` 的位置，换成新 `type` 时用 `GetVersion` 保护。
 
@@ -188,7 +188,7 @@ Activity 内部实现可以常规发布；它的输入输出结构和错误 Type
 改 JSON 字段名（如 `json:"order_id"` 改成 `json:"orderId"`）会改变 Activity 契约指纹，并且旧载荷不再对应新字段：
 
 - `auto_upgrade` 的 Run：History 里已有 `order_id` 形状的载荷时，换版前的载荷检查拒绝升级，Run 留在旧 Program 并以 `ConfigError` 暂停（见下一节）。重放本身不比较载荷，没有这项检查时新类型会把旧载荷解成零值并继续执行。
-- `pinned` 的 Run 留在旧 Program，它的 Activity 需要旧契约的 build；旧 build 已下线时 Run 在调度这个 Activity 时记 `ConfigError` 并暂停，旧 build 重新上线后 `SetRunPolicy(..., pinned)` 恢复。
+- `pinned` 的 Run 留在旧 Program，它的 Activity 需要旧契约的 build；旧 build 已下线时这个 Activity 在队列里等待（新 build 的领取被拒绝），旧 build 重新上线后自动继续。
 
 字段改名按下文「安全地改 JSON 字段名」分步发布；Activity 的破坏性改动也可以用新 `type` 加 `GetVersion` 分支，或者把 Workflow 声明为 `pinned` 并保留旧 build 到存量 Run 结束。
 

@@ -40,7 +40,7 @@ nondeterministic workflow: extra replay command <...>
 - 类型表的名字是 `<import path>.<类型名>`，Activity 符号是 `<包名>.<函数名>`：改名产出新的内容版本。`pinned` Run 留在旧 Program；`auto_upgrade` Run 下一个 Workflow Task 换到新 Program，用新类型表解码 History 里的 JSON 载荷，结果不变。
 - Activity 契约指纹只由 JSON 字段名与类型算出，改名前后相同，新旧 build 互相承接。
 - Execution Cache Key 含内容版本：换版的 Run 在该 Worker 上冷恢复一次（miss → 完整 History 恢复 → 新 Key 入缓存）。
-- 改 JSON 字段名（`order_id` → `orderId`）：History 里已有旧形状载荷的 `auto_upgrade` Run 被换版前的载荷检查拒绝，留在旧 Program 以 `ConfigError` 暂停（下一节）；`pinned` Run 的 Activity 只有旧契约的 build 能执行，旧 build 下线时调度它记 `ConfigError`（`contract mismatch ... input expected ... actual ...`），旧 build 回来后 `SetRunPolicy(..., pinned)` 恢复。字段改名按下一节的三步发布。
+- 改 JSON 字段名（`order_id` → `orderId`）：History 里已有旧形状载荷的 `auto_upgrade` Run 被换版前的载荷检查拒绝，留在旧 Program 以 `ConfigError` 暂停（下一节）；`pinned` Run 的 Activity 只有旧契约的 build 能执行，旧 build 下线时任务留在队列里，新 build 的领取被拒绝（日志 `contract mismatch ... input expected ... actual ...`），旧 build 回来后自动继续。字段改名按下一节的三步发布。
 - 出处：`sdk/worker/package_rename_e2e_test.go`（真实生成器生成 `order` / `order222`，`pinned` 与 `auto_upgrade` 跨升级完成并重放，含 Execution Cache；JSON 字段改名的反例里 `auto_upgrade` Run 暂停、不产出错误结果，发布保留 `order_id` 的版本后恢复并正确完成）。
 
 ## 换版前的载荷检查
@@ -182,11 +182,10 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 
 - Workflow 侧：契约随 Program 写进 `workflow.json`。
 - Worker 侧：`RegisterActivities` 把契约放进注册表，Worker `Start` 时随路由上报。
-- Server 对照两次，比较逻辑都在 `server/biz/domain/dispatch/activity_contract.go`；Worker 注册与定义登记阶段不做这项对照。
-  - 调度时（`server/biz/service/engine/server_definition.go` 的 `resolveActivityCommand`）：确认至少一个在线 Worker 的上报与声明一致。全部在线 Worker 都不一致时 Run 记 `ConfigError` 并暂停派发 Workflow Task。
-  - 领取时（`server/biz/service/engine/server_activity.go` 的 `RefuseIncompatibleActivityClaim`）：任务投到队列，不带 build，队列上任一 build 都能领到；开始 Attempt 之前按领取者这个 BuildID 的上报对照 Run 当前 Program 的声明。不一致时 `BeginActivityTask` 返回 `worker_contract_mismatch`：Attempt 不开始、不消耗重试次数，任务在 Workflow Task 失败退避的首个间隔（缺省 1s）之后重新投递。
+- Server 只在领取时对照，比较逻辑在 `server/biz/domain/dispatch/activity_contract.go`；Worker 注册、定义登记与调度都不做这项对照。调度时（`server/biz/service/engine/server_definition.go` 的 `resolveActivityCommand`）队列确定后照常写入 `ActivityScheduled` 并入队；没声明队列、目录里有多个候选时优先选上报一致的那个。
+  - 领取时（`server/biz/service/engine/server_activity.go` 的 `RefuseIncompatibleActivityClaim`）：任务投到队列，不带 build，队列上任一 build 都能领到；开始 Attempt 之前按领取者这个 BuildID 的上报对照 Run 当前 Program 的声明。不一致时 `BeginActivityTask` 返回 `worker_contract_mismatch`：Attempt 不开始、不消耗重试次数，任务在 Workflow Task 失败退避的首个间隔（缺省 1s）之后重新投递。在线 build 都不一致时任务一直留在队列里，Run 不暂停；契约一致的 build 上线后自动领取，或 `SetRunPolicy(..., "auto_upgrade")` 让 Run 切到 latest 后由新 build 领取（领取时对照的是 Run 当前的 Program）。
 
-`ConfigError` 的消息：
+拒绝原因（Server 日志 `activity claim refused` 的 `err`）：
 
 ```text
 activity "order.charge" contract mismatch on worker "pay-1" (namespace "orders" queue "payments" build "pay-v2"): input expected "wire:ab12…" actual "wire:cd34…"
@@ -203,7 +202,7 @@ activity "order.charge" contract mismatch on worker "pay-1" (namespace "orders" 
 | 语义改变，结构不变 | 新 `type`（如 `fulfillment.quote-taxed`），旧 `type` 原样保留；Workflow 改调新 `type`，在途 Run 已记过旧 `type` 的位置用 `GetVersion` 分支 | 新 type 是一份新契约，旧 type 不变 |
 | 破坏性改动（字段改名、改类型、删除）且有 Run 跨越这次改动 | 新 `type`（如 `order.charge-v2`）+ Workflow 里 `GetVersion` 分支；新旧实现都注册 | 新 type 是一份新契约，旧 type 不变 |
 
-契约是相等对照：加字段也让新旧 Program 与新旧 Worker 互不匹配，所以新旧并存期间两个 build 都要在线。
+契约是相等对照：加字段也让新旧 Program 与新旧 Worker 互不匹配，所以新旧并存期间两个 build 都要在线；旧 build 提前下线时旧声明的任务在队列里等待。
 
 ## BuildID
 
@@ -252,11 +251,11 @@ auto upgrade to <version> failed at workflow task <N>: non_deterministic_error: 
 
 ### ConfigError（暂停，等待人工）
 
-Program 声明的契约与全部在线 Worker 不一致，`auto_upgrade` 换版前发现 History 里的载荷读不回 latest 的类型（`auto upgrade to <version> refused: payloads recorded in history ...`，见「换版前的载荷检查」），或准备 Workflow Task 时遇到每次都会重现的失败（`config_error` 以 `workflow task cannot be prepared: ` 开头，例如 Run 采用的 Program 版本读不到，见 `operations.md`）：
+`auto_upgrade` 换版前发现 History 里的载荷读不回 latest 的类型（`auto upgrade to <version> refused: payloads recorded in history ...`，见「换版前的载荷检查」），或准备 Workflow Task 时遇到每次都会重现的失败（`config_error` 以 `workflow task cannot be prepared: ` 开头，例如 Run 采用的 Program 版本读不到，见 `operations.md`）：
 
 - Run 状态仍是 `running`，Server 停止为它派发 Workflow Task，`config_error` 保存原因。
-- 典型成因：`pinned` Run 的旧 build 已经下线；新旧 build 用了同一个 BuildID；Worker 与 Program 来自不同次生成。
-- 处理二选一：让契约一致的 build 重新上线，然后 `SetRunPolicy(..., "pinned")` 重新调度；或 `SetRunPolicy(..., "auto_upgrade")` 换到 latest（新 Program 要能重放已有 History）。两者都清除 `ConfigError`。
+- 处理：修复原因后 `SetRunPolicy(..., "pinned")` 留在当前内容，或 `SetRunPolicy(..., "auto_upgrade")` 换到 latest（新 Program 要能重放已有 History）。两者都清除 `ConfigError`。
+- Activity 契约不一致不写 `ConfigError`：任务留在队列里等契约一致的 build（见「Activity 契约」）。
 
 读取这两个字段：`c.DescribeWorkflowExecution(...)` 返回的 `ConfigError` / `UpgradeError`，HTTP `get-run` 响应里的 `run.config_error` / `run.upgrade_error`。
 

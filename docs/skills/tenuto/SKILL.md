@@ -14,7 +14,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - **Workflow Task 与 Activity Task**：Workflow Task 推进编排（解释器执行 Workflow 函数直到全部协程阻塞，提交命令）；Activity Task 执行原生 Go 的副作用函数。Workflow 函数的 Go 代码本身不在运行期被调用，`sdk/workflow` 的函数全是定义期标记。
 - **Program 版本**：每份生成的 `workflow.json` 有内容 hash；每个 Workflow Type 有一个 latest 指针。新 Run 用 latest；运行中的 Run 按自己的 `policy`（`auto_upgrade` 缺省 / `pinned`）决定是否在下一个 Workflow Task 边界换到 latest。
 - **Worker BuildID**：Activity Worker 的代码版本，Server 按它分开保存每个 build 的契约，新旧 build 并存靠不同 BuildID。Activity 任务只按队列投递、不带 build，队列上任一 build 都能领取；开始执行前按领取者这个 build 的契约对照 Run 当前 Program 的声明，不一致时拒绝（`worker_contract_mismatch`），任务约 1s 后重新投递。单个 Activity 调用不能指定 build。
-- **契约**：每个 `@Activity` 生成三维契约 `type`、`input` 指纹、`output` 指纹。Workflow 侧随 Program 声明，Worker 侧随注册表上报，Server 在调度 Activity 时逐维度做相等对照；全部候选 Worker 都不一致时 Run 记 `ConfigError` 并暂停。Activity 的含义或结构要变时用新 `type`，旧 `type` 保留到没有 Run 再调用它。
+- **契约**：每个 `@Activity` 生成三维契约 `type`、`input` 指纹、`output` 指纹。Workflow 侧随 Program 声明，Worker 侧随注册表上报，Server 在 Worker 领取 Activity 时按领取者的上报逐维度做相等对照，不一致的领取被拒绝、任务约 1s 后重新投递；调度不对照契约，Run 不因契约不一致暂停。Activity 的含义或结构要变时用新 `type`，旧 `type` 保留到没有 Run 再调用它。
 
 ## 编写流程
 
@@ -208,7 +208,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | 改动 | 写什么 | 发布顺序 | `pinned` Run | `auto_upgrade` Run |
 | --- | --- | --- | --- | --- |
 | Activity 内部实现（结构、语义不变） | 只改实现 | 滚动发布 Worker | 无影响 | 无影响 |
-| Activity 输入或输出加字段 | 加字段，`type` 不变（指纹已变）；实现把零值当「未提供」 | 新 build 与旧 build 并存 → 新 Program → 旧 Program 上的 `pinned` Run 跑完后下线旧 build | 留在旧 Program，任务由旧 build 执行（新 build 领到时被拒绝）；调度时只剩新 build 则暂停并记 `ConfigError`，改成 `auto_upgrade` 可恢复 | 下一个 Workflow Task 边界切到新 Program，由新 build 执行 |
+| Activity 输入或输出加字段 | 加字段，`type` 不变（指纹已变）；实现把零值当「未提供」 | 新 build 与旧 build 并存 → 新 Program → 旧 Program 上的 `pinned` Run 跑完后下线旧 build | 留在旧 Program，任务由旧 build 执行（新 build 领到时被拒绝）；只剩新 build 时任务留在队列里等旧 build，改成 `auto_upgrade` 后由新 build 领取 | 下一个 Workflow Task 边界切到新 Program，由新 build 执行 |
 | Activity 语义变了、结构没变 | 新 `type`（如 `fulfillment.quote-taxed`），旧 `type` 的实现原样保留，两个实现注册在同一个 Worker；Workflow 改调新 `type`，在途 Run 的 History 里已记过旧 `type` 的位置用 `GetVersion` 分支 | Worker（含两个 type）→ 新 Program → 不再有 Run 调用旧 `type` 后删除旧实现 | 继续调旧 `type`，新旧 build 都能执行 | 下一个 Workflow Task 边界切到新 Program，之后调度新 `type` |
 | Activity 破坏性变更（字段改名、改类型、删除），有 Run 会跨越这次改动 | 新 `type`（如 `order.charge-v2`）+ Workflow 里 `GetVersion` 分支；新旧实现注册在同一个 Worker | Worker（含两个 type）→ 新 Program | 继续调旧 `type` | 重放时 `GetVersion` 读回旧版本走旧 `type`；新执行走新 `type` |
 | 改包名、Go 类型名、函数名（Workflow id、Activity type、JSON 字段名与类型不变） | 直接改，重新生成 | 发布新 Program；Activity 契约不变，新旧 build 互相承接 | 留在启动时的 Program | 下一个 Workflow Task 边界切换，新类型表解码旧 JSON 载荷，重放通过 |
@@ -220,7 +220,6 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| Run 仍是 `running`，`config_error` 为 `activity "..." contract mismatch on worker "..." ...: input expected "wire:..." actual "wire:..."`（或 `output expected ...`），Console 顶部红色横幅 | 该 Run 的 Program 声明的契约与全部在线 Worker 的上报不一致，Server 停止为它派发 Workflow Task | 让契约一致的旧 build 重新上线后 set-policy `pinned`；或 set-policy `auto_upgrade` 切到最新 Program（前提是新 Program 能重放已有 History）。set-policy 清除 `ConfigError` 并立即重新调度 |
 | Run 仍是 `running`，`config_error` 以 `workflow task cannot be prepared: ` 开头（例如 `workflow config not found: ...`、`invalid branch token`） | Server 准备这个 Run 的 Workflow Task 时遇到每次都会重现的失败（Run 采用的 Program 版本或定义读不到、Run 数据损坏），暂停 Run 而不是反复重投 | 修复原因（重新登记那一版 Program，或修复数据）后 set-policy 恢复；`auto_upgrade` 恢复时换到 latest |
 | Run 仍是 `running`，`config_error` 为 `auto upgrade to <version> refused: payloads recorded in history cannot be read by the candidate program: signal "approve": order.Approval -> order2.Approval: order_id: field is missing in the new type (removed or renamed); ...` | `auto_upgrade` 的 Run 换版前发现 History 里已有的载荷在 latest 的类型下读不回（字段删除、改名、改类型），没有换版 | set-policy `pinned` 在当前内容上跑完；或发布保留旧字段的版本后 set-policy `auto_upgrade` |
 | `upgrade_error` 为 `auto upgrade to <version> failed at workflow task N: non_deterministic_error: ...; retrying with backoff`，Console 黄色横幅 | `auto_upgrade` 的 Run 用新 Program 重放旧 History 失配 | 发布兼容内容（补 `GetVersion` 分支），下一次重试自动接手；或 set-policy `pinned` 留在旧内容 |
@@ -228,12 +227,11 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | Update 的 `handle.Get` 返回 `*apperror.Error`，`Type() == "UnknownUpdate"`，message `no update handler registered for "<name>"` | 名称不一致，或 Handler 在主函数第一次阻塞之后才注册 | 对齐名称；把 `SetUpdateHandler` 移到函数开头 |
 | Update 停在 Accepted | Handler 已开始执行，停在 `Await`、Activity 或 Timer 上 | 用 Query `__stack_trace` 看 Run 当前等待的 Activity 或 Timer（`waiting`、`steps`）；推进它等待的事件 |
 | Update 的 `handle.Get` 返回 `*apperror.Error`，`Type() == "AcceptedUpdateCompletedWorkflow"` | Handler 完成前 Run 已关闭（主函数返回、失败、取消、终止、continue-as-new） | 让主函数在 Handler 完成前保持运行（`Await` Handler 设置的完成标志） |
-| Run 显示 Blocked，Workflow Task 失败原因 `activity_route_unavailable`，`activity route unavailable: ... is not registered in activity route catalog` / `has no active route` | 该 Activity `type` 在这个 Namespace 没有在线 Worker | 启动注册了该 `type` 的 Activity Worker（核对 Namespace、registry 登记的队列或 `ActivityTaskQueues`、`ActivityWorkerVersionRegistry` 非空）；Run 按退避自动继续 |
-| Activity 长时间 Scheduled，Server 日志反复出现 `activity claim refused: worker contract is incompatible` | 队列上在线的 build 契约都与 Run 当前 Program 的声明不一致（常见于 `pinned` Run 需要的旧 build 已下线） | 让契约一致的 build 重新上线，它领取下一次投递；或给 Activity 设置 `ScheduleToStartTimeout` 限定等待 |
+| Run 显示 Blocked，Workflow Task 失败原因 `activity_route_unavailable`，`activity route unavailable: ... is not registered in activity route catalog` / `has no active route` | 定义与调用处都没有声明队列，该 Activity `type` 在这个 Namespace 没有在线 Worker | 启动注册了该 `type` 的 Activity Worker（核对 Namespace、registry 登记的队列或 `ActivityTaskQueues`、`ActivityWorkerVersionRegistry` 非空）；Run 按退避自动继续 |
+| Activity 长时间 Scheduled，Run 不暂停，Server 日志反复出现 `activity claim refused: worker contract is incompatible`，`err` 为 `activity "..." contract mismatch on worker "..." ...: input expected "wire:..." actual "wire:..."` | 队列上在线的 build 契约都与 Run 当前 Program 的声明不一致（常见于 `pinned` Run 需要的旧 build 已下线） | 让契约一致的 build 重新上线，它领取下一次投递，Run 自动继续；或 set-policy `auto_upgrade` 切到最新 Program 后由新 build 领取（前提是新 Program 能重放已有 History）；或给 Activity 设置 `ScheduleToStartTimeout` 限定等待 |
 | Run 显示 Blocked，Workflow Task 失败原因 `bad_schedule_activity_attributes`，`activity "..." (type ...) sets neither StartToCloseTimeout nor ScheduleToCloseTimeout` | 调度 Activity 时没有设置关闭超时（选项来自变量，生成期检查不到） | 给该调用的 `ActivityOptions` 设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout`，重新生成并发布；Run 按退避自动继续 |
 | Run 显示 Blocked，Workflow Task 失败原因 `schedule_activity_duplicate_id`，`activity "..." (type ...): an activity with this ActivityID is still open in this run` | `ActivityOptions.ActivityID` 与同一 Run 里仍未关闭的 Activity 重复（含同一批里两次调度同一 ID） | 让并发的调用用不同的 ID（如带上循环下标），或等前一个 Activity 结束后再用同一 ID；重新生成并发布，Run 按退避自动继续 |
-| Run 显示 Blocked，`activity_route_unavailable`，`declares a contract and no online worker on task queue ... reported one` | 指定了 Task Queue（或目标 Worker）的 Activity 声明了契约，但该队列上没有在线 Worker 可对照 | 启动消费该队列的 Activity Worker；Run 按退避自动继续，不写 `ConfigError` |
-| Activity 长时间 Scheduled | Worker 没有消费该 Task Queue，或心跳登记已过 TTL | 核对 Worker 拉取的队列（registry 登记的队列或 `ActivityTaskQueues`）与注解 `queue` / `ActivityOptions.TaskQueue`，查看 Worker 列表 |
+| Activity 长时间 Scheduled | Worker 没有消费该 Task Queue，或心跳登记已过 TTL（声明了队列的调度不看在线 Worker，Server 日志 `activity task queue has no known active worker` 提示队列上没有 Worker） | 核对 Worker 拉取的队列（registry 登记的队列或 `ActivityTaskQueues`）与注解 `queue` / `ActivityOptions.TaskQueue`，查看 Worker 列表 |
 | Run 显示 Blocked，`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues` | 定义与调用处都没有声明队列，几个服务在互不相关的队列上提供同一类型 | 在 `@Activity(queue)` 或 `ActivityOptions.TaskQueue` 声明队列后重新生成发布，或停掉其中一个服务；Run 按退避自动继续，见 `references/activities.md` 的「队列如何决定」 |
 | `worker.New` 返回 `activity "..." is registered on task queue "...", which ActivityTaskQueues [...] does not include` | 显式设置的 `ActivityTaskQueues` 漏了 registry 登记的队列 | 删掉 `ActivityTaskQueues` 让 Worker 用登记的队列，或把缺的队列加进去 |
 | `CreateSchedule`/`UpdateSchedule` 返回 `invalid overlap_policy`；`TriggerSchedule` 返回 409 `previous scheduled run is still running` | Overlap Policy 只接受 `SKIP`、`ALLOW_ALL`；`SKIP` 下上一次触发的执行链仍在运行 | 改用大写取值；等执行链结束，或改用 `ALLOW_ALL`，见 `references/schedules.md` |

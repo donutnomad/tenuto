@@ -39,8 +39,8 @@ func (r ActivityContractReport) MismatchError() error {
 
 // CheckActivityContract 把 Workflow 静态声明的契约与 route 上 Worker 的上报逐维度对照。
 //
-// 只比较 Workflow 声明过的维度；Worker 上报的值不同、或没有上报该维度，都记为 Mismatched
-// 并拒绝派发。Workflow 没有声明任何维度时不对照。
+// 只比较 Workflow 声明过的维度；Worker 上报的值不同、或没有上报该维度，都记为 Mismatched。
+// Workflow 没有声明任何维度时不对照。
 func CheckActivityContract(declared protocol.ActivityContract, route ActivityRoute) ActivityContractReport {
 	report := ActivityContractReport{
 		Namespace: protocol.NormalizeNamespace(route.Namespace),
@@ -59,9 +59,9 @@ func CheckActivityContract(declared protocol.ActivityContract, route ActivityRou
 
 // contractCompatibleRoutes 在候选 route 中优先保留与声明契约不冲突的 worker。
 //
-// 同一 activity type/queue 可能同时存在多个活跃 build（滚动发布），只按 build/weight
-// 选路会在有兼容 worker 时选中不兼容的那个并暂停 Run。声明未携带契约时全部候选都兼容；
-// 全部候选都不兼容时返回原候选，由上层报完整 mismatch 并暂停。
+// 同一 activity type 可能同时存在多个活跃 build 或队列（滚动发布），只按 build/weight
+// 选路会在有兼容 worker 时选中不兼容的那个的队列。声明未携带契约时全部候选都兼容；
+// 全部候选都不兼容时返回原候选：任务照常入队，领取时的契约对照拒绝不兼容的 Worker。
 func contractCompatibleRoutes(routes []ActivityRoute, ref ActivityRouteRef) []ActivityRoute {
 	declared := ref.declaredContract()
 	if !declared.HasDeclaration() {
@@ -119,8 +119,8 @@ func DeclaredActivityContract(wf *program.WorkflowConfig, activityType string) *
 }
 
 // CheckDeclaredActivityContract 对照 Workflow 对 activityType 的契约声明与 route 上 Worker 的上报。
-// Workflow 没有声明契约时不对照；声明了而上报的值不同或缺失时返回错误。调度时用它确认声明能被在线 Worker 满足，
-// 领取时经 CheckClaimingWorkerContract 用它校验领取的那个 Worker。
+// Workflow 没有声明契约时不对照；声明了而上报的值不同或缺失时返回错误。领取时经 CheckClaimingWorkerContract
+// 用它校验领取的那个 Worker。
 func CheckDeclaredActivityContract(wf *program.WorkflowConfig, route ActivityRoute, activityType string) error {
 	declared := DeclaredActivityContract(wf, activityType)
 	if declared == nil {

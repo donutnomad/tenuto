@@ -56,7 +56,7 @@ func (r *Run) OverridePolicy(policy string) error {
 // OverrideRunPolicy 写入运行中策略 override，清除升级诊断与暂停状态，current 内容不变。run 是本事务用
 // GetRunForUpdate 读到的 Run；它已结束时返回 InvalidRequest，事务不做修改。Run 因 ConfigError 暂停时，
 // 暂停期间已被 Worker 领取的 Workflow Task 在同一事务里以 run_resumed 关闭：它的 WorkflowTaskStarted 记录着暂停前
-// 选中的 Program，重新投递同一个任务时 Server 仍按那一版的声明对照契约；调用方随后调度的新 WFT 在新的任务边界按新策略
+// 选中的 Program，重新投递同一个任务时 Server 仍按那一版 Program 处理；调用方随后调度的新 WFT 在新的任务边界按新策略
 // 选版。还没有被领取的任务没有选版记录，保持打开。
 func OverrideRunPolicy(tx ExecutionTx, run *Run, policy, treeID, branchID string, traceContext map[string]string) error {
 	state, err := tx.GetWorkflowExecutionStateForUpdate(run.ID)

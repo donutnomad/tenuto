@@ -49,7 +49,7 @@
 | 1. 正常下单 | payment-service 第一次扣款后模拟响应丢失；Tenuto 重试，幂等表返回同一笔 `pay_1001`，只扣一次款。随后发送 `delivered` Signal 完成订单 |
 | 2. 缺货 | `lamp` 库存为 0，订单 `rejected`，不扣款 |
 | 3. 拒付 | 1500 元超过限额，库存预留后被释放，订单 `payment_declined` |
-| 4. 支付服务宕机 | 停掉 payment-service 后下单：库存已预留，Run 显示 `blocked`（`activity_route_unavailable`）。重启 payment-service 后从扣款继续，5 秒后 Timer 自动确认收货 |
+| 4. 支付服务宕机 | 停掉 payment-service 后下单：库存已预留，扣款任务在 `payments` 队列里等待，progress 显示 `charging`。重启 payment-service 后它领取扣款继续，5 秒后 Timer 自动确认收货 |
 
 `SHOP_KEEP=1 ./examples/shop/run-demo.sh` 在演示后保持进程运行，可以继续用 curl 下单。各进程日志在 `examples/shop/.run/logs/`。端口由 `SHOP_TENUTO_PORT`（默认 7400）与 `SHOP_ORDER_PORT`（默认 8080）设置。
 

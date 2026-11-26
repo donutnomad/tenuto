@@ -210,7 +210,7 @@ if err := w.WaitReady(ctx); err != nil {
 
 ## 契约对照
 
-`workflow.json` 的 `activities` 里的 `input` / `output` 是 wire 指纹（`wire:<hash>`），由 JSON 字段名、类型和可选性计算，与 Go 包名和类型名无关。Worker 侧 `activity.ContractOf[In, Out](type)` 使用同一算法，Worker 启动时随路由上报自己的契约。Server 在调度 Activity 时对照两侧契约：Workflow Task 提交 Activity 调度命令后，Server 用该 Run 的 Program 声明的 `input`、`output` 选择契约一致的 Worker；没有一致的候选时命令不派发，Run 记录 `ConfigError`（`activity "..." contract mismatch on worker "..." ...`）并暂停，History 保持不变，见 [Workflow 版本管理](/develop/versioning)。Worker 注册和定义登记阶段不做这项对照。
+`workflow.json` 的 `activities` 里的 `input` / `output` 是 wire 指纹（`wire:<hash>`），由 JSON 字段名、类型和可选性计算，与 Go 包名和类型名无关。Worker 侧 `activity.ContractOf[In, Out](type)` 使用同一算法，Worker 启动时随路由上报自己的契约。Server 在 Worker 领取 Activity 时对照两侧契约：用该 Run 当前 Program 声明的 `input`、`output` 对照领取者这个 build 的上报，不一致时拒绝这次领取（Server 日志 `activity claim refused`，原因 `activity "..." contract mismatch on worker "..." ...`），任务约 1s 后重新投递，Run 不暂停，见 [Workflow 版本管理](/develop/versioning)。Worker 注册、定义登记与调度阶段不做这项对照。
 
 wire 指纹支持的类型：字符串、布尔、定宽整数与 `int`、浮点、指针、slice、定长数组、字符串 key 的 map、结构体、空接口，以及由它们组成的具名类型与递归类型（递归位置记为指向外层类型的回指，与类型名无关）。以下类型返回错误：`uint`、`[]byte`、匿名嵌入字段、自定义 `json.Marshaler` / `encoding.TextMarshaler`、`omitempty` 之外的 json tag 选项、非字符串 key 的 map。
 

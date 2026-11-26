@@ -16,7 +16,7 @@ Server、Workflow Worker、Activity Worker、Workflow Program 和 Console 具有
 
 命令序列变化使用 `GetVersion`。发布前用真实 History 样本 Replay，并覆盖 Child、Continue-As-New、并发、Handler 和 Side Effect。
 
-仓库 `docs/examples/upgrade-demo` 用三个独立进程演示一次完整发布：新旧 build 并存、Activity 契约变化、旧 build 下线后的暂停与恢复、没有版本保护的 Program 触发 `UpgradeError`。
+仓库 `docs/examples/upgrade-demo` 用三个独立进程演示一次完整发布：新旧 build 并存、Activity 契约变化、旧 build 下线后任务在队列里等待与两种恢复、没有版本保护的 Program 触发 `UpgradeError`。
 
 ## Worker 灰度
 

@@ -152,7 +152,7 @@ if err := activity.RegisterActivityOnQueue(registry, "payments", "payments.settl
 
 ## 队列如何决定
 
-调度时按顺序取：调用处 `ActivityOptions.TaskQueue` → 定义里的 `activities[].task_queue`（来自 `@Activity(queue)`）→ 都没有时 Server 查路由目录（在线 Worker 的「队列 × 类型」，先排除契约不一致的，再优先默认路由，再按权重）。实际队列写进 `ActivityScheduled.taskQueue`。
+调度时按顺序取：调用处 `ActivityOptions.TaskQueue` → 定义里的 `activities[].task_queue`（来自 `@Activity(queue)`）→ 都没有时 Server 查路由目录（在线 Worker 的「队列 × 类型」，有契约一致的路由时先排除不一致的，再优先默认路由，再按权重）。实际队列写进 `ActivityScheduled.taskQueue`。前两步确定了队列时调度总是成功：写入 `ActivityScheduled` 并入队，不看此刻有没有在线 Worker；契约在领取时对照。
 
 - 一个服务一个队列：`@Activity` 不写 `queue`，Worker 设 `ActivityTaskQueues`（不写时是 `default`）。
 - 跨服务：`@RemoteActivity` 契约写 `queue`，放在共享契约包。
@@ -273,4 +273,4 @@ Tenuto 保证 Activity 至少执行一次，不保证只执行一次：Attempt �
 | Heartbeat 超时 | 心跳间隔是否小于 `HeartbeatTimeout`；下游长阻塞 |
 | 取消延迟 | History 是否有 `ActivityCancelRequested`（Workflow 取消请求本身不取消 Activity）；Activity 是否定期 Heartbeat 并检查 `ctx`；不 Heartbeat 的 Activity 收不到取消 |
 | 重复副作用 | 幂等键是否跨 Attempt 稳定 |
-| Run 暂停、`contract mismatch` | 见 `versioning.md` |
+| 日志 `activity claim refused`、`contract mismatch` | 见 `versioning.md` 的「Activity 契约」 |

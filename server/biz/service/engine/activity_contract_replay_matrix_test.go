@@ -438,9 +438,9 @@ func workflowFailures(events []historypkg.Event) []string {
 	return out
 }
 
-// b 已完成、c 尚未调度的发布窗口，分开验证两个边界：
-//  1. 承担内容切换的边界 WFT 里，Activity 契约对照读本次选中内容（B）的声明；
-//  2. 切换提交后的下一个 WFT 继续用 current（B）的声明做对照。
+// b 已完成、c 尚未调度的发布窗口：调度不对照契约，Run 不暂停；领取时的契约对照读 Run 当前（提升后）内容的声明。
+//  1. 承担内容切换的边界 WFT 照常调度 c，Run 切到 B；只上报旧输入的 Worker 领取 c 被拒绝，上报新输入后放行；
+//  2. 切换提交后的下一个 WFT 照常调度 d；Worker 改为上报 d 的新输入后，Run 自动走完，不需要人工恢复。
 func TestPendingActivityContractWindow(t *testing.T) {
 	prepare := func(t *testing.T, name string) (*replayServerControl, contractFixture, definition.WorkflowConfigRef, string) {
 		t.Helper()
@@ -461,8 +461,18 @@ func TestPendingActivityContractWindow(t *testing.T) {
 		}
 		return controlled, fixture, refA, runID
 	}
+	assertNotPaused := func(t *testing.T, mgr *memory.ExecutionManager, runID string) {
+		t.Helper()
+		run, err := mgr.Get(runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.ConfigError != "" {
+			t.Fatalf("contract mismatch paused the run: %q", run.ConfigError)
+		}
+	}
 
-	t.Run("promotion-wft-uses-candidate-declaration", func(t *testing.T) {
+	t.Run("promotion-wft-claim-uses-candidate-declaration", func(t *testing.T) {
 		controlled, fixture, refA, runID := prepare(t, "pending-window-promotion")
 
 		wfA := fixture.generate(t)
@@ -477,45 +487,44 @@ func TestPendingActivityContractWindow(t *testing.T) {
 		}
 		controlled.StartWorker(t)
 
-		// 切换 WFT 按候选内容 B 对 c 的新输入声明对照只上报旧输入的 worker：写 ConfigError，c 不派发。
-		waitForRunConfigErrorForTest(t, controlled.Mgr, runID)
-		if got := countScheduledType(mgrEvents(t, controlled.Mgr, runID), "example.c"); got != 0 {
-			t.Fatalf("promotion WFT scheduled c %d times against B's new declaration, want 0", got)
+		// 切换 WFT 照常调度 c，Run 切到 B，不暂停。
+		waitForScheduledType(t, controlled.Mgr, runID, "example.c", 1)
+		assertNotPaused(t, controlled.Mgr, runID)
+		assertRunVersion(t, controlled.Mgr, runID, refB.Version, refA.Version, "promoted run")
+
+		// 领取时按 B 对 c 的新输入声明对照：只上报旧输入的 Worker 被拒绝，上报新输入后放行。
+		task := dequeueContractActivity(t, controlled.Activities, "example.c")
+		run, err := controlled.Mgr.Get(runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if refused, err := controlled.Server.RefuseIncompatibleActivityClaim(context.Background(), task, run); err != nil || !refused {
+			t.Fatalf("old-input worker claim refused=%v err=%v, want refused", refused, err)
+		}
+		registerContractWorkerReporting(t, controlled.Server, true, false)
+		if refused, err := controlled.Server.RefuseIncompatibleActivityClaim(context.Background(), task, run); err != nil || refused {
+			t.Fatalf("new-input worker claim refused=%v err=%v, want accepted", refused, err)
 		}
 	})
 
-	t.Run("next-wft-enforces-new-declaration", func(t *testing.T) {
+	t.Run("next-wft-schedules-without-pausing", func(t *testing.T) {
 		controlled, fixture, refA, runID := prepare(t, "pending-window-next")
 		writeContractActivities(t, fixture.root, contractCInDefault, contractCOutInt, contractDInWithNote)
 		refB := fixture.register(t, controlled.Server)
 		controlled.StartWorker(t)
 
-		// c 在切换 WFT 内按旧声明调度；完成后下一个 WFT 用 B 对 d 的新输入声明对照只上报旧输入的 worker。
+		// c 在切换 WFT 内调度；完成后下一个 WFT 按 B 调度 d，在线 Worker 只上报 d 的旧输入也不暂停。
 		waitForScheduledType(t, controlled.Mgr, runID, "example.c", 1)
 		completeContractActivity(t, controlled.Server, controlled.Activities, "example.c")
-		waitForRunConfigErrorForTest(t, controlled.Mgr, runID)
-		paused, err := controlled.Mgr.Get(runID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(paused.ConfigError, "example.d") || !strings.Contains(paused.ConfigError, "input expected") {
-			t.Fatalf("ConfigError = %q, want a d input contract mismatch", paused.ConfigError)
-		}
-		history := mgrEvents(t, controlled.Mgr, runID)
-		if got := countScheduledType(history, "example.d"); got != 0 {
-			t.Fatalf("d scheduled %d times while contract mismatch, want 0", got)
-		}
-
-		// 人工恢复：worker 上报 d 的新输入，再走 set-policy 入口。
-		registerContractWorkerReporting(t, controlled.Server, false, true)
-		if _, err := controlled.Server.SetRunPolicy(context.Background(), protocol.DefaultNamespace, runID, execution.RunPolicyAutoUpgrade); err != nil {
-			t.Fatal(err)
-		}
 		waitForScheduledType(t, controlled.Mgr, runID, "example.d", 1)
+		assertNotPaused(t, controlled.Mgr, runID)
+
+		// Worker 改为上报 d 的新输入，Run 不经人工恢复走完。
+		registerContractWorkerReporting(t, controlled.Server, false, true)
 		completeContractActivity(t, controlled.Server, controlled.Activities, "example.d")
 		completeContractActivity(t, controlled.Server, controlled.Activities, "example.e")
 		waitForRunStatusWithin(t, controlled.Server, runID, historypkg.StatusCompleted, 20*time.Second)
-		assertRunVersion(t, controlled.Mgr, runID, refB.Version, refA.Version, "recovered next-wft run")
+		assertRunVersion(t, controlled.Mgr, runID, refB.Version, refA.Version, "completed next-wft run")
 	})
 }
 
@@ -630,6 +639,12 @@ func TestPublishAcceptsUnroutedActivityType(t *testing.T) {
 // Activity Task，核对类型后完成它。
 func completeContractActivity(t *testing.T, server *engine.Server, router *memory.ActivityQueueRouter, activityType string) {
 	t.Helper()
+	completeActivityTask(t, server, dequeueContractActivity(t, router, activityType), map[string]any{})
+}
+
+// dequeueContractActivity 以 contract-worker 的身份从 contract-replay 队列领取下一个任务，断言它的类型。
+func dequeueContractActivity(t *testing.T, router *memory.ActivityQueueRouter, activityType string) protocol.Task {
+	t.Helper()
 	worker := protocol.WorkerRoutingInfo{Namespace: protocol.DefaultNamespace, Identity: "contract-worker", BuildID: "contract-build"}
 	ctx, cancel := context.WithTimeout(protocol.WithWorkerRoutingInfo(protocol.WithNamespace(context.Background(), protocol.DefaultNamespace), worker), 10*time.Second)
 	defer cancel()
@@ -640,5 +655,7 @@ func completeContractActivity(t *testing.T, server *engine.Server, router *memor
 	if lease.Task.ActivityType != activityType {
 		t.Fatalf("activity type = %q, want %q (step %s)", lease.Task.ActivityType, activityType, lease.Task.ActivityID)
 	}
-	completeActivityTask(t, server, lease.Task, map[string]any{})
+	task := lease.Task
+	task.WorkerIdentity, task.WorkerBuildID = worker.Identity, worker.BuildID
+	return task
 }

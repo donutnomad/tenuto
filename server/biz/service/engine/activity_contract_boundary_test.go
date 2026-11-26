@@ -192,8 +192,8 @@ func TestActivityContractCompletedBoundary(t *testing.T) {
 	}
 }
 
-// 对照拒绝时 Run 记录 config_error、不派发任务；修复上报后同一条 WFT 重试即可恢复。
-func TestActivityContractMismatchPausesRun(t *testing.T) {
+// 调度时在线 Worker 的上报与声明不一致：Run 不暂停，任务照常入队，契约在领取时对照。
+func TestActivityContractMismatchAtScheduleEnqueuesWithoutPausing(t *testing.T) {
 	ctx := context.Background()
 	mgr := memory.NewExecutionManager()
 	activityTasks := newTestTaskQueue()
@@ -201,26 +201,18 @@ func TestActivityContractMismatchPausesRun(t *testing.T) {
 	defer server.Stop()
 
 	registerChargeWorkerVersion(t, server, "pay-worker-v1", "pay@v1", "ChargeInput.v1", "Receipt.v1")
-	runID, wftID := startContractRun(t, mgr, server, chargeWorkflowDeclaring("contract-paused", "ChargeInput.v2", "Receipt.v2"))
-	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, scheduleChargeCommand(), ""); err == nil {
-		t.Fatal("expected contract mismatch error")
+	runID, wftID := startContractRun(t, mgr, server, chargeWorkflowDeclaring("contract-mismatch-enqueued", "ChargeInput.v2", "Receipt.v2"))
+	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, scheduleChargeCommand(), ""); err != nil {
+		t.Fatalf("schedule with an incompatible online worker: %v", err)
 	}
 	run, err := mgr.Get(runID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.ConfigError == "" {
-		t.Fatal("contract mismatch must record config_error")
-	}
-	if got := len(activityTasks.snapshot()); got != 0 {
-		t.Fatalf("mismatched activity must not be dispatched, got %d tasks", got)
-	}
-
-	registerChargeWorkerVersion(t, server, "pay-worker-v2", "pay@v2", "ChargeInput.v2", "Receipt.v2")
-	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, scheduleChargeCommand(), ""); err != nil {
-		t.Fatalf("recovered contract must schedule: %v", err)
+	if run.ConfigError != "" {
+		t.Fatalf("schedule-time contract mismatch paused the run: %q", run.ConfigError)
 	}
 	if got := len(activityTasks.snapshot()); got != 1 {
-		t.Fatalf("expected one activity task after recovery, got %d", got)
+		t.Fatalf("expected the activity to be queued, got %d tasks", got)
 	}
 }

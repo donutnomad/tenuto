@@ -116,8 +116,8 @@ func run(ctx context.Context, url, namespace string) error {
 ## 路由要点
 
 - Activity 路由登记的标识是 `namespace + activity type + queue + BuildID`，每个 build 的契约分开保存。Activity 任务只按队列投递（Run 固定了目标 Worker 时只交给这个 Identity），不带 build；队列上任一 build 都能领取，开始执行前按它这个 build 的契约对照 Run 当前 Program 的声明，不一致时拒绝（`worker_contract_mismatch`），任务约 1s 后重新投递。
-- Run 走到没有可用 Worker 的 Activity 时，Workflow Task 以 `activity_route_unavailable` 失败并按退避重试，Run 显示 Blocked；Worker 上线后自动继续。因此 Activity Worker 与定义的上线先后不影响最终结果，推荐顺序是 Activity Worker 先就绪。
-- 指定了 Task Queue（或目标 Worker）且声明了契约的 Activity，在该队列没有在线 Worker 时同样以 `activity_route_unavailable` 退避等待，不写 `ConfigError`；只有在线 Worker 上报的契约不一致才暂停 Run。
+- Activity 的队列能确定时（调用处 `ActivityOptions.TaskQueue` 或 `@Activity(queue)`），调度照常写入 `ActivityScheduled` 并入队，与此刻有没有在线 Worker、在线 Worker 契约是否一致无关；任务在队列里等 Worker，`ScheduleToStartTimeout` 从调度时起算。契约不一致只拒绝领取，不暂停 Run。
+- 队列不能确定时（两处都没写、目录里没有这个类型或路由歧义），Workflow Task 以 `activity_route_unavailable` 失败并按退避重试，Run 显示 Blocked；Worker 上线后自动继续。因此 Activity Worker 与定义的上线先后不影响最终结果，推荐顺序是 Activity Worker 先就绪。
 - 路由目录在每种部署形态下都存在、规则相同：没有任何 Worker 登记时是空目录，未指定 Task Queue 的 Activity 同样以 `activity_route_unavailable` 等待 Worker 登记；与 Server 同进程运行的 Worker 也向 Server 登记自己的路由。
 - Server 缓存路由目录：本副本上的登记与注销立即生效，其他副本上的最多 5 秒后生效。
 - Workflow Task 队列不分 Namespace：Workflow Worker 领取全部 Namespace 的 Workflow Task，Client 的 Namespace 决定 Activity 的登记与领取范围及定义登记的 Namespace。Workflow Worker 的配置、History、状态读取凭所领任务的 task token。
@@ -149,7 +149,7 @@ WORKFLOW_BACKEND=memory WORKFLOW_HTTP_ADDR=127.0.0.1:7400 go run ./server/cmd/te
 | --- | --- |
 | `WaitReady` 报定义登记失败 | 产物是否由当前源码生成；Server 地址与 Namespace |
 | Activity 长时间 Scheduled | Worker 拉取的队列（registry 登记的队列或 `ActivityTaskQueues`）是否包含该队列；`Activities` 是否登记了这个 type；`POST /runtime/workflow/list-workers` 里是否有该 Worker |
-| Run Blocked：`activity route unavailable` | 该 Namespace 是否有注册了这个 `type` 的在线 Worker |
+| Run Blocked：`activity route unavailable` | 该 Namespace 是否有注册了这个 `type` 的在线 Worker；调用是否声明了队列 |
 | `worker.New` panic：`Options.BuildID is empty and the binary carries no VCS revision` | 用 `go build` 在 Git 仓库里构建，或显式设置 `BuildID`（`go run` 与 `go test` 不写入 revision） |
-| Run 暂停：`contract mismatch` | Worker 与 Program 是否来自同一次生成；新旧 build 是否用了不同 BuildID（见 `versioning.md`） |
+| Activity 一直 Scheduled，日志 `activity claim refused`（`contract mismatch`） | Worker 与 Program 是否来自同一次生成；新旧 build 是否用了不同 BuildID（见 `versioning.md`） |
 | Workflow Task 反复超时 | 函数体里的纯计算是否过重；调大 `WorkflowTaskTimeout` 或把计算放进 Activity |

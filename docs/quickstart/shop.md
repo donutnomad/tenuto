@@ -31,7 +31,7 @@ description: order、payment、warehouse 三个服务进程通过 Tenuto Server 
 | 正常下单 | payment-service 第一次扣款成功后模拟响应丢失；Tenuto 按 RetryPolicy 重试，幂等表返回同一笔支付，只扣一次款。发送 `delivered` Signal 后订单完成，`confirmed_by` 为 `customer` |
 | 缺货 | warehouse 返回不可重试的 `OutOfStock`，订单 `rejected`，不扣款 |
 | 拒付 | payment 返回不可重试的 `PaymentDeclined`，Workflow 释放已预留的库存，订单 `payment_declined` |
-| 支付服务宕机 | 停掉 payment-service 后下单：库存预留成功，Run 显示 `blocked`（`activity_route_unavailable`）。重启 payment-service 后从扣款继续，5 秒后持久 Timer 自动确认收货，`confirmed_by` 为 `timeout` |
+| 支付服务宕机 | 停掉 payment-service 后下单：库存预留成功，扣款任务在 `payments` 队列里等待，progress 显示 `charging`。重启 payment-service 后它领取扣款继续，5 秒后持久 Timer 自动确认收货，`confirmed_by` 为 `timeout` |
 
 `SHOP_KEEP=1` 在演示后保持进程运行。手动逐个启动进程的步骤见示例目录的 [README](https://github.com/donutnomad/tenuto/blob/main/examples/shop/README.md)。
 
@@ -63,7 +63,7 @@ func (g *Gateway) Register(registry *activity.Registry) error {
 }
 ```
 
-Worker 上线时把契约（type、入参出参指纹）报给 Server；调度时 Server 核对 Workflow 声明的契约与在线 Worker 上报的一致。队列上没有在线 Worker 时 Run 以 `activity_route_unavailable` 退避等待，见[运行 Worker](/develop/workers)。
+Worker 上线时把契约（type、入参出参指纹）报给 Server；Worker 领取任务时 Server 核对 Workflow 声明的契约与它上报的一致，不一致的领取被拒绝，任务稍后重新投递。队列上没有在线 Worker 时任务在队列里等待，见[运行 Worker](/develop/workers)。
 
 ## Workflow
 

@@ -113,14 +113,14 @@ driver 按下面的顺序发布，每一步之前都有停在 Signal 等待点�
 1. app-a v1 与 app-b v1 上线，跑一遍写法基础，再启动 9 个在途 Run。
 2. **app-a v2 上线，与 app-a v1 并存**（场景 2、5、7）。
 3. **app-b v2 上线，替换 app-b v1**（场景 1、2、3）。
-4. **app-a v1 下线**（场景 4），随后重新上线做恢复。
+4. **app-a v1 下线**（场景 4），随后重新上线。
 5. **app-a v3 上线**（场景 6）。
 
 先上提供 Activity 的一方、后上调用它的一方：新 Program 成为 latest 时，它声明的契约已经有 Worker 承接。
 
 ## Activity 升级
 
-Activity 契约有三个维度：`type`、入参指纹、出参指纹。含义或结构要变时用新的 `type`，旧 `type` 保留到没有 Run 再调用它。Server 在调度时确认至少一个在线 Worker 的上报与 Program 声明逐维度相等；任务投到队列，Worker 开始执行前再按领取者自己的上报对照一次，契约一致的 build 执行它。新旧 build 同时在线、契约不同时，任务可能先被不一致的 build 领到，被拒绝后约 1s 重新投递；一次完整运行里 Server 日志记录了 9 次这样的拒绝（`RESULTS.md`）。下文「派给」指实际执行它的 build（`ActivityStarted` 的 `workerBuildId`）。
+Activity 契约有三个维度：`type`、入参指纹、出参指纹。含义或结构要变时用新的 `type`，旧 `type` 保留到没有 Run 再调用它。Server 调度时不对照契约，任务投到队列；Worker 开始执行前按领取者自己的上报对照 Run 当前 Program 的声明（逐维度相等），契约一致的 build 执行它。新旧 build 同时在线、契约不同时，任务可能先被不一致的 build 领到，被拒绝后约 1s 重新投递；一次完整运行里 Server 日志记录了 18 次这样的拒绝，大部分来自场景 4（`RESULTS.md`）。下文「派给」指实际执行它的 build（`ActivityStarted` 的 `workerBuildId`）。
 
 ### 场景 1：新增可选入参
 
@@ -193,20 +193,18 @@ if shipVersion == workflow.DefaultVersion {
 app-a v1 停止（`Worker.Stop` 注销路由）之后，对三个 `pinned` 在 v1 Program 上的 Run 发 Signal：
 
 - `return-old-type`（return-flow v1）调度旧 type `fulfillment.quote`。app-a v2 保留了它，契约与 v1 相同，Run 由 app-a-v2 执行并完成，`label_fee = 500`。
-- `order-paused` 与 `order-to-latest`（order-flow v1）调度 `fulfillment.reserve`。它的入参在 v2 加了字段，在线的 app-a-v2 与旧声明不一致：
+- `order-waiting` 与 `order-to-latest`（order-flow v1）调度 `fulfillment.reserve`。它的入参在 v2 加了字段，在线的只有 app-a-v2，契约与旧声明不一致。调度照常写入 `ActivityScheduled`，任务投到 `fulfillment` 队列；app-a-v2 每次领取都被拒绝，任务约 1s 后重新投递。Server 日志：
 
 ```text
-ConfigError: activity "fulfillment.reserve" contract mismatch on worker "app-a-v2-1" (namespace "upgrade-demo" queue "fulfillment" build "app-a-v2"): input expected "wire:a3853d0050fc8a978880bdfc9dc776f4" actual "wire:ca79189195eccac12b159552f2a291cf"
+activity claim refused: worker contract is incompatible with the workflow declaration; the task is redelivered ... err="activity \"fulfillment.reserve\" contract mismatch on worker \"app-a-v2-1\" (namespace \"upgrade-demo\" queue \"fulfillment\" build \"app-a-v2\"): input expected \"wire:a3853d0050fc8a978880bdfc9dc776f4\" actual \"wire:ca79189195eccac12b159552f2a291cf\""
 ```
 
-Run 的 status 保持 `running`，Activity 没有被调度，History 保留。
+Run 的 status 保持 `running`，没有 `ConfigError`，也不是 Blocked；reserve 停在 Scheduled。两种恢复：
 
-两种恢复都由 set-policy 触发。set-policy 清除 `ConfigError`，关闭暂停时打开的那个 Workflow Task（History 里记一条 `WorkflowTaskFailed`，`cause=run_resumed`），再开启一个新的 Workflow Task；选版在新的 Workflow Task 上按新策略重新运行。
+- **旧 build 保持离线，把 Run 改成 `auto_upgrade`**（`order-to-latest`）：set-policy 开启一个新的 Workflow Task，它选中 latest 的 v2 Program，重放通过，Run 切到 v2。领取时的契约对照读 Run 当前的 Program，v2 声明 reserve 的新入参，app-a-v2 领取已在队列里的 reserve。这次 reserve 的入参由 v1 写出，没有 `warehouse` 字段，app-a-v2 按零值处理，`warehouse = west`。quote 在切换之前已经按旧 type 调度、由 app-a-v2 执行，`ship_fee = 1000`，Run 完成。
+- **旧 build 重新上线**（`order-waiting`）：app-a-v1 领取下一次投递，Run 留在 v1 Program 自动完成，`ship_fee = 1000`，不需要 set-policy。
 
-- **旧 build 保持离线，把 Run 改成 `auto_upgrade`**（`order-to-latest`）：新的 Workflow Task 选中 latest 的 v2 Program，重放通过，Run 切到 v2。v2 声明 reserve 的新入参与 `fulfillment.quote-taxed`，在线的 app-a-v2 承接，`warehouse = east`、`ship_fee = 1100`，Run 完成。
-- **旧 build 重新上线，把 Run 设为 `pinned`**（`order-paused`）：Run 留在 v1 Program，reserve 派给重新上线的 app-a-v1，`ship_fee = 1000`，Run 完成。旧 build 上线本身不恢复 Run，set-policy 是必需的一步；旧 build 仍然离线时设为 `pinned`，Run 会因为同一个不一致再次暂停。
-
-Console 里（`UD_CONSOLE=1 UD_STEP=1`，在检查点打开 Run 详情页）：暂停的 Run 顶部是红色横幅 `Configuration paused`，详情是上面的 ConfigError 原文，横幅上的 `Resume with latest (AutoUpgrade)` 与 `Pin current content` 两个按钮都调用 set-policy。Console 部分沿用 `docs/examples/multiprocess` 的启动方式，本示例交付时没有在浏览器里验证。
+Console 里（`UD_CONSOLE=1 UD_STEP=1`，在检查点打开 Run 详情页）：Run 详情里 reserve 是 Scheduled，没有横幅；Actions 菜单的 `Use latest (AutoUpgrade)` 调用同一个 set-policy。Console 部分沿用 `docs/examples/multiprocess` 的启动方式，本示例交付时没有在浏览器里验证。
 
 ## Workflow 升级
 

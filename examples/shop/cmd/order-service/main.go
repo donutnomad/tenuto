@@ -127,7 +127,7 @@ func (a *api) getOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := map[string]any{"order_id": r.PathValue("id"), "run_id": desc.RunID, "run_status": desc.Status}
 	if b := desc.Blocked; b != nil {
-		// Workflow Task 连续失败，例如下一步 Activity 所在队列没有在线 Worker。
+		// Workflow Task 连续失败，例如下一步 Activity 没有声明队列、也找不到在线 Worker。
 		// Run 按退避重试，原因消除后自动继续。
 		resp["blocked"] = map[string]any{"cause": b.Cause, "reason": b.Reason, "failures": b.ConsecutiveFailures}
 	}

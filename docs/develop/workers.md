@@ -149,7 +149,7 @@ if err := w.WaitReady(readyCtx); err != nil {
 
 定义经 Worker 所用 Client 的连接登记，任何 `Role` 的 Worker 都可以携带 `Workflows`。
 
-Activity Worker 与 Workflow 定义的上线顺序没有硬性要求。Run 走到没有可用 Worker 的 Activity 时显示为 Blocked，Worker 上线后继续执行。调用指定了 Task Queue、而 Workflow 声明了该 Activity 的契约时，队列上没有在线 Worker 同样按 Blocked 等待（`activity_route_unavailable`）：没有 Worker 上报就无法对照契约。没有声明契约的调用直接投进指定的队列，任务在队列里等 Worker 上线。
+Activity Worker 与 Workflow 定义的上线顺序没有硬性要求。Activity 的队列能确定时（调用处 `ActivityOptions.TaskQueue` 或 `@Activity(queue)`），调度照常写入 `ActivityScheduled` 并投进这个队列，与此刻有没有在线 Worker、在线 Worker 的契约是否一致无关；任务在队列里等 Worker 上线，`ScheduleToStartTimeout` 从调度时起算。队列不能确定时（两处都没写、路由目录里没有这个类型或路由歧义），Workflow Task 以 `activity_route_unavailable` 失败并退避重试，Run 显示为 Blocked，Worker 上线后继续执行。
 
 Server 把 Worker 登记缓存为路由目录：本副本上的登记与注销立即生效；其他副本上的登记与注销最多 5 秒后生效。心跳只延长登记的到期时间。路由目录总是存在，没有任何登记时是空目录：未指定 Task Queue 的 Activity 在这个 Namespace 有 Worker 登记它的类型之前以 `activity_route_unavailable` 退避等待，内存部署、测试与 MySQL 部署的规则相同。与 Server 同进程运行的 Worker 同样向 Server 登记自己的路由。
 

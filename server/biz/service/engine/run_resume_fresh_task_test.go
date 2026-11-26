@@ -2,7 +2,6 @@ package engine_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,9 +13,9 @@ import (
 	"github.com/donutnomad/tenuto/server/infra/memory"
 )
 
-// pauseOnOldContract 复现「旧 build 下线」：Run 固定在声明 c 旧输入的内容 A 上，路由目录里只有
-// 上报 c 新输入（多一个 note 字段）的新 Worker，内容 B（声明 c 新输入）已经是 latest。b 完成后调度 c 时契约不一致，Run 暂停。
-func pauseOnOldContract(t *testing.T, name string) (*engine.Server, *memory.ExecutionManager, *memory.TaskQueue, string, definition.WorkflowConfigRef, definition.WorkflowConfigRef) {
+// pauseBeforeC 构造一个以 ConfigError 暂停的 Run：Run 固定在声明 c 旧输入的内容 A 上，内容 B（声明 c 新输入，
+// 与在线 Worker 的上报一致）已经是 latest。b 领取之后、完成之前暂停 Run，b 的完成不再推进，c 没有调度。
+func pauseBeforeC(t *testing.T, name string) (*engine.Server, *memory.ExecutionManager, *memory.TaskQueue, string, definition.WorkflowConfigRef, definition.WorkflowConfigRef) {
 	t.Helper()
 	server, mgr, activities := newUpgradeReplayServer(t)
 	fixture := newContractFixture(t, name, "v1", contractCInDefault, contractCOutInt)
@@ -35,14 +34,16 @@ func pauseOnOldContract(t *testing.T, name string) (*engine.Server, *memory.Exec
 		t.Fatal("B content version must differ from A")
 	}
 
-	completeByType(t, server, activities, "example.b")
-	waitForRunConfigErrorForTest(t, mgr, runID)
-	paused, err := mgr.Get(runID)
-	if err != nil {
+	b := dequeueActivityTaskWithin(t, activities, "example.b", 10*time.Second)
+	if err := engine.PauseRunForTest(server, runID, "config error probe"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(paused.ConfigError, `activity "example.c" contract mismatch`) || !strings.Contains(paused.ConfigError, `input expected "wire:`) {
-		t.Fatalf("ConfigError = %q, want the c input mismatch", paused.ConfigError)
+	if err := server.HandleActivityCompleted(context.Background(), b.RunID, b.ScheduledEventID, b.Attempt, b.Stamp, map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if got := countScheduledType(mgrEvents(t, mgr, runID), "example.c"); got != 0 {
+		t.Fatalf("paused run scheduled c %d times, want 0", got)
 	}
 	assertRunVersion(t, mgr, runID, refA.Version, refA.Version, "paused run")
 	return server, mgr, activities, runID, refA, refB
@@ -50,7 +51,7 @@ func pauseOnOldContract(t *testing.T, name string) (*engine.Server, *memory.Exec
 
 // 暂停的 Run 改成 auto_upgrade：恢复开启一个新的 Workflow Task，选版重新运行，Run 切到 latest 并完成。
 func TestSetPolicyAutoUpgradeResumesPausedRunOnLatestProgram(t *testing.T) {
-	server, mgr, activities, runID, refA, refB := pauseOnOldContract(t, "resume-auto")
+	server, mgr, activities, runID, refA, refB := pauseBeforeC(t, "resume-auto")
 
 	if _, err := server.SetRunPolicy(context.Background(), protocol.DefaultNamespace, runID, execution.RunPolicyAutoUpgrade); err != nil {
 		t.Fatal(err)
@@ -72,28 +73,23 @@ func TestSetPolicyAutoUpgradeResumesPausedRunOnLatestProgram(t *testing.T) {
 	if got := countScheduledType(events, "example.b"); got != 1 {
 		t.Fatalf("b scheduled %d times, want 1 (completed result reused in replay)", got)
 	}
-	// 暂停时打开的 Workflow Task 由恢复关闭，History 里留下一条记录。
-	resumed := 0
-	for _, event := range events {
-		if event.WorkflowTaskFailed != nil && event.WorkflowTaskFailed.Cause == execution.WorkflowTaskFailedCauseRunResumed {
-			resumed++
-		}
-	}
-	if resumed != 1 {
-		t.Fatalf("WorkflowTaskFailed(cause=%s) = %d, want 1", execution.WorkflowTaskFailedCauseRunResumed, resumed)
-	}
 }
 
-// 暂停的 Run 改成 pinned：保持当前内容；不一致仍在，Run 再次暂停。
-func TestSetPolicyPinnedKeepsProgramAndPausesAgain(t *testing.T) {
-	server, mgr, _, runID, refA, _ := pauseOnOldContract(t, "resume-pinned")
+// 暂停的 Run 改成 pinned：保持内容 A，c 按 A 的声明调度。在线 Worker 只上报新输入，调度不对照契约，
+// Run 不再暂停；c 在队列里等兼容的 Worker，领取时对照。
+func TestSetPolicyPinnedKeepsProgramAndSchedulesWithoutPausing(t *testing.T) {
+	server, mgr, _, runID, refA, _ := pauseBeforeC(t, "resume-pinned")
 
 	if _, err := server.SetRunPolicy(context.Background(), protocol.DefaultNamespace, runID, execution.RunPolicyPinned); err != nil {
 		t.Fatal(err)
 	}
-	waitForRunConfigErrorForTest(t, mgr, runID)
+	waitForScheduledType(t, mgr, runID, "example.c", 1)
 	assertRunVersion(t, mgr, runID, refA.Version, refA.Version, "pinned resume")
-	if got := countScheduledType(mgrEvents(t, mgr, runID), "example.c"); got != 0 {
-		t.Fatalf("c scheduled %d times against a mismatched worker, want 0", got)
+	run, err := mgr.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ConfigError != "" {
+		t.Fatalf("a contract mismatch at schedule time paused the run again: %q", run.ConfigError)
 	}
 }

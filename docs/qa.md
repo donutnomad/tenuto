@@ -37,8 +37,8 @@ status: Stable
 
 1. Client 用 Workflow Type（`@Workflow` 的 `type`）和 Workflow ID 启动 Run，Server 写入 History，产生第一个 Workflow Task。
 2. Workflow Worker 领取它，按 History 重放程序；程序走到 `CallX` 时产生「调度 Activity」命令。
-3. Server 为命令确定队列（问题 14），确认有在线 Worker 的契约满足定义的声明，把 Activity Task 投到队列，写 `ActivityScheduled`。
-4. Activity Worker 领取任务，Server 再按领取者的契约核对一次，执行业务函数，结果写进 History。
+3. Server 为命令确定队列（问题 14），写 `ActivityScheduled`，把 Activity Task 投到队列。
+4. Activity Worker 领取任务，Server 按领取者上报的契约核对定义的声明，一致时执行业务函数，结果写进 History。
 5. 结果到达后产生下一个 Workflow Task，Workflow Worker 从头重放到新位置，继续产生命令，直到函数返回，Run 结束。
 
 Workflow 代码会被反复重放，所以必须确定（问题 7）；Activity 不重放，执行语义是至少一次，所以必须幂等（问题 10、23）。
@@ -56,7 +56,7 @@ Workflow 代码会被反复重放，所以必须确定（问题 7）；Activity 
 ### `type`
 
 - **Worker 侧**：注册表按 `type` 存实现函数，同一个注册表里重复注册同一个 `type` 会报错（`sdk/activity/registry.go`）。
-- **服务端**：调度时路由目录按 `namespace + type` 找在线 worker，确定任务投到哪个 queue，并确认至少一个在线 worker 的契约与声明一致（`server/biz/domain/dispatch/activity_routes.go`）。这个 `type` 没有任何在线 worker 时返回 `ErrActivityRouteUnavailable`。任务只按 queue 投递，不带 build；worker 开始执行前，服务端按这个 worker 自己的上报再对照一次契约（`server/biz/domain/dispatch/activity_contract.go` 的 `CheckClaimingWorkerContract`）。
+- **服务端**：调用处与定义都没写 queue 时，调度时路由目录按 `namespace + type` 找在线 worker，确定任务投到哪个 queue（`server/biz/domain/dispatch/activity_routes.go`）；这个 `type` 没有任何在线 worker 时返回 `ErrActivityRouteUnavailable`。写了 queue 时直接投到这个 queue。任务只按 queue 投递，不带 build；worker 开始执行前，服务端按这个 worker 自己的上报对照契约（`server/biz/domain/dispatch/activity_contract.go` 的 `CheckClaimingWorkerContract`）。
 - **Workflow 侧**：编译产物里每个 Activity 调用都带着 `type`，调度命令靠它寻址。
 
 ### 契约
@@ -68,14 +68,14 @@ Workflow 代码会被反复重放，所以必须确定（问题 7）；Activity 
 - **Worker 上报侧**：`RegisterActivities(registry)` 把实现和契约一起登记进注册表，worker 启动时上报注册表里的全部契约。
 - **Workflow 声明侧**：`workflow.json` 的 `activities` 字段随 Program 一起编译，表示这个 Workflow 期望的契约。
 
-服务端逐维度做相等对照两次：调度 Activity 时对照在线 worker 的上报（`server/biz/service/engine/server_definition.go` 的 `resolveActivityCommand`），worker 开始执行前对照领取者自己的上报（`server/biz/service/engine/server_activity.go` 的 `RefuseIncompatibleActivityClaim`），比较逻辑在 `server/biz/domain/dispatch/activity_contract.go`：
+服务端在 worker 开始执行前逐维度做相等对照，对照领取者自己的上报（`server/biz/service/engine/server_activity.go` 的 `RefuseIncompatibleActivityClaim`）；调度时不对照，只在目录里有多个候选时优先选上报一致的那个。比较逻辑在 `server/biz/domain/dispatch/activity_contract.go`：
 
 | 情况 | 结果 |
 |---|---|
 | Workflow 没声明契约 | 不对照，照常派发 |
-| worker 没有上报 Workflow 声明的维度 | 判为不一致，任务不派发 |
+| worker 没有上报 Workflow 声明的维度 | 判为不一致，这次领取被拒绝 |
 | 同一 `type` 有多个在线 build | 任务投到 queue，任一 build 都可能领到；契约不一致的领取被拒绝，任务约 1s 后重新投递 |
-| 所有候选 worker 的上报都与声明不同 | 任务不派发，Run 记下 `ConfigError` 并暂停，等人工修复 |
+| 所有在线 worker 的上报都与声明不同 | 任务照常调度、留在队列里，每次领取被拒绝后约 1s 重新投递；Run 不暂停，契约一致的 worker 上线后自动领取 |
 
 ### 含义变了、结构没变：新 `type`
 
@@ -98,24 +98,24 @@ func QuoteTaxed(_ context.Context, in QuoteInput) (QuoteOutput, error)
 | 新启动的 Run | 用最新 Program，调度 `fulfillment.quote-taxed` |
 | 运行中、策略 `auto_upgrade`，还没走到这一步 | 下一个 Workflow Task 边界切到最新 Program，调度 `fulfillment.quote-taxed` |
 | 运行中、策略 `pinned` | 留在旧 Program，调度 `fulfillment.quote`；新旧 build 都提供它，契约相同，谁领到谁执行，结果是旧含义 |
-| 运行中，这一步已经调度过 | 已调度的这次不受影响，对照只发生在调度那一刻；`auto_upgrade` 的 Run 之后切到新 Program 重放到这一步时，代码必须用 `GetVersion` 保留旧 `type` 的分支，否则命令与 History 不一致 |
+| 运行中，这一步已经调度过 | 已调度的这次按领取时 Run 当前 Program 的声明对照；`auto_upgrade` 的 Run 之后切到新 Program 重放到这一步时，代码必须用 `GetVersion` 保留旧 `type` 的分支，否则命令与 History 不一致 |
 
 这一步在已有 Run 的 History 里已经记过旧 `type`、之后还会被重放到时，换 `type` 改变了命令序列，用 `GetVersion` 分支保护（问题 2、7）。
 
-旧 `type` 的实现在所有 Program 都不再调用它、旧 Program 上的 Run 都结束后删除。提前删除时，旧 Program 上还要调度它的 Run 找不到在线 worker，Workflow Task 以 `activity_route_unavailable` 退避重试，重新部署提供旧 `type` 的 worker 后继续。
+旧 `type` 的实现在所有 Program 都不再调用它、旧 Program 上的 Run 都结束后删除。提前删除时，旧 Program 上还要调用它的 Run 等待：声明了 queue 的调用照常调度，任务留在队列里；没声明 queue 的调用找不到路由，Workflow Task 以 `activity_route_unavailable` 退避重试。重新部署提供旧 `type` 的 worker 后继续。
 
-### 契约不一致时的暂停与恢复
+### 契约不一致时的等待与恢复
 
-同一个 `type` 的结构变了（问题 2、3）、旧 build 又已下线时，旧 Program 上还要调度它的 Run 暂停，报错是 `contract mismatch ... input expected "wire:..." actual "wire:..."`，写在 Run 的 `ConfigError` 上。"找不到 worker"是另一种情况：这个 `type` 完全没有在线 worker。
+同一个 `type` 的结构变了（问题 2、3）、旧 build 又已下线时，旧 Program 上还要调用它的 Run 照常调度这个 Activity，任务留在队列里：新 build 每次领取都被拒绝（Server 日志 `activity claim refused: worker contract is incompatible`，原因里是 `contract mismatch ... input expected "wire:..." actual "wire:..."`），任务约 1s 后重新投递。Run 保持 Running，不暂停、不写 `ConfigError`；设置了 `ScheduleToStartTimeout` 时按它超时。
 
-暂停保留 history，可以恢复：
+恢复：
 
-- 把旧 build 的 worker 重新上线，然后对该 Run 执行 set-policy。set-policy 清除 `ConfigError`（`server/biz/domain/execution/upgrade_state.go` 的 `Run.OverridePolicy`），Run 继续推进。
-- 把该 Run 的策略改成 `auto_upgrade`，它在下一个 Workflow Task 边界切到声明新契约的 Program。前提是新 Program 能重放这条 Run 的已有 history。
+- 把旧 build 的 worker 重新上线，它领取这个任务，Run 自动继续，不需要人工操作。
+- 把该 Run 的策略改成 `auto_upgrade`。set-policy 开启一个新的 Workflow Task，Run 在上面切到最新 Program；领取时的对照读 Run 当前的 Program，新 build 随后领取已在队列里的任务。前提是新 Program 能重放这条 Run 的已有 history，且新 worker 能处理旧 Program 写出的入参。
 
 ### 核对范围
 
-`docs/examples/upgrade-demo` 的场景 2 与场景 4 跑过上面两张表：`auto_upgrade` 的在途 Run 切到新 Program 后调度新 `type`，`pinned` 的 Run 在旧 build 下线后由新 build 执行旧 `type`，契约不一致的 Run 暂停后用两种方式恢复。
+`docs/examples/upgrade-demo` 的场景 2 与场景 4 跑过上面两张表：`auto_upgrade` 的在途 Run 切到新 Program 后调度新 `type`，`pinned` 的 Run 在旧 build 下线后由新 build 执行旧 `type`，契约不一致的 Activity 在队列里等待，再用上面两种方式恢复。
 
 ## 问题 2：Activity 的输入和输出结构都变了，是不是只能新建一个 Activity、换一个新的 `type`？
 
@@ -132,7 +132,7 @@ func QuoteTaxed(_ context.Context, in QuoteInput) (QuoteOutput, error)
 | Run | 结果 |
 |---|---|
 | 新启动的 Run | 新 Program 与新 worker 的指纹一致，正常运行 |
-| `pinned`，还没调度到这个 Activity | 声明的是旧指纹；旧 build 的 worker 在线就由它执行，只剩新 worker 时 Run 暂停并记 `ConfigError` |
+| `pinned`，还没调度到这个 Activity | 声明的是旧指纹；旧 build 的 worker 在线就由它执行，只剩新 worker 时任务留在队列里等旧 build |
 | `auto_upgrade`，还没调度到这个 Activity | 下一个 Workflow Task 边界切到新 Program，按新结构调度，正常运行 |
 | `auto_upgrade`，这个 Activity 已经完成 | 重放对照通过；history 里存的是旧结构的输出，新 Program 按新结构读取它 |
 
@@ -182,7 +182,7 @@ func QuoteTaxed(_ context.Context, in QuoteInput) (QuoteOutput, error)
 
 - `input` 指纹对 record 的全部字段做哈希：JSON 名、类型、`omitempty`（`protocol/wire.go` 的 `WireFingerprint`）。新增一个字段，指纹就变。
 - 对照是逐维度相等（`protocol/activity_contract.go` 的 `CompareActivityContracts`），引擎没有"新增可选字段算兼容"的规则。
-- 结果与问题 2 的表格一致：新 Run 和 `auto_upgrade` 的 Run 正常运行；`pinned` 在旧 Program 上、且之后还要调度这个 Activity 的 Run，在只剩新 worker 时暂停并报 `contract mismatch ... input expected "wire:..." actual "wire:..."`。
+- 结果与问题 2 的表格一致：新 Run 和 `auto_upgrade` 的 Run 正常运行；`pinned` 在旧 Program 上、且之后还要调度这个 Activity 的 Run，在只剩新 worker 时这个 Activity 留在队列里，新 worker 的领取被拒绝（`contract mismatch ... input expected "wire:..." actual "wire:..."`）。
 
 ### `type`
 
@@ -191,11 +191,11 @@ func QuoteTaxed(_ context.Context, in QuoteInput) (QuoteOutput, error)
 ### 做法
 
 1. 新旧 build 的 worker 并存，等旧 Program 上的 `pinned` Run 跑完再下线旧 worker。
-2. 已经只剩新 worker、有 Run 暂停了：把这些 Run 改成 `auto_upgrade`。新增字段不改变 Workflow 的命令序列，重放对照通过，Run 切到新 Program 后按新指纹调度。
+2. 已经只剩新 worker、有 Activity 在队列里等待：把这些 Run 改成 `auto_upgrade`。新增字段不改变 Workflow 的命令序列，重放对照通过，Run 切到新 Program 后新 worker 领取等待中的任务（入参由旧 Program 写出，新字段是零值）。
 
 ### 现状说明
 
-"数据兼容但被引擎挡住"是当前相等对照的直接后果：引擎用它换来"声明与实现结构完全一致"的保证，代价是新增字段也要走一次新旧并存的发布流程。
+"数据兼容但被引擎挡住"是当前相等对照的直接后果：引擎用它换来"声明与实现结构完全一致"的保证，代价是新增字段也要走一次新旧并存的发布流程，或者把在途 Run 改成 `auto_upgrade`。被挡住的任务在队列里等待，不暂停 Run。
 
 ### 追问：Temporal 对这种情况是怎么处理的？
 
@@ -209,52 +209,42 @@ func QuoteTaxed(_ context.Context, in QuoteInput) (QuoteOutput, error)
 | | Temporal | Tenuto |
 |---|---|---|
 | 新增可选字段 | 直接运行 | 指纹变化，旧 Program 上的 `pinned` Run 需要旧 worker 并存 |
-| 字段改名、改类型 | 服务端不拦，下游拿到零值或解码失败，Activity 运行时才暴露 | 调度前拦住，Run 暂停并给出明确的 mismatch 报错 |
+| 字段改名、改类型 | 服务端不拦，下游拿到零值或解码失败，Activity 运行时才暴露 | 领取时拦住：契约不一致的 worker 不执行，任务在队列里等契约一致的 build，Server 日志给出 mismatch 原文 |
 | 结构没变、含义变了 | 靠发布方自己控制 | 发布方用新 `type` 表达新含义，旧 `type` 保留给旧 Run |
 | 新旧代码并存 | Worker Versioning（按 build 或 deployment version 把 Run 固定到某一版 worker） | build 并存，领取时按契约拒绝不一致的 worker |
 
-Temporal 选的是宽松：兼容的改动零成本，不兼容的改动到运行时才发现。Tenuto 选的是严格：不兼容的改动在调度前被挡住，代价是兼容的改动也要走一次并存发布。
+Temporal 选的是宽松：兼容的改动零成本，不兼容的改动到运行时才发现。Tenuto 选的是严格：不兼容的改动在 worker 开始执行前被挡住，代价是兼容的改动也要走一次并存发布。
 
 Temporal 的部分来自对它的了解，没有对照它的文档或源码核对；Worker Versioning 的具体形态以官方文档为准。
 
 ## 问题 4：只剩新 worker、旧 worker 已下线、Activity 契约不一致时，console 网页上显示报错还是暂停？能在网页上把 Run 改成 `auto_upgrade` 吗？
 
-**显示为暂停，Run 的状态仍是 Running。可以在网页上直接改成 `auto_upgrade`。**
+**都不显示：Run 不暂停、不报错，状态是 Running，这个 Activity 停在 Scheduled。可以在网页上改成 `auto_upgrade`，改完后新 worker 领取等待中的任务。**
 
 ### 页面表现
 
-Run 详情页顶部出现一条红色横幅（`console/src/lib/run-detail.ts` 的 `runConfigErrorBanner`）：
+调度不对照契约，Activity 照常写入 `ActivityScheduled` 并投到队列。新 worker 每次领取时 Server 按它的上报对照 Run 当前 Program 的声明，不一致就拒绝这次领取：attempt 不开始、不消耗重试次数，任务约 1s 后重新投递（`server/biz/service/engine/server_activity.go` 的 `RefuseIncompatibleActivityClaim`）。
 
-- 标题：`Configuration paused: a deterministic configuration or contract conflict stopped this run.`
-- 说明：`Workflow task dispatch is paused until the conflict is fixed. ...`
-- 详情：服务端记录的原文，即 `activity "..." contract mismatch on worker "..." ... input expected "wire:..." actual "wire:..."`
+- Run 详情里这个 Activity 一直是 Scheduled，没有 Started；Run 不进入 Blocked，也没有 `Configuration paused` 横幅。
+- Server 日志反复出现 `activity claim refused: worker contract is incompatible with the workflow declaration`，`err` 是 `activity "..." contract mismatch on worker "..." ... input expected "wire:..." actual "wire:..."`。
+- 设置了 `ScheduleToStartTimeout` 时到期后 Activity 超时，按 RetryPolicy 处理；默认 0，任务一直等。
 
-Run 不进入 Failed。服务端停止为它派发 Workflow Task（`server/biz/service/engine/server_delivery.go`），history 保留。
+### 恢复
 
-### 恢复入口
-
-横幅里有两个按钮，Actions 下拉菜单里有同样的两项（`console/src/app/[namespace]/runs/[runID]/page.tsx`）：
-
-| 按钮 | 效果 |
+| 做法 | 效果 |
 |---|---|
-| `Resume with latest (AutoUpgrade)` | 策略改为 `auto_upgrade`，清除暂停，下一个 Workflow Task 切到最新 Program |
-| `Pin current content` | 策略改为 `pinned`，清除暂停，继续用当前 Program |
+| 旧 worker 重新上线 | 它领取任务，Run 自动继续，不需要在网页上操作 |
+| Actions 菜单的 `Use latest (AutoUpgrade)` 把策略改成 `auto_upgrade` | set-policy 立即调度一个新的 Workflow Task，Run 在上面切到最新 Program；之后领取时按新 Program 的声明对照，新 worker 领取等待中的任务 |
 
-两个按钮都调用 `/set-policy`。服务端清除 `ConfigError` 并立即重新调度一个 Workflow Task（`server/biz/service/engine/run_upgrade.go` 的 `SetRunPolicy`）。2026-11-10 起，`auto_upgrade` 的恢复依赖这次恢复开启一个全新的 Workflow Task：`SetRunPolicy` 先以 `WorkflowTaskFailed`（`cause=run_resumed`）关闭暂停时仍然打开的那个 Workflow Task，新任务开始时才重新选择 Program。
-
-### 恢复后的结果
-
-- 点 `Resume with latest`：最新 Program 声明的指纹与新 worker 一致，Run 继续运行。最新 Program 仍是旧声明时，调度到这个 Activity 会再次暂停。
-- 点 `Pin current content`：Run 仍按旧 Program 的声明调度，只剩新 worker 时再次暂停。这个按钮用于旧 worker 已经重新上线的情况。
-- 切到新 Program 后重放与 history 不一致：出现黄色横幅显示 `UpgradeError`，Run 按退避重试，内容保持切换前的版本。
+切到新 Program 的前提：新 Program 能重放这条 Run 的 history（否则出现黄色横幅 `UpgradeError`，Run 按退避重试，内容保持切换前的版本）；新 worker 能处理旧 Program 写出的入参，例如新增字段在旧入参里是零值。
 
 ### 默认策略
 
-Workflow 定义没有指定策略时，Run 启动时取 `auto_upgrade`（`run_upgrade.go` 的 `applyRunPolicyDefaults`）。默认配置下的 Run 在下一个 Workflow Task 边界自动跟到最新 Program，问题 1 到 3 里"`pinned` 的旧 Run 暂停"只发生在定义或 Run 显式设为 `pinned` 的情况。
+Workflow 定义没有指定策略时，Run 启动时取 `auto_upgrade`（`run_upgrade.go` 的 `applyRunPolicyDefaults`）。默认配置下的 Run 在下一个 Workflow Task 边界自动跟到最新 Program，问题 1 到 3 里"`pinned` 的旧 Run 等待旧 build"只发生在定义或 Run 显式设为 `pinned` 的情况。
 
 ### 核对范围
 
-以上来自 console 与服务端代码，没有在浏览器里实际复现这个场景。
+`docs/examples/upgrade-demo` 场景 4 跑过两种恢复；console 页面没有在浏览器里实际复现这个场景。
 
 ## 问题 5：新 Program 可以晚于新 worker 上线吗？中间这段时间任务继续调度到旧 worker 上
 
@@ -271,13 +261,13 @@ Workflow 定义没有指定策略时，Run 启动时取 `auto_upgrade`（`run_up
 
 ### 三个条件
 
-1. **旧 worker 保持在线。** 旧 worker 下线后，还没调度的旧声明只剩不一致的候选，Run 暂停（问题 4）；已经调度的任务留在队列里，被新 worker 反复拒绝，直到旧 worker 回来或 `ScheduleToStartTimeout` 到期。
+1. **旧 worker 保持在线。** 旧 worker 下线后，旧声明的任务留在队列里，被新 worker 反复拒绝，直到旧 worker 回来、Run 改成 `auto_upgrade` 或 `ScheduleToStartTimeout` 到期（问题 4）。
 2. **新旧 worker 的 BuildID 不同。** 路由目录按 `namespace + type + queue + BuildID` 标识一条路由（`activity_routes.go` 的 `sameActivityRouteVersion`）。BuildID 相同时，后上报的那条覆盖先上报的，目录里只剩一份契约；领取时的对照也按 BuildID 取上报，引擎分不出新旧。
 3. **新 worker 启动时不携带新的 Workflow 定义。** worker 在开始 poll 之前登记随二进制发布的 Workflow 定义（`internal/worker/worker.go` 的 `registerWorkflows`），新内容首次出现即激活为 latest（`server/biz/usecase/definitions/usecase.go` 的 `EnrollWorkflowInNamespace`）。新 worker 的 `Workflows` 选项里带着新定义时，它一启动新 Program 就上线了。要分两步发布，新 worker 用纯 Activity 角色部署、`Workflows` 留空，新 Program 之后由 Workflow worker 或登记接口发布。
 
 ### 登记时的校验
 
-登记 Program 时只检查路由是否存在，缺路由只记告警，契约对照留到调度时（`activity_routes.go` 的 `ValidateWorkflowConfigInNamespace`）。所以反过来的顺序也成立：新 Program 先上线、新 worker 后上线，期间调度到这个 Activity 的新 Run 会因为只有旧 worker 而暂停，新 worker 上线后在 console 点恢复。先上 worker 再上 Program 是不产生暂停的顺序。
+登记 Program 时只检查路由是否存在，缺路由只记告警，契约对照留到领取时（`activity_routes.go` 的 `ValidateWorkflowConfigInNamespace`）。所以反过来的顺序也成立：新 Program 先上线、新 worker 后上线，期间新 Run 调度的这个 Activity 被旧 worker 拒绝、留在队列里，新 worker 上线后自动领取。先上 worker 再上 Program 是不产生等待的顺序。
 
 ### 追问：worker 带着新的 Workflow 定义一起上线，有没有问题？
 
@@ -649,7 +639,7 @@ Server 调度一个 Activity 时按顺序取队列，取到的队列写进 Histo
 
 1. 调用处的 `ActivityOptions.TaskQueue`，只作用于这一次调用。
 2. `@Activity(queue=...)`：写进 `workflow.json`，生成的 `RegisterActivities` 用 `activity.RegisterActivityOnQueue` 连同队列一起登记。
-3. 都没写：定义不声明队列，Server 在路由目录里选。目录是在线 Worker 上报的「拉取的队列 × 登记的 Activity 类型」；先排除契约与定义不一致的路由，再优先默认路由（`ActivityWorkerVersionDefault`），再按权重（`server/biz/domain/dispatch/activity_routes.go` 的 `ResolveActivityRoute`）。
+3. 都没写：定义不声明队列，Server 在路由目录里选。目录是在线 Worker 上报的「拉取的队列 × 登记的 Activity 类型」；有契约一致的路由时先排除不一致的，再优先默认路由（`ActivityWorkerVersionDefault`），再按权重（`server/biz/domain/dispatch/activity_routes.go` 的 `ResolveActivityRoute`）。
 
 Workflow Task 不分队列，由 Server 派给任意 Workflow Worker。
 
@@ -660,7 +650,7 @@ Worker 一侧（`sdk/worker/worker.go` 的 `activityTaskQueues`）：
 | 不写 | registry 登记的队列（`reg.Queues()`）；有不带队列的 Activity 时再加上 `default` |
 | 写了 | 原样使用；必须包含 registry 登记的每个队列，否则 `worker.New` 返回错误；可以额外列别的队列 |
 
-不写 queue 时，只在调度时有两种情况让 Run 显示 Blocked（`activity_route_unavailable`），都不是写法错误：没有任何在线 Worker 登记这个 Activity；几个服务在互不相关的队列上提供它（见问题 17）。Worker 上线或声明队列后，Run 按退避继续，History 不变。
+写了 queue 时调度总是成功，任务投到这个队列等 Worker，与此刻有没有在线 Worker 无关。不写 queue 时，只在调度时有两种情况让 Run 显示 Blocked（`activity_route_unavailable`），都不是写法错误：没有任何在线 Worker 登记这个 Activity；几个服务在互不相关的队列上提供它（见问题 17）。Worker 上线或声明队列后，Run 按退避继续，History 不变。
 
 ### 追问：Temporal 的 Workflow queue 会被所有 Activity 继承吗？
 
@@ -673,7 +663,7 @@ Tenuto 的对应做法：
 | Activity 不写 queue | 投到 Workflow 的队列 | 由执行它的 Worker 决定，Server 按登记选路 |
 | 调用处覆盖 | `ActivityOptions.TaskQueue` | 同左 |
 | 跨服务调用 | 调用处写对方队列名，或用 Nexus | `@RemoteActivity` 契约写在共享契约包里（问题 19），调用方用生成的 `CallX` |
-| 队列上没有能执行的 Worker | 投递后反复重试 | 调度前检查，不投递，Run Blocked 并说明原因 |
+| 队列上没有能执行的 Worker | 投递后反复重试 | 写了 queue：投递，任务在队列里等 Worker；没写 queue：目录给不出队列，不投递，Run Blocked 并说明原因 |
 
 ## 问题 15：Worker 的 `ActivityTaskQueues` 写了 `queue1`、`queue2`，没写 queue 的 Activity 投到哪个？两个 Worker 分别写 `queue1, queue2` 和 `queue2, queue1` 呢？
 
@@ -692,7 +682,7 @@ Tenuto 的对应做法：
 
 | Worker | 结果 |
 | --- | --- |
-| 不写 `ActivityTaskQueues`，只拉 `queue1` | `queue2` 上没有路由；定义声明了契约时调度不派发，Run Blocked（`declares a contract and no online worker on task queue queue2 reported one`），不改投 `queue1`，有 Worker 拉 `queue2` 后按退避继续 |
+| 不写 `ActivityTaskQueues`，只拉 `queue1` | 投到 `queue2`，Server 日志记 warning（`activity task queue has no known active worker`），不改投 `queue1`；任务在 `queue2` 里等，有 Worker 拉 `queue2` 后执行 |
 | `ActivityTaskQueues: []string{"queue1", "queue2"}` | Activity 也在 `queue2` 上可执行，投到 `queue2` 并执行 |
 | 另一个 Worker 拉 `queue2` 并登记了它 | 投到 `queue2`，由那个 Worker 执行；这是把部分调用交给专门 Worker 池的用法 |
 
@@ -711,7 +701,7 @@ Server 不判断「是不是同一份代码」：type、入参指纹、出参指
 | 没声明队列，两个服务在互不相关的队列上，都是默认路由，或都既没有默认也没有权重 | 调度不派发，Run Blocked（`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues`），声明队列或停掉一边后按退避继续 |
 | 没声明队列，只有一边是默认路由 | 投给默认路由那一边 |
 | 没声明队列，没有默认路由、配置了权重 | 按权重分流，视为显式配置 |
-| 两边契约不同（入参或出参指纹不同） | 调度与领取时按 Run 声明的契约区分，契约不符的 Worker 领取时被拒绝 |
+| 两边契约不同（入参或出参指纹不同） | 没声明队列时调度优先选契约一致的路由；领取时按 Run 声明的契约区分，契约不符的 Worker 领取时被拒绝 |
 
 「互不相关」按进程判断（`ambiguousRoutePools`）：同一个队列上的路由是一组；同一个 Worker 进程（Identity）拉取的几个队列是一组。BuildID 不参与，它可以为空，也可能被不同服务共用。Worker 登记本身不做这项检查：两个服务提供同名 Activity、调用方都声明了队列是正常用法。
 
@@ -727,7 +717,7 @@ Server 不判断「是不是同一份代码」：type、入参指纹、出参指
 | --- | --- | --- |
 | 新启动的 | `queue02` | 正常 |
 | `auto_upgrade` 在途 | 下一个 Workflow Task 边界切到新定义，投 `queue02` | 正常 |
-| `pinned` 在途 | 旧定义，投 `queue01` | Blocked（`activity_route_unavailable`），按退避重试 |
+| `pinned` 在途 | 旧定义，投 `queue01` | 任务留在 `queue01`，直到有 Worker 拉 `queue01` 或 `ScheduleToStartTimeout` |
 | 改动前已投进 `queue01`、还没领取的任务 | 留在 `queue01` | 停在 Scheduled，直到有 Worker 拉 `queue01` 或 `ScheduleToStartTimeout` |
 
 队列只在 Worker 的 `ActivityTaskQueues` 上配置时，定义里没有它，改队列不产生新定义，之后的调度（包括 `pinned` 的 Run）跟随 Worker 的登记；只有已投进 `queue01` 的任务留在原处。
@@ -778,7 +768,7 @@ activity.RegisterActivityOnQueue(registry, "payments", "payments.charge", g.Char
 
 起作用的地方：
 
-1. **路由目录按「队列 + 类型 + BuildID」保存契约**（`sameActivityRouteVersion`）。BuildID 不同时分开保存；相同时合并成一条，后登记的契约覆盖先登记的。调度时 Server 确认至少一条路由的契约满足 Run 的声明。
+1. **路由目录按「队列 + 类型 + BuildID」保存契约**（`sameActivityRouteVersion`）。BuildID 不同时分开保存；相同时合并成一条，后登记的契约覆盖先登记的。没声明队列时调度优先选契约满足 Run 声明的路由。
 2. **领取时按领取者的 BuildID 找它上报的契约**（`activity_contract.go` 的 `CheckClaimingWorkerContract`），与 Run 的声明不一致时拒绝，任务约 1s 后重新投递。
 3. **记录与展示**：`ActivityStarted` 的 `workerBuildId`，Console 的 Worker 列表。
 
@@ -796,7 +786,7 @@ worker: Options.BuildID is empty and the binary carries no VCS revision (built w
 
 ### 追问：两个进程都没写 BuildID、契约一致，会被当成同一份代码的多个副本吗？
 
-Server 不判断是不是同一份代码，契约一致就视为可以互相替代，BuildID 填不填都一样。BuildID 只在新旧代码的契约不同、又同时在线时起作用：滚动发布时 v2 给 `reserve` 的入参加了字段，两批进程用不同 BuildID，路由目录保留两份契约，声明旧指纹的 `pinned` Run 仍能派给 v1 进程；用相同 BuildID 时两份契约合并成一份，`pinned` Run 可能被判为契约不符而暂停，即使 v1 进程在线。
+Server 不判断是不是同一份代码，契约一致就视为可以互相替代，BuildID 填不填都一样。BuildID 只在新旧代码的契约不同、又同时在线时起作用：滚动发布时 v2 给 `reserve` 的入参加了字段，两批进程用不同 BuildID，路由目录保留两份契约，声明旧指纹的 `pinned` Run 仍能派给 v1 进程；用相同 BuildID 时两份契约合并成一份，v1 进程领取 `pinned` Run 的任务也可能按 v2 的契约被拒绝，任务一直留在队列里，即使 v1 进程在线。
 
 ### 追问：第二个进程改了 Activity 内部的代码顺序，会出问题吗？
 
@@ -841,16 +831,16 @@ Server 不判断是不是同一份代码，契约一致就视为可以互相替�
 | Console 上的提示 | 含义 | 会自动继续吗 | 处理 |
 | --- | --- | --- | --- |
 | Workflow Blocked 卡片（cause、reason、连续失败次数） | Workflow Task 连续失败，History 不变 | 会：退避从 1s 开始，最长 1 分钟（`server/biz/domain/execution/workflow_task.go`） | 按 cause 修复，见下表 |
-| 红色横幅 `Configuration paused`（Run 的 `config_error`） | 确定性的配置或契约冲突，例如 `contract mismatch`，或 `auto_upgrade` 换版前发现 History 里的载荷在新类型下读不回 | 不会 | 横幅上的 `Resume with latest (AutoUpgrade)` 或 `Pin current content` 调用 set-policy 恢复（问题 4） |
+| 红色横幅 `Configuration paused`（Run 的 `config_error`） | 确定性的配置冲突，例如 `auto_upgrade` 换版前发现 History 里的载荷在新类型下读不回 | 不会 | 横幅上的 `Resume with latest (AutoUpgrade)` 或 `Pin current content` 调用 set-policy 恢复（问题 4） |
 | `AutoUpgrade retrying`（Run 的 `upgrade_error`） | `auto_upgrade` 的 Run 用最新定义重放旧 History 失败，仍留在上一份成功的内容上 | 会 | 发布兼容的定义（补 `GetVersion` 分支），或 set-policy `pinned` 留在旧内容（问题 7） |
-| 无提示，Activity 长时间 Scheduled | 任务在队列里：没有 Worker 拉这个队列，或在线 Worker 的契约与声明不符、领取被拒（Server 日志 `activity claim refused`） | Worker 就绪后会 | Workers 页核对 Activity Routing 与 Build；契约不符时让契约一致的 build 上线 |
+| 无提示，Activity 长时间 Scheduled | 任务在队列里：没有 Worker 拉这个队列，或在线 Worker 的契约与声明不符、领取被拒（Server 日志 `activity claim refused`） | Worker 就绪后会 | Workers 页核对 Activity Routing 与 Build；契约不符时让契约一致的 build 上线，或把 Run 改成 `auto_upgrade`（问题 4） |
 | Run 已 `failed` | Workflow 返回错误、执行预算超限等 | 不会 | 看 Failure 卡片，必要时 Reset（[Reset](/operations/reset)） |
 
 Blocked 常见的 cause：
 
 | cause | 原因 | 处理 |
 | --- | --- | --- |
-| `activity_route_unavailable` | 没有在线 Worker 提供这个 Activity；指定的队列上没有 Worker；没声明队列且几个服务在互不相关的队列上提供它（问题 14–17） | 启动对应 Worker，或声明队列 |
+| `activity_route_unavailable` | 没声明队列，且没有在线 Worker 提供这个 Activity，或几个服务在互不相关的队列上提供它（问题 14–17） | 启动对应 Worker，或声明队列 |
 | `non_deterministic_error` | 代码产生的命令与 History 不同 | 恢复旧命令序列或补 `GetVersion` 分支后重新发布 |
 | `bad_schedule_activity_attributes` | 调度 Activity 时没有关闭超时（选项来自变量，生成期检查不到） | 设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout` |
 | `schedule_activity_duplicate_id` | `ActivityOptions.ActivityID` 与同一 Run 里仍未关闭的 Activity 重复 | 让并发调用用不同的 ID |
