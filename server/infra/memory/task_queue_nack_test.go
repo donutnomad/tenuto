@@ -51,3 +51,43 @@ func TestTaskQueueNackRedeliversTheDequeuedTask(t *testing.T) {
 		t.Fatalf("settled leases were redelivered: %d pending", pending)
 	}
 }
+
+// 没有 Ack 或 Nack 的租约副本到期后在下一次出队时清理；到期后的 Nack 不再重投。
+func TestTaskQueueDropsExpiredLeases(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	now := time.Unix(1000, 0)
+	queue := NewTaskQueue(4)
+	queue.now = func() time.Time { return now }
+	for _, runID := range []string{"run-1", "run-2", "run-3"} {
+		if err := queue.Enqueue(ctx, protocol.Task{Type: protocol.TaskTypeWorkflow, RunID: runID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	abandoned, err := queue.Dequeue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nackedLate, err := queue.Dequeue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(taskLeaseTimeout - time.Millisecond)
+	if len(queue.leased) != 2 {
+		t.Fatalf("leased = %d before expiry, want 2", len(queue.leased))
+	}
+	now = now.Add(time.Millisecond)
+	if err := queue.Nack(ctx, nackedLate); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := queue.Dequeue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Task.RunID != "run-3" {
+		t.Fatalf("dequeued %q, want run-3: an expired nack must not redeliver", fresh.Task.RunID)
+	}
+	if _, ok := queue.leased[abandoned.Token]; ok || len(queue.leased) != 1 || len(queue.pending) != 0 {
+		t.Fatalf("leased = %v, pending = %d; want only the fresh lease", queue.leased, len(queue.pending))
+	}
+}
