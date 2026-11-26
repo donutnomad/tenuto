@@ -10,7 +10,7 @@ status: Stable
 
 Query 在 Workflow 重放到最后一个已完成的 Workflow Task 后执行只读 Handler。Query 结果不会写入 Event History。
 
-Server 为每个 Query 读一次 History 并在进程内重放。一个 Server 进程同时重放的 Query 数受 [`WORKFLOW_QUERY_CONCURRENCY`](/reference/configuration)（默认 8）限制，超出的 Query 排队，请求 context 结束时放弃；`__stack_trace` 不重放，不占名额。
+Server 为每个 Query 读一次 History 并在进程内重放。一个 Server 进程同时重放的 Query 数受 [`WORKFLOW_QUERY_CONCURRENCY`](/reference/configuration)（默认 8）限制，超出的 Query 不排队，立即应答 503 与 `Retry-After: 1`（对标 Temporal 的 `RESOURCE_EXHAUSTED`），Go SDK 按瞬时错误退避重发；`__stack_trace` 不重放，不占名额。
 
 Query 读到的是已提交状态：最后一个已完成的 Workflow Task 没有看到的 Signal、Activity 结果等事实（它完成之后到达的，以及它执行期间到达的），在下一个 Workflow Task 完成后才体现在 Query 结果里。Workflow Task 正在执行时发起的 Query 读到的是它开始之前的状态。
 

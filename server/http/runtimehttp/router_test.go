@@ -310,6 +310,21 @@ func TestWriteRuntimeErrorSetsRetryAfterOnUnavailable(t *testing.T) {
 	}
 }
 
+// Server 没有余量（Query 重放名额已满）：请求没有生效，任何端点都应答 503 与 Retry-After，SDK 退避重发。
+func TestWriteRuntimeErrorAnswersResourceExhaustedWith503(t *testing.T) {
+	err := fmt.Errorf("query replay concurrency limit 8 reached: %w", protocol.ErrResourceExhausted)
+	for _, path := range []string{runtimeapi.WorkflowRuntimeQueryPath, runtimeapi.WorkflowRuntimeResetPath} {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPost, path, nil)
+		c.Set(loggerKey, slog.New(slog.DiscardHandler))
+		writeRuntimeError(c, err)
+		if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Retry-After") != retryAfterSeconds {
+			t.Fatalf("%s: status = %d, Retry-After = %q", path, recorder.Code, recorder.Header().Get("Retry-After"))
+		}
+	}
+}
+
 // 请求在生效之前被取消（等 keyed lock 时 context 结束）应答 503 与 Retry-After，不应答空 body 的 200；
 // 非幂等端点同样是 503，因为取消只发生在提交之前。
 func TestWriteRuntimeErrorAnswersCancelledRequestsWith503(t *testing.T) {

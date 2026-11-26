@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -230,5 +231,74 @@ func TestWorkflowTaskCompletion_SteadySignalsDoNotStarveWorkflowTasks(t *testing
 	}
 	if completed != rounds || timers != rounds || failed != 0 {
 		t.Fatalf("after %d rounds: %d completed, %d timers, %d failed workflow tasks; every completion should commit", rounds, completed, timers, failed)
+	}
+}
+
+// Edge Case: 完成提交之后为没看到的事实调度下一个 WFT 失败。完成已经提交，不能报成完成失败（Worker 会逐出
+// session）；Run 留着 ActivationPending，reconcile 补上调度。
+func TestWorkflowTaskCompletion_ScheduleFailureAfterUnseenFactsCommitStillSucceeds(t *testing.T) {
+	ctx := context.Background()
+	srv, mgr := newFailingServerForTest(t)
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-unseen-schedule-fail", Program: programtest.Noop()})
+	wftID := openWorkflowTaskForTest(t, mgr, runID)
+	startWorkflowTaskForTest(t, mgr, runID, wftID)
+	if _, err := mgr.Append(runID, "", "", history.NewWorkflowSignaledEvent("late", nil)); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr.failOn(history.EventWorkflowTaskScheduled)
+	commands := []history.Command{{Type: history.CmdScheduleTimer, TimerID: "t", Delay: time.Hour}}
+	if err := srv.HandleWorkflowTaskCompleted(srv.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, commands, "worker-1"); err != nil {
+		t.Fatalf("committed completion reported as failed: %v", err)
+	}
+	state, err := mgr.GetWorkflowExecutionState(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.WorkflowTaskOpen(wftID) || !state.NeedsWorkflowTask() {
+		t.Fatalf("after the failed schedule: open=%v needs=%v, want closed and still needing a workflow task", state.WorkflowTaskOpen(wftID), state.NeedsWorkflowTask())
+	}
+
+	mgr.failOn("")
+	if _, err := srv.reconcileRun(ctx, runID, true); err != nil {
+		t.Fatal(err)
+	}
+	if next := openWorkflowTaskForTest(t, mgr, runID); next == wftID {
+		t.Fatalf("reconcile did not schedule a workflow task for the late signal")
+	}
+}
+
+// Error Case: open 的 WFT 没有 WorkflowTaskStarted 时，Worker 看到的边界无法确定：完成报错，不按猜测的边界提交。
+func TestWorkflowTaskCompletion_OpenTaskWithoutStartedIsRejected(t *testing.T) {
+	ctx := context.Background()
+	srv, mgr := newServerForTest(t)
+	runID := startReconcileTestRun(t, srv, &program.WorkflowConfig{Type: "wf-no-started", Program: programtest.Noop()})
+	wftID := openWorkflowTaskForTest(t, mgr, runID)
+
+	// 只带 task token、不 start 这个 WFT（WorkflowTaskContext 会先 start 它）。
+	state, err := mgr.GetWorkflowExecutionState(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := srv.tokens.Encode(protocol.Task{
+		Type: protocol.TaskTypeWorkflow, Namespace: srv.runNamespace(runID), RunID: runID, ScheduledEventID: wftID,
+		ExecutionGeneration: state.ExecutionGeneration, StickyGeneration: state.StickyGeneration,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := []history.Command{{Type: history.CmdScheduleTimer, TimerID: "t", Delay: time.Hour}}
+	err = srv.HandleWorkflowTaskCompleted(protocol.WithWorkflowTaskToken(ctx, token), runID, wftID, commands, "worker-1")
+	if err == nil || !strings.Contains(err.Error(), "no WorkflowTaskStarted") {
+		t.Fatalf("completion of a task that never started = %v, want the missing started error", err)
+	}
+	events, err := mgr.GetEvents(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.WorkflowTaskCompleted != nil {
+			t.Fatalf("completion committed with a guessed boundary: %+v", event.WorkflowTaskCompleted)
+		}
 	}
 }

@@ -137,7 +137,7 @@ err = value.Get(&progress)
 | 重放遇到确定性失配 | `*client.QueryFailedError`，`Message` 含重放失败原因 |
 | Run 已终态 | 重放终态 History 后执行 Handler |
 
-Query 读到的是最后一个已完成 Workflow Task 之后的状态；它没有看到的 Signal、Activity 结果（完成之后或执行期间到达的）在下一个 Workflow Task 完成后才体现。Server 为每个 Query 读一次 History 并在进程内重放，同时重放的 Query 数受 `WORKFLOW_QUERY_CONCURRENCY`（默认 8）限制，超出的排队。
+Query 读到的是最后一个已完成 Workflow Task 之后的状态；它没有看到的 Signal、Activity 结果（完成之后或执行期间到达的）在下一个 Workflow Task 完成后才体现。Server 为每个 Query 读一次 History 并在进程内重放，同时重放的 Query 数受 `WORKFLOW_QUERY_CONCURRENCY`（默认 8）限制，超出的立即应答 503 与 `Retry-After`，SDK 退避重发。
 
 ## Update
 

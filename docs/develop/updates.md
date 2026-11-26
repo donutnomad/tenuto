@@ -81,7 +81,7 @@ if err := handle.Get(ctx, &result); err != nil {
 2. 不满足时带着读到的 `next_event_id` 等待 Run 变化。History 每追加一条事件 `next_event_id` 就增大，并与事件在同一事务提交，所以第 1 步之后的任何提交都会被看到，不会漏掉唤醒。
 3. 唤醒有两个来源：本副本提交 Update 完成或 Run 结束后立即唤醒；有等待者期间，副本每 100ms 用一条 `SELECT ... FROM tenuto_execution_states WHERE run_id IN (...)` 读取本副本全部被等待的 Run（每 500 个 Run 一条），`next_event_id` 变大的 Run 唤醒它的等待者，等待者回到第 1 步。
 
-代价：没有等待者的副本不读库、不排定定时器。有等待者时每个副本每秒 10 条批量读取，与等待者数量无关（被等待的 Run 超过 500 个时按 500 个一条增加）；Run 每变化一次，它的每个等待者多读一次 execution state 与新增的事件（Update 等待者）或 execution state（`wait-closed`）。Update 的去重与结果查找按 Update ID 的索引读取，读取量与 History 长度无关。
+代价：没有等待者的副本不读库、不排定定时器。有等待者时每个副本每秒 10 条批量读取，与等待者数量无关（被等待的 Run 超过 500 个时按 500 个一条增加）；Run 每变化一次，它的每个等待者多读一次 execution state 与新增的事件（Update 等待者）或 execution state（`wait-closed`）。Update 的去重与结果查找按 Update ID 的索引一次读出这个 Update 的事件与 Run 的终态事件，读取量与 History 长度无关；与 Run 结束同批提交的 Update 结果和终态事件同时可见，不会被当成「Run 结束了这个 Update」。
 
 等待者只存在于受理请求的副本内存里。副本重启或下线时进行中的请求随连接断开，调用方重发：`handle.Get` 与 `WorkflowRun.Get` 收到连接错误时返回错误，对同一个句柄再调用一次即可，Update 按 Update ID 幂等。
 

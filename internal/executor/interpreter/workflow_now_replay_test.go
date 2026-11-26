@@ -95,7 +95,7 @@ func TestWorkflowNowMatchesLiveAndReplayWithoutSticky(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertNowOutput(t, completedOutput(t, commands))
+	assertNowOutput(t, nowCompletedOutput(t, commands))
 }
 
 func TestWorkflowNowMatchesLiveAndReplayWithSticky(t *testing.T) {
@@ -108,7 +108,7 @@ func TestWorkflowNowMatchesLiveAndReplayWithSticky(t *testing.T) {
 	}
 	commit, second := nowTestHistory(result.Commands[0])
 	commitNowSession(t, session, result, commit)
-	stickyOut := completedOutput(t, activateNowSession(t, session, "a2", second).Commands)
+	stickyOut := nowCompletedOutput(t, activateNowSession(t, session, "a2", second).Commands)
 	assertNowOutput(t, stickyOut)
 
 	// Worker 重启之后从完整 History 冷重放，得到同样的输出。
@@ -117,7 +117,7 @@ func TestWorkflowNowMatchesLiveAndReplayWithSticky(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertNowOutput(t, completedOutput(t, commands))
+	assertNowOutput(t, nowCompletedOutput(t, commands))
 }
 
 const workflowNowBranchSrc = `package flows
@@ -212,7 +212,7 @@ func commitNowSession(t *testing.T, session *workflowExecutionSession, result hi
 	}
 }
 
-func completedOutput(t *testing.T, commands []history.Command) map[string]any {
+func nowCompletedOutput(t *testing.T, commands []history.Command) map[string]any {
 	t.Helper()
 	for _, command := range commands {
 		if command.Type == history.CmdCompleteWorkflow {

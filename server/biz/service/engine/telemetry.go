@@ -27,7 +27,7 @@ type serverOptions struct {
 const DefaultQueryConcurrency = 8
 
 // WithQueryConcurrency 设定同时在本进程重放 History 求值 Query 的上限；n <= 0 时取 DefaultQueryConcurrency。
-// 超过上限的 Query 排队等空位，请求 context 结束时放弃。
+// 超过上限的 Query 立即以 protocol.ErrResourceExhausted 失败（HTTP 503 与 Retry-After），由调用方退避重发。
 func WithQueryConcurrency(n int) ServerOption {
 	return func(options *serverOptions) {
 		options.queryConcurrency = n

@@ -54,13 +54,15 @@ func UpdateRecordsFromEvents(events []history.Event) []history.WorkflowUpdateRec
 	return records
 }
 
-// UpdateDedupeKeys 返回一个 Update 的 WorkflowUpdateAccepted 与 WorkflowUpdateCompleted 的去重键（history.DedupeKey）。
-// 两类事件都按去重键写入，按这两个键读到的就是这个 Update 在 History 里的全部事件。
+// UpdateDedupeKeys 返回查找一个 Update 记录要读的去重键（history.DedupeKey）：它的 WorkflowUpdateAccepted、
+// WorkflowUpdateCompleted，以及 Run 的终态事件。三类事件在一次读取里取到，来自同一时刻的 History：终态事件与同批
+// 提交的 WorkflowUpdateCompleted 要么都在、要么都不在，已接受、未完成的 Update 只在终态事件确实在时按 Run 结束失败。
 func UpdateDedupeKeys(updateID string) []string {
 	var keys []string
 	for _, event := range []history.Event{
 		history.NewWorkflowUpdateAcceptedEvent("", updateID, nil),
 		{WorkflowUpdateCompleted: &history.WorkflowUpdateCompletedEvent{UpdateID: updateID}},
+		{WorkflowCompleted: &history.WorkflowCompletedEvent{}},
 	} {
 		if key, ok := history.DedupeKey(event); ok {
 			keys = append(keys, key)
@@ -69,19 +71,13 @@ func UpdateDedupeKeys(updateID string) []string {
 	return keys
 }
 
-// UpdateRecordFromEvents 从一个 Update 自己的事件（UpdateDedupeKeys 读到的）组装它的记录，与 UpdateRecordsFromEvents
-// 在完整 History 上的结果相同。closedEventID 是 Run 的终态事件 ID（未结束为 0）：已接受、未完成的 Update 以
-// AcceptedUpdateCompletedWorkflow 失败结束在这个事件上。
-func UpdateRecordFromEvents(updateID string, events []history.Event, closedEventID int64) (history.WorkflowUpdateRecord, bool) {
+// UpdateRecordFromEvents 从 UpdateDedupeKeys 读到的事件组装 updateID 的记录，与 UpdateRecordsFromEvents 在完整
+// History 上的结果相同。
+func UpdateRecordFromEvents(updateID string, events []history.Event) (history.WorkflowUpdateRecord, bool) {
 	for _, record := range UpdateRecordsFromEvents(events) {
-		if record.UpdateID != updateID {
-			continue
+		if record.UpdateID == updateID {
+			return record, true
 		}
-		if record.CompletedEventID == 0 && closedEventID != 0 {
-			record.Outcome = protocol.WorkflowClosedUpdateOutcome()
-			record.CompletedEventID = closedEventID
-		}
-		return record, true
 	}
 	return history.WorkflowUpdateRecord{}, false
 }

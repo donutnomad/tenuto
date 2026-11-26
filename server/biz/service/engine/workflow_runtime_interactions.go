@@ -94,19 +94,20 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 }
 
 func (s *Server) QueryWorkflow(ctx context.Context, namespace, workflowID, runID, name string, input map[string]any) (execution.WorkflowQueryResult, error) {
-	workflowRun, state, err := s.view.GetRunWithState(namespace, workflowID, runID)
-	if err != nil {
-		return execution.WorkflowQueryResult{}, err
-	}
-	runID = workflowRun.ID
-	// 重放求值的 Query 先占一个并发名额再读 History：同时驻留内存的 History 与重放的 CPU 都受上限约束。
+	// 重放求值的 Query 先占一个并发名额，再读 Run、execution state 与 History：同时驻留内存的 History 与重放的 CPU
+	// 都受上限约束，state 与 History 在拿到名额之后相继读出，来自同一时刻。
 	if name != "" && name != stackTraceQueryType {
-		release, err := s.acquireQuerySlot(ctx)
+		release, err := s.acquireQuerySlot()
 		if err != nil {
 			return execution.WorkflowQueryResult{}, err
 		}
 		defer release()
 	}
+	workflowRun, state, err := s.view.GetRunWithState(namespace, workflowID, runID)
+	if err != nil {
+		return execution.WorkflowQueryResult{}, err
+	}
+	runID = workflowRun.ID
 	// History 只读一次：历史投影、__stack_trace 与重放求值共用这一份。
 	events, err := s.GetEvents(runID)
 	if err != nil {
@@ -125,13 +126,14 @@ func (s *Server) QueryWorkflow(ctx context.Context, namespace, workflowID, runID
 	return result, nil
 }
 
-// acquireQuerySlot 等一个 Query 重放名额；ctx 先结束时返回错误。返回的 release 归还名额。
-func (s *Server) acquireQuerySlot(ctx context.Context) (func(), error) {
+// acquireQuerySlot 占一个 Query 重放名额，返回的 release 归还它。名额已满时不排队，立即返回
+// protocol.ErrResourceExhausted（对标 Temporal 的 RESOURCE_EXHAUSTED）：HTTP 应答 503 与 Retry-After，SDK 退避重发。
+func (s *Server) acquireQuerySlot() (func(), error) {
 	select {
 	case s.querySlots <- struct{}{}:
 		return func() { <-s.querySlots }, nil
-	case <-ctx.Done():
-		return nil, fmt.Errorf("wait for a query replay slot (limit %d): %w", cap(s.querySlots), context.Cause(ctx))
+	default:
+		return nil, fmt.Errorf("query replay concurrency limit %d reached: %w", cap(s.querySlots), protocol.ErrResourceExhausted)
 	}
 }
 
@@ -384,26 +386,19 @@ func normalizeUpdateArgs(args protocol.Payloads) (protocol.Payloads, error) {
 	return args, nil
 }
 
-// lookupUpdate 按 update ID 的去重键索引读取该 Run 上这个 Update 的记录，不读整份 History。
-// Run 已结束时，已接受、未完成的 Update 以终态事件结束（终态之后不再追加事件，终态事件就是最后一个事件）。
+// lookupUpdate 按去重键索引一次读取这个 Update 的事件与 Run 的终态事件，不读整份 History，也不另读 execution state：
+// 同批提交的 WorkflowUpdateCompleted 与终态事件在同一次读取里要么都在、要么都不在，已接受、未完成的 Update 只在读到
+// 终态事件时按 Run 结束失败。
 func (s *Server) lookupUpdate(namespace, workflowID, runID, updateID string) (history.WorkflowUpdateRecord, bool) {
 	run, err := s.resolveRun(namespace, workflowID, runID)
 	if err != nil {
 		return history.WorkflowUpdateRecord{}, false
 	}
 	events, err := s.mgr.GetEventsByDedupeKeys(run.ID, execution.UpdateDedupeKeys(updateID))
-	if err != nil || len(events) == 0 {
-		return history.WorkflowUpdateRecord{}, false
-	}
-	state, err := s.mgr.GetWorkflowExecutionState(run.ID)
 	if err != nil {
 		return history.WorkflowUpdateRecord{}, false
 	}
-	var closedEventID int64
-	if state.IsTerminal() {
-		closedEventID = state.LastEventID
-	}
-	return execution.UpdateRecordFromEvents(updateID, events, closedEventID)
+	return execution.UpdateRecordFromEvents(updateID, events)
 }
 
 // validateInteraction 要求请求寻址的 Run 存在且未结束。

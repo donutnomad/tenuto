@@ -10,6 +10,10 @@ import (
 // 没有这个标记、也不是已知哨兵的错误属于服务端故障。
 var ErrInvalidRequest = errors.New("invalid request")
 
+// ErrResourceExhausted 标记 Server 当前没有余量处理的请求（对标 Temporal 的 RESOURCE_EXHAUSTED）：请求没有生效，
+// 稍后重发即可。HTTP 层把它映射为 503 与 Retry-After，SDK 按瞬时错误重试。
+var ErrResourceExhausted = errors.New("resource exhausted")
+
 type invalidRequestError struct{ err error }
 
 func (e *invalidRequestError) Error() string { return e.err.Error() }

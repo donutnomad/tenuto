@@ -111,8 +111,9 @@ func TestOverlongWorkflowCommandIdentifiersBlockRun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
+			stores := newWorkflowStores(t)
 			server := assembly.NewServer(assembly.Options{
-				Stores: newWorkflowStores(t), WorkflowQueue: memory.NewTaskQueue(16), ActivityRouter: memory.NewActivityQueueRouter(16),
+				Stores: stores, WorkflowQueue: memory.NewTaskQueue(16), ActivityRouter: memory.NewActivityQueueRouter(16),
 			})
 			defer server.Stop()
 			registerActivityRoutes(t, server, "work")
@@ -122,7 +123,7 @@ func TestOverlongWorkflowCommandIdentifiersBlockRun(t *testing.T) {
 				t.Fatal(err)
 			}
 			wftID := openWorkflowTaskID(t, server, runID)
-			if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, wftID), runID, wftID, []historypkg.Command{tc.command}, ""); err != nil {
+			if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, stores.Executions, runID, wftID), runID, wftID, []historypkg.Command{tc.command}, ""); err != nil {
 				t.Fatalf("complete workflow task = %v", err)
 			}
 			state, err := server.GetWorkflowExecutionState(runID)
