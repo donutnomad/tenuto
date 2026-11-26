@@ -45,13 +45,16 @@ export TASKQ_ACTIVITY_QUEUES_JSON='{"default/default":{"physical":"workflow-acti
 
 `WORKFLOW_TASK_TOKEN_SECRET` 至少包含 32 字节，并在所有 Server 副本间保持一致。`WORKFLOW_HISTORY_PAGE_TOKEN_KEY_BASE64` 同样需要跨副本共享。
 
-两个 DSN 的 `parseTime=true`、`loc=UTC` 与 `interpolateParams=true` 由 Server 设置，DSN 里写成别的值也不生效（`migrate` 相同）：
+两个 DSN 的 `parseTime=true`、`loc=UTC`、`interpolateParams=true` 与 `clientFoundRows=false` 由 Server 设置，DSN 里写成别的值也不生效（`migrate` 相同）：
 
 | 参数 | 作用 |
 | --- | --- |
 | `parseTime=true` | `DATETIME` 列读成时间值 |
 | `loc=UTC` | 写入与读取的时间都按 UTC 解释 |
 | `interpolateParams=true` | 驱动在客户端把参数插进 SQL 文本，每条带参数的语句一次往返。不插值时每条语句依次发 prepare、execute、close |
+| `clientFoundRows=false` | upsert 撞键、没有改动列时 affected rows 为 0。仓储按这个值区分新写入与去重命中（事件去重、state 写入） |
+
+经 `app.WithDatabase` 注入的 gorm 句柄不经过这一步，Server 启动时在 Workflow 库上执行一次回滚的 upsert 探测：句柄带 `clientFoundRows=true` 时启动失败。
 
 连接字符集用 `utf8mb4`（表都是 `utf8mb4`）。`charset` 或 `collation` 是 GBK、GB18030、Big5、SJIS、CP932 这类多字节字符集时 Server 启动失败：它们的字符尾字节可能是反斜杠，客户端插值无法安全转义。
 

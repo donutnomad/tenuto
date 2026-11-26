@@ -419,7 +419,7 @@ func TestTaskQRetryContinuesAfterServerWorkerRestart(t *testing.T) {
 		return m{"ok": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	secondWorker := assembly.NewWorker(secondServer, secondRegistry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -486,7 +486,7 @@ func TestTaskQScheduledActivityKeepsRetryPolicyAfterServerRestart(t *testing.T) 
 		return m{"ok": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	worker := assembly.NewWorker(secondServer, registry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -553,7 +553,7 @@ func TestTaskQRecoversOpenWorkflowTaskWhoseDispatchFailed(t *testing.T) {
 		return m{"ok": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	worker := assembly.NewWorker(secondServer, registry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -640,7 +640,7 @@ func TestTaskQRecoversOpenActivityWhoseDispatchFailed(t *testing.T) {
 		return m{"ok": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	worker := assembly.NewWorker(secondServer, registry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -728,7 +728,7 @@ func TestTaskQCompensationContinuesAfterServerWorkerRestart(t *testing.T) {
 		return m{"refunded": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	worker := assembly.NewWorker(secondServer, registry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -1094,7 +1094,7 @@ func TestTaskQWorkflowTaskTimeoutRequeuesAndCompletesWithNewWorker(t *testing.T)
 	firstServer.Stop()
 
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	secondWorker := assembly.NewWorker(secondServer, wfsdk.NewRegistry(), worker.WorkerOptions{

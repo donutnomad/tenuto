@@ -204,7 +204,7 @@ func TestWorkflowTaskTimeoutSurvivesServerRestart(t *testing.T) {
 	deps.WorkflowQueue = &ackRecordingQueue{}
 	restarted := NewServer(deps)
 	t.Cleanup(restarted.Stop)
-	if err := restarted.RecoverRunningWorkflows(context.Background()); err != nil {
+	if err := restarted.RecoverRunningWorkflows(context.Background(), DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	if got, armed := restarted.timers.Deadline(workflowTaskTimeoutRef(runID, lease.Task.ScheduledEventID)); !armed || !got.Equal(deadline) {

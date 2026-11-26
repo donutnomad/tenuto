@@ -116,7 +116,7 @@ func Processor(ctx workflow.Context, state LoopState) error {
 - `workflowType` 是下一代 Run 使用的 Workflow Type，通常与当前 Workflow 相同。
 - `input` 成为下一代 Run 的输入。
 - 调用后当前协程立即结束，后面的语句不再执行。当前 Run 状态变为 `continued_as_new`，新 Run 从 `WorkflowStarted` 开始，有新的 Run ID 与独立的 History；Workflow ID 不变。
-- 按 Workflow ID 发送的 Signal、Query、Update 解析到 current Run，即最新一段。上一段的终态事件、关闭状态与下一段 Run 同事务提交，按 Workflow ID 的请求不会落到已关闭的上一段；发给已结束 Run 的 Signal、Update、取消返回 `ErrInvalidArgument`。
+- 按 Workflow ID 发送的 Signal、Query、Update 解析到 current Run，即最新一段。上一段的终态事件、关闭状态与下一段 Run 同事务提交，按 Workflow ID 的请求不会落到已关闭的上一段（另一个副本正在提交 Continue-As-New 时，Server 读到上一段已关闭后重新解析 current Run 并重试，最多 3 次）；发给已结束 Run 的 Signal、Update、取消返回 `ErrInvalidArgument`。
 
 ### 按 History 建议切换
 

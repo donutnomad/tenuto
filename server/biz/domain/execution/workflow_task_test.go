@@ -40,6 +40,7 @@ func (t *workflowTaskTestTx) GetActivityStateForUpdate(string, int64) (*Activity
 func (t *workflowTaskTestTx) UpsertTimerState(*TimerState) error { return nil }
 func (t *workflowTaskTestTx) UpdateTimerState(*TimerState) error { return nil }
 func (t *workflowTaskTestTx) CloseScheduledTimers(string) error  { return nil }
+func (t *workflowTaskTestTx) CloseOpenActivities(string) error   { return nil }
 func (t *workflowTaskTestTx) GetTimerStateForUpdate(string, int64) (*TimerState, bool, error) {
 	return nil, false, nil
 }

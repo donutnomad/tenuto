@@ -54,8 +54,11 @@ type HistoryPageCursor struct {
 	RangeOrdinal        int              `json:"range_ordinal"`
 	NodeID              int64            `json:"node_id"`
 	SnapshotUpperBounds []int64          `json:"snapshot_upper_bounds"`
-	IssuedAtUnix        int64            `json:"issued_at"`
-	ExpiresAtUnix       int64            `json:"expires_at"`
+	// HistoryEventCount 与 HistorySizeBytes 是首页按快照上界算出的统计值，后续页沿用，不再重算。
+	HistoryEventCount int64 `json:"history_event_count"`
+	HistorySizeBytes  int64 `json:"history_size_bytes"`
+	IssuedAtUnix      int64 `json:"issued_at"`
+	ExpiresAtUnix     int64 `json:"expires_at"`
 }
 
 func NormalizeHistoryPageRequest(request HistoryPageRequest) (HistoryPageRequest, error) {

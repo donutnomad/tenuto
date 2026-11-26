@@ -1,11 +1,26 @@
 package execution
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/donutnomad/tenuto/protocol/history"
 )
+
+// lockExecutionState 在事务内取 Run 的 execution state 行锁。修改 activity 或 timer state 行的事务先取这把锁再锁
+// state 行（README 不变式 2）；MySQL 上同一事务之后的追加复用这次加锁读，不多一条语句。Run 已不存在（retention GC
+// 删除）时报告 false，迟到的回调与找不到 state 行时一样不做任何事。
+func lockExecutionState(tx ExecutionTx, runID string) (bool, error) {
+	if _, err := tx.GetWorkflowExecutionStateForUpdate(runID); err != nil {
+		if errors.Is(err, ErrRunNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
 
 // eventTime 返回事件时间的副本，供 state 的时间指针字段使用。
 func eventTime(event history.Event) *time.Time {
@@ -85,8 +100,9 @@ type WorkflowTaskProjection struct {
 type WorkflowExecutionStateStore interface {
 	GetWorkflowExecutionState(runID string) (*WorkflowExecutionState, error)
 	ListWorkflowExecutionStates(runIDs []string) (map[string]*WorkflowExecutionState, error)
-	// ListExpiredStickyExecutions 返回 sticky 已过期且仍有 open WFT 的 execution state，判据是
-	// StickyWorkerIdentity != "" && !StickyValidAt(now) && OpenWorkflowTaskEventID != 0；limit > 0 时封顶。
+	// ListExpiredStickyExecutions 返回运行中、sticky 已过期且仍有 open WFT 的 execution state，判据是
+	// Status == Running && StickyWorkerIdentity != "" && !StickyValidAt(now) && OpenWorkflowTaskEventID != 0；
+	// limit > 0 时封顶。
 	ListExpiredStickyExecutions(now time.Time, limit int) ([]*WorkflowExecutionState, error)
 	AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt time.Time) (int64, bool, error)
 	ClearStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64) (int64, bool, error)
@@ -326,6 +342,10 @@ func ApplyEventToExecutionState(state *WorkflowExecutionState, event history.Eve
 		// 原 Worker 迟到的上报仍能通过代数校验，按已关闭的 WFT 处理。
 		clearStickyRoute(state)
 	}
+	if history.IsWorkflowTerminalEventType(event.EventType()) {
+		// 已结束的 Run 不再有 Workflow Task：sticky 会话随之结束，sticky 回落扫描不再选中它。
+		clearStickyRoute(state)
+	}
 
 	applyWaitingEvent(state, event)
 	applyBlockedEvent(state, event)
@@ -367,6 +387,9 @@ func applyWaitingEvent(state *WorkflowExecutionState, event history.Event) {
 		delete(state.OpenWaits, event.ChildWorkflowCancelled.ScheduledEventID)
 	case event.ChildWorkflowTerminated != nil:
 		delete(state.OpenWaits, event.ChildWorkflowTerminated.ScheduledEventID)
+	case history.IsWorkflowTerminalEventType(event.EventType()):
+		// 结束时仍 open 的 Workflow Task 随 Run 关闭，不再出现在 open WFT 投影里。
+		maps.DeleteFunc(state.OpenWaits, func(_ int64, waiting WaitingState) bool { return waiting.Type == WaitingWorkflowTask })
 	}
 	state.setOpenWaits(state.OpenWaits)
 	state.setOpenWorkflowTaskEventID(latestWorkflowTaskWaiting(state.OpenWaits))

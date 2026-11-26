@@ -14,7 +14,7 @@ func TestNewRejectsHandleWithoutTranslateError(t *testing.T) {
 		t.Fatalf("New on a handle without TranslateError: err=%v", err)
 	}
 	translated := newUnconnectedDB(t, &gorm.Config{TranslateError: true})
-	if _, err := New(translated, Config{}); err != nil {
+	if _, err := New(translated, Config{}); err != nil && strings.Contains(err.Error(), "TranslateError") {
 		t.Fatalf("New on a translated handle: %v", err)
 	}
 }

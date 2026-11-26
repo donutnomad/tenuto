@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -204,6 +205,64 @@ func StatePatchContract(t *testing.T, newManager func(t *testing.T) execution.Ex
 			t.Errorf("fields the close does not change were overwritten from the snapshot: version=%q input=%#v policy=%q", got.WorkflowConfigVersion, got.Input, got.ParentClosePolicy)
 		}
 	})
+	// 全量补偿按页批量读子关联：两个后端返回相同的集合与顺序。
+	t.Run("ChildWorkflowBatchReads", func(t *testing.T) {
+		manager := newManager(t)
+		parents := []string{"run-batch-parent-a", "run-batch-parent-b", "run-batch-parent-c"}
+		for _, id := range parents {
+			createContractRun(t, manager, id)
+		}
+		link := func(runID string, scheduledEventID int64, status execution.ChildWorkflowStatus) *execution.ChildWorkflowState {
+			return &execution.ChildWorkflowState{RunID: runID, ScheduledEventID: scheduledEventID, ChildID: fmt.Sprintf("c%d", scheduledEventID),
+				ChildRunID: fmt.Sprintf("%s-child-%d", runID, scheduledEventID), WorkflowType: "child-flow", WorkflowConfigVersion: "v1",
+				Status: status, CreatedAt: now, UpdatedAt: now}
+		}
+		inTx(t, manager, func(tx execution.ExecutionTx) error {
+			for _, st := range []*execution.ChildWorkflowState{
+				link(parents[1], 9, execution.ChildWorkflowStatusEnums.Started),
+				link(parents[0], 7, execution.ChildWorkflowStatusEnums.Initiated),
+				link(parents[0], 5, execution.ChildWorkflowStatusEnums.Started),
+				link(parents[0], 6, execution.ChildWorkflowStatusEnums.Completed),
+				link(parents[2], 5, execution.ChildWorkflowStatusEnums.Started),
+			} {
+				if err := tx.UpsertChildWorkflowState(st); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		open, err := manager.ListOpenChildWorkflowStates([]string{parents[1], parents[0], "run-batch-missing"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var keys []execution.ChildWorkflowKey
+		for _, st := range open {
+			keys = append(keys, execution.ChildWorkflowKey{RunID: st.RunID, ScheduledEventID: st.ScheduledEventID})
+		}
+		wantOpen := []execution.ChildWorkflowKey{{RunID: parents[0], ScheduledEventID: 5}, {RunID: parents[0], ScheduledEventID: 7}, {RunID: parents[1], ScheduledEventID: 9}}
+		if !slices.Equal(keys, wantOpen) {
+			t.Fatalf("open child states = %v, want %v", keys, wantOpen)
+		}
+		if none, err := manager.ListOpenChildWorkflowStates(nil); err != nil || len(none) != 0 {
+			t.Fatalf("no parents: %v, %v", none, err)
+		}
+
+		byKey, err := manager.GetChildWorkflowStates([]execution.ChildWorkflowKey{
+			{RunID: parents[0], ScheduledEventID: 6}, {RunID: parents[2], ScheduledEventID: 5}, {RunID: parents[2], ScheduledEventID: 6},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(byKey) != 2 {
+			t.Fatalf("child states by key = %d, want 2", len(byKey))
+		}
+		if got := byKey[execution.ChildWorkflowKey{RunID: parents[0], ScheduledEventID: 6}]; got == nil || got.Status != execution.ChildWorkflowStatusEnums.Completed {
+			t.Errorf("terminal link by key = %+v", got)
+		}
+		if got := byKey[execution.ChildWorkflowKey{RunID: parents[2], ScheduledEventID: 5}]; got == nil || got.ChildRunID != parents[2]+"-child-5" {
+			t.Errorf("open link by key = %+v", got)
+		}
+	})
 	t.Run("Cancellation", func(t *testing.T) {
 		manager := newManager(t)
 		const runID = "run-cancellation"
@@ -332,6 +391,80 @@ func StatePatchContract(t *testing.T, newManager func(t *testing.T) execution.Ex
 		}
 		if got, _, err := manager.GetTimerState(otherRunID, 10); err != nil || got.Status != execution.TimerStatusEnums.Scheduled {
 			t.Errorf("another run's timer = %+v (err %v), want it to stay scheduled", got, err)
+		}
+	})
+	t.Run("RunCloseClosesOpenActivities", func(t *testing.T) {
+		manager := newManager(t)
+		const runID, otherRunID = "run-close-activities", "run-close-activities-other"
+		createContractRun(t, manager, runID)
+		createContractRun(t, manager, otherRunID)
+		activity := func(runID string, scheduledEventID int64, status execution.ActivityStatus) *execution.ActivityState {
+			state := &execution.ActivityState{RunID: runID, ScheduledEventID: scheduledEventID, ActivityID: fmt.Sprintf("a%d", scheduledEventID),
+				ActivityType: "charge", Attempt: 1, Stamp: 1, Status: status, ScheduledTime: now, StartToCloseTimeoutMs: 1000, CreatedAt: now, UpdatedAt: now}
+			if status == execution.ActivityStatusEnums.Started {
+				state.StartedTime = &now
+			}
+			return state
+		}
+		inTx(t, manager, func(tx execution.ExecutionTx) error {
+			for _, state := range []*execution.ActivityState{
+				activity(runID, 10, execution.ActivityStatusEnums.Scheduled),
+				activity(runID, 11, execution.ActivityStatusEnums.Started),
+				activity(runID, 12, execution.ActivityStatusEnums.Completed),
+				activity(otherRunID, 10, execution.ActivityStatusEnums.Started),
+			} {
+				if err := tx.UpsertActivityState(state); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		// 同一事务里先写入的 Activity 也随 Run 关闭。
+		inTx(t, manager, func(tx execution.ExecutionTx) error {
+			if err := tx.UpsertActivityState(activity(runID, 13, execution.ActivityStatusEnums.Scheduled)); err != nil {
+				return err
+			}
+			run, err := tx.GetRunForUpdate(runID)
+			if err != nil {
+				return err
+			}
+			inserted, err := execution.Terminate(tx, run, runID, runID, "done")
+			if err == nil && !inserted {
+				t.Fatal("Terminate did not insert")
+			}
+			return err
+		})
+		want := map[int64]execution.ActivityStatus{
+			10: execution.ActivityStatusEnums.RunClosed, 11: execution.ActivityStatusEnums.RunClosed,
+			12: execution.ActivityStatusEnums.Completed, 13: execution.ActivityStatusEnums.RunClosed,
+		}
+		states, err := manager.ListActivityStates(runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(states) != len(want) {
+			t.Fatalf("activity states = %d, want %d", len(states), len(want))
+		}
+		for _, state := range states {
+			if state.Status != want[state.ScheduledEventID] {
+				t.Errorf("activity %d status = %s, want %s", state.ScheduledEventID, state.Status, want[state.ScheduledEventID])
+			}
+			if state.Status == execution.ActivityStatusEnums.RunClosed && !state.IsTerminal() {
+				t.Errorf("activity %d: run_closed is not terminal", state.ScheduledEventID)
+			}
+		}
+		if got, _, err := manager.GetActivityState(otherRunID, 10); err != nil || got.Status != execution.ActivityStatusEnums.Started {
+			t.Errorf("another run's activity = %+v (err %v), want it to stay started", got, err)
+		}
+		// 关闭后的 Activity 不再是周期补偿的候选。
+		ids, err := manager.ListRecoveryRunIDs(now.Add(time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range ids {
+			if id == runID {
+				t.Errorf("closed run %s is still a recovery candidate", runID)
+			}
 		}
 	})
 }

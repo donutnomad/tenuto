@@ -100,7 +100,7 @@ func TestRecoverDurableTimersFromState(t *testing.T) {
 	srv.Stop()
 	clk.Advance(time.Hour + time.Minute)
 
-	if err := srv.recoverDurableTimers(context.Background(), runID, true); err != nil {
+	if err := srv.recoverDurableTimers(context.Background(), runID, true, testRecoveryHorizon); err != nil {
 		t.Fatal(err)
 	}
 	// 已过期 timer 重建后立即 fire（startDurableTimer 的 remaining<=0 路径 → go handleTimerFired）。
@@ -127,7 +127,7 @@ func TestRecoverDurableTimersSkipsFired(t *testing.T) {
 	historyBefore, _ := mgr.GetEvents(runID)
 	firedBefore := countEngineEvents(historyBefore, historypkg.EventTimerFired)
 
-	if err := srv.recoverDurableTimers(context.Background(), runID, true); err != nil {
+	if err := srv.recoverDurableTimers(context.Background(), runID, true, testRecoveryHorizon); err != nil {
 		t.Fatal(err)
 	}
 	clk.Advance(2 * time.Hour)
@@ -144,7 +144,7 @@ func TestRecoverDurableTimersFutureDeadlineNotFiredImmediately(t *testing.T) {
 	runID, schedID := scheduleDurableTimer(t, srv, mgr, "run-timer-future", time.Hour)
 	srv.Stop() // "重启"：清空内存 timer，TimerState（scheduled, deadline=+1h）保留
 
-	if err := srv.recoverDurableTimers(context.Background(), runID, true); err != nil {
+	if err := srv.recoverDurableTimers(context.Background(), runID, true, testRecoveryHorizon); err != nil {
 		t.Fatal(err)
 	}
 	clk.Advance(time.Hour - time.Millisecond)
@@ -234,7 +234,7 @@ func TestRunCloseClosesPendingTimers(t *testing.T) {
 			before, _ := mgr.GetEvents(runID)
 
 			clk.Advance(2 * time.Hour)
-			if err := srv.recoverDurableTimers(context.Background(), runID, true); err != nil {
+			if err := srv.recoverDurableTimers(context.Background(), runID, true, testRecoveryHorizon); err != nil {
 				t.Fatal(err)
 			}
 			srv.handleTimerFired(context.Background(), runID, schedID) // 另一个副本上残留的内存句柄

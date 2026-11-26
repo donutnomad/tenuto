@@ -29,7 +29,7 @@ func (e *Engine) RegisterWorkflow(wf *program.WorkflowConfig) (definition.Workfl
 }
 
 func (e *Engine) Start(ctx context.Context) {
-	if err := e.server.RecoverRunningWorkflows(ctx); err != nil {
+	if err := e.server.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		e.server.Logger().Error("recover running workflows failed", "err", err)
 	}
 	e.worker.Start(ctx)

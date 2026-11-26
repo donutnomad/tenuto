@@ -24,6 +24,12 @@ var transientMySQLErrors = map[uint16]bool{
 	4031: true, // ER_CLIENT_INTERACTION_TIMEOUT：服务端因空闲超时断开连接（8.0.24+）
 }
 
+// IsDeadlock 报告 err 是否是 InnoDB 死锁（Error 1213）：InnoDB 已回滚整个事务，用新事务重新执行同一事务体是安全的。
+func IsDeadlock(err error) bool {
+	var mysqlErr *mysqldriver.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1213
+}
+
 // IsTransient 报告 err 是否是数据库的瞬时失败：连接数已满、锁等待超时、死锁、连接没有建立或在途中断开、
 // 读写超时。错误链上任何一层（含 errors.Join）命中即可。
 //

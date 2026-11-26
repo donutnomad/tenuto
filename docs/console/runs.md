@@ -24,7 +24,7 @@ Blocked 标记表示运行中的 Run 的 Workflow Task 连续失败（如 `non_d
 
 失败的 Run 在摘要下方显示 Failure 卡片：失败 message、type、cause 链与 details；Workflow 级或 Activity 超时导致的失败同时标出 timeout 类型（如 `Run`、`StartToClose`）。
 
-Pending 页签列出未结束的 Activity，内容取自 `activity-states`：当前尝试序号、Worker、开始时间、最近一次心跳（心跳不写 History，只在这里）、最近一次失败；在重试退避中的 Activity 显示下一次尝试的时间。最大尝试次数大于 1 的 Activity 执行中没有 `ActivityStarted` 事件，这些信息同样来自 `activity-states`。
+Pending 页签列出未结束的 Activity，内容取自 `activity-states`（Run 结束时仍未完成的 Activity 状态为 `run_closed`，Steps 里显示为 terminated，不出现在 Pending）：当前尝试序号、Worker、开始时间、最近一次心跳（心跳不写 History，只在这里）、最近一次失败；在重试退避中的 Activity 显示下一次尝试的时间。最大尝试次数大于 1 的 Activity 执行中没有 `ActivityStarted` 事件，这些信息同样来自 `activity-states`。
 
 ## Event History
 

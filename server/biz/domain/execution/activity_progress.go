@@ -50,7 +50,7 @@ func StartActivity(tx ExecutionTx, start ActivityTransition, workerIdentity, wor
 // LastHeartbeat 读到详情；attempt 超时时详情随 ActivityTimedOut 写入 History。返回更新后的 state；
 // 过期的 attempt 返回 nil，事务不变。
 func RecordActivityHeartbeat(tx ExecutionTx, heartbeat ActivityTransition, details map[string]any) (*ActivityState, error) {
-	state, ok, err := currentActivityAttempt(tx, heartbeat)
+	state, ok, err := lockActivityAttempt(tx, heartbeat)
 	if err != nil || !ok {
 		return nil, err
 	}

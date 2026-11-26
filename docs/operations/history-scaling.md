@@ -42,7 +42,7 @@ if info.GetContinueAsNewSuggested() {
 - 排序方向
 - 下一页位置
 
-运行中追加事件不会改变当前分页快照。Console 首次打开 Run Detail 时按需加载事件页。
+Token 同时带首页按快照上界算出的事件数与字节数，后续页沿用，不再统计整段 History。运行中追加事件不会改变当前分页快照与它的统计值。Console 首次打开 Run Detail 时按需加载事件页。
 
 ## Execution State Projection
 

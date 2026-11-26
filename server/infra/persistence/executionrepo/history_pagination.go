@@ -97,15 +97,14 @@ func (s *Repository) GetEventPage(request execution.HistoryPageRequest) (executi
 			return err
 		}
 		fingerprint := execution.HistoryBranchFingerprint(run.BranchToken, run.ID)
-		upperBounds, err := snapshotUpperBounds(db, ranges)
-		if err != nil {
-			return err
-		}
 		cursorOrdinal, cursorNodeID := 0, int64(0)
 		if request.Direction == execution.HistoryDirectionDescending {
 			cursorOrdinal = len(ranges) - 1
 			cursorNodeID = math.MaxInt64
 		}
+		// 首页确定快照上界并统计快照内的事件数与字节数（对可见范围的 COUNT / SUM），二者写进分页令牌；
+		// 后续页沿用令牌里的值，每页只读本页的事件。
+		var upperBounds []int64
 		if request.PageToken != "" {
 			cursor, err := execution.DecodeHistoryPageToken(s.historyPageTokenKey, request.PageToken, s.clock.Now())
 			if err != nil {
@@ -116,6 +115,14 @@ func (s *Repository) GetEventPage(request execution.HistoryPageRequest) (executi
 			}
 			upperBounds = cursor.SnapshotUpperBounds
 			cursorOrdinal, cursorNodeID = cursor.RangeOrdinal, cursor.NodeID
+			page.HistoryEventCount, page.HistorySizeBytes = cursor.HistoryEventCount, cursor.HistorySizeBytes
+		} else {
+			if upperBounds, err = snapshotUpperBounds(db, ranges); err != nil {
+				return err
+			}
+			if page.HistoryEventCount, page.HistorySizeBytes, err = snapshotMetrics(db, ranges, upperBounds); err != nil {
+				return err
+			}
 		}
 
 		rows, err := readHistoryPageRows(db, ranges, upperBounds, request.Direction, cursorOrdinal, cursorNodeID, request.PageSize+1)
@@ -139,16 +146,13 @@ func (s *Repository) GetEventPage(request execution.HistoryPageRequest) (executi
 				page.SnapshotMaxEventID = upperBound
 			}
 		}
-		page.HistoryEventCount, page.HistorySizeBytes, err = snapshotMetrics(db, ranges, upperBounds)
-		if err != nil {
-			return err
-		}
 		if hasMore {
 			last := rows[len(rows)-1]
 			now := s.clock.Now()
 			page.NextPageToken, err = execution.EncodeHistoryPageToken(s.historyPageTokenKey, execution.HistoryPageCursor{
 				Version: 1, RunID: run.ID, BranchFingerprint: fingerprint, Direction: request.Direction,
 				RangeOrdinal: last.ordinal, NodeID: last.row.NodeID, SnapshotUpperBounds: upperBounds,
+				HistoryEventCount: page.HistoryEventCount, HistorySizeBytes: page.HistorySizeBytes,
 				IssuedAtUnix: now.Unix(), ExpiresAtUnix: now.Add(15 * time.Minute).Unix(),
 			})
 			if err != nil {

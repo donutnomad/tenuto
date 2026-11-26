@@ -463,7 +463,7 @@ func TestWorkflowRetry_CrashRecovery(t *testing.T) {
 	if _, err := server2.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: "wf-retry-crash-recovery", RetryPolicy: retryPolicy, Program: programtest.Noop()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := server2.RecoverRunningWorkflows(ctx); err != nil {
+	if err := server2.RecoverRunningWorkflows(ctx, DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 

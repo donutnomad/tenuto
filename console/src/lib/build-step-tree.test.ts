@@ -53,6 +53,13 @@ describe("buildStepTree with activity states", () => {
     })
   })
 
+  it("shows an activity closed with its run as terminated, not pending", () => {
+    const steps = buildStepTree([scheduled], "running", [
+      state({ activityId: "charge-1", status: "run_closed", startedTime: "2026-11-12T10:00:01Z" }),
+    ])
+    expect(steps[0]).toMatchObject({ stepID: "charge-1", status: "terminated" })
+  })
+
   it("shows the last heartbeat details of a timed-out activity from ActivityTimedOut", () => {
     const steps = buildStepTree([
       scheduled,

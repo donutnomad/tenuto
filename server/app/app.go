@@ -678,7 +678,7 @@ func (a *application) startRecovery(ctx context.Context) {
 // 已逐个汇总，未完成的部分由周期 reconciler 继续补偿。
 func (a *application) recoverRunningWorkflows(ctx context.Context) {
 	started := a.clock.Now()
-	if err := a.server.RecoverRunningWorkflows(ctx); err != nil {
+	if err := a.server.RecoverRunningWorkflows(ctx, 2*a.cfg.ReconcileInterval); err != nil {
 		a.telemetry.Logger.Error("recover running workflows incomplete; reconciler will retry", "err", err)
 	}
 	if err := a.server.FallbackExpiredStickyWorkflowTasks(ctx); err != nil {
@@ -710,24 +710,29 @@ func (a *application) startReconciler(ctx context.Context) error {
 }
 
 // reconcilerTask 每隔 ReconcileInterval 做一次按到期索引的周期补偿，每隔 ReconcileFullScanInterval 做一次全量补偿，
-// ctx 取消时返回。
+// 两者各用一个 goroutine：全量补偿运行期间周期补偿照常接管到期的定时器。ctx 取消时两者都返回后 Start 返回。
 type reconcilerTask struct{ app *application }
 
 func (reconcilerTask) Name() string { return "workflow-reconciler" }
 
 func (t reconcilerTask) Start(ctx context.Context) error {
-	ticker := time.NewTicker(t.app.cfg.ReconcileInterval)
+	var wg sync.WaitGroup
+	wg.Go(func() { runEvery(ctx, t.app.cfg.ReconcileInterval, t.app.reconcile) })
+	wg.Go(func() { runEvery(ctx, t.app.cfg.ReconcileFullScanInterval, t.app.reconcileAll) })
+	wg.Wait()
+	return nil
+}
+
+// runEvery 每隔 interval 调用一次 fn，直到 ctx 取消；fn 运行超过 interval 时跳过错过的节拍。
+func runEvery(ctx context.Context, interval time.Duration, fn func(context.Context)) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	fullScan := time.NewTicker(t.app.cfg.ReconcileFullScanInterval)
-	defer fullScan.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-ticker.C:
-			t.app.reconcile(ctx)
-		case <-fullScan.C:
-			t.app.reconcileAll(ctx)
+			fn(ctx)
 		}
 	}
 }
@@ -753,7 +758,7 @@ func (a *application) reconcile(ctx context.Context) {
 	}
 }
 
-// reconcileAll 逐个补偿全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 补建、
+// reconcileAll 逐页批量检查全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 补建、
 // 终态写回、父关闭策略、子 Run 取消请求补发）。
 func (a *application) reconcileAll(ctx context.Context) {
 	started := a.clock.Now()
@@ -866,7 +871,7 @@ func openMySQL(ctx context.Context, dsn string, pool DatabaseConfig) (*gorm.DB, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse MySQL DSN: %w", err)
 	}
-	// parseTime、interpolateParams 与 loc 由 Server 设置，DSN 里写成别的值也不生效。
+	// parseTime、interpolateParams、clientFoundRows 与 loc 由 Server 设置，DSN 里写成别的值也不生效。
 	parsed.Loc = time.UTC
 	if err := db.ConfigureMySQL(parsed); err != nil {
 		return nil, nil, err

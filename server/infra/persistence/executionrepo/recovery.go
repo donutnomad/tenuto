@@ -11,8 +11,9 @@ import (
 	infradb "github.com/donutnomad/tenuto/server/infra/db"
 )
 
-// ListRecoveryRunIDs 实现 execution.Store 的周期补偿候选查询。每个条件一条走索引的查询，只取仍为 Running 的 Run
-// （state 表按 run_id 关联 runs 过滤状态：已结束 Run 遗留的 Activity、Workflow Task 投影不再被选中），结果在 Go 里合并去重：
+// ListRecoveryRunIDs 实现 execution.Store 的周期补偿候选查询。每个条件一条走索引的查询，只取仍为 Running 的 Run，
+// 结果在 Go 里合并去重。Activity 在 Run 结束的事务里转 run_closed（CloseOpenActivities），scheduled / started
+// 的 Activity 只属于运行中的 Run，两条 Activity 查询不关联 runs；timer 与 execution state 按 run_id 关联 runs 过滤状态：
 //
 //	Run 截止时间          idx_workflow_runs_status_deadline / idx_workflow_runs_status_run_deadline
 //	Scheduled timer       idx_timer_states_status (status, deadline)
@@ -25,16 +26,15 @@ func (s *Repository) ListRecoveryRunIDs(dueBefore time.Time) ([]string, error) {
 	running := string(history.StatusRunning)
 	runs, timers, activities, states := RunSchema, TimerStateSchema, ActivityStateSchema, WorkflowExecutionStateSchema
 	timersOfRunning := gsql.InnerJoin(&runs).On(runs.ID.EqF(timers.RunID)).And(runs.Status.Eq(running))
-	activitiesOfRunning := gsql.InnerJoin(&runs).On(runs.ID.EqF(activities.RunID)).And(runs.Status.Eq(running))
 	statesOfRunning := gsql.InnerJoin(&runs).On(runs.ID.EqF(states.RunID)).And(runs.Status.Eq(running))
 	queries := []*gsql.QueryBuilderG[string]{
 		gsql.PluckG[string](runs.ID).From(runs).Where(runs.Status.Eq(running), runs.DeadlineAt.Lt(&dueBefore)),
 		gsql.PluckG[string](runs.ID).From(runs).Where(runs.Status.Eq(running), runs.RunDeadlineAt.Lt(&dueBefore)),
 		gsql.PluckG[string](timers.RunID).From(timers).Join(timersOfRunning).
 			Where(timers.Status.Eq(string(execution.TimerStatusEnums.Scheduled)), timers.Deadline.Lt(dueBefore)),
-		gsql.PluckG[string](activities.RunID).From(activities).Join(activitiesOfRunning).
+		gsql.PluckG[string](activities.RunID).From(activities).
 			Where(activities.Status.Eq(string(execution.ActivityStatusEnums.Scheduled))),
-		gsql.PluckG[string](activities.RunID).From(activities).Join(activitiesOfRunning).
+		gsql.PluckG[string](activities.RunID).From(activities).
 			Where(activities.Status.Eq(string(execution.ActivityStatusEnums.Started)), activities.TimeoutAt.Lt(&dueBefore)),
 		gsql.PluckG[string](states.RunID).From(states).Join(statesOfRunning).Where(states.OpenWorkflowTaskEventID.Gt(0)),
 		gsql.PluckG[string](states.RunID).From(states).Join(statesOfRunning).Where(states.NeedsWorkflowTask.Eq(true)),

@@ -134,7 +134,7 @@ WORKFLOW_BACKEND=memory WORKFLOW_HTTP_ADDR=127.0.0.1:7400 go run ./server/cmd/te
 
 - Runtime HTTP 缺省 `:7400`，Console 缺省 `7401`；仓库里 `make dev` 启动完整的本地环境。
 - 健康检查：`GET /health/live`、`GET /health/ready`。
-- 持久化后端只有 MySQL（`WORKFLOW_BACKEND=mysql-taskq`）。Server 启动时不建表也不改表：首次部署与每次升级都先执行 `tenuto-server migrate`（或 `make migrate`），它只读 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN`（两者的 `parseTime=true`、`loc=UTC`、`interpolateParams=true` 由 Server 设置，字符集用 `utf8mb4`），在 Workflow 库执行 Tenuto 的迁移、在 TaskQ 库执行 TaskQ 的迁移，记录写在 `tenuto_schema_migrations`。迁移只向前、幂等，多个进程同时执行时由 MySQL `GET_LOCK` 依次进行；某条语句失败时报出迁移名与语句序号，排除原因后重新执行从该语句继续。
+- 持久化后端只有 MySQL（`WORKFLOW_BACKEND=mysql-taskq`）。Server 启动时不建表也不改表：首次部署与每次升级都先执行 `tenuto-server migrate`（或 `make migrate`），它只读 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN`（两者的 `parseTime=true`、`loc=UTC`、`interpolateParams=true`、`clientFoundRows=false` 由 Server 设置，字符集用 `utf8mb4`），在 Workflow 库执行 Tenuto 的迁移、在 TaskQ 库执行 TaskQ 的迁移，记录写在 `tenuto_schema_migrations`。迁移只向前、幂等，多个进程同时执行时由 MySQL `GET_LOCK` 依次进行；某条语句失败时报出迁移名与语句序号，排除原因后重新执行从该语句继续。
 - Server 启动时检查 schema 版本：库落后（无迁移记录、有未执行或中途失败的迁移）或已执行迁移的 checksum 不一致时启动失败并提示运行 `tenuto-server migrate`；库比二进制新时记警告 `database schema is newer than this binary` 并启动（迁移保持上一个版本可用，滚动升级与回滚期间旧副本可以重启）。
 - 改表（贡献者）：在 `server/infra/sql/migrations/` 新增下一个编号的迁移文件，同步更新 `schema.sql`、PO 与 `MysqlCreateTable()`，在 `server/infra/sql/migrate_test.go` 的 `appliedChecksums` 登记新迁移的 checksum。已发布的迁移不再修改。守卫：`schema_guard_test.go`、`migrate_test.go`，MySQL 上的 `TestTenutoMigrationsBuildSchemaSQL`（迁移与 `schema.sql` 的 `SHOW CREATE TABLE` 逐表相同）与 `TestTaskQMigrationsBuildTaskQSchemaSQL`。
 - 持久化后端的完整配置项见站点文档 `docs/deploy/server.md`、`docs/reference/configuration.md`。

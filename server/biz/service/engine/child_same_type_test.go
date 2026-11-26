@@ -141,7 +141,7 @@ func TestReconcileRun_ChildStartFailureKeepsRemainingRecoverySteps(t *testing.T)
 		t.Fatalf("precondition: want no armed durable timer, got %d", got)
 	}
 
-	_, err = srv.reconcileRun(ctx, runID, true)
+	_, err = srv.reconcileRun(ctx, runID, true, testRecoveryHorizon)
 	if err == nil {
 		t.Fatal("expected the child start failure to be reported")
 	}

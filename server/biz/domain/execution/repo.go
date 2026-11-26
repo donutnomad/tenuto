@@ -141,6 +141,8 @@ type ExecutionManager interface {
 	TimerStateStore
 	ChildWorkflowStateStore
 	WorkflowExecutionStateStore
+	// RunInTx 在一个事务里执行 fn。数据库因死锁回滚事务时，后端可以用新事务把 fn 整体再执行一次（MySQL 最多
+	// 3 次）：fn 只经 tx 读写，结果赋给外层变量，提交后的副作用（调度、timer、通知）放在 RunInTx 返回之后。
 	RunInTx(fn func(tx ExecutionTx) error) error
 }
 
@@ -162,6 +164,9 @@ type ExecutionTx interface {
 	// CloseScheduledTimers 把 Run 仍为 Scheduled 的 timer（含本事务写入的）置为 RunClosed，UpdatedAt 取存储的时钟；
 	// MySQL 上是一条 UPDATE。Run 结束的事务调用它。
 	CloseScheduledTimers(runID string) error
+	// CloseOpenActivities 把 Run 未结束的 Activity（Scheduled、Started，含本事务写入的）置为 RunClosed，
+	// UpdatedAt 取存储的时钟；MySQL 上是一条 UPDATE。Run 结束的事务调用它。
+	CloseOpenActivities(runID string) error
 	UpsertChildWorkflowState(state *ChildWorkflowState) error
 	GetChildWorkflowStateForUpdate(runID string, scheduledEventID int64) (*ChildWorkflowState, bool, error)
 	// CreateRun 在 Run ID 已存在时返回满足 errors.Is(err, ErrRunAlreadyExists) 的错误，

@@ -117,7 +117,7 @@ func testRestartDoesNotDuplicateQueuedTasks(t *testing.T) {
 	// 重启时 Workflow Task 仍在队列里。
 	second := newLeaseTestServer(t, h, store)
 	registerActivityRoutes(t, second, "capture")
-	if err := second.RecoverRunningWorkflows(ctx); err != nil {
+	if err := second.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	if rows := persistedTaskQRows(t, h, "workflow-tasks"); len(rows) != 1 {
@@ -144,7 +144,7 @@ func testRestartDoesNotDuplicateQueuedTasks(t *testing.T) {
 
 	third := newLeaseTestServer(t, h, store)
 	defer third.Stop()
-	if err := third.RecoverRunningWorkflows(ctx); err != nil {
+	if err := third.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	if count := activityRowCount(t, h); count != 1 {

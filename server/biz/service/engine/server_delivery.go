@@ -367,11 +367,12 @@ func (s *Server) validateWorkflowTaskToken(ctx context.Context, run *execution.R
 	return dispatch.ValidateTaskNamespace(task, run.Namespace)
 }
 
-// DispatchPendingTasks 是全量补偿：对每个 Running 的 run 做一次补偿（见 reconcileRun 与 reconcileRunningRuns），
-// 返回本轮补投的任务数。单个 run 失败计入返回的 error，不影响其余 run。代价与 Running 的 run 数成正比，
-// reconciler 按 ReconcileFullScanInterval 低频调用，周期补偿走 Reconcile。
+// DispatchPendingTasks 是全量补偿：对 ListRecoveryRunIDs(now) 选出的 Run 补投任务（reconcileRun），再逐页做
+// 没有到期索引的兜底（reconcileRunningRuns），返回本轮补投的任务数。单个 run 失败计入返回的 error，不影响其余 run。
+// 每页 Running Run 是固定的几条批量查询，reconciler 按 ReconcileFullScanInterval 低频调用，周期补偿走 Reconcile。
 func (s *Server) DispatchPendingTasks(ctx context.Context) (dispatch.WorkflowDispatchResult, error) {
-	result, err := s.reconcileRunningRuns(ctx, false)
+	result, err := s.reconcileCandidates(ctx, s.clock.Now(), false)
+	err = errors.Join(err, s.reconcileRunningRuns(ctx))
 	// 在引擎层记录而非调用方：HTTP 触发与 reconciler 周期补投都经由此处。
 	s.telemetry.recordBacklog(ctx, result.WorkflowTasks, result.ActivityTasks)
 	return result, err

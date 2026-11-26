@@ -179,7 +179,19 @@ func scheduleToCloseDeadline(state *ActivityState) (time.Time, bool) {
 	return state.ScheduledTime.Add(time.Duration(state.ScheduleToCloseTimeoutMs) * time.Millisecond), true
 }
 
+// currentActivityAttempt 先取 Run 的 execution state 行锁、再锁 activity state 行，返回 completion 指向的 attempt；
+// 过期或已结束的 attempt 报告 false。这个顺序与 Workflow Task 提交的取消命令、Run 关闭相同（README 不变式 2），
+// 并发时后到的事务排在 execution state 上，不会与对方交叉持锁。
 func currentActivityAttempt(tx ExecutionTx, completion ActivityTransition) (*ActivityState, bool, error) {
+	if found, err := lockExecutionState(tx, completion.RunID); err != nil || !found {
+		return nil, false, err
+	}
+	return lockActivityAttempt(tx, completion)
+}
+
+// lockActivityAttempt 只锁 activity state 行。心跳只写这一行、不追加事件，不取 execution state 行锁，心跳与
+// Workflow Task 提交不互相排队；心跳事务只持有这一把锁，不会与先锁 execution state 的事务形成环。
+func lockActivityAttempt(tx ExecutionTx, completion ActivityTransition) (*ActivityState, bool, error) {
 	state, ok, err := tx.GetActivityStateForUpdate(completion.RunID, completion.ScheduledEventID)
 	if err != nil || !ok || state.IsTerminal() || state.Stamp != completion.Stamp || state.Attempt != history.NormalizeActivityAttempt(completion.Attempt) {
 		return nil, false, err
