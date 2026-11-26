@@ -18,11 +18,11 @@ handle, err := c.ScheduleClient().Create(ctx, client.ScheduleOptions{ // c 是 s
     CatchupWindow:  time.Hour,                            // 0 取 365 天，最小 10 秒
 })
 d, err := handle.Describe(ctx)
-// handle.GetID()（Server 生成）、d.NextRunAt、d.LastRunAt、d.LastRunID、d.RunCount、d.CatchupWindow、d.MissedCatchupWindow、d.BufferDropped
+// handle.GetID()（Server 生成）、d.NextRunAt、d.LastRunAt、d.LastRunID、d.RunCount、d.CatchupWindow、d.MissedCatchupWindow、d.BufferDropped、d.StartFailed
 ```
 
 - Cron 是 5 段表达式，粒度到分钟；无法解析或永远不会匹配（`0 0 31 2 *`）时 Create/Update 返回 `invalid cron_expression`（HTTP 400）。按 `TimeZone` 的墙上时间匹配：夏令时前拨日不存在的时刻当天跳过；回拨日重复的时刻只在第一次出现时触发一次（同 Vixie cron；Temporal 两次都触发）。日与星期两段都被限定（都不以 `*` 开头）时满足任意一段即触发：`0 0 13 * 5` 是每月 13 日和每个周五。
-- 触发顺序：catch-up 检查（逐个到期点）→ Overlap 检查 → 以到期点的 Workflow ID 启动 Run（该 ID 的 Run 已在运行时不再启动）→ CAS 把 `next_run_at` 推进到这个到期点之后的下一个 cron 时刻。启动失败时 `next_run_at` 不动，调度器下一轮重试。`Trigger` 不改变 `next_run_at`（同 Temporal TriggerImmediately），积压的到期点照常补触发。
+- 触发顺序：catch-up 检查（逐个到期点）→ Overlap 检查 → 以到期点的 Workflow ID 启动 Run（该 ID 的 Run 已在运行时不再启动）→ CAS 把 `next_run_at` 推进到这个到期点之后的下一个 cron 时刻。启动失败：配置或请求错误（Workflow 类型没有部署、输入不合法）直接丢弃这个到期点；其他错误按退避（1s 起翻倍，最长 60s）重试，期限从到期点起算、取 min(`catchup_window`, 1 小时)（同 Temporal）：超过 1 小时丢弃，`catchup_window` 更短时超过它计入 `missed_catchup_window`。丢弃前按到期点的 Workflow ID 确认启动是否其实已提交，已提交时按启动成功记录。丢弃计入 `start_failed`，`next_run_at` 推进到下一个到期点，所以持续失败时 `next_run_at` 最多落后 1 小时，修好后只补出这 1 小时内的到期点。`Trigger` 不改变 `next_run_at`（同 Temporal TriggerImmediately），积压的到期点照常补触发。
 - `OverlapPolicy` 只接受大写值，空值保存为 `SKIP`；其他值（`skip`、`BUFFER_ONE`、`CANCEL_OTHER`、`TERMINATE_OTHER` 等）Create/Update 返回 `invalid overlap_policy`（HTTP 400）。语义同 Temporal：
 
 | 值 | 行为 |
@@ -93,6 +93,7 @@ curl -sS -X POST http://127.0.0.1:7400/runtime/workflow/create-schedule \
 | --- | --- |
 | 到点没有启动 | Schedule 是否 `paused`；`next_run_at`；`SKIP` 下 `last_run_id` 的执行链（含 Continue-As-New 之后的 Run）是否仍在运行；Workflow 定义是否已登记 |
 | 重启后没有补跑 | `MissedCatchupWindow` / `BufferDropped` 是否增长；到期点是否落后超过 `CatchupWindow` |
+| `StartFailed` 增长、到期点没有 Run | Server 日志 `schedule driver: start workflow failed` 的 `err`：`config_error=true` 时登记缺少的 Workflow 定义或修正输入；其他错误检查数据库。丢弃的到期点不会补跑 |
 | 触发时间偏移 | `timezone` 与 Cron 的组合；夏令时前拨日跳过不存在的时刻，回拨日重复的时刻只触发一次 |
 | `Trigger` 返回 409（`client.ErrConflict`） | `SKIP` 下执行链仍在运行（`previous scheduled run is still running`），或同一秒内重复触发 |
 | `Trigger` 返回其他错误 | Schedule 状态、定义是否存在；`Trigger` 遇到连接中断 / 502 / 504 不自动重试（重发会再触发一次），先按 `TemporalScheduledById` 列 Run 确认 |

@@ -46,6 +46,10 @@ type Firer interface {
 	// current Run 是其他启动创建、仍在运行时不启动，返回满足 errors.Is(err, execution.ErrCurrentRunConflict) 的错误；
 	// 已结束时新 Run 接替它。
 	StartWorkflowForCron(ctx context.Context, namespace, workflowType, workflowID string, input map[string]any, searchAttributes map[string]string) (string, error)
+	// CronRunStarted 返回 workflowID 的 current Run 由同一个 workflowID 的 Cron 启动创建时的 runID（失败重试与
+	// continue-as-new 派生的 Run 同样算），没有时返回空串。StartWorkflowForCron 返回错误、但启动其实已经提交（提交后
+	// 入队失败或应答丢失）时，用它确认这次启动的结果。
+	CronRunStarted(namespace, workflowID string) (string, error)
 	// CurrentRunStatus 返回 runID 所在 Workflow ID 的 current Run 的状态：runID 经 continue-as-new、重试或 reset 接续时
 	// 是接续的那一代。runID 不存在时返回满足 errors.Is(err, execution.ErrRunNotFound) 的错误。
 	CurrentRunStatus(runID string) (history.Status, error)

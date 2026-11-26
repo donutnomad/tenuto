@@ -2,11 +2,13 @@ package schedule_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
+	"github.com/donutnomad/tenuto/server/biz/domain/definition"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 	"github.com/donutnomad/tenuto/server/biz/domain/schedule"
 	"github.com/stretchr/testify/assert"
@@ -411,4 +413,21 @@ func TestSchedule_RecordRun(t *testing.T) {
 
 	assert.Equal(t, at, entity.UpdatedAt)
 	assert.True(t, entity.ExportPatch().UpdatedAt.IsPresent())
+}
+
+// 启动重试的退避从 1s 起翻倍，最长 60s（Temporal scheduler 本地 Activity 的 RetryPolicy）。
+func TestStartRetryBackoff(t *testing.T) {
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, time.Minute, time.Minute}
+	for i, backoff := range want {
+		assert.Equal(t, backoff, schedule.StartRetryBackoff(i+1), "attempt %d", i+1)
+	}
+	assert.Equal(t, time.Minute, schedule.StartRetryBackoff(1000))
+}
+
+// 配置错误不重试；存储、网络与 ResourceExhausted 等其他错误按退避重试。
+func TestIsConfigStartError(t *testing.T) {
+	assert.True(t, schedule.IsConfigStartError(protocol.InvalidRequestf("bad input")))
+	assert.True(t, schedule.IsConfigStartError(fmt.Errorf("workflow wf: %w", definition.ErrWorkflowConfigNotFound)))
+	assert.False(t, schedule.IsConfigStartError(errors.New("connection refused")))
+	assert.False(t, schedule.IsConfigStartError(fmt.Errorf("start: %w", protocol.ErrResourceExhausted)))
 }

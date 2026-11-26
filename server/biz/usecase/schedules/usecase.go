@@ -21,10 +21,22 @@ type UseCase struct {
 	firer  schedule.Firer
 	clock  clock.Clock
 	logger *slog.Logger
+	// startRetries 是启动失败、正在退避重试的到期点，每个 Schedule 至多一个。只由驱动 goroutine（FireDue）读写；
+	// 保存在内存里，重启或 leader 切换后从新的第一次尝试重新计时。
+	startRetries map[scheduleKey]*startRetry
+}
+
+type scheduleKey struct{ namespace, id string }
+
+// startRetry 是到期点 fireTime 的启动重试状态。
+type startRetry struct {
+	fireTime    time.Time
+	attempts    int
+	nextAttempt time.Time
 }
 
 func NewUseCase(repo schedule.Repository, firer schedule.Firer, clk clock.Clock, logger *slog.Logger) *UseCase {
-	return &UseCase{repo: repo, firer: firer, clock: clk, logger: logger}
+	return &UseCase{repo: repo, firer: firer, clock: clk, logger: logger, startRetries: make(map[scheduleKey]*startRetry)}
 }
 
 func (u *UseCase) Create(req CreateRequest) (*schedule.Schedule, error) {
@@ -150,11 +162,19 @@ func (u *UseCase) FireDue(ctx context.Context) {
 		u.logger.Error("schedule driver: list due schedules failed", "err", err)
 		return
 	}
+	stillDue := make(map[scheduleKey]bool, len(due))
 	for _, entity := range due {
 		if ctx.Err() != nil {
 			return
 		}
+		stillDue[scheduleKey{entity.Namespace, entity.ID}] = true
 		u.fire(ctx, entity)
+	}
+	// 不再到期的 Schedule（被暂停、删除、改了 cron，或由其他实例推进）不再有要重试的到期点。
+	for key := range u.startRetries {
+		if !stillDue[key] {
+			delete(u.startRetries, key)
+		}
 	}
 }
 
@@ -170,7 +190,8 @@ const FireBatchSize = 100
 //
 // 先启动再推进：两步之间进程退出时 NextRunAt 仍是这次到期点，下一轮扫描以同一个 Workflow ID 重新启动。Cron 启动按
 // Workflow ID 去重（见 Firer.StartWorkflowForCron），重新启动返回已启动的 Run，不会重复执行；多个实例同时触发同一个
-// 到期点时同样只启动一个 Run，CAS 胜出的实例记录它。启动失败时 NextRunAt 不动，下一轮扫描重试，直到超出 catchup window。
+// 到期点时同样只启动一个 Run，CAS 胜出的实例记录它。启动失败的处理见 startFailed：暂时性错误按退避重试，最多
+// schedule.StartRetryTimeout，配置错误立即丢弃；退避期间每轮扫描仍执行第 1 步。
 func (u *UseCase) fire(ctx context.Context, entity *schedule.Schedule) {
 	now := u.clock.Now()
 	missed, dropped := entity.MissedCatchupWindow, entity.BufferDropped
@@ -196,9 +217,17 @@ func (u *UseCase) fire(ctx context.Context, entity *schedule.Schedule) {
 	}
 }
 
-// fireAt 处理到期点 NextRunAt，返回 false 表示这一轮不再继续（启动失败或 CAS 被抢先）。
+// fireAt 处理到期点 NextRunAt，返回 false 表示这一轮不再继续（启动失败后等待重试，或 CAS 被抢先）。
 func (u *UseCase) fireAt(ctx context.Context, entity *schedule.Schedule, now time.Time) bool {
 	fireTime := *entity.NextRunAt
+	key := scheduleKey{entity.Namespace, entity.ID}
+	retry := u.startRetries[key]
+	if retry != nil && !retry.fireTime.Equal(fireTime) {
+		retry = nil
+	}
+	if retry != nil && now.Before(retry.nextAttempt) {
+		return false
+	}
 	if !u.overlapAllowsStart(entity) {
 		u.logger.Info("schedule driver: last run is still running or its status is unknown, skipping", "namespace", entity.Namespace, "schedule_id", entity.ID, "fire_time", fireTime.UTC().Format(time.RFC3339), "last_run_id", entity.LastRunID, "overlap_policy", entity.OverlapPolicy)
 		return u.casNextRunAt(entity, entity.AdvanceNextRunAt(fireTime, now))
@@ -211,10 +240,16 @@ func (u *UseCase) fireAt(ctx context.Context, entity *schedule.Schedule, now tim
 		return u.casNextRunAt(entity, entity.AdvanceNextRunAt(fireTime, now))
 	}
 	if err != nil {
-		u.logger.Error("schedule driver: start workflow failed", "namespace", entity.Namespace, "schedule_id", entity.ID, "fire_time", fireTime.UTC().Format(time.RFC3339), "err", err)
-		return false
+		if ctx.Err() != nil {
+			return false
+		}
+		return u.startFailed(entity, key, retry, now, err)
 	}
+	return u.recordStarted(entity, fireTime, runID, now)
+}
 
+// recordStarted 在到期点 fireTime 的 Run runID 已启动后 CAS 推进 NextRunAt 并记录 LastRun，返回 false 表示 CAS 被抢先。
+func (u *UseCase) recordStarted(entity *schedule.Schedule, fireTime time.Time, runID string, now time.Time) bool {
 	// CAS 失败说明另一个实例已推进这次到期点，由它记录 Run
 	if !u.casNextRunAt(entity, entity.AdvanceNextRunAt(fireTime, now)) {
 		return false
@@ -224,6 +259,59 @@ func (u *UseCase) fireAt(ctx context.Context, entity *schedule.Schedule, now tim
 	entity.Touch(now)
 	if err := u.repo.UpdateSchedule(entity); err != nil {
 		u.logger.Warn("schedule driver: update last run failed", "namespace", entity.Namespace, "schedule_id", entity.ID, "err", err)
+	}
+	return true
+}
+
+// startFailed 处理到期点 NextRunAt 的一次启动失败，语义与 Temporal scheduler 的 processBuffer 一致：
+//   - 暂时性错误：记下重试状态，按 schedule.StartRetryBackoff 退避（1s 起翻倍，最长 60s）后由之后的扫描重试，返回 false；
+//     退避期间不睡眠，其他 Schedule 与这个 Schedule 的跳过检查照常进行；
+//   - 配置错误（schedule.IsConfigStartError），或下一次尝试会晚于到期点之后的 schedule.StartRetryTimeout：丢弃这个
+//     到期点，计入 StartFailed，CAS 推进 NextRunAt，返回 true 继续处理后面的到期点。丢弃之前先用 Firer.CronRunStarted
+//     确认启动是否其实已经提交，已提交时按启动成功记录，不计入 StartFailed。
+//
+// catchup window 小于 1 小时时，fire 的 SkipUnstartable 先截断重试，到期点计入 MissedCatchupWindow：有效期限是
+// min(catchup window, 1 小时)，同 Temporal。
+//
+// 重试期限从到期点起算：准时处理的到期点第一次尝试就在到期点，期限即第一次尝试之后 1 小时（Temporal startWorkflow 的
+// ScheduleToCloseTimeout 上限）；补触发时已落后 1 小时以上的到期点只尝试一次。这样启动持续失败时 NextRunAt 最多落后
+// now 1 小时，恢复后补出的到期点不超过这 1 小时内的（按 Overlap Policy），不会逐个到期点各重试 1 小时而越积越多。
+//
+// retry 是这个到期点之前的重试状态，第一次失败时为 nil。
+func (u *UseCase) startFailed(entity *schedule.Schedule, key scheduleKey, retry *startRetry, now time.Time, err error) bool {
+	fireTime := *entity.NextRunAt
+	if retry == nil {
+		retry = &startRetry{fireTime: fireTime}
+	}
+	retry.attempts++
+	retry.nextAttempt = now.Add(schedule.StartRetryBackoff(retry.attempts))
+	configErr := schedule.IsConfigStartError(err)
+	if !configErr && retry.nextAttempt.Sub(fireTime) <= schedule.StartRetryTimeout {
+		u.startRetries[key] = retry
+		u.logger.Warn("schedule driver: start workflow failed, will retry", "namespace", entity.Namespace, "schedule_id", entity.ID,
+			"fire_time", fireTime.UTC().Format(time.RFC3339), "attempt", retry.attempts, "next_attempt", retry.nextAttempt, "err", err)
+		return false
+	}
+	delete(u.startRetries, key)
+	// 启动可能已经提交，只是提交之后入队失败或应答丢失：丢弃之前按到期点的 Workflow ID（即 requestID）确认一次，
+	// 已启动时按启动成功记录。确认本身失败时照常丢弃。
+	runID, lookupErr := u.firer.CronRunStarted(entity.Namespace, entity.RunWorkflowID(fireTime))
+	if lookupErr != nil {
+		u.logger.Warn("schedule driver: check whether the failed start took effect failed", "namespace", entity.Namespace, "schedule_id", entity.ID,
+			"fire_time", fireTime.UTC().Format(time.RFC3339), "err", lookupErr)
+	}
+	if runID != "" {
+		u.logger.Warn("schedule driver: start workflow returned an error but the run was started", "namespace", entity.Namespace, "schedule_id", entity.ID,
+			"fire_time", fireTime.UTC().Format(time.RFC3339), "run_id", runID, "err", err)
+		return u.recordStarted(entity, fireTime, runID, now)
+	}
+	u.logger.Error("schedule driver: start workflow failed, dropping this fire time", "namespace", entity.Namespace, "schedule_id", entity.ID,
+		"fire_time", fireTime.UTC().Format(time.RFC3339), "attempts", retry.attempts, "config_error", configErr, "err", err)
+	if !u.casNextRunAt(entity, entity.DropFailedStart(now)) {
+		return false
+	}
+	if err := u.repo.UpdateSchedule(entity); err != nil {
+		u.logger.Warn("schedule driver: update start_failed failed", "namespace", entity.Namespace, "schedule_id", entity.ID, "err", err)
 	}
 	return true
 }

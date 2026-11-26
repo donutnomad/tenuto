@@ -823,41 +823,6 @@ func TestTrigger_StartFailure(t *testing.T) {
 	}
 }
 
-func TestFireDue_StartFailureKeepsDueTime(t *testing.T) {
-	// Error Case: 启动 Run 失败时 NextRunAt 保持为到期点，下一轮扫描重新触发
-	store := memory.NewScheduleRepository()
-	firer := newFakeFirer(store)
-	due := time.Now().Add(-1 * time.Minute).Truncate(time.Millisecond)
-	if err := store.CreateSchedule(newTestSchedule("sch-retry", "wf-retry", "0 0 * * *", "ALLOW_ALL", &due)); err != nil {
-		t.Fatal(err)
-	}
-	uc := newTestUseCase(firer)
-
-	firer.startErr = errors.New("queue unavailable")
-	uc.FireDue(context.Background())
-
-	got, err := store.GetSchedule("default", "sch-retry")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.NextRunAt == nil || !got.NextRunAt.Equal(due) {
-		t.Fatalf("expected next_run_at kept at %v after a failed start, got %v", due, got.NextRunAt)
-	}
-
-	firer.mu.Lock()
-	firer.startErr = nil
-	firer.mu.Unlock()
-	uc.FireDue(context.Background())
-
-	got, err = store.GetSchedule("default", "sch-retry")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.RunCount != 1 || got.NextRunAt == nil || !got.NextRunAt.After(time.Now()) {
-		t.Fatalf("expected the retried fire to record the run and advance next_run_at, got run_count=%d next_run_at=%v", got.RunCount, got.NextRunAt)
-	}
-}
-
 // 启动 Run 时 NextRunAt 仍是这次到期点：启动之后、推进之前进程退出时这次触发不会丢失。
 func TestFireDue_StartsBeforeAdvancingNextRunAt(t *testing.T) {
 	store := memory.NewScheduleRepository()

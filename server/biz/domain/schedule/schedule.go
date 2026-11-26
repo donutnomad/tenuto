@@ -6,6 +6,7 @@ import (
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
+	"github.com/donutnomad/tenuto/server/biz/domain/definition"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 )
 
@@ -20,6 +21,32 @@ const (
 	// 更晚的计入 BufferDropped（同 Temporal 的 buffer 满时丢弃新到的触发）。
 	MaxBufferSize = 1000
 )
+
+// 单个到期点启动失败后的重试，与 Temporal scheduler 启动 Workflow 的本地 Activity 一致（defaultLocalActivityOptions、
+// startWorkflow 的 ScheduleToCloseTimeout 上限 1 小时）：退避从 StartRetryInitialInterval 起翻倍，最长
+// StartRetryMaxInterval；下一次尝试会晚于到期点之后的 StartRetryTimeout 时丢弃这个到期点（准时处理的到期点即第一次
+// 尝试之后 1 小时）。
+const (
+	StartRetryTimeout         = time.Hour
+	StartRetryInitialInterval = time.Second
+	StartRetryMaxInterval     = time.Minute
+)
+
+// StartRetryBackoff 返回第 attempt 次（从 1 起）启动失败之后到下一次尝试的间隔。
+func StartRetryBackoff(attempt int) time.Duration {
+	backoff := StartRetryInitialInterval
+	for i := 1; i < attempt && backoff < StartRetryMaxInterval; i++ {
+		backoff *= 2
+	}
+	return min(backoff, StartRetryMaxInterval)
+}
+
+// IsConfigStartError 报告启动错误来自 Schedule 的配置或请求本身（Workflow 类型没有部署、输入不合法、载荷超限等），
+// 重试不会成功：这类到期点不重试，直接丢弃。对应 Temporal 把非瞬时错误转成不可重试的 ApplicationError
+// （scheduler activities 的 translateError）。其余错误（存储或网络暂时不可用、ErrResourceExhausted）按退避重试。
+func IsConfigStartError(err error) bool {
+	return errors.Is(err, protocol.ErrInvalidRequest) || errors.Is(err, definition.ErrWorkflowConfigNotFound)
+}
 
 // ParseCatchupWindow 校验 catchup window：0 取 DefaultCatchupWindow，小于 MinCatchupWindow 返回 InvalidRequest。
 func ParseCatchupWindow(window time.Duration) (time.Duration, error) {
@@ -78,6 +105,9 @@ type Schedule struct {
 	MissedCatchupWindow int64 `json:"missed_catchup_window"`
 	// BufferDropped 是补触发时因超出 MaxBufferSize 而丢弃的到期点数（Temporal ScheduleInfo.BufferDropped）。
 	BufferDropped int64 `json:"buffer_dropped"`
+	// StartFailed 是因启动失败而丢弃的到期点数：配置错误立即丢弃，暂时性错误重试 StartRetryTimeout 之后丢弃
+	// （Temporal 的 ScheduleActionErrors）。
+	StartFailed int64 `json:"start_failed"`
 	// BufferDropFrom 与 BufferDropUntil 记录 buffer 满时丢弃的到期点区间 [BufferDropFrom, BufferDropUntil]：
 	// 保留的 MaxBufferSize 个到期点处理完、NextRunAt 走到 BufferDropFrom 时跳到 BufferDropUntil 之后。没有丢弃时为 nil。
 	BufferDropFrom  *time.Time `json:"-"`
@@ -301,6 +331,13 @@ func (s *Schedule) SkipUnstartable(now time.Time) (previous *time.Time, skipped 
 	s.setNextRunAt(next)
 	s.setUpdatedAt(now)
 	return previous, true
+}
+
+// DropFailedStart 丢弃启动失败的到期点 NextRunAt：计入 StartFailed，把 NextRunAt 推进到它之后的下一个 cron 时刻。
+// 返回推进前的 NextRunAt 供 CAS 比较。
+func (s *Schedule) DropFailedStart(now time.Time) (previous *time.Time) {
+	s.setStartFailed(s.StartFailed + 1)
+	return s.AdvanceNextRunAt(*s.NextRunAt, now)
 }
 
 // DueForFire 报告 NextRunAt 是此刻要处理的到期点：不晚于 now，且不在 buffer 满时丢弃的区间里。
