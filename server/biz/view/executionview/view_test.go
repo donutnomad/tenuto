@@ -261,6 +261,35 @@ func TestGetRunWithBlocked(t *testing.T) {
 			t.Fatalf("terminal failure = %+v", result.TerminalFailure)
 		}
 	})
+	t.Run("failed run reads only the tail of its history", func(t *testing.T) {
+		// History 很大的失败 Run：终态失败从末尾几个事件里取，不整段读出 History。
+		env := newEnv()
+		env.createRun(t, "ns", "payments", "run-1")
+		for range 100 {
+			if _, err := env.mgr.Append("run-1", "run-1", "run-1", history.NewWorkflowSignaledEvent("tick", nil)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		failed, err := history.NewWorkflowFailedFailureEvent(protocol.Failure{Message: "card declined"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := execution.AppendEvent(env.mgr, "run-1", "run-1", "run-1", failed); err != nil {
+			t.Fatal(err)
+		}
+		runs := &tailOnlyRuns{ExecutionManager: env.mgr}
+		view := executionview.New(runs, env.configs, env.workers, env.schedules, systemclock.Clock{})
+		result, err := view.GetRunWithBlocked("ns", "", "run-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.TerminalFailure == nil || result.TerminalFailure.Message != "card declined" {
+			t.Fatalf("terminal failure = %+v", result.TerminalFailure)
+		}
+		if runs.eventsRead > execution.CloseEventScan {
+			t.Fatalf("get-run read %d events, want at most %d", runs.eventsRead, execution.CloseEventScan)
+		}
+	})
 	t.Run("missing identifiers", func(t *testing.T) {
 		// Error Case: runID 与 workflowID 都为空
 		env := newEnv()
@@ -337,4 +366,24 @@ func TestGetEventsAndEventPage(t *testing.T) {
 	if _, err := env.view.GetEventPage("ns", "", execution.HistoryPageRequest{}); !errors.Is(err, execution.ErrRunOrWorkflowIDRequired) {
 		t.Fatalf("GetEventPage error = %v", err)
 	}
+}
+
+// tailOnlyRuns 统计读出的事件数，整段读取 History 时让测试失败。
+type tailOnlyRuns struct {
+	*memory.ExecutionManager
+	eventsRead int
+}
+
+func (r *tailOnlyRuns) GetEvents(string) ([]history.Event, error) {
+	return nil, errors.New("get-run must not read the whole history")
+}
+
+func (r *tailOnlyRuns) GetEventPage(execution.HistoryPageRequest) (execution.HistoryPage, error) {
+	return execution.HistoryPage{}, errors.New("get-run must not page through the history")
+}
+
+func (r *tailOnlyRuns) GetEventsRange(runID string, afterExclusive, throughInclusive int64) ([]history.Event, error) {
+	events, err := r.ExecutionManager.GetEventsRange(runID, afterExclusive, throughInclusive)
+	r.eventsRead += len(events)
+	return events, err
 }

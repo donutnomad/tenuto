@@ -102,3 +102,17 @@ var nonIdempotentPaths = map[string]bool{
 func IsIdempotent(path string) bool {
 	return !nonIdempotentPaths[path]
 }
+
+// longPollPaths 是整个请求都在等待事件发生的端点：领取 Task、等 Run 结束。它们的时长由等待决定，
+// Server 的在途请求上限不计入它们，停机时它们立即结束。Update 与 update-with-start 先拿锁写库、再等结果，
+// 只有等结果的阶段不计入在途上限。
+var longPollPaths = map[string]bool{
+	WorkflowTaskRuntimePollPath:   true,
+	ActivityRuntimePollPath:       true,
+	WorkflowRuntimeWaitClosedPath: true,
+}
+
+// IsLongPoll 报告 path 是否是长轮询端点。
+func IsLongPoll(path string) bool {
+	return longPollPaths[path]
+}

@@ -3,6 +3,7 @@ package runtimeclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -218,8 +219,14 @@ func (c *WorkflowRuntimeHTTPClient) RegisterActivityWorkerVersion(ctx context.Co
 	return c.post(ctx, runtimeapi.WorkflowRuntimeRegisterActivityWorkerPath, runtimeapi.WorkflowRuntimeRegisterActivityWorkerRequest{Worker: worker}, nil)
 }
 
+// HeartbeatActivityWorkerVersionInNamespace 续期 Worker 的登记。Server 上没有这份登记（404）时返回包装了
+// protocol.ErrActivityWorkerVersionNotRegistered 的错误，Worker 据此重新登记。
 func (c *WorkflowRuntimeHTTPClient) HeartbeatActivityWorkerVersionInNamespace(ctx context.Context, namespace, identity, buildID string) error {
-	return c.post(ctx, runtimeapi.WorkflowRuntimeHeartbeatActivityWorkerPath, runtimeapi.WorkflowRuntimeHeartbeatActivityWorkerRequest{Namespace: namespace, Identity: identity, BuildID: buildID}, nil)
+	err := c.post(ctx, runtimeapi.WorkflowRuntimeHeartbeatActivityWorkerPath, runtimeapi.WorkflowRuntimeHeartbeatActivityWorkerRequest{Namespace: namespace, Identity: identity, BuildID: buildID}, nil)
+	if status, ok := errors.AsType[*StatusError](err); ok && status.Code == http.StatusNotFound {
+		return fmt.Errorf("%w: %w", protocol.ErrActivityWorkerVersionNotRegistered, err)
+	}
+	return err
 }
 
 // DeregisterActivityWorkerVersionInNamespace 注销 Worker 的 Activity 路由，Worker 正常停止时调用。

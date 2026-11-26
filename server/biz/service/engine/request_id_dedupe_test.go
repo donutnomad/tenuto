@@ -45,8 +45,16 @@ func TestStartWorkflowWithRequestIDIsIdempotent(t *testing.T) {
 		t.Fatalf("new request after close = %v, %v; want a new run", next, err)
 	}
 
-	if _, err := server.StartWorkflow(ctx, "", "wf-start-request", "order-2", strings.Repeat("x", execution.MaxRequestIDLength+1), nil); !errors.Is(err, protocol.ErrInvalidRequest) {
+	if _, err := server.StartWorkflow(ctx, "", "wf-start-request", "order-2", strings.Repeat("x", protocol.MaxRequestIDLength+1), nil); !errors.Is(err, protocol.ErrInvalidRequest) {
 		t.Fatalf("oversized request id: err = %v, want ErrInvalidRequest", err)
+	}
+	// Signal 与 signal-with-start 的 RequestID 同样受限：WorkflowSignaled 的去重键不超过 dedupe_key 的列宽。
+	oversized := strings.Repeat("x", protocol.MaxRequestIDLength+1)
+	if _, err := server.SignalWorkflow(ctx, "", "", next.ID, "poke", oversized, nil); !errors.Is(err, protocol.ErrInvalidRequest) {
+		t.Fatalf("signal with an oversized request id: err = %v, want ErrInvalidRequest", err)
+	}
+	if _, _, err := server.SignalWithStart(ctx, "", "wf-start-request", "order-3", nil, "poke", oversized, nil); !errors.Is(err, protocol.ErrInvalidRequest) {
+		t.Fatalf("signal-with-start with an oversized request id: err = %v, want ErrInvalidRequest", err)
 	}
 }
 

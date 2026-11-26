@@ -78,13 +78,19 @@ func TestTenutoMigrationsBuildSchemaSQL(t *testing.T) {
 	assertSameTables(t, showCreateTables(t, migrated), showCreateTables(t, reference), "schema.sql")
 }
 
-// TestTaskQMigrationsBuildTaskQSchemaSQL 断言执行全部 TaskQ 迁移得到的表与按本次构建所用 TaskQ 模块的 schema.sql 建出的表相同。
+// TestTaskQMigrationsBuildTaskQSchemaSQL 断言执行全部 TaskQ 迁移得到的表与按本次构建所用 TaskQ 模块的 schema.sql 建出的表相同，
+// 唯一的差别是 Tenuto 的迁移给每张表加上 COLLATE=utf8mb4_0900_bin（queue_name 等标识按字节比较，与 Tenuto 的表一致）。
 // 升级 TaskQ 带来表结构变化时这里失败：在 taskq_migrations 里新增迁移。
 func TestTaskQMigrationsBuildTaskQSchemaSQL(t *testing.T) {
 	script, err := mysqltest.TaskQSchema()
 	if err != nil {
 		t.Fatal(err)
 	}
+	const upstreamTable = ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
+	if !strings.Contains(script, upstreamTable) {
+		t.Fatalf("TaskQ schema.sql no longer ends its tables with %q: review the collation of taskq_migrations", upstreamTable)
+	}
+	script = strings.ReplaceAll(script, upstreamTable, ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;")
 	migrated := mysqltest.NewTaskQDB(t)
 	reference := mysqltest.NewEmptyDB(t)
 	if err := tenutosql.Exec(t.Context(), reference, script); err != nil {

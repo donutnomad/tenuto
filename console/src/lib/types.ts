@@ -86,7 +86,9 @@ export interface RunListItem {
 
 export interface RunListResult {
   items: RunListItem[]
+  // total 是满足条件的 Run 总数；请求带 skip_total 时为 0。
   total: number
+  has_more: boolean
 }
 
 export interface WorkflowConfigSummary {

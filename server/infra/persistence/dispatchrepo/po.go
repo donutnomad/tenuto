@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS tenuto_task_dispatches (
   INDEX idx_task_dispatches_status (status),
   INDEX idx_task_dispatches_lease_id (lease_id),
   INDEX idx_task_dispatches_lease_expires_at (lease_expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }
 
@@ -104,6 +104,6 @@ CREATE TABLE IF NOT EXISTS tenuto_activity_worker_versions (
   INDEX idx_activity_worker_versions_build_id (build_id),
   INDEX idx_activity_worker_versions_task_queue (task_queue),
   INDEX idx_activity_worker_versions_expires_at (expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }

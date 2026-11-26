@@ -147,14 +147,20 @@ func onGinResponse[T any](c *gin.Context, data T, err error) {
 }
 
 // writeRuntimeError 写出失败应答。4xx 与 504 的响应体是错误文本；服务端故障（5xx）只返回固定文本，
-// 真实错误记入日志。请求方已经断开时不写应答。
+// 真实错误记入日志。
+//
+// context.Canceled 一律应答 503 与 Retry-After：引擎只在提交之前响应取消（等 keyed lock、读 Run），提交之后的
+// 动作不随请求取消，所以这个错误表示请求没有生效。请求方已经断开时这次写入无害。
 func writeRuntimeError(c *gin.Context, err error) {
-	if errors.Is(err, context.Canceled) && c.Request.Context().Err() != nil {
-		return
-	}
 	logger := c.MustGet(loggerKey).(*slog.Logger)
 	transientValue, _ := c.Get(transientKey)
 	transient, _ := transientValue.(func(error) bool)
+	if errors.Is(err, context.Canceled) {
+		logger.Info("runtime http request cancelled before taking effect", "method", c.Request.Method, "path", c.Request.URL.Path, "err", err)
+		c.Header("Retry-After", retryAfterSeconds)
+		http.Error(c.Writer, "request cancelled before taking effect; retry", http.StatusServiceUnavailable)
+		return
+	}
 	switch code := runtimeErrorStatus(c.Request.URL.Path, err, transient); code {
 	case http.StatusServiceUnavailable:
 		logger.Warn("runtime http request failed: dependency temporarily unavailable", "method", c.Request.Method, "path", c.Request.URL.Path, "err", err)
@@ -182,7 +188,7 @@ const retryAfterSeconds = "1"
 func runtimeErrorStatus(path string, err error, transient func(error) bool) int {
 	switch {
 	case isAny(err, execution.ErrRunNotFound, execution.ErrNoCurrentRun, batch.ErrNotFound,
-		definition.ErrWorkflowConfigNotFound, schedule.ErrNotFound):
+		definition.ErrWorkflowConfigNotFound, schedule.ErrNotFound, protocol.ErrActivityWorkerVersionNotRegistered):
 		return http.StatusNotFound
 	case isAny(err, execution.ErrCurrentRunConflict, execution.ErrRunAlreadyExists, schedule.ErrAlreadyExists, schedule.ErrConcurrentUpdate,
 		schedule.ErrOverlapSkipped, batch.ErrAlreadyExists, batch.ErrConcurrentUpdate,
@@ -232,18 +238,22 @@ func runtimePollContext(parent context.Context, timeoutMillis int64) (context.Co
 	return context.WithTimeout(parent, time.Duration(timeoutMillis)*time.Millisecond)
 }
 
-// runtimePollError 落实长轮询的 wire 语义：服务端超时应答 204 且无 body，
+// runtimePollError 落实长轮询的 wire 语义：服务端超时与停机（Server.StopLongPolls）应答 204 且无 body，
 // 客户端已取消时不写应答，其余错误交给统一映射。
 func runtimePollError(c *gin.Context, err error) error {
-	requestCtx := c.Request.Context()
-	if errors.Is(err, protocol.ErrTaskPollTimeout) || (errors.Is(err, context.DeadlineExceeded) && requestCtx.Err() == nil) {
+	if errors.Is(err, protocol.ErrTaskPollTimeout) || longPollEnded(c, err) {
 		c.Status(http.StatusNoContent)
 		return errSkipResponse
 	}
-	if errors.Is(err, context.Canceled) && requestCtx.Err() != nil {
+	if errors.Is(err, context.Canceled) && c.Request.Context().Err() != nil {
 		return errSkipResponse
 	}
 	return err
+}
+
+// longPollEnded 报告长轮询因服务端的期限或停机结束，而请求方仍在等待。
+func longPollEnded(c *gin.Context, err error) bool {
+	return c.Request.Context().Err() == nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled))
 }
 
 // signRuntimeTaskLease 把绑定队列租约的 task token 写入租约的任务。

@@ -167,6 +167,9 @@ func (s *Server) ensureStartedThenAcceptUpdate(
 		if e != nil {
 			return e
 		}
+		if e := execution.RequireCurrentRunOf(current, namespace, workflowID); e != nil {
+			return e
+		}
 		if e := requireWorkflowType(current, workflowType); e != nil {
 			return e
 		}
@@ -233,6 +236,9 @@ func (s *Server) ensureStartedThenSignal(
 	if txErr := s.telemetry.runInTx(ctx, "signal_with_start", s.mgr, func(tx execution.ExecutionTx) error {
 		current, e := tx.GetRunForUpdate(currentID)
 		if e != nil {
+			return e
+		}
+		if e := execution.RequireCurrentRunOf(current, namespace, workflowID); e != nil {
 			return e
 		}
 		if e := requireWorkflowType(current, workflowType); e != nil {
