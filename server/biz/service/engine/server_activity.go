@@ -77,7 +77,7 @@ func (s *Server) startActivityAttempt(task protocol.Task, branch runBranch, star
 		started, err = execution.StartActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
 			ScheduledEventID: scheduledEventID, Attempt: attempt, Stamp: task.Stamp, Now: now,
-		}, task.WorkerIdentity, task.WorkerBuildID)
+		}, task.WorkerIdentity, task.WorkerBuildID, task.RequestID)
 		return err
 	}); err != nil {
 		return time.Time{}, false, err
@@ -117,6 +117,10 @@ func (s *Server) CompleteActivityAttempt(ctx context.Context, run *execution.Run
 }
 
 func (s *Server) completeActivityAttempt(ctx context.Context, runID string, branch runBranch, scheduledEventID int64, attempt int, stamp int64, output map[string]any) (err error) {
+	if limitErr := protocol.CheckPayloadSize("activity result", output, s.payloadSizeLimit); limitErr != nil {
+		// 结果超过载荷上限：照 Temporal RespondActivityTaskCompleted，改记为不可重试的失败。
+		return s.failActivityAttempt(ctx, runID, branch, scheduledEventID, attempt, stamp, protocol.PayloadSizeLimitFailure(limitErr))
+	}
 	ctx, span := s.telemetry.start(ctx, "CompleteActivity",
 		attribute.String(tenutotel.AttrWorkflowRunID, runID),
 		attribute.Int64(tenutotel.AttrScheduledEventID, scheduledEventID),
@@ -435,6 +439,11 @@ func (s *Server) HandleActivityHeartbeat(runID string, scheduledEventID int64, a
 	} else if terminated {
 		return nil
 	}
+	if limitErr := protocol.CheckPayloadSize("activity heartbeat details", details, s.payloadSizeLimit); limitErr != nil {
+		// 心跳详情超过载荷上限：照 Temporal RecordActivityTaskHeartbeat，以不可重试的失败结束这次 attempt；
+		// 之后的取消检查告诉 Worker 结果不再有接收方。
+		return s.HandleActivityFailed(context.Background(), runID, scheduledEventID, attempt, stamp, protocol.PayloadSizeLimitFailure(limitErr))
+	}
 	now := s.clock.Now()
 	var st *execution.ActivityState
 	if err := s.telemetry.runInTx(context.Background(), "record_activity_heartbeat", s.mgr, func(tx execution.ExecutionTx) error {
@@ -458,3 +467,6 @@ func (s *Server) HandleActivityHeartbeat(runID string, scheduledEventID int64, a
 func (s *Server) GetActivityState(runID string, scheduledEventID int64) (*execution.ActivityState, bool, error) {
 	return s.mgr.GetActivityState(runID, scheduledEventID)
 }
+
+// PayloadSizeLimit 是单个载荷的字节上限，见 WithPayloadSizeLimit。
+func (s *Server) PayloadSizeLimit() int { return s.payloadSizeLimit }

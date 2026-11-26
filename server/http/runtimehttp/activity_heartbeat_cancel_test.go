@@ -66,7 +66,7 @@ func TestActivityRuntimeHTTPReportsCancellationOnHeartbeat(t *testing.T) {
 	task.TaskToken = token
 	var result protocol.ActivityHeartbeatResult
 	if err := wirePost(ctx, runtimeServer.URL, runtimeapi.ActivityRuntimeHeartbeatPath, runtimeapi.ActivityRuntimeHeartbeatRequest{
-		TaskToken: task.TaskToken, Task: task, Details: map[string]any{"offset": int64(10)},
+		ActivityRuntimeTaskRequest: runtimeapi.ActivityRuntimeTaskRequest{TaskToken: task.TaskToken}, Details: map[string]any{"offset": int64(10)},
 	}, &result); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestActivityRuntimeHTTPReportsCancellationOnHeartbeat(t *testing.T) {
 	}
 
 	var status protocol.ActivityCancellationResult
-	if err := wirePost(ctx, runtimeServer.URL, runtimeapi.ActivityRuntimeCancelPath, runtimeapi.ActivityRuntimeTaskRequest{TaskToken: task.TaskToken, Task: task}, &status); err != nil {
+	if err := wirePost(ctx, runtimeServer.URL, runtimeapi.ActivityRuntimeCancelPath, runtimeapi.ActivityRuntimeTaskRequest{TaskToken: task.TaskToken}, &status); err != nil {
 		t.Fatal(err)
 	}
 	if !status.CancelRequested || status.Reason != protocol.ActivityCancelRequestedReason {

@@ -156,7 +156,11 @@ func RunIncrementalTask(ctx, runtimeCtx context.Context, task protocol.Task, opt
 		}
 		return IncrementalTaskResult{Failure: sessionFailureKind(err), Err: err}
 	}
-	ack, err := opts.Complete(runtimeCtx, task, result)
+	err = protocol.CheckWorkflowTaskCommandsSize(result.Commands)
+	var ack history.WorkflowTaskCompletionAck
+	if err == nil {
+		ack, err = opts.Complete(runtimeCtx, task, result)
+	}
 	if err != nil {
 		_ = session.Close()
 		evict(protocol.ExecutionCacheEvictionInvalid)

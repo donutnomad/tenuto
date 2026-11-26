@@ -111,6 +111,8 @@ func run(ctx context.Context, url, namespace string) error {
 
 `Stop` 可重复、并发调用，都在停止完成后返回；没有在途任务时立即返回；忽略 `ctx` 的 Activity 会让它一直等。部署平台在 `SIGTERM` 后留出大于 `GracefulStopTimeout` 的终止宽限期。进程崩溃时路由靠心跳 TTL 到期，已开始的 Attempt 靠 StartToClose 或 Heartbeat 超时重试。到期的登记保留：指定 Target Worker 的 Run 仍按它最后登记的队列排队，受 `ScheduleToStartTimeout` 约束。Server 的全量补偿删除到期超过一天、且没有 Running Run 指定的登记；仍在运行的 Worker 的登记被删除后，下一次心跳得到 404，Worker 立即重新登记（退避重试）。
 
+Server 以不可重试的 4xx（400、404、409、413、422）拒绝时 Worker 不立即退回投递：`begin` 按连续拒绝次数退避（1s 起翻倍，最长 1 分钟）后退回；Activity 结果被拒绝时改报不可重试的 `ActivityResultRejected` 失败；Workflow Task 提交被 413 拒绝（或提交前算出命令合计超过 3.5 MiB）时改报 `payload_size_limit_exceeded` 失败，其他上报被拒绝时投递留到队列可见性超时，已开始的 Workflow Task 由 Server 超时重新调度。程序要求的能力超出 Worker 声明时 Workflow Task 照常立即退回。`begin` 应答丢失后的重发带同一个 `request_id`，Server 返回原来的开始结果。
+
 定义经 Worker 所用 Client 的连接登记到它的 Namespace。
 
 ## 路由要点

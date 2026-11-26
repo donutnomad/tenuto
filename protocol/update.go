@@ -24,6 +24,15 @@ type Payload struct {
 
 type Payloads []Payload
 
+// DataSize 是各 payload 数据的字节数之和。
+func (p Payloads) DataSize() int {
+	size := 0
+	for _, payload := range p {
+		size += len(payload.Data)
+	}
+	return size
+}
+
 // UpdateOutcome 是 Update 完成的唯一结果表示：Failure 非 nil 是失败，Success 非 nil 是成功，
 // 两者都不设置表示这个 outcome 无效。失败载荷与 Activity/Workflow 失败共用同一个 protocol.Failure。
 type UpdateOutcome struct {

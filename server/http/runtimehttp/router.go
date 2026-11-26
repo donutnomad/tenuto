@@ -99,17 +99,19 @@ func abortText(c *gin.Context, status int, text string) error {
 	return errSkipResponse
 }
 
-// maxRuntimeRequestBody 限制请求体大小，防止大 body 造成 OOM。
-const maxRuntimeRequestBody = 4 * 1024 * 1024 // 4MB
-
-// onGinBind 由生成的路由包装调用：解码 JSON 请求体，失败时应答 400。
+// onGinBind 由生成的路由包装调用：解码 JSON 请求体，失败时应答 400；请求体超过 protocol.MaxRuntimeRequestBody
+// （防止大 body 造成 OOM）时应答 413，Worker 据此把 Workflow Task 记为 payload_size_limit_exceeded 失败。
 //
 // 用户载荷（start / signal / query / update / schedule 的 input、Activity 的输出与心跳详情、Workflow 命令的
 // 输入输出）里的数字先解码成 json.Number，再归一化成引擎的数值表示：整数是 int64（超过 int64 的是 uint64），
 // 带小数的是 float64。超过 2^53 的整数因此原样保留。
 func onGinBind(c *gin.Context, val any, _ string) bool {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRuntimeRequestBody)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, protocol.MaxRuntimeRequestBody)
 	if err := jsonvalue.Decode(c.Request.Body, val); err != nil {
+		if maxBytes := (*http.MaxBytesError)(nil); errors.As(err, &maxBytes) {
+			http.Error(c.Writer, fmt.Sprintf("request body exceeds %d bytes", protocol.MaxRuntimeRequestBody), http.StatusRequestEntityTooLarge)
+			return false
+		}
 		http.Error(c.Writer, fmt.Sprintf("decode request: %v", err), http.StatusBadRequest)
 		return false
 	}
@@ -278,6 +280,8 @@ func verifyRuntimeTaskLease(codec *dispatch.TaskTokenCodec, lease protocol.TaskL
 	if task.Type != expectedType {
 		return protocol.TaskLease{}, protocol.InvalidRequestf("task token type %s is invalid for %s lease", task.Type, expectedType)
 	}
+	// 任务只取 token 签名的字段；Worker 交回的载荷（Input、心跳详情、TraceContext）不被采用，队列按租约
+	// token 重投自己保存的任务。
 	task.TaskToken = token
 	lease.Task = task
 	return lease, nil

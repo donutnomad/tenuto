@@ -92,7 +92,7 @@ WORKFLOW_HEALTH_ADDR=:7401   # 明文健康检查端口，供探针使用
 
 | 项目 | 上限 |
 | --- | --- |
-| 请求体 | 4 MiB，超出应答 400 |
+| 请求体 | 4 MiB，超出应答 413 |
 | 单个 Run 的 History | 51,200 个事件或 50 MiB，超出时 Run 以 `HistoryLimitExceeded` 失败 |
 | Run List 一页 / 一次 `run_ids` | 1000 |
 | History 分页一页 | 1000 个事件 |

@@ -192,6 +192,21 @@ c, err := client.Dial(client.Options{
 
 `client.Options.Telemetry` 覆盖 HTTP 传播与 Update spans；从这个 Client 创建的 Worker 在 `worker.Options.Telemetry` 留空时沿用它，覆盖 Worker spans、metrics 和 logs。Worker 的全部日志（每个任务的结束记录，以及 poll、ack/nack、路由登记与心跳、结果上报失败）都写入 `Telemetry.Logger`；没有配置 Logger 时写入 `slog.Default()`。
 
+## Server 拒绝上报时
+
+SDK 对连接错误与 502/503/504 按幂等调用重试（见 [Client](/sdk/client)）。Activity 的 `begin` 带一个每份投递生成一次的 `request_id`：应答在途中丢失后的重发由 Server 认作同一次开始，返回原来的开始时间，Activity 照常执行。
+
+Server 以不可重试的 4xx（400、404、409、413、422）拒绝时，重发得到同样的结果，Worker 不立即退回投递：
+
+| 被拒绝的调用 | Worker 的处理 | 日志 |
+| --- | --- | --- |
+| Activity `begin` | 按连续拒绝次数退避（1s 起翻倍，最长 1 分钟）后退回租约 | WARN `server rejected the activity begin request; returning the task after a backoff` |
+| Activity 结果 | 改报一次不可重试的失败，Type `ActivityResultRejected` | 任务结束记录 |
+| Workflow Task 提交，应答 413 | 改报 `WorkflowTaskFailed`（`payload_size_limit_exceeded`），Run Blocked 并退避重试；Worker 在提交前已检查命令总量（3.5 MiB），超限时同样改报、不发送 | 任务结束记录 |
+| Workflow Task 的其他上报 | 既不确认也不退回，投递留到队列的可见性超时；已开始的 Workflow Task 由 Server 超时重新调度 | ERROR `server rejected the workflow task report; leaving the delivery to the queue's visibility timeout` |
+
+Workflow 程序要求的能力超出 Worker 声明时，Workflow Task 照常立即退回，由具备能力的 Worker 领取。载荷上限见 [容量上限](/operations/capacity-limits#载荷大小)。
+
 ## 优雅退出
 
 `Stop()` 按顺序执行：

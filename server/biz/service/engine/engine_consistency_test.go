@@ -158,7 +158,7 @@ var errStickyStoreDown = errors.New("sticky store down")
 
 type stickyAssignFailingManager struct{ execution.ExecutionManager }
 
-func (*stickyAssignFailingManager) AssignStickyExecution(string, int64, int64, string, string, time.Time) (int64, bool, error) {
+func (*stickyAssignFailingManager) AssignStickyExecution(string, int64, int64, string, string) (int64, bool, error) {
 	return 0, false, errStickyStoreDown
 }
 

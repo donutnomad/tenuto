@@ -175,27 +175,21 @@ func TestRealTaskQStickyWorkflowFallsBackAfterOwnerStops(t *testing.T) {
 	}
 	first := dequeueRealActivity(t, activityQueue)
 	waitForRealStickyOwner(t, workflowStore, runID, "owner-worker")
-	state, err := workflowStore.Executions.GetWorkflowExecutionState(runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	routingDeadline := time.Now().Add(300 * time.Millisecond)
-	if _, assigned, err := workflowStore.Executions.AssignStickyExecution(
-		runID,
-		state.ExecutionGeneration,
-		state.StickyGeneration,
-		"owner-worker",
-		"workflow-v1",
-		routingDeadline,
-	); err != nil || !assigned {
-		t.Fatalf("shorten sticky assignment: assigned=%v err=%v", assigned, err)
-	}
 	owner.Stop()
 
 	completeRealActivity(t, server, activityQueue, first)
 	keyedTask := waitForPersistedKeyedTask(t, h, "workflow-tasks", 3*time.Second)
+	// 下一个 WFT 投给已停止的 owner-worker，sticky schedule-to-start 从它调度时起算。
+	state, err := workflowStore.Executions.GetWorkflowExecutionState(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.StickyExpiresAt == nil {
+		t.Fatalf("sticky workflow task has no schedule-to-start deadline: %+v", state)
+	}
+	waitUntil(t, state.StickyExpiresAt.Add(50*time.Millisecond))
+	// 快照取在期限之后：等待期间 TaskQ 可能回收已确认的行，与回落无关。
 	rowsBeforeFallback := persistedTaskQRows(t, h, "workflow-tasks")
-	waitUntil(t, routingDeadline.Add(50*time.Millisecond))
 	if err := server.FallbackExpiredStickyWorkflowTasks(ctx); err != nil {
 		t.Fatal(err)
 	}

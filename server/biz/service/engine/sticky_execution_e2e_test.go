@@ -12,6 +12,7 @@ import (
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/app/assembly"
+	"github.com/donutnomad/tenuto/server/biz/domain/clock/clocktest"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/infra/memory"
@@ -78,10 +79,11 @@ func TestWorkerStickyExecutionRetainsSessionAndConsumesDelta(t *testing.T) {
 }
 
 func TestStickyExecutionFallsBackToAnotherWorkerAfterOwnerStops(t *testing.T) {
-	mgr := memory.NewExecutionManager()
+	clk := clocktest.NewFake(time.Date(2026, 11, 26, 8, 0, 0, 0, time.UTC))
+	mgr := memory.NewExecutionManager().WithClock(clk)
 	workflowTasks := memory.NewTaskQueue(16)
 	activityTasks := memory.NewTaskQueue(16)
-	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: workflowTasks, ActivityRouter: engine.QueueActivityRouter{Queue: activityTasks}})
+	server := assembly.NewServer(assembly.Options{Stores: assembly.Stores{Executions: mgr}, WorkflowQueue: workflowTasks, ActivityRouter: engine.QueueActivityRouter{Queue: activityTasks}, Clock: clk})
 	registerE2EActivities(t, server)
 	if _, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "sticky-fallback"},
 		sdkgentest.Step{Type: "activity.first", Options: `StartToCloseTimeout: time.Minute`},
@@ -109,13 +111,8 @@ func TestStickyExecutionFallsBackToAnotherWorkerAfterOwnerStops(t *testing.T) {
 	worker1.Stop()
 	completeActivityTask(t, server, first, map[string]any{"first": "done"})
 
-	state, err = mgr.GetWorkflowExecutionState(runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "owner-worker", "build-1", time.Now().Add(-time.Second)); err != nil || !assigned {
-		t.Fatalf("expire sticky assignment: assigned=%v err=%v", assigned, err)
-	}
+	// 下一个 WFT 投给已停止的 owner-worker：sticky schedule-to-start 期限过后回落到普通队列。
+	clk.Advance(execution.StickyScheduleToStartTimeout + time.Second)
 	if err := server.FallbackExpiredStickyWorkflowTasks(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -19,7 +19,15 @@ import (
 type ServerOption func(*serverOptions)
 
 type serverOptions struct {
-	telemetry tenutotel.Providers
+	telemetry        tenutotel.Providers
+	payloadSizeLimit int
+}
+
+// WithPayloadSizeLimit 设置单个载荷的字节上限（见 protocol.DefaultPayloadSizeLimit）；不设置时使用缺省值。
+func WithPayloadSizeLimit(limit int) ServerOption {
+	return func(options *serverOptions) {
+		options.payloadSizeLimit = limit
+	}
 }
 
 // WithTelemetry injects OpenTelemetry providers into a Server.
@@ -30,7 +38,7 @@ func WithTelemetry(providers tenutotel.Providers) ServerOption {
 }
 
 func resolveServerOptions(options []ServerOption) serverOptions {
-	resolved := serverOptions{}
+	resolved := serverOptions{payloadSizeLimit: protocol.DefaultPayloadSizeLimit}
 	for _, option := range options {
 		if option != nil {
 			option(&resolved)

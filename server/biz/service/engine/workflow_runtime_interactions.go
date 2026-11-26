@@ -60,6 +60,9 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 	if err := execution.ValidateRequestID(requestID); err != nil {
 		return 0, err
 	}
+	if err := protocol.CheckPayloadSize("signal input", input, s.payloadSizeLimit); err != nil {
+		return 0, protocol.InvalidRequestf("%w", err)
+	}
 	if name == "" {
 		return 0, protocol.InvalidRequestf("workflow interaction name is empty")
 	}
@@ -147,6 +150,9 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 	args, err := normalizeUpdateArgs(args)
 	if err != nil {
 		return protocol.WorkflowUpdateResult{}, err
+	}
+	if err := protocol.CheckPayloadBytes("update arguments", args.DataSize(), s.payloadSizeLimit); err != nil {
+		return protocol.WorkflowUpdateResult{}, protocol.InvalidRequestf("%w", err)
 	}
 	if name == "" {
 		return protocol.WorkflowUpdateResult{}, protocol.InvalidRequestf("workflow interaction name is empty")
@@ -266,6 +272,9 @@ func (s *Server) UpdateWithStart(
 	if err != nil {
 		return "", protocol.WorkflowUpdateResult{}, err
 	}
+	if err := protocol.CheckPayloadBytes("update arguments", args.DataSize(), s.payloadSizeLimit); err != nil {
+		return "", protocol.WorkflowUpdateResult{}, protocol.InvalidRequestf("%w", err)
+	}
 	if updateName == "" {
 		return "", protocol.WorkflowUpdateResult{}, protocol.InvalidRequestf("workflow interaction name is empty")
 	}
@@ -325,6 +334,9 @@ func (s *Server) SignalWithStart(
 ) (runID string, eventID int64, err error) {
 	if err := execution.ValidateRequestID(requestID); err != nil {
 		return "", 0, err
+	}
+	if err := protocol.CheckPayloadSize("signal input", signalInput, s.payloadSizeLimit); err != nil {
+		return "", 0, protocol.InvalidRequestf("%w", err)
 	}
 	if signalName == "" {
 		return "", 0, protocol.InvalidRequestf("workflow interaction name is empty")

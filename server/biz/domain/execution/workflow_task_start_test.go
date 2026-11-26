@@ -78,7 +78,7 @@ func startedWorkflowTask(t *testing.T, store *memory.ExecutionManager, runID str
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := store.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-a", startedAt.Add(time.Hour)); err != nil || !ok {
+	if _, ok, err := store.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-a"); err != nil || !ok {
 		t.Fatalf("assign sticky: ok=%v err=%v", ok, err)
 	}
 	state, err = store.GetWorkflowExecutionState(runID)

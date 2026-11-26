@@ -141,6 +141,7 @@ func failActivity(tx ExecutionTx, completion ActivityTransition, state *Activity
 		state.setAttempt(attempt + 1)
 		state.setStamp(state.Stamp + 1)
 		state.setStartedEventID(EmptyEventID)
+		state.setStartRequestID("")
 		state.setStartedTime(nil)
 		state.setNextAttemptAt(&nextAttemptAt)
 		state.setRetryLastFailure(failure.Message)

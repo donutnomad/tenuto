@@ -19,21 +19,24 @@ const (
 )
 
 type Task struct {
-	TargetWorkerIdentity          string            `json:"target_worker_identity,omitempty"`
-	Type                          TaskType          `json:"type"`
-	Namespace                     string            `json:"namespace,omitempty"`
-	WorkflowID                    string            `json:"workflow_id,omitempty"`
-	RunID                         string            `json:"run_id"`
-	WorkflowType                  string            `json:"workflow_type,omitempty"`
-	ProgramVersion                string            `json:"program_version,omitempty"`
-	ActivityID                    string            `json:"activity_id,omitempty"`
-	ScheduledEventID              int64             `json:"scheduled_event_id"`
-	Attempt                       int               `json:"attempt,omitempty"`
-	Stamp                         int64             `json:"stamp,omitempty"`
-	ActivityType                  string            `json:"activity_type,omitempty"`
-	TaskQueue                     string            `json:"task_queue,omitempty"`
-	WorkerIdentity                string            `json:"worker_identity,omitempty"`
-	WorkerBuildID                 string            `json:"worker_build_id,omitempty"`
+	TargetWorkerIdentity string   `json:"target_worker_identity,omitempty"`
+	Type                 TaskType `json:"type"`
+	Namespace            string   `json:"namespace,omitempty"`
+	WorkflowID           string   `json:"workflow_id,omitempty"`
+	RunID                string   `json:"run_id"`
+	WorkflowType         string   `json:"workflow_type,omitempty"`
+	ProgramVersion       string   `json:"program_version,omitempty"`
+	ActivityID           string   `json:"activity_id,omitempty"`
+	ScheduledEventID     int64    `json:"scheduled_event_id"`
+	Attempt              int      `json:"attempt,omitempty"`
+	Stamp                int64    `json:"stamp,omitempty"`
+	ActivityType         string   `json:"activity_type,omitempty"`
+	TaskQueue            string   `json:"task_queue,omitempty"`
+	WorkerIdentity       string   `json:"worker_identity,omitempty"`
+	WorkerBuildID        string   `json:"worker_build_id,omitempty"`
+	// RequestID 是 Activity Worker 为一份投递生成的请求标识，随 BeginActivityTask 发送：同一 RequestID 的重发
+	// 得到原来的开始结果。它和 WorkerIdentity 一样只在请求里，不进 task token。
+	RequestID                     string            `json:"request_id,omitempty"`
 	ArtifactFingerprint           string            `json:"artifact_fingerprint,omitempty"`
 	ExecutorABIVersion            string            `json:"executor_abi_version,omitempty"`
 	ExecutionGeneration           int64             `json:"execution_generation,omitempty"`

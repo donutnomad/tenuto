@@ -81,6 +81,7 @@ func (p *ActivityStatePO) ToPO(state *execution.ActivityState) *ActivityStatePO 
 		CancelRequested:          state.CancelRequested,
 		WorkerIdentity:           state.WorkerIdentity,
 		WorkerBuildID:            state.WorkerBuildID,
+		StartRequestID:           state.StartRequestID,
 		LastHeartbeatAt:          state.LastHeartbeatAt,
 		RetryLastFailure:         state.RetryLastFailure,
 		NextAttemptAt:            state.NextAttemptAt,

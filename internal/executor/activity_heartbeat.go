@@ -34,6 +34,8 @@ type heartbeater struct {
 	cancel           context.CancelCauseFunc
 	interval         time.Duration
 	heartbeatTimeout time.Duration
+	// payloadLimit 是 Server 在开始结果里告诉的载荷上限，0 表示不检查。
+	payloadLimit int
 
 	mu         sync.Mutex
 	throttled  bool
@@ -45,11 +47,11 @@ type heartbeater struct {
 	sending    sync.WaitGroup
 }
 
-func newHeartbeater(ctx context.Context, cancel context.CancelCauseFunc, runtime ActivityRuntime, task protocol.Task) *heartbeater {
+func newHeartbeater(ctx context.Context, cancel context.CancelCauseFunc, runtime ActivityRuntime, task protocol.Task, payloadLimit int) *heartbeater {
 	return &heartbeater{
 		runtime: runtime, task: task, ctx: ctx, cancel: cancel,
 		interval: heartbeatThrottle(task.HeartbeatTimeout), heartbeatTimeout: task.HeartbeatTimeout,
-		lastOK: time.Now(),
+		payloadLimit: payloadLimit, lastOK: time.Now(),
 	}
 }
 
@@ -97,7 +99,16 @@ func (h *heartbeater) windowEnd() {
 }
 
 // send 发出一次心跳，等待不超过节流间隔：超过间隔仍未送达的心跳由窗口内更新的一次接替。
+// details 超过载荷上限时不发出心跳：上报一次不可重试的 PayloadSizeLimitExceeded 失败，结束这次 attempt，
+// 以 errActivityAbandoned 取消 Activity context（Temporal 的 Server 对超限心跳做同样的处理）。
 func (h *heartbeater) send(ctx context.Context, details map[string]any) {
+	if limitErr := protocol.CheckPayloadSize("activity heartbeat details", details, h.payloadLimit); limitErr != nil {
+		reportCtx, cancelReport := reportContext(ctx, time.Time{})
+		defer cancelReport()
+		_ = h.runtime.FailActivityTask(reportCtx, h.task, protocol.PayloadSizeLimitFailure(limitErr))
+		h.cancel(errActivityAbandoned)
+		return
+	}
 	ctx, cancel := context.WithTimeout(ctx, h.interval)
 	defer cancel()
 	result, err := h.runtime.RecordActivityHeartbeat(ctx, h.task, details)

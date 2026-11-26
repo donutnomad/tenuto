@@ -25,6 +25,7 @@ type ActivityStateSchemaType struct {
 	CancelRequested          gsql.IntField      // bool
 	WorkerIdentity           gsql.StringField   // string
 	WorkerBuildID            gsql.StringField   // string
+	StartRequestID           gsql.StringField   // string
 	LastHeartbeatJSON        gsql.StringField   // []byte
 	LastHeartbeatAt          gsql.DateTimeField // *time.Time
 	RetryLastFailure         gsql.StringField   // string
@@ -70,6 +71,7 @@ func (t *ActivityStateSchemaType) WithTable(tableName string) {
 	t.CancelRequested = t.CancelRequested.WithTable(&tn)
 	t.WorkerIdentity = t.WorkerIdentity.WithTable(&tn)
 	t.WorkerBuildID = t.WorkerBuildID.WithTable(&tn)
+	t.StartRequestID = t.StartRequestID.WithTable(&tn)
 	t.LastHeartbeatJSON = t.LastHeartbeatJSON.WithTable(&tn)
 	t.LastHeartbeatAt = t.LastHeartbeatAt.WithTable(&tn)
 	t.RetryLastFailure = t.RetryLastFailure.WithTable(&tn)
@@ -119,6 +121,7 @@ func (t ActivityStateSchemaType) AllFields() field.BaseFields {
 		t.CancelRequested,
 		t.WorkerIdentity,
 		t.WorkerBuildID,
+		t.StartRequestID,
 		t.LastHeartbeatJSON,
 		t.LastHeartbeatAt,
 		t.RetryLastFailure,
@@ -161,6 +164,7 @@ var ActivityStateSchema = ActivityStateSchemaType{
 	CancelRequested:          gsql.IntFieldOf[bool]("tenuto_activity_states", "cancel_requested"),
 	WorkerIdentity:           gsql.StringFieldOf[string]("tenuto_activity_states", "worker_identity"),
 	WorkerBuildID:            gsql.StringFieldOf[string]("tenuto_activity_states", "worker_build_id"),
+	StartRequestID:           gsql.StringFieldOf[string]("tenuto_activity_states", "start_request_id"),
 	LastHeartbeatJSON:        gsql.StringFieldOf[[]byte]("tenuto_activity_states", "last_heartbeat_json"),
 	LastHeartbeatAt:          gsql.DateTimeFieldOf[*time.Time]("tenuto_activity_states", "last_heartbeat_at"),
 	RetryLastFailure:         gsql.StringFieldOf[string]("tenuto_activity_states", "retry_last_failure"),
@@ -937,7 +941,7 @@ var WorkflowExecutionStateSchema = WorkflowExecutionStateSchemaType{
 func (a *ActivityStatePO) ToPatch(input *execution.ActivityState) map[string]any {
 	b := a.ToPO(input)
 	fields := input.ExportPatch()
-	values := make(map[string]any, 25)
+	values := make(map[string]any, 26)
 	if fields.TargetWorkerIdentity.IsPresent() {
 		values["target_worker_identity"] = b.TargetWorkerIdentity
 	}
@@ -976,6 +980,9 @@ func (a *ActivityStatePO) ToPatch(input *execution.ActivityState) map[string]any
 	}
 	if fields.WorkerBuildID.IsPresent() {
 		values["worker_build_id"] = b.WorkerBuildID
+	}
+	if fields.StartRequestID.IsPresent() {
+		values["start_request_id"] = b.StartRequestID
 	}
 	if fields.LastHeartbeatAt.IsPresent() {
 		values["last_heartbeat_at"] = b.LastHeartbeatAt

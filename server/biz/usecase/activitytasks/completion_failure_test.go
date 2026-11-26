@@ -115,3 +115,5 @@ func (*completionBackend) ReleaseActivityAttempt(context.Context, *execution.Run
 func (*completionBackend) RefuseIncompatibleActivityClaim(context.Context, protocol.Task, *execution.Run) (bool, error) {
 	return false, nil
 }
+
+func (b *completionBackend) PayloadSizeLimit() int { return 0 }

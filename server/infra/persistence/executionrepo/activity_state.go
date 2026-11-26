@@ -196,6 +196,7 @@ func activityStateRowToState(row *ActivityStatePO) (*execution.ActivityState, er
 		CancelRequested:          row.CancelRequested,
 		WorkerIdentity:           row.WorkerIdentity,
 		WorkerBuildID:            row.WorkerBuildID,
+		StartRequestID:           row.StartRequestID,
 		LastHeartbeat:            heartbeat,
 		LastHeartbeatAt:          row.LastHeartbeatAt,
 		RetryLastFailure:         row.RetryLastFailure,
