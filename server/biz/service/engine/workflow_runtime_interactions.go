@@ -78,6 +78,7 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 	}
 	var eventID int64
 	err := s.withWorkflowLease(ctx, namespace, workflowID, runID, func(tx execution.ExecutionTx, current *execution.Run) (LeaseAction, error) {
+		eventID = 0 // fn 可能被重放：上一次尝试的结果作废。
 		// runBranchInfoFromRun 是纯内存版（不走 mgr.Get），避免在 RunInTx 内重入存储导致死锁。
 		tid, bid, err := runBranchInfoFromRun(current)
 		if err != nil {
@@ -196,6 +197,7 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 	var result protocol.WorkflowUpdateResult
 	var updateRunID string
 	err = s.withWorkflowLease(ctx, namespace, workflowID, runID, func(tx execution.ExecutionTx, current *execution.Run) (LeaseAction, error) {
+		result, updateRunID = protocol.WorkflowUpdateResult{}, "" // fn 可能被重放：上一次尝试的结果作废。
 		tid, bid, err := runBranchInfoFromRun(current)
 		if err != nil {
 			return LeaseAction{}, err

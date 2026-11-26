@@ -215,11 +215,11 @@ GOWORK=off go build -o bin/tenuto-cluster ./cmd/tenuto-cluster
 - 进程内负载：`GOWORK=off go test ./cmd/tenuto-cluster -run '^$' -bench Harness -benchtime 200x -cpuprofile cpu.out` 在一个进程里跑内存后端的完整 Server 与 Activity Worker（`seq50`：50 个顺序 Activity；`small`：3 个 Activity 加 10ms Timer），报告 `tasks/s`、`cpu-µs/task`、`allocs/task`；`TENUTO_HARNESS_TX=1` 另报每个任务的持久化事务数。不含 GORM、MySQL 与 TaskQ 的开销。
 - GC 吞吐：`TENUTO_TEST_MYSQL=1 GOWORK=off go test ./server/integration -run TestRetentionGCThroughput -count=1 -v` 造 1000 棵已到期的单 Run tree，断言一轮 `RunOnce` 全部删完、每分钟至少 1000 棵，并按表列出每棵 tree 的语句数。
 - 语句来源：`TENUTO_TEST_MYSQL=1 GOWORK=off go test ./server/integration -run TestStatementBudgetPerWorkflow -count=1 -v` 在单进程里跑同一负载，按操作、表与入口（`engine.PollWorkflowTask`、`taskq.queue.(*taskRuntime).tryGetTask` 等）列出每个 Workflow 的语句数与空闲时每秒的语句数（不含 `BEGIN`/`COMMIT`），超出预算（300 条 / Workflow；空闲约 26 条/秒，按分区锁续约、锁成员行与 GC 的节拍计算）时失败。不需要 MySQL 的 `TestRepositoryReadsPerWorkflow`（内存后端）统计每个 Workflow 在事务之外读 Run 与 execution state 的次数。
-- 每条语句一次往返：Server 给 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN` 设置 `parseTime=true`、`loc=UTC`、`interpolateParams=true`（客户端插值，不再 prepare、execute、close 三步）；字符集用 `utf8mb4`，GBK、Big5、SJIS 等字符集启动失败。一个事务里 execution state 只加锁读一次、提交前写回一次，与追加几个事件无关。
+- 每条语句一次往返：Server 给 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN` 设置 `parseTime=true`、`loc=UTC`、`interpolateParams=true`（客户端插值，不再 prepare、execute、close 三步）、`clientFoundRows=false`（仓储按 affected rows 区分新写入与去重命中；`app.WithDatabase` 注入的句柄带 `clientFoundRows=true` 时启动探测失败）；字符集用 `utf8mb4`，GBK、Big5、SJIS 等字符集启动失败。一个事务里 execution state 只加锁读一次、提交前写回一次，与追加几个事件无关。
 - 空闲时：TaskQ 分区的行都已投递或确认时 poll 与可见性扫描不读库；内嵌 Workflow Worker 的 Workflow Task 长轮询持续 `TASKQ_POLL_TIMEOUT`（默认 30s），不再每秒重新开始。
 - leader 副本是 `tenuto_leader_lock` 里 `lock_name = 'workflow:reconciler'` 且未过期的 `leader_ip`，值等于该副本的 `WORKFLOW_NODE_ID`。
 - 投递丢失由 reconciler 补投：open 未 started 的 Workflow Task 或 Scheduled Activity attempt 的派发记录是 `dispatched`、超过等待时长（30s 起按派发次数翻倍，最长 1 小时）没被领取时，leader 再投一份，日志 `task dispatched but not claimed; redelivering`。运行中出现它说明有投递丢失，记下 `run_id` 与 `scheduled_event_id` 查原因；无故障的 `bench` 里不应出现。
-- 重启的副本在后台做启动恢复（日志 `startup recovery finished`），不占 `WORKFLOW_STARTUP_TIMEOUT`，恢复慢时副本照常就绪。matching owner 被 kill 后、成员表剔除它之前，入队换到其他 owner 的分区，不再报 `frontend: enqueue: max retries exceeded`。
+- 重启的副本在后台做启动恢复（日志 `startup recovery finished`），不占 `WORKFLOW_STARTUP_TIMEOUT`，恢复慢时副本照常就绪。启动恢复只处理到期索引选出的 Run，只挂两个补偿周期内到期的定时器，再逐页批量检查子 Run 相关的窗口；代价与待处理事项数和页数成正比。Run 缺少配置声明的截止时间（升级到声明超时的 Program）只在它被选为候选时补写。matching owner 被 kill 后、成员表剔除它之前，入队换到其他 owner 的分区，不再报 `frontend: enqueue: max retries exceeded`。
 - 已关闭 Workflow Task 的投递由 Server 在领取时确认丢弃，日志里不再出现成片的 `workflow task activation fence is stale`。
 
 参数、核对项与输出见文档 `operations/cluster-testing`。

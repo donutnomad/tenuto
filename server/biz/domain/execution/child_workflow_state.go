@@ -84,4 +84,15 @@ type ChildWorkflowStateStore interface {
 	GetChildWorkflowState(runID string, scheduledEventID int64) (*ChildWorkflowState, bool, error)
 	UpsertChildWorkflowState(state *ChildWorkflowState) error
 	ListChildWorkflowStates(runID string) ([]*ChildWorkflowState, error)
+	// ListOpenChildWorkflowStates 返回 runIDs 这些父 Run 仍未结束（Initiated、Started）的子关联，
+	// 按 (RunID, ScheduledEventID) 排序；全量补偿每页一次。
+	ListOpenChildWorkflowStates(runIDs []string) ([]*ChildWorkflowState, error)
+	// GetChildWorkflowStates 按主键批量读子关联，不存在的 key 不出现在结果里；全量补偿每页一次读子 Run 的父侧关联。
+	GetChildWorkflowStates(keys []ChildWorkflowKey) (map[ChildWorkflowKey]*ChildWorkflowState, error)
+}
+
+// ChildWorkflowKey 是子关联的主键：父 RunID 与父侧 ScheduledEventID。
+type ChildWorkflowKey struct {
+	RunID            string
+	ScheduledEventID int64
 }

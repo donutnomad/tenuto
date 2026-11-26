@@ -38,6 +38,7 @@ type Store struct {
 // New 在 db 上建立各仓储。db 是 MySQL 连接，表由 tenuto-server migrate 预先建好；New 不建表。
 // db 必须以 gorm.Config{TranslateError: true} 打开：仓储按 gorm.ErrDuplicatedKey
 // 识别唯一键冲突（Run ID、Schedule ID、current 标记、事件 dedupe），未翻译的驱动错误会让这些判定失效。
+// 连接不能带 clientFoundRows=true：仓储按 affected rows 区分新写入与去重命中，New 在库上探测一次，不符时返回错误。
 func New(db infradb.DB, cfg Config) (*Store, error) {
 	if db == nil || reflect.ValueOf(db).Kind() == reflect.Ptr && reflect.ValueOf(db).IsNil() {
 		return nil, fmt.Errorf("workflow persistence: db is required")
@@ -51,6 +52,9 @@ func New(db infradb.DB, cfg Config) (*Store, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if err := runs.CheckDuplicateKeyAffectedRows(context.Background()); err != nil {
+		return nil, fmt.Errorf("workflow persistence: %w", err)
 	}
 	store := &Store{
 		db:          db,

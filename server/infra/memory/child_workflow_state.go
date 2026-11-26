@@ -65,6 +65,35 @@ func (s *ChildWorkflowStateStore) ListChildWorkflowStates(runID string) ([]*exec
 	return out, nil
 }
 
+func (s *ChildWorkflowStateStore) ListOpenChildWorkflowStates(runIDs []string) ([]*execution.ChildWorkflowState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*execution.ChildWorkflowState
+	for _, runID := range slices.Compact(slices.Sorted(slices.Values(runIDs))) {
+		for _, st := range s.states[runID] {
+			if !st.IsTerminal() {
+				out = append(out, cloneChildWorkflowState(st))
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b *execution.ChildWorkflowState) int {
+		return cmp.Or(cmp.Compare(a.RunID, b.RunID), cmp.Compare(a.ScheduledEventID, b.ScheduledEventID))
+	})
+	return out, nil
+}
+
+func (s *ChildWorkflowStateStore) GetChildWorkflowStates(keys []execution.ChildWorkflowKey) (map[execution.ChildWorkflowKey]*execution.ChildWorkflowState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[execution.ChildWorkflowKey]*execution.ChildWorkflowState, len(keys))
+	for _, key := range keys {
+		if st := s.states[key.RunID][key.ScheduledEventID]; st != nil {
+			out[key] = cloneChildWorkflowState(st)
+		}
+	}
+	return out, nil
+}
+
 func cloneChildWorkflowState(st *execution.ChildWorkflowState) *execution.ChildWorkflowState {
 	if st == nil {
 		return nil

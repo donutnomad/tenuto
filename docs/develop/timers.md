@@ -42,7 +42,7 @@ ScheduleTimer Command
   → Workflow 从 Sleep 后继续
 ```
 
-Timer ID 由协程路径和该协程内的 Timer 序号生成，例如主协程的第一个 Timer 是 `#t1`。Server 启动恢复时读取 open Timer 状态，已到期的 Timer 立即补写 `TimerFired`。
+Timer ID 由协程路径和该协程内的 Timer 序号生成，例如主协程的第一个 Timer 是 `#t1`。Server 启动恢复时读取近期到期（两个补偿周期内）的 open Timer 状态，已到期的 Timer 立即补写 `TimerFired`；更晚到期的 Timer 由周期补偿在到期前挂上，按原截止时间触发。
 
 ## 并发中的 Timer
 

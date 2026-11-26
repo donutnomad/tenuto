@@ -133,11 +133,15 @@ func TestActivityRetryStateMatrix(t *testing.T) {
 	}
 }
 
-// failureRecordingTx 只实现 failActivity 用到的三个方法，其余通过嵌入的 nil 接口暴露。
+// failureRecordingTx 只实现 FailActivity 用到的四个方法，其余通过嵌入的 nil 接口暴露。
 type failureRecordingTx struct {
 	ExecutionTx
 	state  *ActivityState
 	events []history.Event
+}
+
+func (tx *failureRecordingTx) GetWorkflowExecutionStateForUpdate(runID string) (*WorkflowExecutionState, error) {
+	return &WorkflowExecutionState{RunID: runID}, nil
 }
 
 func (tx *failureRecordingTx) GetActivityStateForUpdate(runID string, scheduledEventID int64) (*ActivityState, bool, error) {

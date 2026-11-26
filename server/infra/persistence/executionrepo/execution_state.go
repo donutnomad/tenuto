@@ -150,6 +150,7 @@ func (s *Repository) ListExpiredStickyExecutions(now time.Time, limit int) ([]*e
 	query := gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
 		Where(
 			WorkflowExecutionStateSchema.StickyWorkerIdentity.Not(""),
+			WorkflowExecutionStateSchema.Status.Eq(string(history.StatusRunning)),
 			WorkflowExecutionStateSchema.OpenWorkflowTaskEventID.Gt(0),
 			WorkflowExecutionStateSchema.StickyExpiresAt.Lte(&now),
 		).

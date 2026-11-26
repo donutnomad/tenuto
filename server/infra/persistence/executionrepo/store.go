@@ -392,6 +392,8 @@ func (s *Repository) AppendWorkflowTaskScheduled(runID, treeID, branchID string,
 	var eventID int64
 	var inserted bool
 	err := s.inTx(func(tx *gormExecutionTx) error {
+		// 死锁重放时上一次尝试的结果作废。
+		eventID, inserted = 0, false
 		// open 的 Workflow Task 由 execution state 记录，在持有状态行锁的事务内判定并追加。
 		state, err := tx.lockedState(runID)
 		if err != nil {
@@ -502,16 +504,28 @@ func (s *Repository) RunInTx(fn func(tx execution.ExecutionTx) error) error {
 	return s.inTx(func(tx *gormExecutionTx) error { return fn(tx) })
 }
 
+// maxDeadlockAttempts 是一个事务体因 InnoDB 死锁被回滚后的总执行次数上限。
+const maxDeadlockAttempts = 3
+
 // inTx 开一个事务并把事务句柄包成 gormExecutionTx，顶层方法与 RunInTx 共用同一份事务体。fn 成功后、提交之前把
 // 本事务改过的 execution state 写回（flushStates）。
+//
+// InnoDB 选中本事务作为死锁的牺牲者（Error 1213）时整个事务已回滚，inTx 用新事务把 fn 整体再执行一次，最多
+// maxDeadlockAttempts 次。fn 是可重放的闭包（见 execution.ExecutionManager.RunInTx），每次执行都从新的
+// gormExecutionTx 开始；fn 写到外层的结果变量在闭包开头重置，重放走了另一条分支时不残留上一次尝试的值。
 func (s *Repository) inTx(fn func(tx *gormExecutionTx) error) error {
-	return s.db.Transaction(func(db *gorm.DB) error {
-		tx := &gormExecutionTx{store: s, db: db}
-		if err := fn(tx); err != nil {
+	for attempt := 1; ; attempt++ {
+		err := s.db.Transaction(func(db *gorm.DB) error {
+			tx := &gormExecutionTx{store: s, db: db}
+			if err := fn(tx); err != nil {
+				return err
+			}
+			return tx.flushStates()
+		})
+		if attempt >= maxDeadlockAttempts || !infradb.IsDeadlock(err) {
 			return err
 		}
-		return tx.flushStates()
-	})
+	}
 }
 
 // gormExecutionTx 把事务内的 history append 与 state 写入路由到同一个 *gorm.DB(tx)，保证单事务原子。
@@ -611,6 +625,19 @@ func (t *gormExecutionTx) CloseScheduledTimers(runID string) error {
 		Where(TimerStateSchema.RunID.Eq(runID), TimerStateSchema.Status.Eq(string(execution.TimerStatusEnums.Scheduled))).
 		Update(t.db, map[string]any{
 			"status":     string(execution.TimerStatusEnums.RunClosed),
+			"updated_at": t.store.clock.Now(),
+		}).Error
+}
+
+// CloseOpenActivities 是一条 UPDATE：runID 仍为 scheduled 或 started 的 Activity 置为 run_closed，清掉到期索引
+// timeout_at（终态 Activity 没有生效的超时）。
+func (t *gormExecutionTx) CloseOpenActivities(runID string) error {
+	return gsql.From[ActivityStatePO](ActivityStateSchema).
+		Where(ActivityStateSchema.RunID.Eq(runID), ActivityStateSchema.Status.In(
+			string(execution.ActivityStatusEnums.Scheduled), string(execution.ActivityStatusEnums.Started))).
+		Update(t.db, map[string]any{
+			"status":     string(execution.ActivityStatusEnums.RunClosed),
+			"timeout_at": nil,
 			"updated_at": t.store.clock.Now(),
 		}).Error
 }

@@ -258,7 +258,7 @@ func TestReconcileRunningRuns_OneFailingRunDoesNotStopOthers(t *testing.T) {
 	}
 
 	// 启动恢复走同一条路径：坏 run 的错误汇总返回，不中断。
-	if err := srv.RecoverRunningWorkflows(ctx); err == nil || !strings.Contains(err.Error(), bad.ID) {
+	if err := srv.RecoverRunningWorkflows(ctx, DefaultReconcileLookahead); err == nil || !strings.Contains(err.Error(), bad.ID) {
 		t.Fatalf("expected startup recovery to report the failing run, got %v", err)
 	}
 }

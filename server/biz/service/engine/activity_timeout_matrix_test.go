@@ -186,7 +186,7 @@ func TestStaleHeartbeatTimerFromOtherReplicaIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 	// other 的周期重建按当前持久化状态装定时器，之后的心跳只刷新 holder 的内存定时器。
-	if _, err := other.DispatchPendingTasks(context.Background()); err != nil {
+	if _, _, err := other.Reconcile(context.Background(), DefaultOverdueTimerGrace, DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	if !timerArmed(other, activityTimerRef(timerActivityHeartbeat, runID, st.ScheduledEventID)) {
@@ -248,7 +248,8 @@ func TestScheduleToStartArmedForEachAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	failedAt := clk.Now()
-	if _, err := other.DispatchPendingTasks(context.Background()); err != nil {
+	// lookahead 覆盖第 2 次 attempt 的 ScheduleToStart 截止时间（退避 30s + 1m）。
+	if _, _, err := other.Reconcile(context.Background(), DefaultOverdueTimerGrace, 2*time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	ref := activityTimerRef(timerActivityScheduleToStart, runID, st.ScheduledEventID)

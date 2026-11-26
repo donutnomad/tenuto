@@ -381,7 +381,8 @@ export interface ActivityState {
   startedEventId: number
   activityReset: boolean
   cancelRequested?: boolean
-  status: 'scheduled' | 'started' | 'completed' | 'failed' | 'timed_out' | 'cancelled'
+  // run_closed：Run 结束时仍未完成的 Activity 随 Run 关闭，不写事件。
+  status: 'scheduled' | 'started' | 'completed' | 'failed' | 'timed_out' | 'cancelled' | 'run_closed'
   startedTime?: string
   workerIdentity?: string
   workerBuildId?: string

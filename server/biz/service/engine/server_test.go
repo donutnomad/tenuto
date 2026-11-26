@@ -1481,7 +1481,7 @@ func TestServerRecoveryPropagatesClosedChildWorkflowToParent(t *testing.T) {
 	}
 	markRunTerminalForTest(t, mgr, child.ID, historypkg.StatusCompleted, child.Output)
 
-	if err := server.RecoverRunningWorkflows(ctx); err != nil {
+	if err := server.RecoverRunningWorkflows(ctx, DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 

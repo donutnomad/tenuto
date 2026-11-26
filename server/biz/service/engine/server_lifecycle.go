@@ -98,6 +98,8 @@ func (s *Server) terminateRun(ctx context.Context, namespace, workflowID, runID,
 		runToClose *execution.Run
 	)
 	err := s.withWorkflowLease(ctx, namespace, workflowID, runID, func(tx execution.ExecutionTx, run *execution.Run) (LeaseAction, error) {
+		// fn 可能被重放（死锁、换 current 重试）：上一次尝试的结果作废，Run 已结束的分支不残留 inserted。
+		inserted, runToClose = false, nil
 		if err := execution.EnsureTerminable(run); err != nil {
 			if strict {
 				return LeaseAction{}, err

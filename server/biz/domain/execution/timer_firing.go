@@ -17,7 +17,13 @@ type TimerFire struct {
 
 // FireTimer records the durable timer transition in the caller's transaction.
 // User timers append a History event; retry backoff timers remain internal.
+//
+// The Run's execution state is locked before the timer row, in the same order
+// as a Workflow Task that cancels the timer and as closing the Run.
 func FireTimer(tx ExecutionTx, request TimerFire) (bool, error) {
+	if found, err := lockExecutionState(tx, request.RunID); err != nil || !found {
+		return false, err
+	}
 	state, found, err := tx.GetTimerStateForUpdate(request.RunID, request.ScheduledEventID)
 	if err != nil || !found || state.IsTerminal() || state.Kind != request.Kind {
 		return false, err

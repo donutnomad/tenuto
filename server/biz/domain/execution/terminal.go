@@ -7,8 +7,7 @@ import (
 	"github.com/donutnomad/tenuto/protocol/history"
 )
 
-// closeRun 在 Run 结束的事务里写入终态（completed 时含输出），并关闭它仍未触发的 timer
-// （TimerStatusEnums.RunClosed，不写事件，与 Temporal 关闭 Run 时丢弃挂起的 timer 一致）。
+// closeRun 在 Run 结束的事务里写入终态（completed 时含输出），并关闭它的 pending 项（closePendingStates）。
 func closeRun(tx ExecutionTx, run *Run, status history.Status, output map[string]any) error {
 	if err := run.MarkTerminal(status, output); err != nil {
 		return err
@@ -16,7 +15,16 @@ func closeRun(tx ExecutionTx, run *Run, status history.Status, output map[string
 	if err := tx.UpdateRun(run); err != nil {
 		return err
 	}
-	return tx.CloseScheduledTimers(run.ID)
+	return closePendingStates(tx, run.ID)
+}
+
+// closePendingStates 在 Run 结束的事务里关闭它仍未触发的 timer 与仍未结束的 Activity（RunClosed，不写事件，
+// 与 Temporal 关闭 Run 时随 mutable state 丢弃 pending timer 与 activity 一致）。
+func closePendingStates(tx ExecutionTx, runID string) error {
+	if err := tx.CloseScheduledTimers(runID); err != nil {
+		return err
+	}
+	return tx.CloseOpenActivities(runID)
 }
 
 // MarkTerminal sets the Run's terminal status, and its output for a completed
@@ -46,7 +54,7 @@ func ReconcileRunStatus(tx ExecutionTx, run *Run, event history.Event, status hi
 		return err
 	}
 	if history.IsTerminalStatus(status) {
-		return tx.CloseScheduledTimers(run.ID)
+		return closePendingStates(tx, run.ID)
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/clock"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 	"github.com/donutnomad/tenuto/server/infra/systemclock"
@@ -106,7 +107,7 @@ func (s *WorkflowExecutionStateStore) ListExpiredStickyExecutions(now time.Time,
 	var expired []*execution.WorkflowExecutionState
 	for _, runID := range slices.Sorted(maps.Keys(s.states)) {
 		state := s.states[runID]
-		if state.StickyWorkerIdentity == "" || state.StickyExpiresAt == nil || state.StickyValidAt(now) || state.OpenWorkflowTaskEventID == 0 {
+		if state.Status != history.StatusRunning || state.StickyWorkerIdentity == "" || state.StickyExpiresAt == nil || state.StickyValidAt(now) || state.OpenWorkflowTaskEventID == 0 {
 			continue
 		}
 		expired = append(expired, execution.CloneWorkflowExecutionState(state))
