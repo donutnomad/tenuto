@@ -36,6 +36,8 @@ per Namespace + Workflow ID lock
 
 该范围防止并发请求创建多个 current Run。启动和 Signal 一起提交：Signal 写入失败时 Run 也不会留下。新 Run 使用该 Workflow Type 当前 active 的 Program，与 `StartWorkflow`、Update-With-Start 一致。
 
+进行中的 Run 是 Workflow 失败重试的 Run、仍在等首个 Workflow Task 的退避时，Signal-With-Start 立即调度 Workflow Task，重试提前开始；普通 Signal 只写入 History、等退避到期。这与 Temporal 的默认行为相同（`EnableSignalWithStartWorkflowTaskBackoff` 默认关闭）。
+
 ## 重发与去重
 
 SDK 为每次 `SignalWithStartWorkflow` 生成一个 request ID，瞬时错误（连接中断、网关 502/503/504）时以同一个 request ID 重发（HTTP 调用方在请求体里给 `request_id`）。语义与 Temporal 的 SignalWithStart 去重相同：

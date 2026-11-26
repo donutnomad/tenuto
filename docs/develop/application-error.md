@@ -122,7 +122,7 @@ if err != nil {
 
 配置了 `RetryPolicy` 的 Workflow 每次失败都在 `WorkflowFailed.retryState` 记录判定结果：重试时为 `InProgress`（同时带 `newExecutionRunId`），不再重试时为 `NonRetryableFailure`、`MaximumAttemptsReached` 或 `Timeout`（下一次退避会越过执行截止时间）。
 
-重试 Run 的首个 Workflow Task 在退避到期后调度。退避期内按 Workflow ID 发来的 Signal（含 Signal-With-Start 落到重试 Run 上）照常写入重试 Run 的 History，不提前开始重试，到期后的第一个 Workflow Task 一并处理；取消请求与 Update 立即调度 Workflow Task，重试 Run 提前开始，退避到期时不再多调度一次。这与 Temporal 相同。
+重试 Run 的首个 Workflow Task 在退避到期后调度。退避期内按 Workflow ID 发来的 Signal 照常写入重试 Run 的 History，不提前开始重试，到期后的第一个 Workflow Task 一并处理；Signal-With-Start、取消请求与 Update 落到退避中的重试 Run 上时立即调度 Workflow Task，重试 Run 提前开始，退避到期时不再多调度一次。这与 Temporal 的默认行为相同（Signal-With-Start 对应 `EnableSignalWithStartWorkflowTaskBackoff` 默认关闭）。
 
 与 Temporal 的差异：Temporal 的 Activity 在未显式配置时使用服务端默认重试策略，Workflow 需要显式设置；本项目两者都要求显式配置，不套用 Temporal 的默认值。
 

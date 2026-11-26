@@ -431,7 +431,7 @@ func (s *Server) scheduleWorkflowTask(ctx context.Context, runID string) error {
 
 // scheduleWorkflowTaskAfterSignal 在 Signal 写入之后调度 Workflow Task。重试 Run 仍在首个 Workflow Task 的退避期内时
 // 不调度：Signal 留在 History 里，由退避到期时的 Workflow Task 一并处理。与 Temporal signalworkflow 的
-// createWorkflowTask := !IsWorkflowPendingOnWorkflowTaskBackoff() 一致；取消请求与 Update 不看退避，立即调度。
+// createWorkflowTask := !IsWorkflowPendingOnWorkflowTaskBackoff() 一致；取消请求、Update 与 SignalWithStart 不看退避，立即调度。
 func (s *Server) scheduleWorkflowTaskAfterSignal(ctx context.Context, runID string) error {
 	state, err := s.mgr.GetWorkflowExecutionState(runID)
 	if err != nil {

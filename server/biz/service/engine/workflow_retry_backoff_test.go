@@ -1,8 +1,8 @@
 package engine
 
 // 重试 Run 在首个 Workflow Task 的退避期内收到的交互，语义与 Temporal 一致：Signal 照常写入、不调度 Workflow Task，
-// 退避到期时一并处理（signalworkflow 的 IsWorkflowPendingOnWorkflowTaskBackoff）；取消请求与 Update 立即调度
-// Workflow Task，Run 提前开始，之后的 Signal 照常调度，退避到期不再多调度一次（HadOrHasWorkflowTask）。
+// 退避到期时一并处理（signalworkflow 的 IsWorkflowPendingOnWorkflowTaskBackoff）；SignalWithStart、取消请求与 Update
+// 立即调度 Workflow Task（SignalWithStart 对应 EnableSignalWithStartWorkflowTaskBackoff 默认关闭），Run 提前开始，之后的 Signal 照常调度，退避到期不再多调度一次（HadOrHasWorkflowTask）。
 
 import (
 	"context"
@@ -65,7 +65,7 @@ func TestRetryBackoff_SignalWaitsForBackoff(t *testing.T) {
 	if _, err := env.server.SignalWorkflow(ctx, "", env.workflowID, "", "poke", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := env.server.SignalWithStart(ctx, "", env.workflowID, env.workflowID, nil, "poke", "req-1", nil); err != nil {
+	if _, err := env.server.SignalWorkflow(ctx, "", env.workflowID, "", "poke", "req-2", nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := env.count(t, history.EventWorkflowSignaled); got != 2 {
@@ -85,6 +85,30 @@ func TestRetryBackoff_SignalWaitsForBackoff(t *testing.T) {
 	env.clk.Advance(time.Hour)
 	if got := env.count(t, history.EventWorkflowTaskScheduled); got != 1 {
 		t.Fatalf("WorkflowTaskScheduled after the backoff = %d, want 1", got)
+	}
+}
+
+func TestRetryBackoff_SignalWithStartStartsRunImmediately(t *testing.T) {
+	env := newRetryBackoffEnv(t, "wf-backoff-signal-with-start")
+	ctx := context.Background()
+
+	runID, _, err := env.server.SignalWithStart(ctx, "", env.workflowID, env.workflowID, nil, "poke", "req-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runID != env.retryRunID {
+		t.Fatalf("SignalWithStart landed on %s, want the retry run %s", runID, env.retryRunID)
+	}
+	if got := env.count(t, history.EventWorkflowSignaled); got != 1 {
+		t.Fatalf("WorkflowSignaled = %d, want 1", got)
+	}
+	if got := env.count(t, history.EventWorkflowTaskScheduled); got != 1 {
+		t.Fatalf("SignalWithStart during the backoff scheduled %d workflow tasks, want 1", got)
+	}
+	completeOpenWorkflowTask(t, env.mgr, env.retryRunID)
+	env.clk.Advance(time.Hour)
+	if got := env.count(t, history.EventWorkflowTaskScheduled); got != 1 {
+		t.Fatalf("WorkflowTaskScheduled after the backoff = %d, want 1 (no extra task once the run has started)", got)
 	}
 }
 

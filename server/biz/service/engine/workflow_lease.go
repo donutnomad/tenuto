@@ -196,7 +196,7 @@ func (s *Server) ensureStartedThenAcceptUpdate(
 //   - requestID 已经生效（见 signalWithStartByRequest）→ 返回第一次的 Run 与 Signal 事件 ID，不启动、不再记 Signal；
 //   - 该 Workflow ID 没有进行中的 Run → 新 Run、current CAS、WorkflowStarted（记下 requestID）与 WorkflowSignaled
 //     写入同一个事务；
-//   - 已有进行中的 Run → 复用它，只写 WorkflowSignaled。
+//   - 已有进行中的 Run → 复用它，只写 WorkflowSignaled，并调度 Workflow Task（重试 Run 的退避期内也立即调度）。
 //
 // requestID 非空时是启动与 Signal 的幂等键（Signal 一侧见 execution.RecordSignal）；为空时调用方重试会多记一条
 // WorkflowSignaled，Run 已结束时还会启动新 Run。
@@ -248,8 +248,9 @@ func (s *Server) ensureStartedThenSignal(
 	}); txErr != nil {
 		return "", 0, txErr
 	}
-	// 锁内、事务外调度（幂等：已有 open WFT 则 no-op；重试 Run 的退避期内不调度）。
-	if e := s.scheduleWorkflowTaskAfterSignal(context.WithoutCancel(ctx), currentID); e != nil {
+	// 锁内、事务外调度（幂等：已有 open WFT 则 no-op）。重试 Run 的退避期内也立即调度：同 Temporal
+	// signalwithstartworkflow 在 EnableSignalWithStartWorkflowTaskBackoff 默认关闭时的行为，与普通 Signal 不同。
+	if e := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), currentID); e != nil {
 		return "", 0, e
 	}
 	return currentID, eventID, nil

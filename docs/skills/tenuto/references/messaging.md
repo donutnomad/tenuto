@@ -88,7 +88,7 @@ run, err := c.SignalWithStartWorkflow(ctx, workflowID, "approval-requested",
 - 交付是业务层 at-least-once：调用超时可能发生在事件已提交之后，重试形成第二条 Signal。payload 带稳定的 `message_id`，由处理它的 Activity 去重。
 - 目标 Run 已终态时返回 `client.ErrInvalidArgument`；Workflow 不再等待该名称时 Signal 留在 History 无人消费。
 - `SignalWithStartWorkflow`：该 Workflow ID 存在运行中的 Run 时向它写 Signal；没有 Run 或 current Run 已结束时按 Workflow Type 启动新 Run，启动与 Signal 在一个事务里提交。`workflowID` 留空时 SDK 生成，等同于每次都启动新 Run。SDK 以同一个 request ID 重发时，current Run（含已结束）或它的链首（continue-as-new、失败重试）记过这条 Signal 就返回第一次的 Run 与事件 ID，不启动第二个 Run（同 Temporal）。
-- 重试 Run 在 Workflow 重试的退避期内收到 Signal：写入 History，不提前开始，退避到期一并处理；取消请求与 Update 让它立即开始（同 Temporal）。
+- 重试 Run 在 Workflow 重试的退避期内收到 Signal：写入 History，不提前开始，退避到期一并处理；SignalWithStart、取消请求与 Update 让它立即开始（同 Temporal 默认行为）。
 
 ## Query
 

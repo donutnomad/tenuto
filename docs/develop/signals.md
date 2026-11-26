@@ -166,7 +166,7 @@ run, err := c.SignalWithStartWorkflow(
 
 Go SDK 的每次 `SignalWorkflow` / `SignalWithStartWorkflow` 带一个 SDK 生成的 request ID：连接中断、网关 502/504 等瞬时错误由 SDK 重发，同一个 Run 上同一个 request ID 只记一条 `WorkflowSignaled`（HTTP 调用方在请求体里给 `request_id` 得到同样的去重）。`SignalWithStartWorkflow` 的重发在第一次启动的 Run 已经结束时同样返回那个 Run 与第一次的事件 ID，不启动第二个 Run，见 [Signal-With-Start](/sdk/signal-with-start#重发与去重)。
 
-Workflow 失败后按重试策略等待退避的重试 Run 收到 Signal 时，Signal 写入它的 History，不让重试提前开始，退避到期后的第一个 Workflow Task 一并处理（同 Temporal）。
+Workflow 失败后按重试策略等待退避的重试 Run 收到 Signal 时，Signal 写入它的 History，不让重试提前开始，退避到期后的第一个 Workflow Task 一并处理（同 Temporal）。Signal-With-Start 落到退避中的重试 Run 上时立即调度 Workflow Task，重试 Run 提前开始（同 Temporal 默认的 `EnableSignalWithStartWorkflowTaskBackoff=false`）。
 
 跨越一次调用的重试仍是 at-least-once：调用超出 `ctx` 期限后应用代码再调用一次、或进程重启后重放消息，是新的 request ID，会形成第二条 Signal。在 payload 中携带稳定的 `message_id`，由处理该 Signal 的 Workflow 或 Activity 依据它去重。
 
