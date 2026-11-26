@@ -25,6 +25,7 @@ status: Stable
 | `WORKFLOW_WORKER_CACHE_MAX_ENTRIES` | `1000` | Sticky Execution Cache 的 session 上限 |
 | `WORKFLOW_WORKER_CACHE_MAX_BYTES` | `268435456` | Sticky Execution Cache 的估算内存上限 |
 | `WORKFLOW_WORKER_CACHE_IDLE_TTL` | `5m` | Sticky Execution Cache 空闲逐出时间 |
+| `WORKFLOW_QUERY_CONCURRENCY` | `8` | 本进程同时重放 History 求值 Query 的上限；超出的 Query 排队，请求结束时放弃。`__stack_trace` 不占名额 |
 | `WORKFLOW_ARTIFACTS` | 空 | 启动时加载的生成产物目录，逗号分隔，递归查找 `workflow.json`；空表示不加载 |
 | `WORKFLOW_ARTIFACTS_NAMESPACE` | `default` | `WORKFLOW_ARTIFACTS` 中产物登记到的 Namespace |
 | `WORKFLOW_PPROF_ADDR` | 空 | 非空时在这个 `host:port` 上另开 `net/http/pprof` 监听（`/debug/pprof/`），并开启 mutex（1/100）与 block（阻塞超过 100µs）采样；空表示关闭。调试用，不鉴权、不走业务 HTTP，只绑定本机或内网地址，不要暴露到公网 |

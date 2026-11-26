@@ -219,6 +219,19 @@ func snapshotMetrics(db gsql.IDB, ranges []visibleHistoryRange, upperBounds []in
 	return count, size, nil
 }
 
+// GetEventsByDedupeKeys 按去重键读取事件：每个 branch 分支一条 (branch_id, dedupe_key) 索引查找，
+// 读到的行数只与命中的事件数有关。
+func (s *Repository) GetEventsByDedupeKeys(runID string, keys []string) ([]history.Event, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	run, err := s.Get(runID)
+	if err != nil {
+		return nil, err
+	}
+	return s.getVisibleEventsWithDB(s.db, run, EventSchema.DedupeKey.In(keys...))
+}
+
 // GetEventsRange 返回 (afterExclusive, throughInclusive] 区间内的可见事件。
 // throughInclusive == 0 表示不限上界。
 //

@@ -20,7 +20,7 @@ HTTP：`POST /runtime/workflow/cancel`，body `{"namespace","workflow_id","run_i
 ### 送达与终态
 
 1. Server 写入 `WorkflowCancellationRequested` 并调度 Workflow Task。
-2. Worker 在这条事件之后、协程推进之前取消根 Context；重放时在同一位置送达。
+2. Worker 在这条事件之后、协程推进之前取消根 Context；重放时在同一位置送达。同一个 Workflow Task 看到的事件里，取消请求之前已有结果的 Activity、timer、子 Workflow 照常返回结果；取消请求之后才到的结果不改变已按取消返回的 Future（与 Temporal 按事件顺序处理相同）。
 3. Workflow 代码继续运行。已取消 Context 上的操作：`ExecuteActivity` → 请求取消 Activity；`Sleep` → 取消 timer（`TimerCancelled`），立即返回取消错误；`ExecuteChildWorkflow` → 子 Run 收到取消请求；`Await` → 条件不满足时返回取消错误；`ctx.Done()` 已关闭，`ctx.Err()` 返回 `workflow.ErrCanceled`。`WaitSignal`、Channel、`Select` 不受影响，要同时等取消就把 `ctx.Done()` 放进 Selector。
 4. 返回值决定终态：取消错误（`workflow.IsCanceledError` 为 true）→ `cancelled`（`WorkflowCancelled.details` 来自该错误）；`nil` → `completed`；其他错误 → `failed`。没有取消请求时返回取消错误也是 `cancelled`。
 

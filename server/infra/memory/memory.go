@@ -94,6 +94,20 @@ func (s *EventStore) findDedupe(runID, key string) (int64, bool) {
 	return 0, false
 }
 
+// eventsByDedupeKeys 返回 Run 全部可见事件（含祖先前缀）里去重键属于 keys 的事件。内存实现按事件扫描，与 gorm 后端
+// 走 (branch_id, dedupe_key) 索引的结果一致。
+func (s *EventStore) eventsByDedupeKeys(runID string, keys []string) []history.Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []history.Event
+	for _, event := range s.events[runID] {
+		if key, ok := history.DedupeKey(event); ok && slices.Contains(keys, key) {
+			result = append(result, event)
+		}
+	}
+	return result
+}
+
 func (s *EventStore) getEventsRange(runID string, afterExclusive, throughInclusive int64) []history.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

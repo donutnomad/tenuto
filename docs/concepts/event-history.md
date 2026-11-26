@@ -26,6 +26,8 @@ Worker poll + WorkflowTaskStarted
 Server 把 Commands 转成 Activity / Timer / Child 等事件
 ```
 
+Workflow Task 执行期间到达的 Signal、Activity 结果等事实照常落库，排在这次的 `WorkflowTaskCompleted` 之前。`WorkflowTaskCompleted.seenThroughEventId` 记下 Worker 决策时看到的最后一个事件，ID 大于它的事实不属于这次决策：命令照常提交，Server 随即调度下一个 Workflow Task 处理这些事实，重放也把它们归入下一批，与 live 执行看到的事件一致。只有一批含结束 Workflow 的命令（Complete、Fail、Cancel、ContinueAsNew）遇到这类事实时，这次完成以 `WorkflowTaskFailed(unhandled_events)` 作废并立即重做，结束 Workflow 不会丢掉事实。
+
 首次执行到 `ExecuteActivity` 时，Worker 产生 Schedule Activity command。下一轮重放到同一代码位置时，运行时从历史中找到 Activity 结果并写入输出变量。
 
 ## 为什么 Activity 保持安全
@@ -35,7 +37,7 @@ Workflow 重放只执行编排逻辑。真实数据库、HTTP、MQ 和文件系�
 ## 确定性来源
 
 - Activity、Timer、Signal、Update 和 Child Workflow 结果来自历史。
-- `workflow.Now` 使用激活快照中的确定性时间。
+- `workflow.Now` 取本次 Workflow Task 的 `WorkflowTaskStarted` 时间戳，live 与重放相同。
 - `SideEffect`、`MutableSideEffect`、`RandomUUID`、`RandomInt` 和 `GetVersion` 使用 Marker 固化值。
 - 并发协程由确定性协作式调度器按稳定顺序推进。
 - 每条 lane 使用稳定 Lane Path 生成 Activity、Timer、Child 等原语的缺省 ID。

@@ -19,6 +19,10 @@ func TestMemoryEventNumberTypesContract(t *testing.T) {
 	executiontest.EventNumberTypesContract(t, newContractManager)
 }
 
+func TestMemoryEventsByDedupeKeysContract(t *testing.T) {
+	executiontest.EventsByDedupeKeysContract(t, newContractManager)
+}
+
 func TestMemoryStatePatchContract(t *testing.T) {
 	executiontest.StatePatchContract(t, newContractManager)
 }

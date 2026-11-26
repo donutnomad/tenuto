@@ -17,6 +17,7 @@ import (
 	"github.com/donutnomad/tenuto/internal/worker"
 	"github.com/donutnomad/tenuto/protocol/runtimeapi"
 	"github.com/donutnomad/tenuto/server/biz/domain/dispatch"
+	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/biz/usecase/retention"
 	"github.com/donutnomad/tenuto/telemetry"
 )
@@ -98,6 +99,8 @@ type Config struct {
 	Artifacts ArtifactConfig
 	// WorkflowWorker 控制本进程内执行 Workflow Task 的 worker。
 	WorkflowWorker WorkflowWorkerConfig
+	// QueryConcurrency 是同时在本进程重放 History 求值 Query 的上限（WORKFLOW_QUERY_CONCURRENCY）；<=0 取引擎默认值。
+	QueryConcurrency int
 	// PprofAddr 非空时在这个地址上提供 net/http/pprof（WORKFLOW_PPROF_ADDR），缺省关闭。调试用，不鉴权，
 	// 只绑定本机或内网地址。
 	PprofAddr string
@@ -353,6 +356,7 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 		StartupTimeout:            defaultStartupTimeout,
 		ReconcileInterval:         defaultReconcileInterval,
 		ReconcileFullScanInterval: defaultReconcileFullScanInterval,
+		QueryConcurrency:          engine.DefaultQueryConcurrency,
 		Retention: RetentionConfig{
 			Retention:        defaultRetention,
 			Jitter:           defaultRetentionJitter,
@@ -455,6 +459,7 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 		{"WORKFLOW_WORKER_CONCURRENCY", &cfg.WorkflowWorker.Concurrency},
 		{"WORKFLOW_WORKER_CACHE_MAX_ENTRIES", &cfg.WorkflowWorker.CacheMaxEntries},
 		{"WORKFLOW_WORKER_CACHE_MAX_BYTES", &cfg.WorkflowWorker.CacheMaxBytes},
+		{"WORKFLOW_QUERY_CONCURRENCY", &cfg.QueryConcurrency},
 	}
 	for _, value := range integers {
 		if err := applyPositiveInt(lookup, value.name, value.target); err != nil {

@@ -14,7 +14,7 @@ status: Stable
 
 | 需求 | Workflow 写法 | 持久化方式 |
 | --- | --- | --- |
-| 当前时间 | `workflow.Now(ctx)` | 取自 Event 时间戳 |
+| 当前时间 | `workflow.Now(ctx)` | 取自本次 Workflow Task 的 `WorkflowTaskStarted` 时间戳 |
 | 等待一段时间 | `workflow.Sleep(ctx, d)` | Timer Event |
 | UUID | `workflow.RandomUUID(ctx)` | Marker |
 | 随机整数 | `workflow.RandomInt(ctx, max)` | Marker |

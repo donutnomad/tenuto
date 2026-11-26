@@ -265,8 +265,12 @@ type WorkflowTaskStartedEvent struct {
 }
 
 type WorkflowTaskCompletedEvent struct {
-	ScheduledEventID int64  `json:"scheduledEventId,omitempty"`
-	WorkerIdentity   string `json:"workerIdentity,omitempty"`
+	ScheduledEventID int64 `json:"scheduledEventId,omitempty"`
+	// SeenThroughEventID 是 Worker 做出这次决策时看到的最后一个事件 ID。Workflow Task 进行期间落库、ID 大于它的
+	// 事实不属于这次决策：它们排在 WorkflowTaskCompleted 之前，重放时归入下一个决策批（见 SplitBatches）。
+	// 0 表示 Worker 看到了 WorkflowTaskCompleted 之前的全部事件。
+	SeenThroughEventID int64  `json:"seenThroughEventId,omitempty"`
+	WorkerIdentity     string `json:"workerIdentity,omitempty"`
 }
 
 type WorkflowTaskTimedOutEvent struct {

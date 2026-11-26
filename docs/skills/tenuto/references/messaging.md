@@ -136,7 +136,7 @@ err = value.Get(&progress)
 | 重放遇到确定性失配 | `*client.QueryFailedError`，`Message` 含重放失败原因 |
 | Run 已终态 | 重放终态 History 后执行 Handler |
 
-Query 读到的是最后一个已完成 Workflow Task 之后的状态；其后到达的 Signal、Activity 结果在下一个 Workflow Task 完成后才体现。
+Query 读到的是最后一个已完成 Workflow Task 之后的状态；它没有看到的 Signal、Activity 结果（完成之后或执行期间到达的）在下一个 Workflow Task 完成后才体现。Server 为每个 Query 读一次 History 并在进程内重放，同时重放的 Query 数受 `WORKFLOW_QUERY_CONCURRENCY`（默认 8）限制，超出的排队。
 
 ## Update
 
@@ -249,8 +249,8 @@ Update-With-Start 见 `client-api.md`。
 ### 跨副本等待
 
 - 等 `Completed` 的请求在 Server 上最多等 20s，到期应答 `Accepted`，`handle.Get` 以同一 Update ID 重发（幂等，不重复执行 Handler）。
-- 受理请求的副本与完成 Update 的副本可以不同。等待方先读 Run 的 `next_event_id` 再读 History，未完成时等 Run 变化：本副本的提交立即唤醒；有等待者期间副本每 100ms 用一条批量查询读取被等待 Run 的 `next_event_id`，变大就唤醒重读。其他副本完成的 Update 最多晚 100ms 返回。`run.Get` 的 `wait-closed` 用同一机制。
-- 代价：没有等待者时不读库；有等待者时每副本每秒 10 条批量读取（每 500 个 Run 一条），与等待者数量无关；Run 每变化一次，它的每个 Update 等待者重读一次 execution state 与 History。
+- 受理请求的副本与完成 Update 的副本可以不同。等待方第一次按 Update ID 的索引读取这个 Update 的事件，之后每轮先读 Run 的 execution state，再只读上一轮之后新增的事件，未完成时等 Run 变化：本副本的提交立即唤醒；有等待者期间副本每 100ms 用一条批量查询读取被等待 Run 的 `next_event_id`，变大就唤醒重读。其他副本完成的 Update 最多晚 100ms 返回。`run.Get` 的 `wait-closed` 用同一机制。
+- 代价：没有等待者时不读库；有等待者时每副本每秒 10 条批量读取（每 500 个 Run 一条），与等待者数量无关；Run 每变化一次，它的每个 Update 等待者读一次 execution state 与新增的事件，读取量与 History 长度无关。
 - 等待者只在受理请求的副本内存里：副本重启时等待中的 `handle.Get` / `run.Get` 返回连接错误，对同一个句柄再调用一次。
 
 ## 持久化契约

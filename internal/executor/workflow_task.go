@@ -54,6 +54,7 @@ func RunWorkflowTask(taskCtx, runtimeCtx context.Context, task protocol.Task, ba
 	if workflowTaskClosed(events, task.ScheduledEventID) {
 		return WorkflowTaskResult{Outcome: "skipped"}
 	}
+	events = eventsThroughStarted(events, task.ScheduledEventID)
 	wfConfig, err := backend.GetWorkflowConfig(taskCtx, task.RunID, task.ProgramVersion)
 	if err != nil {
 		return workflowReadFailure(taskCtx, runtimeCtx, task, backend, err)
@@ -130,6 +131,18 @@ func workflowTaskClosed(events []history.Event, scheduledEventID int64) bool {
 		}
 	}
 	return false
+}
+
+// eventsThroughStarted 截到本次 Workflow Task 的 WorkflowTaskStarted 为止。全量路径的决策只看这个前缀，
+// Server 把这个事件 ID 记为 WorkflowTaskCompleted.SeenThroughEventID；读取时已在它之后落库的事实归下一个
+// Workflow Task，重放分批（SplitBatches）与这次决策看到的事件一致。没有找到时原样返回。
+func eventsThroughStarted(events []history.Event, scheduledEventID int64) []history.Event {
+	for i := len(events) - 1; i >= 0; i-- {
+		if started := events[i].WorkflowTaskStarted; started != nil && started.ScheduledEventID == scheduledEventID {
+			return events[:i+1]
+		}
+	}
+	return events
 }
 
 // ReadWorkflowEvents 读取 Run 的完整 History；backend 提供带 context 的读取时用它传递取消。

@@ -525,16 +525,17 @@ func DeterministicWorkflow(ctx workflow.Context, input map[string]any) error {
 	}
 }
 
-func TestRuntimeWorkflowAPINowUsesLatestHistoryTimestamp(t *testing.T) {
+func TestRuntimeWorkflowAPINowUsesBareBatchTailTimestamp(t *testing.T) {
 	startedAt := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
 	firedAt := startedAt.Add(30 * time.Second)
 	executor := NewWorkflowExecutor(nil, []history.Event{
 		history.NewWorkflowStartedEvent(nil, "", "", "", "", 0),
 		{TimerFired: &history.TimerFiredEvent{}, Timestamp: firedAt},
 	})
-	// 分批模型下构造不再自动灌表；本测试绕过 Execute 裸读 currentTime，显式灌入
-	//（单批历史：currentTime = 批尾事件时间 ≡ 旧全量 replay 的最末事件时间）。
-	executor.applyBatch(executor.events)
+	// 没有 WorkflowTaskStarted 的裸历史批：Now 取批尾带时间戳的事件。
+	executor.startScheduler()
+	defer executor.sched.Reclaim()
+	executor.runDecisionBatch(executor.events, false)
 	api := &runtimeWorkflowAPI{executor: executor}
 
 	got := api.Now(workflowContext{}).Go().(workflowTime).t

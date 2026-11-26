@@ -163,7 +163,7 @@ complete · activation · complete-activation · timed-out · failed
 
 `config`、`events`、`status` 的请求体是 `{task_token, program_version?}`，读取 token 所属的 Run。`complete` 提交按完整 History 重放得到的命令；`activation` 与 `complete-activation` 是 Execution Cache 命中时的增量激活与提交。两组端点都只接受 Workflow Task 的 token。
 
-`failed` 的请求体是 `{task_token, cause, reason}`，`cause` 只接受 Worker 的失败原因：`non_deterministic_error`（重放与 History 不一致）、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）。`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入（Workflow Task 需要重做，不计连续失败、不退避），Worker 上报它们或其他取值返回 400。
+`failed` 的请求体是 `{task_token, cause, reason}`，`cause` 只接受 Worker 的失败原因：`non_deterministic_error`（重放与 History 不一致）、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）。`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入（Workflow Task 需要重做，不计连续失败、不退避），Worker 上报它们或其他取值返回 400。`unhandled_events` 只在一批含结束 Workflow 的命令（Complete、Fail、Cancel、ContinueAsNew）、而 Workflow Task 执行期间到达了 Worker 没有看到的事实时写入；其他命令照常提交，新事实交给下一个 Workflow Task。
 
 ## Update 请求体
 

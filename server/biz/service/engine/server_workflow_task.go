@@ -47,6 +47,19 @@ type openWorkflowTask struct {
 	scheduledEventID int64
 }
 
+// seenThroughEventID 返回 Worker 做这次决策时看到的最后一个事件 ID。增量激活路径由 Worker 报告；
+// 全量路径的 Worker 只执行到本次 WFT 的 WorkflowTaskStarted（executor.RunWorkflowTask），取它的事件 ID。
+// 没有 started 记录的 WFT 视为看到了全部已落库的事件。
+func (o openWorkflowTask) seenThroughEventID(ctx context.Context) int64 {
+	if seen := activatedThroughEventID(ctx); seen > 0 {
+		return seen
+	}
+	if started := o.state.WorkflowTaskStartedEventID(o.scheduledEventID); started > 0 {
+		return started
+	}
+	return o.state.LastEventID
+}
+
 // programVersion 返回本次 Workflow Task 在 started 时选中的 Program 版本。
 func (o openWorkflowTask) programVersion() string {
 	return o.state.WorkflowTaskProgramVersion(o.scheduledEventID)
@@ -136,6 +149,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	}
 	treeID, branchID := open.branch.treeID, open.branch.branchID
 	closeEvent := history.NewWorkflowTaskCompletedEvent(workflowTaskScheduledID, workerIdentity)
+	closeEvent.WorkflowTaskCompleted.SeenThroughEventID = open.seenThroughEventID(ctx)
 
 	// 终态命令派生的接续 Run 在事务外备好，与终态事件、旧 Run 的终态状态、current 切换同事务提交：
 	// History 写下终态之后，同 Workflow ID 的启动、Signal 与 Update 看到的只有接续 Run。
@@ -184,7 +198,6 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 			Run: run, TreeID: treeID, BranchID: branchID,
 			CloseEvent: closeEvent, CommandEvents: commandEvents, Commands: commands,
 			ChildTargets: prepared.ChildTargets, TraceContext: traceContext,
-			SeenThroughEventID: activatedThroughEventID(ctx),
 			ProgramVersion:     programVersion, Now: now,
 		})
 		if err != nil || !result.ClosedInserted {
@@ -225,6 +238,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		return nil
 	}
 	s.stopWorkflowTaskTimeout(runID, workflowTaskScheduledID)
+
 	// current 的提升与 UpgradeError 的清除已随 WFT 完成同事务提交。
 	if promoted {
 		s.logger.Info("workflow content upgraded at workflow task boundary",
@@ -240,7 +254,15 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	if err := s.runWorkflowTaskPostCommit(context.WithoutCancel(ctx), run, commands, result, prepared, traceContext, workflowFailedInserted, continued, retry, now); err != nil {
 		return err
 	}
-	return s.captureWorkflowTaskCompletion(ctx, result, closeEvent, commandEvents, commands)
+	if err := s.captureWorkflowTaskCompletion(ctx, result, closeEvent, commandEvents, commands); err != nil {
+		return err
+	}
+	if result.UnseenFacts {
+		// 进行期间到达的事实没有被这次决策看到，留给下一个 WFT。它在回执分配 sticky 之后调度，仍交给这个 Worker；
+		// 调度失败由 reconcileRun 按 ActivationPending 补上。
+		return s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID)
+	}
+	return nil
 }
 
 // continueAsNewInserted 报告本次提交是否插入了 CmdContinueAsNew 的 WorkflowContinuedAsNew 事件。终态事件先到先得，

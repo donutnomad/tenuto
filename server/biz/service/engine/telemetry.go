@@ -19,7 +19,19 @@ import (
 type ServerOption func(*serverOptions)
 
 type serverOptions struct {
-	telemetry tenutotel.Providers
+	telemetry        tenutotel.Providers
+	queryConcurrency int
+}
+
+// DefaultQueryConcurrency 是一个 Server 进程同时在本地重放 History 求值 Query 的默认上限。
+const DefaultQueryConcurrency = 8
+
+// WithQueryConcurrency 设定同时在本进程重放 History 求值 Query 的上限；n <= 0 时取 DefaultQueryConcurrency。
+// 超过上限的 Query 排队等空位，请求 context 结束时放弃。
+func WithQueryConcurrency(n int) ServerOption {
+	return func(options *serverOptions) {
+		options.queryConcurrency = n
+	}
 }
 
 // WithTelemetry injects OpenTelemetry providers into a Server.
@@ -37,6 +49,9 @@ func resolveServerOptions(options []ServerOption) serverOptions {
 		}
 	}
 	resolved.telemetry = tenutotel.Resolve(resolved.telemetry)
+	if resolved.queryConcurrency <= 0 {
+		resolved.queryConcurrency = DefaultQueryConcurrency
+	}
 	return resolved
 }
 

@@ -389,19 +389,33 @@ func (e *WorkflowExecutor) activate(batch []history.Event) error {
 // 取消请求的送达点固定在这里：本批灌入 WorkflowCancellationRequested 之后、协程推进之前取消根作用域，
 // 对标 Temporal 处理 WorkflowExecutionCancelRequested 事件时调用 cancelHandler。取消产生的命令
 // 排在本批其余命令之前，重放同一批时在同一位置产生。
+//
+// 取消按事件顺序送达（对标 Temporal 按序处理事件）：本批先灌入取消请求及之前的事件，取消根作用域，再灌入其余事件。
+// 取消请求之后才完成的 Activity、触发的 timer、关闭的子 Workflow 在取消时仍算未结束，按取消处理；
+// 不等待取消的 Future 以取消错误返回，之后到达的结果不改变它。
 func (e *WorkflowExecutor) runDecisionBatch(batch []history.Event, replay bool) {
 	e.isReplay = replay
 	e.replayBatchStart = len(e.replayCommands)
-	e.applyBatch(batch)
+	cut := len(batch)
+	if !e.cancellationRequested {
+		if i := slices.IndexFunc(batch, func(event history.Event) bool { return event.WorkflowCancellationRequested != nil }); i >= 0 {
+			cut = i + 1
+		}
+	}
+	e.applyBatch(batch[:cut])
+	if e.cancellationRequested && (replay || !e.terminated) {
+		e.rootScope.cancel()
+	}
+	e.applyBatch(batch[cut:])
+	if now, ok := batchTime(batch); ok {
+		e.currentTime = now
+	}
 	// 没有 WorkflowTaskStarted 的批（裸历史、空的 live 末批）在批尾取 GetInfo 快照。
 	if !slices.ContainsFunc(batch, func(event history.Event) bool { return event.WorkflowTaskStarted != nil }) {
 		e.captureActivationInfo()
 	}
 	if !replay && e.terminated {
 		return
-	}
-	if e.cancellationRequested {
-		e.rootScope.cancel()
 	}
 	e.flushFutureBridges()
 	e.spawnUpdateHandlers()
