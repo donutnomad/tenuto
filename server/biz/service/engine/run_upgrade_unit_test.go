@@ -128,7 +128,7 @@ func TestUpgradeDiagnosticDoesNotBlockScheduling(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := countEvents(t, server, current.ID)
-	if err := server.scheduleWorkflowTaskIfRunning(testContext(), current.ID); err != nil {
+	if err := server.scheduleWorkflowTask(testContext(), current.ID); err != nil {
 		t.Fatal(err)
 	}
 	if after := countEvents(t, server, current.ID); after <= before {

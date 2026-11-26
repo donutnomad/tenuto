@@ -248,7 +248,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	if result.Superseded {
 		// started 之后有新事实：本次完成没有提交，立即重做。调度失败由 reconcileRun 按 ActivationPending 补上。
 		s.stopWorkflowTaskTimeout(runID, workflowTaskScheduledID)
-		return s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID)
+		return s.scheduleWorkflowTask(context.WithoutCancel(ctx), runID)
 	}
 	if !result.ClosedInserted {
 		return nil
@@ -273,11 +273,14 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	if err := s.captureWorkflowTaskCompletion(ctx, result, closeEvent, commandEvents, commands); err != nil {
 		return err
 	}
+	if !completionAssignsSticky(ctx) && !hasTerminalCommand(commands) {
+		s.clearStickyAfterFullCompletion(open)
+	}
 	if result.UnseenFacts {
 		// 进行期间到达的事实没有被这次决策看到，留给下一个 WFT。它在回执分配 sticky 之后调度，仍交给这个 Worker；
 		// 完成已提交，调度失败不能报成完成失败（Worker 会因此逐出 session）：记日志，由 reconcileRun 按
 		// ActivationPending 补上。
-		if err := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID); err != nil {
+		if err := s.scheduleWorkflowTask(context.WithoutCancel(ctx), runID); err != nil {
 			s.logger.Error("post-commit workflow task schedule for unseen facts failed; reconciler will schedule it",
 				slog.String("run_id", runID),
 				slog.Any("err", err),
@@ -285,6 +288,21 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		}
 	}
 	return nil
+}
+
+// clearStickyAfterFullCompletion 在不分配 sticky 的完成（全量路径）之后清除 sticky 绑定，对标 Temporal 完成请求不带
+// StickyAttributes 时的 ClearStickyTaskQueue：之后的 WFT 走普通队列，不再先投给上一个增量 Worker。代数取自取锁之后
+// 读到的 execution state，期间 sticky 已被改过时不清除。sticky 只是路由优化，清除失败只记日志。终态完成随终态事件清除。
+func (s *Server) clearStickyAfterFullCompletion(open openWorkflowTask) {
+	if open.state.StickyWorkerIdentity == "" {
+		return
+	}
+	if _, _, err := s.mgr.ClearStickyExecution(open.ref.ID, open.state.ExecutionGeneration, open.state.StickyGeneration); err != nil {
+		s.logger.Warn("clear sticky execution after full-history completion failed",
+			slog.String("run_id", open.ref.ID),
+			slog.Any("err", err),
+		)
+	}
 }
 
 // continueAsNewInserted 报告本次提交是否插入了 CmdContinueAsNew 的 WorkflowContinuedAsNew 事件。终态事件先到先得，
@@ -452,7 +470,7 @@ func (s *Server) runWorkflowTaskPostCommit(
 		}
 	}
 	if scheduleNextWorkflowTask {
-		return s.scheduleWorkflowTaskIfRunning(postCommitCtx, runID)
+		return s.scheduleWorkflowTask(postCommitCtx, runID)
 	}
 	return nil
 }
@@ -527,7 +545,7 @@ func (s *Server) recordWorkflowTaskFailure(ctx context.Context, runID string, wo
 // 进程重启丢失的 timer 由 recoverWorkflowActivation 与 FireOverdueTimers 兜底。
 func (s *Server) scheduleWorkflowTaskAfter(ctx context.Context, runID string, delay time.Duration) {
 	if delay <= 0 {
-		if err := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID); err != nil {
+		if err := s.resumeWorkflowTask(context.WithoutCancel(ctx), runID); err != nil {
 			s.logger.Error("reschedule workflow task after workflow task failure failed", "run_id", runID, "err", err)
 		}
 		return

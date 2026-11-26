@@ -19,6 +19,8 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 | `blocked.cause` 为 `workflow_panic`，reason 含 `[E_RUNTIME]`、`[E_NIL_RECEIVER]`、`[E_PANIC]`、`[E_SYMBOL]`、`[E_TYPE] type.assert cannot pass`、`[E_BUDGET]` 或 `workflow executor panic` | Workflow 代码或 Update handler panic、超出执行预算（Temporal 缺省的 BlockWorkflow），Run 保持 Running | 修复代码后重新发布，下一次重试从 History 恢复并继续 |
 | `blocked.cause` 为 `payload_size_limit_exceeded` | Workflow Task 的命令带的载荷（Activity / 子 Workflow / Continue-As-New 输入、Marker、Workflow 结果、Update 结果）超过 `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES`，或一次 Workflow Task 的命令合计超过 3.5 MiB | 缩小载荷（大数据放外部存储、传引用）后重新发布 |
 | `blocked.cause` 为 `activity_route_unavailable` | 没声明队列，路由目录里没有可用的 Activity Worker 或路由歧义 | 启动注册了该 `type` 的 Worker 或声明队列，自动继续 |
+
+Blocked 期间到达的 Signal、Update、Activity 结果、Timer 触发与取消请求只写入 History，等退避（1s 起、最长 1 分钟）到期的那次重试一并处理，不会每来一个事实就重试一次；Terminate 立即生效，set-policy 立即调度。
 | `status` 是 `running`、无错误、History 末尾是 `ActivityScheduled` | Activity 没被领取或正在执行；Server 日志反复 `activity claim refused` 时在线 Worker 的契约与声明不兼容 | 核对队列与 Worker（`workers.md`）；看 Activity 状态；契约不兼容时让契约兼容的 build 上线，或 `SetRunPolicy(..., "auto_upgrade")` |
 | `status` 是 `running`、无错误、`__stack_trace` 的 `waiting.type` 是 `timer`，或 `waiting` 为空（等 Signal、`Await` 条件） | 正常等待 | 推进它等待的事件 |
 | `status` 是 `failed` | 终态 | `terminal_failure`，或 `c.GetWorkflow(...).Get` 的错误 `errors.As` 到 `*apperror.Error` 看 Type 与 details；需要重跑时 Reset |
@@ -95,7 +97,9 @@ HTTP `reset`：`{"run_id":"...","reason":"...","reset_type":"last_workflow_task"
 | `reset_type` | `first_workflow_task`（从头重跑）、`last_workflow_task`（重做最后一轮决策） |
 | `reset_event_id` | 一个 Workflow Task 边界事件的 ID：`WorkflowTaskStarted` / `Completed` / `Failed` / `TimedOut`；后三种映射到同一轮的 `WorkflowTaskStarted` |
 
-`ReapplyExcludeTypes`（`reapply_exclude_types`）：Reset 缺省把重置点之后收到的 Signal 与 Update 重新应用到新 Run；传 `client.ResetReapplyExcludeTypeSignal`（`"signal"`）、`client.ResetReapplyExcludeTypeUpdate`（`"update"`）或两者排除它们。
+`ReapplyExcludeTypes`（`reapply_exclude_types`）：Reset 缺省把重置点之后收到的 Signal 与 Update 重新应用到新 Run；传 `client.ResetReapplyExcludeTypeSignal`（`"signal"`）、`client.ResetReapplyExcludeTypeUpdate`（`"update"`）或两者排除它们。重新应用的 Update 在新 Run 上按 Update ID 去重，同一个 Update ID 再发来时返回已接受的记录。
+
+`RequestID`（`request_id`，可选，最长 128 字节）：同一个 Run 最近一次 Reset 来自同一个 `RequestID` 时不再 fork，返回那次 Reset 出的 Run ID（对应 Temporal 的 `request_id`）；带它的 Reset 遇到 502 / 连接中断可以直接重发。批量 Reset 自动为每个 Run 生成确定性的 `request_id`（Batch ID + Run ID）。
 
 校验在终止原 Run 之前完成，失败返回 400，原 Run 不变：
 
@@ -158,7 +162,7 @@ HTTP：`start-batch` 的 body 是 `{"req":{"namespace","type","filter","reason",
 - `cancel` 的 succeeded 是「已请求取消」：Batch 在全部请求发出后就是 `completed`，Run 可能仍在运行。已结束的 Run 对 cancel / terminate 计为 skipped；Run 在 Batch 创建后已被 Reset 过对 reset 计为 skipped。
 - 取消 Batch：`pending` / `running` → `cancelled`，驱动在下一页之前停下，正在处理的那一页仍计入，已执行的动作不回滚。重复取消原样返回；取消已结束的 Batch 返回 409。
 - 恢复：每页处理完后计数与游标一起保存；Server 崩溃、重启或换 leader 后从游标继续，未保存的那一页重做一次。重做不会重复生效（已终止的跳过、重复取消请求不写事件、已 Reset 的跳过），所以计数准确，但崩溃前已完成的动作可能记成 skipped。
-- 多副本：驱动经数据库选主（lock `workflow:batch-driver`），只有 leader 处理；记录带版本号，租约切换瞬间的两个驱动中落后的一方保存失败后停下，最多重复执行一页。
+- 多副本：驱动经数据库选主（lock `workflow:batch-driver`），只有 leader 处理；记录带版本号，租约切换瞬间的两个驱动中落后的一方保存失败后停下，最多重复执行一页；重复执行不重复生效，Reset 由确定性的 `request_id` 去重，同一个 Run 不会被 reset 两次。
 - Batch Reset 只支持 `reset_type`；`type` 不是 `cancel` / `terminate` / `reset` 时返回 `unknown batch operation type: ...`（400）。两种情况都不产生记录。
 
 | 类型 | 语义 | 场景 |

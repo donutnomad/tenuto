@@ -158,9 +158,13 @@ type ResetRunCommit struct {
 	NewRun          *Run
 	ExpectedCurrent string
 	BaseRunID       string
-	TreeID          string
-	BranchID        string
-	FailedEvent     history.Event
+	// ExpectedBaseResetRunID 是按 RequestID 去重时读到的 base Run 的 ResetRunID。FailedEvent 带 RequestID 时，
+	// 事务在 base 的行锁下比较它：期间另一次 reset 已提交（例如另一个副本上重叠的批量驱动）时返回
+	// ErrCurrentRunConflict，调用方重新按 RequestID 查找，不再 reset 第二次。
+	ExpectedBaseResetRunID string
+	TreeID                 string
+	BranchID               string
+	FailedEvent            history.Event
 	// Pending 是分叉点上未结束的 Activity 与 Timer（见 PlanResetPendingWork）：关闭事件写在 reset 标记之后，
 	// state 行建在新 Run 上。
 	Pending ResetPendingWork
@@ -210,6 +214,10 @@ func CommitResetRun(tx ExecutionTx, request ResetRunCommit) error {
 		}
 		locked[runID] = run
 	}
+	if request.FailedEvent.WorkflowTaskFailed != nil && request.FailedEvent.WorkflowTaskFailed.RequestID != "" &&
+		locked[request.BaseRunID].ResetRunID != request.ExpectedBaseResetRunID {
+		return ErrCurrentRunConflict
+	}
 	request.NewRun.inheritPolicy(locked[request.BaseRunID])
 	for _, replaced := range request.Terminate {
 		if _, err := Terminate(tx, locked[replaced.RunID], replaced.TreeID, replaced.BranchID, ResetTerminationReason); err != nil {
@@ -229,9 +237,11 @@ func CommitResetRun(tx ExecutionTx, request ResetRunCommit) error {
 	if err := tx.SetResetRunID(request.BaseRunID, request.NewRun.ID); err != nil {
 		return err
 	}
+	// 与正常路径一样带去重键写入：搬运来的 UpdateAccepted 与带 RequestID 的 Signal 在新 Run 上按 Update ID 与
+	// RequestID 查得到，同一个 Update 不会被再接受一次。
 	events := append([]history.Event{request.FailedEvent}, request.Pending.Events...)
 	for _, event := range append(events, request.ReapplyEvents...) {
-		if _, err := tx.Append(request.NewRun.ID, request.TreeID, request.BranchID, event); err != nil {
+		if _, _, err := tx.AppendIdempotent(request.NewRun.ID, request.TreeID, request.BranchID, event); err != nil {
 			return err
 		}
 	}
@@ -246,6 +256,14 @@ func CommitResetRun(tx ExecutionTx, request ResetRunCommit) error {
 		}
 	}
 	return repointChildLink(tx, request.NewRun, request.Now)
+}
+
+// ResetRequestDedupeKey 返回 reset 标记上 RequestID 的去重键（history.DedupeKey），在 reset 出的 Run 上按它查找。
+func ResetRequestDedupeKey(requestID string) string {
+	key, _ := history.DedupeKey(history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{
+		Cause: WorkflowTaskFailedCauseResetWorkflow, RequestID: requestID,
+	}))
+	return key
 }
 
 // repointChildLink 让父 Run 仍打开的子关联指向接替的子 Run：新 Run 结束时父 Run 收到的是它的结果。

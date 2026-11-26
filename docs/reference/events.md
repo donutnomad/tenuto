@@ -30,7 +30,7 @@ Event 是已经发生并提交的事实。每个 Run/Branch 的 Event ID 从 1 �
 | `WorkflowTaskStarted` | scheduledEventId、workerIdentity、workerBuildId、timeoutMs（Server 计时的 start-to-close 超时）、History 指标 |
 | `WorkflowTaskCompleted` | scheduledEventId、workerIdentity |
 | `WorkflowTaskTimedOut` | scheduledEventId、error |
-| `WorkflowTaskFailed` | cause、baseRunId、resetRunId、reason |
+| `WorkflowTaskFailed` | cause、baseRunId、resetRunId、requestId（只在带 `request_id` 的 reset 标记上）、reason |
 
 ## Activity
 

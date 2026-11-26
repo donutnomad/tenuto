@@ -73,6 +73,8 @@ if err := handle.Get(ctx, &result); err != nil {
 
 等待 `Completed` 的请求在 Server 上最多等 20s：Update 完成时应答带结果；Run 在 Update 完成之前结束时，History 里这个 Update 已是失败的终态，应答带这个失败；20s 到期仍未完成时应答 `Accepted`，`handle.Get` 以同一个 Update ID 再发一次（按 Update ID 幂等，不会重复执行 Handler）。
 
+Run 显示 Blocked 时，新的 Update 照常写入 `WorkflowUpdateAccepted`，Handler 等失败退避到期的那次重试执行（退避从 1s 起、最长 1 分钟；导致 Blocked 的原因没修好时重试仍会失败）。等待方不会无限挂起：Server 每次请求最多等 20s，`handle.Get` 在 `ctx` 结束时返回 `ctx.Err()`，用带截止时间的 `ctx` 限定调用方愿意等多久。
+
 ### 跨副本唤醒
 
 多副本部署时，受理 Update 请求的副本与处理完成它的 Workflow Task 的副本通常不同。等待方（Update 等 `Completed`，以及 [`WorkflowRun.Get`](/sdk/client#get-跟随执行链) 用的 `wait-closed`）在受理请求的副本上按 Run 登记，结果总从数据库读取：

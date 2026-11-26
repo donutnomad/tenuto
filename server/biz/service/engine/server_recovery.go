@@ -276,17 +276,18 @@ func (s *Server) reconcileRunStatus(ctx context.Context, runID string, event his
 // recoverWorkflowActivation 为「有新事实、没有 open WFT」的 run 补调度 WFT：
 // 覆盖事件已提交、随后调度 WFT 失败的窗口（activity/timer/child 关闭、signal 等）。
 func (s *Server) recoverWorkflowActivation(ctx context.Context, runID string, state *execution.WorkflowExecutionState, force bool) error {
-	if state.NeedsWorkflowTask() {
+	retryAt, blocked := state.BlockedRetryAt(s.wftBackoffBase, s.wftBackoffCap)
+	if state.NeedsWorkflowTask() && (!blocked || !retryAt.After(s.clock.Now())) {
 		// 重试 run 的首个 WFT 由 RetryBackoff timer 到期时调度，退避期内不提前补调度。
 		if pending, err := s.pendingOnWorkflowTaskBackoff(state); err != nil || pending {
 			return err
 		}
 		return s.scheduleWorkflowTask(ctx, runID)
 	}
-	// Block 后 run 处于「Running 且无 open WFT，末个 WFT lifecycle 是 WorkflowTaskFailed」，
-	// 没有待处理的新事实。启动恢复在此按退避重挂延迟 timer；
+	// Block 后 run 处于「Running 且无 open WFT，末个 WFT lifecycle 是 WorkflowTaskFailed」，退避期内到达的事实
+	// 也等这次重试。启动恢复在此按退避重挂延迟 timer；
 	// 周期补偿时进程内 timer 仍在，退避到期后由 FireOverdueTimers 接管。
-	if force && state.Blocked.Blocked {
+	if force && blocked {
 		ctx = s.telemetry.extract(ctx, state.WorkflowTask.LastFailureTraceContext)
 		s.scheduleWorkflowTaskAfter(ctx, runID, state.WorkflowTaskFailureBackoff(s.wftBackoffBase, s.wftBackoffCap))
 	}

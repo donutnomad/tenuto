@@ -839,7 +839,7 @@ Server 不判断是不是同一份代码，契约一致就视为可以互相替�
 
 | Console 上的提示 | 含义 | 会自动继续吗 | 处理 |
 | --- | --- | --- | --- |
-| Workflow Blocked 卡片（cause、reason、连续失败次数） | Workflow Task 连续失败，History 不变 | 会：退避从 1s 开始，最长 1 分钟（`server/biz/domain/execution/workflow_task.go`） | 按 cause 修复，见下表 |
+| Workflow Blocked 卡片（cause、reason、连续失败次数） | Workflow Task 连续失败，History 不变 | 会：退避从 1s 开始，最长 1 分钟（`server/biz/domain/execution/workflow_task.go`）；退避期内到达的 Signal、Update、Activity 结果、Timer 触发与取消请求只写入 History，等退避到期的那次重试一并处理 | 按 cause 修复，见下表 |
 | 红色横幅 `Configuration paused`（Run 的 `config_error`） | 确定性的配置冲突，例如 `auto_upgrade` 换版前发现 History 里的载荷在新类型下读不回 | 不会 | 横幅上的 `Resume with latest (AutoUpgrade)` 或 `Pin current content` 调用 set-policy 恢复（问题 4） |
 | `AutoUpgrade retrying`（Run 的 `upgrade_error`） | `auto_upgrade` 的 Run 用最新定义重放旧 History 失败，仍留在上一份成功的内容上 | 会 | 发布兼容的定义（补 `GetVersion` 分支），或 set-policy `pinned` 留在旧内容（问题 7） |
 | 无提示，Activity 长时间 Scheduled | 任务在队列里：没有 Worker 拉这个队列，或在线 Worker 的契约与声明不兼容、领取被拒（Server 日志 `activity claim refused`） | Worker 就绪后会 | Workers 页核对 Activity Routing 与 Build；契约不符时让契约一致的 build 上线，或把 Run 改成 `auto_upgrade`（问题 4） |

@@ -86,7 +86,8 @@ cache budget = worker memory limit
 
 - Worker 完成一个 Workflow Task 后，Run 绑定到这个 Worker（sticky 会话）。绑定不随时间失效，Activity、Timer 或等待 Signal 持续多久，下一个 Workflow Task 仍投给它。
 - 有绑定时调度的 Workflow Task 投到该 Worker 的 sticky 队列，并从**调度时刻**起计 sticky schedule-to-start（固定 5s）。Worker 在期限内领取，Workflow Task 消费缓存里的 session；期限过后仍未领取，Server 清除绑定，把这个 Workflow Task 改投普通队列。
-- Workflow Task 超时或失败（`non_deterministic_error`、`workflow_panic`、`payload_size_limit_exceeded` 等）时清除绑定，下一次执行走普通队列。Server 因新事实或恢复写入的重做（`unhandled_events`、`run_resumed`）不是 Worker 的失败，绑定保留。
+- Workflow Task 超时或失败（`non_deterministic_error`、`workflow_panic`、`payload_size_limit_exceeded` 等）时清除绑定，下一次执行走普通队列。
+- Workflow Task 由完整 History 完成（Worker 没有配置 Execution Cache、任务的 executor ABI 与 Worker 不一致，或这次任务没有走增量）时同样清除绑定，对应 Temporal 完成请求不带 sticky 属性时的 `ClearStickyTaskQueue`：之后的 Workflow Task 走普通队列，不再先投给上一个增量 Worker。Server 因新事实或恢复写入的重做（`unhandled_events`、`run_resumed`）不是 Worker 的失败，绑定保留。
 
 ## 回退路径
 

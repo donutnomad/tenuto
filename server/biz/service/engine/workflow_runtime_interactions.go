@@ -70,7 +70,7 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 		return 0, protocol.InvalidRequestf("workflow run id is empty")
 	}
 	// 给了 runID 时在 lease 外校验 Run 未结束。只给 workflowID 时 current 在 lease 内解析，终态判定用
-	// run.Status（RunInTx 内不重入 mgr.GetEvents/Update，避免死锁），scheduleWorkflowTaskIfRunning 不为终态 Run 调度。
+	// run.Status（RunInTx 内不重入 mgr.GetEvents/Update，避免死锁），scheduleWorkflowTask 不为终态 Run 调度。
 	if runID != "" {
 		if err := s.validateInteraction(namespace, workflowID, runID, name); err != nil {
 			return 0, err

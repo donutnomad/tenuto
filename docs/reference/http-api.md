@@ -23,7 +23,7 @@ Tenuto 的 Go Client 使用 JSON Runtime HTTP API。业务系统通过 SDK 调�
 | 413 | 请求体超过 4 MiB | `request body exceeds 4194304 bytes`；Workflow Task 的提交被拒绝时 Worker 改报 `payload_size_limit_exceeded`，见 [容量上限](/operations/capacity-limits#载荷大小) |
 | 415 | POST 的 `Content-Type` 不是 `application/json`（可带 `charset` 等参数），没有请求体的端点也一样 | 表单或 `text/plain` 提交：`Content-Type must be application/json` |
 | 500 | Server 故障：数据库返回的非瞬时错误（缺表、数据超长等）或代码错误。原因看 Server 日志 | `internal server error` |
-| 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发 | `service temporarily unavailable; the request may have taken effect` |
+| 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发；带 `request_id` 的 Reset 可以用同一个 `request_id` 直接重发 | `service temporarily unavailable; the request may have taken effect` |
 | 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）；在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`；同时重放的 Query 数达到 `WORKFLOW_QUERY_CONCURRENCY`；请求在生效之前被取消。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable`、`too many requests in flight; retry`、`request cancelled before taking effect; retry` |
 | 504 | 请求在 Server 端等待超时 | `context deadline exceeded` |
 
@@ -294,6 +294,6 @@ The saved version applies to new runs, including future schedule starts. Existin
 
 `reset_event_id` 接受 WorkflowTaskStarted、Completed、Failed、TimedOut。Started 保留至该事件；关闭事件映射到同轮 Started。新运行保留此前已提交轮次的历史，重新执行所选轮次及后续步骤，沿用原运行配置版本与目标 worker。首次/末次 WorkflowTask 选择遵循相同映射。
 
-`/runtime/workflow/reset` 要求 `reset_type`（`first_workflow_task` 或 `last_workflow_task`）或 `reset_event_id`，二者选一；缺少定位时返回 400。Batch Reset 只接受 `reset_type`，缺少时创建被拒绝（400）。
+`/runtime/workflow/reset` 要求 `reset_type`（`first_workflow_task` 或 `last_workflow_task`）或 `reset_event_id`，二者选一；缺少定位时返回 400。可选的 `request_id`（最长 128 字节）让重复的请求返回第一次 Reset 出的 `run_id`，见 [Reset 的 request_id 去重](/operations/reset#request-id-去重)。Batch Reset 只接受 `reset_type`，缺少时创建被拒绝（400）。
 
 Reset 截止点必须满足此前调度的 activity/timer 均已闭合。仍有待处理项目时接口返回 400，错误包含截止事件 ID、项目类型及调度事件 ID；可以选择其调度前或完成后的工作流任务边界。校验发生在终止/替换当前运行之前，失败请求保留当前运行。终止被 reset 的运行与创建新运行在同一个事务里提交：写入失败时原运行保持运行，没有新运行。Console Reset 弹窗直接展示该错误。并行活动示例：A 已完成、B 仍待处理时，A 完成后的边界暂时无法 Reset；B 完成后的边界可执行 Reset。
