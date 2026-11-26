@@ -65,6 +65,22 @@ describe("buildStepTree with activity states", () => {
     expect(steps[0]).toMatchObject({ status: "timed_out", heartbeat: { offset: 9 } })
   })
 
+  it("shows the last heartbeat details of an activity interrupted by a workflow reset from ActivityFailed", () => {
+    const steps = buildStepTree([
+      scheduled,
+      {
+        id: 7,
+        timestamp: "2026-11-12T10:05:00Z",
+        activityFailed: {
+          activityId: "charge-1", scheduledEventId: 5, startedEventId: 6, attempt: 1, error: "bad deploy", retryState: "NonRetryableFailure",
+          failure: { message: "bad deploy", type: "ResetWorkflowError", nonRetryable: true },
+          lastHeartbeatDetails: { offset: 9 },
+        },
+      },
+    ], "running")
+    expect(steps[0]).toMatchObject({ status: "failed", heartbeat: { offset: 9 } })
+  })
+
   it("keeps an activity whose attempt timed out open while it retries", () => {
     const steps = buildStepTree([
       scheduled,

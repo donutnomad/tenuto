@@ -40,7 +40,7 @@ Run Detail 先加载最新的一页。History 超过一页时，Timeline 的 Ste
 
 1. 查找最新的 Workflow Task 边界。
 2. 检查当前 open Activity、Timer 或 Child。
-3. 查看 Activity Attempt 的 started、failed、timed out 与 retry；运行中的心跳在 Pending 页签，超时 Attempt 的最后一次心跳在 `ActivityTimedOut` 里。
+3. 查看 Activity Attempt 的 started、failed、timed out 与 retry；运行中的心跳在 Pending 页签，超时 Attempt 的最后一次心跳在 `ActivityTimedOut` 里，被 Workflow Reset 打断的 Attempt 的在新 Run 的 `ActivityFailed`（failure 类型 `ResetWorkflowError`）里。
 4. 对照 Worker Identity 和 Build ID。
 5. 打开 Trace 重放到对应源码行。
 

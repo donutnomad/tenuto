@@ -289,6 +289,8 @@ export interface Event {
     error?: string
     retryState?: string
     failure?: Failure
+    // Workflow Reset 打断已开始的 Activity 时，原 Run 里这个 Activity 最后一次心跳的详情。
+    lastHeartbeatDetails?: Record<string, unknown>
   }
   activityCancelRequested?: { activityId?: string; scheduledEventId?: number }
   activityCancelled?: {
