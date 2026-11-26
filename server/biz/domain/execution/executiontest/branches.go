@@ -52,8 +52,16 @@ func HistoryBranchContract(t *testing.T, newManager func(t *testing.T) execution
 		reset := execution.NewRun(execution.NewRunOptions{ID: "run-reset", WorkflowID: "wf-fork", WorkflowConfigVersion: "v1", BranchToken: forked.BranchToken, CreatedAt: contractNow})
 		createRun(t, manager, reset)
 
+		// 按去重键查找只看新 branch 自己的事件：前缀里的 t-prefix 查不到。
+		prefixKey, _ := history.DedupeKey(timer("t-prefix"))
+		if got, found, err := manager.GetEventIDByDedupeKey(reset.ID, branch.BranchID, prefixKey); err != nil || found {
+			t.Fatalf("dedupe lookup on the forked branch found the prefix event: (%d, %v, %v)", got, found, err)
+		}
 		// 前缀里已有的 dedupe key 在新 branch 上不命中；新 branch 上的重复写入命中。
 		id, inserted := appendIdempotent(t, manager, reset, timer("t-prefix"))
+		if got, found, err := manager.GetEventIDByDedupeKey(reset.ID, branch.BranchID, prefixKey); err != nil || !found || got != id {
+			t.Fatalf("dedupe lookup after the append on the forked branch = (%d, %v, %v), want (%d, true, nil)", got, found, err, id)
+		}
 		if !inserted || id != prefixID+1 {
 			t.Fatalf("append of a prefix dedupe key on the forked branch = (%d, %v), want (%d, true)", id, inserted, prefixID+1)
 		}

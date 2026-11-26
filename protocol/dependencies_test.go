@@ -125,7 +125,7 @@ func TestEngineWritePathsReadRunInTransaction(t *testing.T) {
 		"closedRun": true, "runStartedByRequest": true, "signalWithStartByRequest": true,
 		// 准备：按 Run 构造派生 Run、准备派发或选择要触发的定时器；提交的事务在锁下重读 Run。
 		"pollWorkflowTaskOnce": true, "prepareWorkflowFailure": true, "prepareRetryRun": true,
-		"prepareContinuedRun": true, "prepareReset": true,
+		"prepareContinuedRun": true, "prepareReset": true, "resetDuplicateOf": true,
 		// 扫描：列出要补偿或触发的 Run，每个 Run 的写入各自在事务内读取。
 		"forEachRunningRunPage": true, "reconcileRun": true, "recoverChildWorkflow": true,
 		"FireOverdueTimers": true, "Reconcile": true,
