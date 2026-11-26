@@ -209,7 +209,7 @@ func TestSagaOrderScenarios(t *testing.T) {
 }
 
 // TestRegisterActivitiesReportsContracts 锁住生成 helper 的注册结果：
-// 5 个本地 Activity 全部进 registry，并带 type/version 与 wire 指纹契约。
+// 5 个本地 Activity 全部进 registry，并带 type 与 wire 指纹契约。
 func TestRegisterActivitiesReportsContracts(t *testing.T) {
 	registry := wfsdk.NewRegistry()
 	if err := sagaflow.RegisterActivities(registry); err != nil {

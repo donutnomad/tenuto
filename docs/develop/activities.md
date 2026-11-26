@@ -102,7 +102,7 @@ if err := f2.Get(ctx, &b); err != nil {
 }
 ```
 
-签名是 `ExecuteActivity(ctx, activity, input, opts...)`。第二个参数 `activity` 指向带 `@Activity` 注解的函数或 remote 契约类型的标记函数时，直接调用与桥 `CallX` 得到同一条引用：Activity Type、Task Queue、版本与输入输出契约都取自注解。
+签名是 `ExecuteActivity(ctx, activity, input, opts...)`。第二个参数 `activity` 指向带 `@Activity` 注解的函数或 remote 契约类型的标记函数时，直接调用与桥 `CallX` 得到同一条引用：Activity Type、Task Queue 与输入输出契约都取自注解。
 
 第二个参数指向没有注解的函数时：
 

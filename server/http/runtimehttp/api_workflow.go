@@ -236,7 +236,7 @@ type workflowDefinitions interface {
 	RegisterWorkflowInNamespace(namespace string, workflow *program.WorkflowConfig) (definition.WorkflowConfigRef, error)
 	RegisterWorkflowArtifactInNamespace(namespace string, workflow *program.WorkflowConfig) (definition.WorkflowConfigRef, error)
 	EnrollWorkflowInNamespace(namespace string, workflow *program.WorkflowConfig) (definition.WorkflowConfigRef, error)
-	SetWorkflowWorkerTarget(namespace, workflowID, identity string) (definition.WorkflowConfigRef, error)
+	SetWorkflowWorkerTarget(namespace, workflowType, identity string) (definition.WorkflowConfigRef, error)
 }
 
 // runReads 是 Run、History、配置、Worker 与 namespace 的查询，*executionview.View 满足它。

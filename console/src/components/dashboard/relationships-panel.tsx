@@ -77,7 +77,9 @@ export function RelationshipsPanel({
             <span className="truncate font-medium">{run.workflow_id}</span>
             <RunStatusBadge status={run.status} />
           </div>
-          <p className="truncate font-mono text-xs text-muted-foreground">{run.id}</p>
+          <p className="truncate font-mono text-xs text-muted-foreground">
+            {run.workflow_type ? `${run.workflow_type} · ${run.id}` : run.id}
+          </p>
         </div>
         <span className="text-xs text-muted-foreground">Current Run</span>
       </div>
@@ -168,6 +170,7 @@ function RelationshipTreeNode({
   const [error, setError] = useState<string>()
   const guard = relationshipExpansionGuard(relationship.runID, ancestry, depth, maxDepth)
   const Icon = KIND_ICON[relationship.kind]
+  const workflowType = relationship.workflowType || context?.run.workflow_type
   const nestedRelationships = useMemo(
     () => buildRunRelationships(context?.run, context?.events),
     [context],
@@ -226,11 +229,13 @@ function RelationshipTreeNode({
               {KIND_LABEL[relationship.kind]}
             </span>
             <span className="truncate text-sm font-medium">
-              {relationship.workflowType || context?.run.workflow_type || relationship.label}
+              {context?.run.workflow_id || relationship.label}
             </span>
             {context?.run.status && <RunStatusBadge status={context.run.status} />}
           </div>
-          <p className="truncate font-mono text-xs text-muted-foreground">{relationship.runID}</p>
+          <p className="truncate font-mono text-xs text-muted-foreground">
+            {workflowType ? `${workflowType} · ${relationship.runID}` : relationship.runID}
+          </p>
         </div>
 
         <Link

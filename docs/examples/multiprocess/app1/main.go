@@ -8,14 +8,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"testing/fstest"
 	"time"
 
 	v1 "github.com/donutnomad/tenuto/docs/examples/multiprocess/v1"
@@ -49,25 +47,6 @@ func run(url, namespace, version, buildID string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 每个升级验证保留独立 current run；仅示例登记独立 Workflow Type。
-	workflowType, data, err := definition.Load()
-	if err != nil {
-		return err
-	}
-	definitions := []registration.Definition{definition}
-	for _, suffix := range []string{"-incompat-v1", "-incompat-v2"} {
-		var config map[string]json.RawMessage
-		if err := json.Unmarshal(data, &config); err != nil {
-			return err
-		}
-		config["type"], _ = json.Marshal(workflowType + suffix)
-		encoded, err := json.Marshal(config)
-		if err != nil {
-			return err
-		}
-		definitions = append(definitions, registration.Definition{FS: fstest.MapFS{registration.ArtifactFile: &fstest.MapFile{Data: encoded}}})
-	}
-
 	// Start 先上报本进程 Activity 路由，再登记定义，最后开始 poll：定义登记时的路由校验
 	// 以 worker 上报的 activity 路由为依据。
 	c, err := client.Dial(client.Options{HostPort: url, Namespace: namespace})
@@ -87,7 +66,7 @@ func run(url, namespace, version, buildID string) error {
 		BuildID:                                buildID,
 		ActivityWorkerVersionDefault:           true,
 		ActivityWorkerVersionHeartbeatInterval: 5 * time.Second,
-		Workflows:                              definitions,
+		Workflows:                              []registration.Definition{definition},
 	})
 	if err != nil {
 		return err

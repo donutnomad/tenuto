@@ -108,7 +108,7 @@ func planAndGenerate(t *testing.T, dir string) PackageResult {
 }
 
 // TestGenerateRewritesBridgeCalls 锁住编排重写：三种语句形态都变成 ExecuteActivity+Get，
-// 且 ActivityRef 的 Type/Queue/Version/Input/Output 来自注解。
+// 且 ActivityRef 的 Type/Queue/Input/Output 来自注解。
 func TestGenerateRewritesBridgeCalls(t *testing.T) {
 	result := planAndGenerate(t, copyFixture(t))
 

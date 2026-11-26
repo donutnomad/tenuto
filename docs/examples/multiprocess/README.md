@@ -35,4 +35,4 @@ v1 支持版本 marker 3–4，v2 支持 3–5，v3 仅支持 7。v1/v2 的历�
 
 driver 验证 pinned、各版本正常完成，以及 v1/v2 在途 Run 升级到 v3 的状态。Activity gate 让旧 Run 在已产生历史的明确位置暂停，发布 v3 后释放，随后读取 Run 状态和 WorkflowTaskFailed 历史作为结果依据。
 
-重新登记已有内容会保持现有 latest，因此验证按 v1 → v2 → v3 的发布顺序进行；每个旧版本阶段先保留在途 Run，再发布下一版本。同一 Workflow ID 同时保留一个 current Run；示例分别使用 `order-flow-incompat-v1`、`order-flow-incompat-v2` 保存两个升级观察对象，正常执行使用 `order-flow`。app-1 为三个 ID 登记相同版本的程序，Workflow Task 由 tenuto-server 执行，app-1 重启期间 Workflow Task 照常推进。app-2 使用 4 个 Activity 执行槽，让两条 gate 暂停任务与正常订单可以并行执行。脚本为 app-1 固定 `APP1_BUILD_ID=app1-demo`，各版本本地 Finalize 使用相同实现与契约；Workflow 内容版本与 Activity build 路由分别管理。
+重新登记已有内容会保持现有 latest，因此验证按 v1 → v2 → v3 的发布顺序进行；每个旧版本阶段先保留在途 Run，再发布下一版本。所有 Run 的 Workflow Type 都是 `order-flow`；同一 Workflow ID 同时保留一个 current Run，两个升级观察对象用 `order-flow-incompat-v1-*`、`order-flow-incompat-v2-*` 前缀的 Workflow ID 与正常订单区分。app-1 每次只登记 `order-flow` 一个 Workflow Type，Workflow Task 由 tenuto-server 执行，app-1 重启期间 Workflow Task 照常推进。app-2 使用 4 个 Activity 执行槽，让两条 gate 暂停任务与正常订单可以并行执行。脚本为 app-1 固定 `APP1_BUILD_ID=app1-demo`，各版本本地 Finalize 使用相同实现与契约；Workflow 内容版本与 Activity build 路由分别管理。

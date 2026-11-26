@@ -54,6 +54,8 @@ Run Detail 先加载最新的一页。History 超过一页时，Timeline 的 Ste
 
 Chain 节点按执行时间排列，并显示方向标签，帮助判断事件先后关系。
 
+每个节点以业务 Workflow ID 为标题，下一行显示 Workflow Type 与 Run ID；同一 Type 的多个 Child 按 Workflow ID 区分。
+
 ## 批量操作
 
 Runs 页面支持勾选多个 Run 发起 Cancel、Terminate 或 Reset。勾选只作用于当前页和当前筛选，换页、改筛选或改排序后自动清空。勾选的 Run 无论状态都在目标之内，失败或已终止的 Run 也可以批量 Reset。提交后 Server 受理并在后台执行，列表上方提示已受理并链接到 Batch 页面查看进度、计数与逐 Run 错误。

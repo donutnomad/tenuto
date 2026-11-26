@@ -91,3 +91,27 @@ func TestNewWorkflowVersionRunValidatesIdentityAndProgram(t *testing.T) {
 		})
 	}
 }
+
+// TestPrepareStartedRunRequiresWorkflowType 锁住启动守卫检查的是 Workflow Type：
+// 只有业务 Workflow ID、没有 Type 的 Run 无法定位定义，按非法请求拒绝。
+func TestPrepareStartedRunRequiresWorkflowType(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		opts execution.NewRunOptions
+	}{
+		{name: "missing workflow type", opts: execution.NewRunOptions{ID: "run-1", WorkflowID: "order-1", WorkflowConfigVersion: "version-1"}},
+		{name: "missing config version", opts: execution.NewRunOptions{ID: "run-1", WorkflowID: "order-1", WorkflowType: "order-flow"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, _, err := execution.PrepareStartedRun(execution.NewRun(test.opts), "Order", 0)
+			if !errors.Is(err, protocol.ErrInvalidRequest) {
+				t.Fatalf("err = %v, want invalid request", err)
+			}
+		})
+	}
+	if _, _, _, err := execution.PrepareStartedRun(execution.NewRun(execution.NewRunOptions{
+		ID: "run-1", WorkflowID: "order-1", WorkflowType: "order-flow", WorkflowConfigVersion: "version-1",
+	}), "Order", 0); err != nil {
+		t.Fatalf("complete ref rejected: %v", err)
+	}
+}
