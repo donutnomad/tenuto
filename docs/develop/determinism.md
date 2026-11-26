@@ -104,7 +104,7 @@ Workflow 并发只使用 `workflow.Go`、`WaitGroup`、`Channel`、`Selector`。
 - [可调用的标准库函数](/develop/go-subset#标准库函数)以外的计算，例如排序、时间解析、正则表达式、编码解码。
 - 依赖进程本地状态的业务判断。
 
-Workflow 代码保留确定性的编排状态、分支和等待逻辑。构造大字符串、大数组的计算也放进 Activity：解释器对单个字符串（16 MiB）、数组与 map 的大小设有上限，超出时 Run 以 `E_BUDGET` 失败，见[执行预算](/develop/go-subset#执行预算)。
+Workflow 代码保留确定性的编排状态、分支和等待逻辑。构造大字符串、大数组的计算也放进 Activity：解释器对单个字符串（16 MiB）、数组与 map 的大小设有上限，超出时 Workflow Task 以 `E_BUDGET` 失败、Run 进入 Blocked，见[执行预算](/develop/go-subset#执行预算)。
 
 ## 非确定性错误的表现
 

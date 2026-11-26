@@ -161,7 +161,7 @@ func (e *WorkflowExecutor) executeWLang(wf *programpkg.WorkflowConfig) error {
 		if err != nil {
 			return fmt.Errorf("encode workflow entry input: %w", err)
 		}
-		typedInput, err := reg.DecodeJSONValue(entry.Input, rawInput)
+		typedInput, err := executor.DecodeTypedJSON(reg, entry.Input, rawInput)
 		if err != nil {
 			return fmt.Errorf("decode workflow entry input %q: %w", entry.Input, err)
 		}
@@ -728,7 +728,8 @@ func checkEntryOutputType(reg *wlregistry.Registry, declared string, actual type
 // workflowMaxStringBytes 是 Workflow Program 里单个字符串的上限（字节）。
 const workflowMaxStringBytes = 16 << 20
 
-// workflowMaxBatchSteps 是一个决策批（一个 Workflow Task）最多执行的语句数，循环每轮执行的语句都计入。
+// workflowMaxBatchSteps 是一个决策批（一个 Workflow Task）最多执行的语句数，循环每轮执行的语句都计入
+// （生成器给空循环体插入一条语句，见 sdkgen 的 lowerLoopBody）。
 // 计数在 runDecisionBatch 开始时清零（Query 求值另起一次），对标 Temporal 按 Workflow Task 计时的死锁检测：
 // 长期运行的 Run 只要每个 Workflow Task 的计算有界就不会触顶。重放时每批重新计数，同一批在 live 与重放时
 // 于同一条语句触顶。
@@ -736,7 +737,7 @@ const workflowMaxBatchSteps = 1_000_000
 
 // workflowWLangBudget 是 WLang executor 的预算。步数与循环迭代由 workflowMaxBatchSteps 按决策批计数，
 // executor 自己的 MaxSteps 与 MaxLoopIterations 在整个执行期间累计，这里不设。超出预算时解释器返回 E_BUDGET，
-// Workflow Task 以这个错误让 Run 失败，副本照常运行。
+// Workflow Task 以 workflow_panic 失败，Run 进入 Blocked，修复代码后继续；副本照常运行。
 //
 // 大小上限在分配之前检查：字符串拼接、bigInt 运算，以及 strings.Repeat、Replace、Join、Split、fmt.Sprintf
 // 等结果可能远大于参数的标准库函数，由参数算出结果大小；其余宿主函数（含 workflow 包）在返回后检查结果。

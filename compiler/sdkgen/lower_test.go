@@ -82,6 +82,7 @@ func TestLowerRejectsNonDeterministicConstructs(t *testing.T) {
 		{"non-host package call", `return Out{Text: uuid.New().String()}, nil`, []string{"uuid.New", "workflow.RandomUUID"}},
 		{"assertion field in condition", `var a any = Out{}; if a.(Out).Sum > 0 { return Out{}, nil }; return Out{}, nil`, []string{"a.(Out).Sum", "先把类型断言赋值给变量"}},
 		{"sized make as argument", `n := 2; x := len(make([]int, n)); return Out{Sum: x}, nil`, []string{"make([]int, n)", "独立的赋值语句"}},
+		{"for without init and condition", "for {\n\t}\n\treturn Out{}, nil", []string{"w.go:41", "for requires an init statement and a condition"}},
 		{"make with capacity as argument", `x := len(make([]int, 0, 4)); return Out{Sum: x}, nil`, []string{"make([]int, 0, 4)", "独立的赋值语句"}},
 		{"pointer alias", `a := Out{Sum: 1}; p := &a; p.Sum = 5; return a, nil`, []string{"w.go:41", "&a 只能直接作为调用实参", "直接使用值 a"}},
 		{"pointer to field returned", `a := Out{}; q := &a.Sum; _ = q; return a, nil`, []string{"&a.Sum 只能直接作为调用实参"}},
@@ -272,5 +273,27 @@ func TestLowerTypedInjectsWorkflowImportOnSameLine(t *testing.T) {
 	_, err = GenerateFromSource([]byte(bad), Options{WorkflowType: "inject", FuncName: "W", Filename: "inject.go"})
 	if err == nil || !strings.Contains(err.Error(), "inject.go:8") {
 		t.Fatalf("err = %v, want a diagnostic at inject.go:8", err)
+	}
+}
+
+// 空循环体插入一条计数语句，每轮执行都计入 Workflow Task 的步数；非空循环体不变。
+func TestLowerEmptyLoopBodyGetsCountedStatement(t *testing.T) {
+	result, err := generateLowered(`
+	for range 3 {
+	}
+	for i := 0; i < 1; {
+		{
+		}
+	}
+	for i := 0; i < 2; i++ {
+		_ = i
+	}
+	return Out{}, nil`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	if !strings.Contains(program, "zzLoopStep1") || !strings.Contains(program, "zzLoopStep2") || strings.Contains(program, "zzLoopStep3") {
+		t.Fatalf("program should count steps only in the two empty loop bodies:\n%s", program)
 	}
 }

@@ -247,6 +247,7 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 - 常量按 Go 的默认类型参与比较：`d["n"] == 3` 比较的是 `int`。
 - 输入、Signal、Activity 结果等载荷里 `map[string]any` 的数字与 Go 的 `encoding/json` 一样按 `float64` 比较：`{"n": 3}` 里 `d["n"] == 3` 是 `false`，`d["n"] == 3.0` 是 `true`。按数字分支时声明结构体 DTO，或先断言 `n, ok := d["n"].(float64)`。
 - nil slice 与空 slice 可以区分：`var xs []T`、载荷里省略或为 `null` 的字段是 nil；`[]T{}`、`make([]T, 0)`、载荷里的 `[]` 不是 nil。map 同理。只关心有没有元素时写 `len(xs) == 0`。
+- Workflow 输入与 Update 参数里为 `null` 的 slice、map 字段与 Go 一样是 nil，`len` 为 0、`range` 不执行。Activity 结果、子 Workflow 结果等经 `Get(ctx, &out)` 解进结构体时，为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice 编码成 `null`）在 `len`、`range`、读写之前先判断：`if out.Tags != nil { ... }`；`out.Tags == nil` 的结果正确。
 - `any` 里的具名基础类型值（`type Status string`）按底层类型比较：`var x any = Status("a")` 时 `x == "a"` 为 `true`，Go 里动态类型不同为 `false`。与具名类型比较时先断言 `s, ok := x.(Status)`。
 
 ## 执行预算
@@ -255,14 +256,14 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 
 | 预算 | 上限 |
 | --- | --- |
-| 执行步数（一个 Workflow Task 执行的语句，循环每轮执行的语句都计入） | 1,000,000 |
+| 执行步数（一个 Workflow Task 执行的语句，循环每轮执行的语句都计入；空循环体每轮计一步） | 1,000,000 |
 | 协程（`workflow.Go`） | 1024 |
 | 调用深度 | 128 |
 | 数组长度 | 100,000 |
 | map / 对象 key 数 | 100,000 |
 | 单个字符串 | 16 MiB（16,777,216 字节） |
 
-超出任一预算时解释器返回 `E_BUDGET` 错误，Workflow Task 以这个错误让 Run 失败（`WorkflowFailed` 的错误文本以 `[E_BUDGET]` 开头，带超出的预算与 Program 位置）；Workflow 代码不能捕获它。同一段代码在重放时于同一位置失败。
+超出任一预算时解释器返回 `E_BUDGET` 错误，Workflow 代码不能捕获它。与 Go 运行时 panic 一样，Workflow Task 以 `workflow_panic` 失败（`WorkflowTaskFailed` 的 reason 以 `[E_BUDGET]` 开头，带超出的预算与 Program 位置），Run 保持 Running、显示 Blocked 并按退避重试，对标 Temporal Go SDK 的 deadlock detector 把单个 Workflow Task 运行过久按 panic 处理。同一段代码在重放时于同一位置触顶；修复代码（把计算拆到多个 Workflow Task 或放进 Activity）发布后，Run 从失败处继续。
 
 大小上限在分配之前检查：
 

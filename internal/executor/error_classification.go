@@ -27,6 +27,10 @@ var workflowPanicCodes = map[string]bool{
 	wlerrors.CodePanic:       true,
 	wlerrors.CodeNilReceiver: true,
 	wlerrors.CodeSymbol:      true,
+	// E_BUDGET：一个 Workflow Task 执行的语句超过上限（按批计数），或单个值超过大小上限。对标 Temporal Go SDK
+	// 的 deadlock detector：Workflow 代码在一个 Workflow Task 里运行过久按 panic 处理，Workflow Task 失败并重试，
+	// Run 不失败；修复代码后从失败处继续。
+	wlerrors.CodeBudget: true,
 }
 
 // failedTypeAssertionMessage 是 wlang 非 comma-ok 类型断言（Go 的 `v.(T)`）失败时 E_TYPE 的消息前缀，Go 在这里 panic。
@@ -37,7 +41,7 @@ const failedTypeAssertionMessage = "type.assert cannot pass "
 
 // WorkflowTaskBlockedCause 返回让 Workflow Task 失败、Run 保持 Running 的错误的 cause，其余错误返回空串：
 //   - 非确定性错误：non_deterministic_error。
-//   - panic（WorkflowPanicError、E_RUNTIME、E_PANIC、E_NIL_RECEIVER、E_SYMBOL，以及非 comma-ok 类型断言失败的
+//   - panic（WorkflowPanicError、E_RUNTIME、E_PANIC、E_NIL_RECEIVER、E_SYMBOL、E_BUDGET，以及非 comma-ok 类型断言失败的
 //     E_TYPE）：workflow_panic，对标 Temporal Go SDK
 //     缺省的 BlockWorkflow 策略。修复代码后新的 Workflow Task 从失败处继续。
 //

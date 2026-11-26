@@ -345,9 +345,9 @@ func (p *lowerPass) lowerListStmt(stmt ast.Stmt) {
 			p.lowerListStmt(branch)
 		}
 	case *ast.ForStmt:
-		p.lowerStmtList(s.Body.List)
+		p.lowerLoopBody(s.Body)
 	case *ast.RangeStmt:
-		p.lowerStmtList(s.Body.List)
+		p.lowerLoopBody(s.Body)
 	case *ast.SwitchStmt:
 		p.lowerCaseBodies(s.Body)
 	case *ast.TypeSwitchStmt:
@@ -356,6 +356,35 @@ func (p *lowerPass) lowerListStmt(stmt ast.Stmt) {
 		p.lowerListStmt(s.Stmt)
 	}
 	p.lowerFuncLits(stmt)
+}
+
+// lowerLoopBody 给空循环体插入一条语句。执行步数按执行的语句计（见解释器的 workflowMaxBatchSteps），
+// `for range n {}`、`for i := 0; i < 1; {}` 这类循环每轮不执行任何语句，不插入时不受步数上限约束，
+// 一个 Workflow Task 会永远执行下去。
+func (p *lowerPass) lowerLoopBody(body *ast.BlockStmt) {
+	if !emptyBlock(body) {
+		p.lowerStmtList(body.List)
+		return
+	}
+	name := p.freeName("zzLoopStep")
+	offset := p.fset.File(body.Lbrace).Offset(body.Lbrace) + 1
+	p.edits = append(p.edits, sourceEdit{start: offset, end: offset, text: fmt.Sprintf(" %s := 0; _ = %s; ", name, name)})
+}
+
+// emptyBlock 报告语句块里是否只有空语句与空块。
+func emptyBlock(block *ast.BlockStmt) bool {
+	for _, stmt := range block.List {
+		switch s := stmt.(type) {
+		case *ast.EmptyStmt:
+		case *ast.BlockStmt:
+			if !emptyBlock(s) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (p *lowerPass) lowerCaseBodies(body *ast.BlockStmt) {

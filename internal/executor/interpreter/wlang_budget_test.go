@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/donutnomad/tenuto/internal/executor"
 	"github.com/donutnomad/tenuto/protocol/history"
 	wlerrors "github.com/donutnomad/wlang/errors"
 )
@@ -99,8 +100,29 @@ func TestExecutionBudgetCountsPerWorkflowTask(t *testing.T) {
 	}
 }
 
-// 一个 Workflow Task 里执行的语句超过上限时以 E_BUDGET 失败，live 与重放在同一位置触顶。
+// 一个 Workflow Task 里执行的语句超过上限时以 E_BUDGET 失败，Workflow Task 按 workflow_panic 失败（Run Blocked）。
 func TestExecutionBudgetExceededInOneWorkflowTask(t *testing.T) {
+	requireBudgetBlocked(t, `
+	total := 0
+	for i := 0; i < 2000000; i++ {
+		total += i
+	}
+	return Out{Total: total}, nil`)
+}
+
+// 空循环体的死循环每轮也计入步数：生成器给空循环体插入一条语句，触顶后 E_BUDGET，不会让 Worker 永远执行。
+func TestEmptyLoopBodyCountsSteps(t *testing.T) {
+	for _, body := range []string{
+		"for i := 0; i < 1; {\n\t}\n\treturn Out{}, nil",
+		"for range 1 << 62 {\n\t}\n\treturn Out{}, nil",
+		"for i := 0; i < 1; {\n\t\t{\n\t\t}\n\t}\n\treturn Out{}, nil",
+	} {
+		requireBudgetBlocked(t, body)
+	}
+}
+
+func requireBudgetBlocked(t *testing.T, body string) {
+	t.Helper()
 	src := `package flows
 
 import (
@@ -112,11 +134,7 @@ type Out struct {
 }
 
 func W(ctx workflow.Context, input map[string]any) (Out, error) {
-	total := 0
-	for i := 0; i < 2000000; i++ {
-		total += i
-	}
-	return Out{Total: total}, nil
+	` + body + `
 }
 `
 	started := history.NewWorkflowStartedEvent(nil, "", "", "", "", 0)
@@ -124,6 +142,9 @@ func W(ctx workflow.Context, input map[string]any) (Out, error) {
 	_, err := NewWorkflowExecutor(compileSource(t, src), []history.Event{started}).Execute()
 	var langErr *wlerrors.LangError
 	if !errors.As(err, &langErr) || langErr.Code != wlerrors.CodeBudget || !strings.Contains(langErr.Message, "MaxSteps exceeded") {
-		t.Fatalf("err = %v, want E_BUDGET MaxSteps exceeded", err)
+		t.Fatalf("%s: err = %v, want E_BUDGET MaxSteps exceeded", body, err)
+	}
+	if cause := executor.WorkflowTaskBlockedCause(err); cause != history.WorkflowTaskFailedCauseWorkflowPanic {
+		t.Fatalf("%s: blocked cause = %q, want workflow_panic", body, cause)
 	}
 }

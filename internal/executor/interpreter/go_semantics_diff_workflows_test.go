@@ -18,9 +18,11 @@ type DiffItem struct {
 }
 
 type DiffInput struct {
-	Name  string
-	Tags  []string
-	Attrs map[string]string
+	Name     string
+	Tags     []string
+	Attrs    map[string]string
+	Children []DiffInput
+	Lookup   map[string]*DiffItem
 }
 
 func DiffAnyEqualsTrue(ctx workflow.Context, input map[string]any) (DiffOut, error) {
@@ -117,7 +119,22 @@ func DiffInputNilFields(ctx workflow.Context, in DiffInput) (DiffOut, error) {
 	if in.Attrs == nil {
 		text += "attrs-nil"
 	}
-	return DiffOut{Text: text}, nil
+	count := len(in.Tags) + len(in.Attrs)
+	for _, tag := range in.Tags {
+		text += " " + tag
+	}
+	for _, child := range in.Children {
+		count += len(child.Tags) + len(child.Attrs)
+		if child.Tags == nil {
+			text += " child-tags-nil"
+		}
+	}
+	for key, item := range in.Lookup {
+		if item == nil {
+			text += " lookup-nil:" + key
+		}
+	}
+	return DiffOut{Text: text, Count: count, Sum: len(in.Children) + len(in.Lookup)}, nil
 }
 
 func DiffInitNilMap(ctx workflow.Context, in DiffInput) (DiffOut, error) {

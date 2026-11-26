@@ -164,6 +164,7 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 
 - 一侧是 `any` 的 `==` / `!=` → `workflow.Equal`：动态类型与值都相等才为 `true`；`switch` 的 tag 或 case 是 `any` 时每个 case 同样比较。
 - slice / map 与 `nil` 比较 → `workflow.IsNil`：`var xs []T`、载荷省略或 `null` 的字段是 nil，`[]T{}`、`make([]T, 0)`、载荷的 `[]` 不是。只关心有无元素写 `len(xs) == 0`。
+- Workflow 输入、Update 参数里 `null` 的 slice / map 字段与 Go 相同（nil，`len` 为 0）。`Get(ctx, &out)` 解进结构体的 Activity / 子 Workflow 结果里 `null` 的 slice / map 字段（Go 把 nil slice 编码成 `null`），`len`、`range`、读写前先判 `out.Tags != nil`。
 - 载荷里 `map[string]any` 的数字按 `float64` 比较（与 `encoding/json` 相同）：`d["n"] == 3` 为 `false`，`d["n"] == 3.0` 为 `true`；按数字分支用 struct DTO 或 `d["n"].(float64)`。
 - 差异：`any` 里的具名基础类型值（`type Status string`）按底层类型比较，`var x any = Status("a"); x == "a"` 为 `true`（Go 为 `false`）；先断言成具名类型再比较。
 - Side Effect 与 Marker 的值经过 JSON 持久化，超过 2^53 的整数用字符串表示。
@@ -179,6 +180,6 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 | map / 对象 key 数 | 100,000 |
 | 单个字符串 | 16 MiB |
 
-步数在每个 Workflow Task 开始时清零，重放时每个 Workflow Task 重新计数，长期运行的 Run 不会因累计步数失败；其余上限针对单个值或同时存在的协程。超出时 Run 失败，`WorkflowFailed` 的错误文本以 `[E_BUDGET]` 开头并带超出的预算与位置，Workflow 代码不能捕获。字符串 `+` / `+=`，`strings.Repeat`、`Replace`、`ReplaceAll`、`Join`、`Split`、`Fields`，`fmt.Sprintf`、`Sprint`、`Sprintln`、`Errorf`，`strconv.FormatFloat` 在分配之前按参数算出结果大小，`strings.Repeat("x", 1<<34)` 立即失败；`m[k] = v` 新增 key、`append` 分别检查 key 数与长度；其余函数在返回后检查结果。上限针对单个值，构造大字符串或大数组的计算放进 Activity。
+步数在每个 Workflow Task 开始时清零，重放时每个 Workflow Task 重新计数，长期运行的 Run 不会因累计步数失败；其余上限针对单个值或同时存在的协程。空循环体每轮计一步。超出时 Workflow Task 以 `workflow_panic` 失败（reason 以 `[E_BUDGET]` 开头，带超出的预算与位置），Run 保持 Running、显示 Blocked 并退避重试，修复代码发布后继续；Workflow 代码不能捕获。字符串 `+` / `+=`，`strings.Repeat`、`Replace`、`ReplaceAll`、`Join`、`Split`、`Fields`，`fmt.Sprintf`、`Sprint`、`Sprintln`、`Errorf`，`strconv.FormatFloat` 在分配之前按参数算出结果大小，`strings.Repeat("x", 1<<34)` 立即失败；`m[k] = v` 新增 key、`append` 分别检查 key 数与长度；其余函数在返回后检查结果。上限针对单个值，构造大字符串或大数组的计算放进 Activity。
 
 单个 Workflow Task 另有超时，Worker 缺省 10 秒（`worker.DefaultWorkflowTaskTimeout`）。长循环在循环内等待 Activity、Timer 或 Signal，让执行跨越多个 Workflow Task，各自计步；History 接近上限前用 Continue-As-New。

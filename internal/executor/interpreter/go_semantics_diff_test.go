@@ -55,6 +55,8 @@ func TestGoSemanticsDifferential(t *testing.T) {
 		{DiffInputNilFields, "DiffInputNilFields", `{"Name": "a", "Tags": null, "Attrs": null}`},
 		{DiffInputNilFields, "DiffInputNilFields", `{"Name": "a", "Tags": [], "Attrs": {}}`},
 		{DiffInputNilFields, "DiffInputNilFields", `{"Tags": ["x"], "Attrs": {"k": "v"}}`},
+		{DiffInputNilFields, "DiffInputNilFields", `{"Children": [{"Tags": null, "Attrs": null}, {"Tags": ["a"], "Attrs": {}}], "Lookup": {"k": null}}`},
+		{DiffInputNilFields, "DiffInputNilFields", `{"Children": null, "Lookup": null}`},
 		{DiffInitNilMap, "DiffInitNilMap", `{}`},
 		{DiffInitNilMap, "DiffInitNilMap", `{"Attrs": {"a": "b"}}`},
 		{DiffMissingKeyStruct, "DiffMissingKeyStruct", `{}`},
