@@ -276,24 +276,56 @@ func TestLowerTypedInjectsWorkflowImportOnSameLine(t *testing.T) {
 	}
 }
 
-// 空循环体插入一条计数语句，每轮执行都计入 Workflow Task 的步数；非空循环体不变。
-func TestLowerEmptyLoopBodyGetsCountedStatement(t *testing.T) {
+// 每个循环体开头插入一条计数语句，每轮执行都计入 Workflow Task 的步数；循环体在 Go 里非空、翻译后为空
+// （`_ = i` 整句省略）的循环同样计数。多轮改写只插入一次。
+func TestLowerLoopBodyGetsCountedStatement(t *testing.T) {
 	result, err := generateLowered(`
 	for range 3 {
 	}
 	for i := 0; i < 1; {
-		{
-		}
+		_ = i
 	}
 	for i := 0; i < 2; i++ {
-		_ = i
+		n := make([]int, i)
+		_ = n
 	}
 	return Out{}, nil`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	program := string(result.ProgramJSON)
-	if !strings.Contains(program, "zzLoopStep1") || !strings.Contains(program, "zzLoopStep2") || strings.Contains(program, "zzLoopStep3") {
-		t.Fatalf("program should count steps only in the two empty loop bodies:\n%s", program)
+	// 三个循环，加上 make([]int, i) 展开出的追加零值循环。
+	for _, name := range []string{`"zzLoopStep1"`, `"zzLoopStep2"`, `"zzLoopStep3"`, `"zzLoopStep4"`} {
+		if strings.Count(program, name) != 1 {
+			t.Fatalf("program should declare %s once:\n%s", name, program)
+		}
+	}
+	if strings.Contains(program, "zzLoopStep5") {
+		t.Fatalf("program should count steps once per loop:\n%s", program)
+	}
+}
+
+// 类型检查没有得到参与比较、switch 或 map 读取的表达式的类型时（这里导入无法解析），生成失败，不静默按缺省翻译。
+func TestLowerTypedFailsWithoutTypeInformation(t *testing.T) {
+	src := `package flows
+
+import (
+	"example.com/missing/dto"
+
+	workflow "github.com/donutnomad/tenuto/sdk/workflow"
+)
+
+type Out struct {
+	Flag bool
+}
+
+func W(ctx workflow.Context, input map[string]any) (Out, error) {
+	var v dto.Thing
+	return Out{Flag: v.Kind == "refund"}, nil
+}
+`
+	_, err := GenerateFromSource([]byte(src), Options{WorkflowType: "missing", FuncName: "W", Filename: "w.go"})
+	if err == nil || !strings.Contains(err.Error(), "w.go:15") || !strings.Contains(err.Error(), "类型检查没有得到 v.Kind 的类型") {
+		t.Fatalf("err = %v, want a type information error at w.go:15", err)
 	}
 }

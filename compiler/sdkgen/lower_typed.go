@@ -147,7 +147,9 @@ func (r *typedRewriter) rewriteComparison(x *ast.BinaryExpr) {
 
 // rewriteSwitch 把 `switch init; tag { case a, b: ... }` 改成
 // `switch zzTag := (tag); { case workflow.Equal(zzTag, a) || workflow.Equal(zzTag, b): ... }`；
-// 有 init 时外面再套一层块：`{ init; switch zzTag := (tag); { ... } }`。
+// 有 init 时外面套一层 `if true { init; switch zzTag := (tag); { ... } }`：init 声明的变量只在这一层可见。
+// go2wlang 把裸块 `{ ... }` 展平到外层作用域，init 里的同名变量会覆盖外层变量；它对带 init 的 switch
+// 也用 `if true` 包裹。
 func (r *typedRewriter) rewriteSwitch(s *ast.SwitchStmt, parent ast.Node) {
 	if s.Tag == nil {
 		return
@@ -182,7 +184,7 @@ func (r *typedRewriter) rewriteSwitch(s *ast.SwitchStmt, parent ast.Node) {
 	}
 	header := fmt.Sprintf("switch %s := (%s); ", tag, r.text(s.Tag.Pos(), s.Tag.End()))
 	if s.Init != nil {
-		header = "{ " + r.text(s.Init.Pos(), s.Init.End()) + "; " + header
+		header = "if true { " + r.text(s.Init.Pos(), s.Init.End()) + "; " + header
 		r.insert(s.End(), " }")
 	}
 	r.replace(s.Switch, s.Body.Lbrace, header)
@@ -201,7 +203,7 @@ func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, parent ast.Node) {
 	switch elem := mapType.Elem().Underlying().(type) {
 	case *gotypes.Struct:
 	case *gotypes.Basic:
-		if elem.Kind() == gotypes.UntypedNil || elem.Kind() == gotypes.Invalid {
+		if elem.Kind() == gotypes.UntypedNil {
 			return
 		}
 	default:
@@ -237,11 +239,29 @@ func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, parent ast.Node) {
 		elem, value, present, read, present, value, zero, elem, zero))
 }
 
+// typeOf 返回 expr 的类型。类型检查没有得到它的类型时（包有类型错误、导入解析失败，或包加载失败后只检查了
+// 单个文件）生成失败：改写与否取决于类型，按缺省处理会静默生成与 Go 语义不同的程序。
 func (r *typedRewriter) typeOf(expr ast.Expr) gotypes.Type {
-	if tv, ok := r.info.Types[expr]; ok && tv.Type != nil {
+	if tv, ok := r.info.Types[expr]; ok && tv.Type != nil && !containsInvalid(tv.Type) {
 		return tv.Type
 	}
+	r.fail(expr, "类型检查没有得到 %s 的类型，生成器无法判断这里的比较、switch 或 map 读取要不要按 Go 语义改写；修正包里的编译错误（含无法解析的导入）后重新生成", r.text(expr.Pos(), expr.End()))
 	return gotypes.Typ[gotypes.Invalid]
+}
+
+// containsInvalid 报告 t 本身或它的元素、键类型是否是无效类型。
+func containsInvalid(t gotypes.Type) bool {
+	switch x := t.(type) {
+	case *gotypes.Basic:
+		return x.Kind() == gotypes.Invalid
+	case *gotypes.Map:
+		return containsInvalid(x.Key()) || containsInvalid(x.Elem())
+	case *gotypes.Slice:
+		return containsInvalid(x.Elem())
+	case *gotypes.Pointer:
+		return containsInvalid(x.Elem())
+	}
+	return false
 }
 
 func (r *typedRewriter) isNil(expr ast.Expr) bool {

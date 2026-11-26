@@ -358,33 +358,34 @@ func (p *lowerPass) lowerListStmt(stmt ast.Stmt) {
 	p.lowerFuncLits(stmt)
 }
 
-// lowerLoopBody 给空循环体插入一条语句。执行步数按执行的语句计（见解释器的 workflowMaxBatchSteps），
-// `for range n {}`、`for i := 0; i < 1; {}` 这类循环每轮不执行任何语句，不插入时不受步数上限约束，
-// 一个 Workflow Task 会永远执行下去。
+// lowerLoopBody 在每个循环体开头插入一条语句，再处理循环体。执行步数按执行的语句计（见解释器的
+// workflowMaxBatchSteps）；循环体在 Go 里非空也可能翻译成空的 WLang 语句列表（`_ = i` 整句省略），
+// 不插入时这样的循环每轮不执行任何语句，不受步数上限约束，一个 Workflow Task 会永远执行下去。
 func (p *lowerPass) lowerLoopBody(body *ast.BlockStmt) {
-	if !emptyBlock(body) {
-		p.lowerStmtList(body.List)
+	if hasLoopStep(body) {
+		p.lowerStmtList(body.List[1:])
 		return
 	}
-	name := p.freeName("zzLoopStep")
+	name := p.freeName(loopStepPrefix)
 	offset := p.fset.File(body.Lbrace).Offset(body.Lbrace) + 1
 	p.edits = append(p.edits, sourceEdit{start: offset, end: offset, text: fmt.Sprintf(" %s := 0; _ = %s; ", name, name)})
+	p.lowerStmtList(body.List)
 }
 
-// emptyBlock 报告语句块里是否只有空语句与空块。
-func emptyBlock(block *ast.BlockStmt) bool {
-	for _, stmt := range block.List {
-		switch s := stmt.(type) {
-		case *ast.EmptyStmt:
-		case *ast.BlockStmt:
-			if !emptyBlock(s) {
-				return false
-			}
-		default:
-			return false
-		}
+// loopStepPrefix 是 lowerLoopBody 插入的计数变量的名字前缀。
+const loopStepPrefix = "zzLoopStep"
+
+// hasLoopStep 报告循环体是否已经以 lowerLoopBody 插入的语句开头（上一轮改写插入的）。
+func hasLoopStep(body *ast.BlockStmt) bool {
+	if len(body.List) == 0 {
+		return false
 	}
-	return true
+	assign, ok := body.List[0].(*ast.AssignStmt)
+	if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 {
+		return false
+	}
+	ident, ok := assign.Lhs[0].(*ast.Ident)
+	return ok && strings.HasPrefix(ident.Name, loopStepPrefix)
 }
 
 func (p *lowerPass) lowerCaseBodies(body *ast.BlockStmt) {

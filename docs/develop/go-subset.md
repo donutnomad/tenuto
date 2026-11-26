@@ -143,6 +143,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 以下写法返回带源码位置的诊断：
 
 - 省略 init 或 condition 的 `for`（`for {}`、`for cond {}`）。
+- 类型检查得不到类型的比较、`switch`、map 读取（包有编译错误或导入无法解析）：`类型检查没有得到 x 的类型`。生成器按类型决定这些写法是否改写，修正编译错误后重新生成。
 - `go` 语句、`select`、原生 `chan`、`ch <- v`、`<-ch`，见下一节。
 - `goto`、`fallthrough`。
 - `range` 遍历 string、channel 或函数。
@@ -245,9 +246,10 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 | slice 或 map 与 `nil` 比较（`xs == nil`、`m != nil`） | `workflow.IsNil(x)` | 判断是否为 nil 值 |
 
 - 常量按 Go 的默认类型参与比较：`d["n"] == 3` 比较的是 `int`。
-- 输入、Signal、Activity 结果等载荷里 `map[string]any` 的数字与 Go 的 `encoding/json` 一样按 `float64` 比较：`{"n": 3}` 里 `d["n"] == 3` 是 `false`，`d["n"] == 3.0` 是 `true`。按数字分支时声明结构体 DTO，或先断言 `n, ok := d["n"].(float64)`。
+- 载荷解进结构体时，`any` 字段、`map[string]any` 字段、`[]any` 字段里的 JSON 数字与 Go 的 `encoding/json` 一样是 `float64`：`{"V": 1}` 里 `in.V == 1` 是 `false`，`in.V == 1.0` 是 `true`，`in.V.(float64)` 成立，再编码成 JSON 仍是 `1`。
+- 载荷本身是 `map[string]any`（Workflow 输入、Signal、Update 参数或结果直接 `Get` 进 `map[string]any`）时，数字按 `float64` 比较：`{"n": 3}` 里 `d["n"] == 3` 是 `false`，`d["n"] == 3.0` 是 `true`。按数字取值时声明结构体 DTO。
 - nil slice 与空 slice 可以区分：`var xs []T`、载荷里省略或为 `null` 的字段是 nil；`[]T{}`、`make([]T, 0)`、载荷里的 `[]` 不是 nil。map 同理。只关心有没有元素时写 `len(xs) == 0`。
-- 载荷里为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice、nil map 编码成 `null`）与 Go 一样是 nil：`len` 为 0、`range` 不执行、读 map 得到元素零值。Workflow 输入、Update 参数按声明类型解码；Activity 结果与子 Workflow 结果按 Program 里 `Get` 的目标类型解码。同一个 Activity type 或子 Workflow Type 的结果有一处 `Get` 进 `map[string]any`（或目标类型无法静态确定）时，这个结果原样解码：`map[string]any` 里 `null` 的键与 Go 一样存在，解进结构体的 `null` 集合字段在 `len`、`range` 之前先判断 `out.Tags != nil`。
+- 载荷里为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice、nil map 编码成 `null`）与 Go 一样是 nil：`len` 为 0、`range` 不执行、读 map 得到元素零值。Workflow 输入、Update 参数按声明类型解码；Activity 结果与子 Workflow 结果按 Program 里 `Get` 的目标类型解码。结果进入解释器时还不知道哪一处 `Get` 会读它，所以同一个 Activity type 或子 Workflow Type 的结果在几处 `Get` 进不同的类型、有一处 `Get` 进 `map[string]any` 或目标类型无法静态确定时，这个结果原样解码（结构体里 `any` 字段的整数随之是 `int64`）：`map[string]any` 里 `null` 的键与 Go 一样存在，解进结构体的 `null` 集合字段在 `len`、`range` 之前先判断 `out.Tags != nil`。
 - `any` 里的具名基础类型值（`type Status string`）按底层类型比较：`var x any = Status("a")` 时 `x == "a"` 为 `true`，Go 里动态类型不同为 `false`。与具名类型比较时先断言 `s, ok := x.(Status)`。
 
 ## 执行预算
@@ -256,7 +258,7 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 
 | 预算 | 上限 |
 | --- | --- |
-| 执行步数（一个 Workflow Task 执行的语句，循环每轮执行的语句都计入；空循环体每轮计一步） | 1,000,000 |
+| 执行步数（一个 Workflow Task 执行的语句，循环每轮执行的语句都计入；生成器给每个循环体插入一条语句，循环每轮至少计一步） | 1,000,000 |
 | 协程（`workflow.Go`） | 1024 |
 | 调用深度 | 128 |
 | 数组长度 | 100,000 |

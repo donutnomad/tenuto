@@ -14,6 +14,7 @@ type DiffOut struct {
 	Count int
 	Text  string
 	Flag  bool
+	Value any
 }
 
 type DiffItem struct {
@@ -22,6 +23,8 @@ type DiffItem struct {
 }
 
 type DiffInput struct {
+	V        any
+	M        map[string]any
 	Name     string
 	Tags     []string
 	Attrs    map[string]string
@@ -100,6 +103,19 @@ func DiffSwitchOnAnyWithInit(ctx workflow.Context, input map[string]any) (DiffOu
 		count = 3
 	}
 	return DiffOut{Count: count}, nil
+}
+
+// init 声明的 k 只在 switch 里可见，外层的 k 不变。
+func DiffSwitchOnAnyInitShadow(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	k := 10
+	inner := 0
+	switch k := 1; input["a"] {
+	case "x":
+		inner = k
+	default:
+		inner = k + 1
+	}
+	return DiffOut{Count: k, Sum: inner}, nil
 }
 
 func DiffNilSlice(ctx workflow.Context, input map[string]any) (DiffOut, error) {
@@ -202,6 +218,8 @@ func DiffAnyUncomparable(ctx workflow.Context, input map[string]any) (DiffOut, e
 
 // DiffResult 是 Activity 与子 Workflow 的结果：Go 的 encoding/json 把 nil slice、nil map 字段编码成 null。
 type DiffResult struct {
+	V     any
+	M     map[string]any
 	Tags  []string
 	Attrs map[string]string
 	Items []DiffItem
@@ -228,7 +246,52 @@ func summarizeResult(r DiffResult) DiffOut {
 	if r.Inner != nil {
 		count += len(r.Inner.Tags) + len(r.Inner.Attrs)
 	}
-	return DiffOut{Text: text, Count: count}
+	return DiffOut{Text: text, Count: count, Sum: anyNumberFlags(r.V, r.M), Value: r.M}
+}
+
+// anyNumberFlags 对 any 字段与 map[string]any 字段里来自 JSON 的数字做比较、断言与算术：Go 的 encoding/json
+// 把它们解成 float64。每一项占一位。
+func anyNumberFlags(v any, m map[string]any) int {
+	flags := 0
+	if v == 1 {
+		flags += 1
+	}
+	if v == 1.0 {
+		flags += 2
+	}
+	if f, ok := v.(float64); ok && f*2 > 1.5 {
+		flags += 4
+	}
+	if _, ok := v.(int); ok {
+		flags += 8
+	}
+	if m["n"] == 1 {
+		flags += 16
+	}
+	if m["n"] == 1.0 {
+		flags += 32
+	}
+	if n, ok := m["n"].(float64); ok && n+1 > 1.5 {
+		flags += 64
+	}
+	if _, ok := m["n"].(int64); ok {
+		flags += 128
+	}
+	return flags
+}
+
+func DiffInputAny(ctx workflow.Context, in DiffInput) (DiffOut, error) {
+	return DiffOut{Sum: anyNumberFlags(in.V, in.M), Value: in.M}, nil
+}
+
+// update 参数是结构体：any 字段与 map[string]any 字段里的数字按 float64 解码。
+func DiffUpdateAny(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	if err := workflow.SetUpdateHandler(ctx, "probe", func(ctx workflow.Context, in DiffInput) (DiffOut, error) {
+		return DiffOut{Sum: anyNumberFlags(in.V, in.M), Value: in.M}, nil
+	}); err != nil {
+		return DiffOut{}, err
+	}
+	return DiffOut{}, workflow.Await(ctx, func() bool { return false })
 }
 
 func DiffActivityResult(ctx workflow.Context, input map[string]any) (DiffOut, error) {

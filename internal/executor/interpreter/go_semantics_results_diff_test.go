@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/donutnomad/tenuto/compiler/sdkgen"
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 )
 
@@ -49,6 +50,8 @@ func TestResultNullCollectionsDifferential(t *testing.T) {
 		{"DiffChildResult", `{"Tags": ["a"], "Attrs": null}`, typed},
 		{"DiffChildResult", `{"Attrs": {"k": "v"}, "Inner": {"Tags": null, "Attrs": {"x": "y"}}}`, typed},
 		{"DiffActivityRawResult", `{"Tags": null, "Name": "a"}`, untyped},
+		{"DiffActivityResult", `{"V": 1, "M": {"n": 1, "list": [2]}}`, typed},
+		{"DiffChildResult", `{"V": 2.5, "M": {"n": 1}}`, typed},
 	} {
 		result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: tc.name, FuncName: tc.name, Filename: diffWorkflowsFile})
 		if err != nil {
@@ -137,4 +140,38 @@ func terminalOutcome(t *testing.T, commands []history.Command, err error) string
 		}
 	}
 	return fmt.Sprintf("no completion: %+v", commands)
+}
+
+// TestUpdateArgumentAnyNumbersDifferential：Update 参数是结构体时，any 字段与 map[string]any 字段里的 JSON 数字
+// 与 Go 的 encoding/json 一样是 float64。
+func TestUpdateArgumentAnyNumbersDifferential(t *testing.T) {
+	src, err := os.ReadFile(diffWorkflowsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: "DiffUpdateAny", FuncName: "DiffUpdateAny", Filename: diffWorkflowsFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range []string{`{"V": 1, "M": {"n": 1}}`, `{"V": 1.5, "M": {"n": 2}}`, `{"V": "x"}`} {
+		var in DiffInput
+		if err := json.Unmarshal([]byte(args), &in); err != nil {
+			t.Fatal(err)
+		}
+		want := canonicalJSON(t, DiffOut{Sum: anyNumberFlags(in.V, in.M), Value: in.M})
+
+		started := executionSessionEvent(1, history.NewWorkflowStartedEvent(map[string]any{}, "", "", "", "", 0))
+		accepted := acceptedArgsEvent(2, "probe", "u-1", protocol.Payloads{{Encoding: protocol.PayloadEncodingJSONPlainV1, Data: []byte(args)}})
+		commands, err := NewWorkflowExecutor(result.Workflow, []history.Event{started, accepted}).Execute()
+		if err != nil {
+			t.Fatal(err)
+		}
+		completes := findUpdateCompletes(commands)
+		if len(completes) != 1 {
+			t.Fatalf("update args %s: commands = %+v", args, commands)
+		}
+		if got := canonicalJSON(t, updateOutcomeOutput(t, completes[0])); got != want {
+			t.Errorf("update args %s: Go = %s, 解释器 = %s", args, want, got)
+		}
+	}
 }

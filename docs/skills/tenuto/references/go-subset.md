@@ -116,6 +116,7 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 ## 生成期拒绝的语法
 
 - 省略 init 或 condition 的 `for`（`for {}`、`for cond {}`）。无限循环写成有上限的计数循环，配合 Continue-As-New。
+- 类型检查得不到类型的比较、`switch`、map 读取（包有编译错误或导入无法解析）：修正编译错误后重新生成。
 - `goto`、`fallthrough`；`range` 遍历 string、channel、函数。
 - 可变参数展开 `fn(xs...)`（桥调用里的 `opts...` 由生成器处理）；可变参数函数字面量。
 - `&xs[i]`、`&T{...}` 等复杂取址：先存入局部变量再传 `&local`；`new(T)`（`T` 为本包结构体）。
@@ -164,8 +165,8 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 
 - 一侧是 `any` 的 `==` / `!=` → `workflow.Equal`：动态类型与值都相等才为 `true`；`switch` 的 tag 或 case 是 `any` 时每个 case 同样比较。
 - slice / map 与 `nil` 比较 → `workflow.IsNil`：`var xs []T`、载荷省略或 `null` 的字段是 nil，`[]T{}`、`make([]T, 0)`、载荷的 `[]` 不是。只关心有无元素写 `len(xs) == 0`。
-- 载荷里 `null` 的 slice / map 字段（Go 把 nil slice、nil map 编码成 `null`）与 Go 相同：nil，`len` 为 0，读 map 得零值。覆盖 Workflow 输入、Update 参数，以及按 `Get` 目标类型解码的 Activity / 子 Workflow 结果；同一 Activity type 或子 Workflow Type 有一处 `Get` 进 `map[string]any` 或目标类型无法静态确定时原样解码，结构体里的 `null` 集合字段先判 `out.Tags != nil`。
-- 载荷里 `map[string]any` 的数字按 `float64` 比较（与 `encoding/json` 相同）：`d["n"] == 3` 为 `false`，`d["n"] == 3.0` 为 `true`；按数字分支用 struct DTO 或 `d["n"].(float64)`。
+- 载荷里 `null` 的 slice / map 字段（Go 把 nil slice、nil map 编码成 `null`）与 Go 相同：nil，`len` 为 0，读 map 得零值。覆盖 Workflow 输入、Update 参数，以及按 `Get` 目标类型解码的 Activity / 子 Workflow 结果；同一 Activity type 或子 Workflow Type 的几处 `Get` 目标类型不同、有一处是 `map[string]any` 或目标类型无法静态确定时原样解码，结构体里的 `null` 集合字段先判 `out.Tags != nil`。
+- 载荷解进结构体时 `any`、`map[string]any`、`[]any` 字段里的数字是 `float64`（与 `encoding/json` 相同）：`in.V == 1` 为 `false`，`in.V == 1.0` 为 `true`，`in.V.(float64)` 成立。载荷本身是 `map[string]any` 时数字按 `float64` 比较：`d["n"] == 3` 为 `false`，`d["n"] == 3.0` 为 `true`；按数字取值用 struct DTO。
 - 差异：`any` 里的具名基础类型值（`type Status string`）按底层类型比较，`var x any = Status("a"); x == "a"` 为 `true`（Go 为 `false`）；先断言成具名类型再比较。
 - Side Effect 与 Marker 的值经过 JSON 持久化，超过 2^53 的整数用字符串表示。
 
@@ -180,6 +181,6 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 | map / 对象 key 数 | 100,000 |
 | 单个字符串 | 16 MiB |
 
-步数在每个 Workflow Task 开始时清零，重放时每个 Workflow Task 重新计数，长期运行的 Run 不会因累计步数失败；其余上限针对单个值或同时存在的协程。空循环体每轮计一步。超出时 Workflow Task 以 `workflow_panic` 失败（reason 以 `[E_BUDGET]` 开头，带超出的预算与位置），Run 保持 Running、显示 Blocked 并退避重试，修复代码发布后继续；Workflow 代码不能捕获。字符串 `+` / `+=`，`strings.Repeat`、`Replace`、`ReplaceAll`、`Join`、`Split`、`Fields`，`fmt.Sprintf`、`Sprint`、`Sprintln`、`Errorf`，`strconv.FormatFloat` 在分配之前按参数算出结果大小，`strings.Repeat("x", 1<<34)` 立即失败；`m[k] = v` 新增 key、`append` 分别检查 key 数与长度；其余函数在返回后检查结果。上限针对单个值，构造大字符串或大数组的计算放进 Activity。
+步数在每个 Workflow Task 开始时清零，重放时每个 Workflow Task 重新计数，长期运行的 Run 不会因累计步数失败；其余上限针对单个值或同时存在的协程。生成器给每个循环体插入一条语句，循环每轮至少计一步。超出时 Workflow Task 以 `workflow_panic` 失败（reason 以 `[E_BUDGET]` 开头，带超出的预算与位置），Run 保持 Running、显示 Blocked 并退避重试，修复代码发布后继续；Workflow 代码不能捕获。字符串 `+` / `+=`，`strings.Repeat`、`Replace`、`ReplaceAll`、`Join`、`Split`、`Fields`，`fmt.Sprintf`、`Sprint`、`Sprintln`、`Errorf`，`strconv.FormatFloat` 在分配之前按参数算出结果大小，`strings.Repeat("x", 1<<34)` 立即失败；`m[k] = v` 新增 key、`append` 分别检查 key 数与长度；其余函数在返回后检查结果。上限针对单个值，构造大字符串或大数组的计算放进 Activity。
 
 单个 Workflow Task 另有超时，Worker 缺省 10 秒（`worker.DefaultWorkflowTaskTimeout`）。长循环在循环内等待 Activity、Timer 或 Signal，让执行跨越多个 Workflow Task，各自计步；History 接近上限前用 Continue-As-New。

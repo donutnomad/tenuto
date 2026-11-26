@@ -32,6 +32,16 @@
           "do": [
             {
               "let": {
+                "zzLoopStep1": {
+                  "literal": {
+                    "type": "int64",
+                    "value": "0"
+                  }
+                }
+              }
+            },
+            {
+              "let": {
                 "out": {
                   "zero": "order.ComputeOutput"
                 }
@@ -242,6 +252,16 @@
           },
           "do": [
             {
+              "let": {
+                "zzLoopStep5": {
+                  "literal": {
+                    "type": "int64",
+                    "value": "0"
+                  }
+                }
+              }
+            },
+            {
               "expr": {
                 "arr.push": [
                   {
@@ -330,6 +350,16 @@
             ]
           },
           "do": [
+            {
+              "let": {
+                "zzLoopStep2": {
+                  "literal": {
+                    "type": "int64",
+                    "value": "0"
+                  }
+                }
+              }
+            },
             {
               "expr": {
                 "Go": [
@@ -616,6 +646,16 @@
         "foreach": {
           "as": "value",
           "do": [
+            {
+              "let": {
+                "zzLoopStep3": {
+                  "literal": {
+                    "type": "int64",
+                    "value": "0"
+                  }
+                }
+              }
+            },
             {
               "set": {
                 "total": {
@@ -977,6 +1017,16 @@
           },
           "do": [
             {
+              "let": {
+                "zzLoopStep6": {
+                  "literal": {
+                    "type": "int64",
+                    "value": "0"
+                  }
+                }
+              }
+            },
+            {
               "expr": {
                 "arr.push": [
                   {
@@ -1057,6 +1107,16 @@
             ]
           },
           "do": [
+            {
+              "let": {
+                "zzLoopStep4": {
+                  "literal": {
+                    "type": "int64",
+                    "value": "0"
+                  }
+                }
+              }
+            },
             {
               "expr": {
                 "Go": [

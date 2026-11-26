@@ -110,12 +110,15 @@ func TestExecutionBudgetExceededInOneWorkflowTask(t *testing.T) {
 	return Out{Total: total}, nil`)
 }
 
-// 空循环体的死循环每轮也计入步数：生成器给空循环体插入一条语句，触顶后 E_BUDGET，不会让 Worker 永远执行。
+// 死循环每轮都计入步数：生成器给每个循环体插入一条语句，翻译后为空的循环体同样计数，触顶后 E_BUDGET，
+// 不会让 Worker 永远执行。
 func TestEmptyLoopBodyCountsSteps(t *testing.T) {
 	for _, body := range []string{
 		"for i := 0; i < 1; {\n\t}\n\treturn Out{}, nil",
 		"for range 1 << 62 {\n\t}\n\treturn Out{}, nil",
 		"for i := 0; i < 1; {\n\t\t{\n\t\t}\n\t}\n\treturn Out{}, nil",
+		// Go 里循环体非空，翻译后 `_ = i` 整句省略。
+		"for i := 0; i < 1; {\n\t\t_ = i\n\t}\n\treturn Out{}, nil",
 	} {
 		requireBudgetBlocked(t, body)
 	}
