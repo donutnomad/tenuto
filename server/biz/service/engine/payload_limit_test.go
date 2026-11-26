@@ -15,13 +15,22 @@ import (
 	"github.com/donutnomad/tenuto/server/infra/memory"
 )
 
-// 命令载荷超过上限：WFT 以 payload_size_limit_exceeded 失败并退避重试，Run 显示 Blocked，命令不落库。
+// 命令载荷超过上限（单条命令的载荷、Update 结果，或全部命令的总量）：WFT 以 payload_size_limit_exceeded 失败并
+// 退避重试，Run 显示 Blocked，命令不落库。
 func TestCommandPayloadOverLimitBlocksRun(t *testing.T) {
 	blob := map[string]any{"blob": strings.Repeat("x", protocol.DefaultPayloadSizeLimit)}
-	for name, command := range map[string]historypkg.Command{
-		"schedule activity": {Type: historypkg.CmdScheduleActivity, ActivityID: "charge", ActivityType: "payments.charge", StartToCloseTimeout: time.Minute, Input: blob},
-		"complete workflow": {Type: historypkg.CmdCompleteWorkflow, Output: blob},
-		"continue as new":   {Type: historypkg.CmdContinueAsNew, Input: blob},
+	medium := map[string]any{"blob": strings.Repeat("y", 1536*1024)}
+	schedule := func(id string, input map[string]any) historypkg.Command {
+		return historypkg.Command{Type: historypkg.CmdScheduleActivity, ActivityID: id, ActivityType: "payments.charge", StartToCloseTimeout: time.Minute, Input: input}
+	}
+	for name, commands := range map[string][]historypkg.Command{
+		"schedule activity": {schedule("charge", blob)},
+		"complete workflow": {{Type: historypkg.CmdCompleteWorkflow, Output: blob}},
+		"continue as new":   {{Type: historypkg.CmdContinueAsNew, Input: blob}},
+		"update outcome": {{Type: historypkg.CmdCompleteWorkflowUpdate, UpdateID: "u1", UpdateOutcome: &protocol.UpdateOutcome{
+			Success: &protocol.Payload{Encoding: protocol.PayloadEncodingJSONPlainV1, Data: []byte(`"` + strings.Repeat("z", protocol.DefaultPayloadSizeLimit) + `"`)},
+		}}},
+		"commands over total limit": {schedule("a1", medium), schedule("a2", medium), schedule("a3", medium)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
@@ -30,14 +39,14 @@ func TestCommandPayloadOverLimitBlocksRun(t *testing.T) {
 			server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
 			defer server.Stop()
 			runID, wftID := startContractRun(t, mgr, server, &program.WorkflowConfig{Type: "payload-limit-" + strings.ReplaceAll(name, " ", "-"), Program: programtest.Noop()})
-			if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, []historypkg.Command{command}, ""); err != nil {
+			if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runID, wftID), runID, wftID, commands, ""); err != nil {
 				t.Fatal(err)
 			}
 			state, err := server.GetWorkflowExecutionState(runID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if blocked := state.BlockedInfo(); !blocked.Blocked || blocked.Cause != execution.WorkflowTaskFailedCausePayloadSizeLimitExceeded {
+			if blocked := state.BlockedInfo(); !blocked.Blocked || blocked.Cause != historypkg.WorkflowTaskFailedCausePayloadSizeLimitExceeded {
 				t.Fatalf("blocked info = %+v", blocked)
 			}
 			if status, _ := server.GetRunStatus(runID); status != historypkg.StatusRunning {

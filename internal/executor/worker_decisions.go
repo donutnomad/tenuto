@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/donutnomad/tenuto/program"
@@ -93,6 +94,9 @@ func reportIncrementalTaskResult(taskCtx, runtimeCtx context.Context, task proto
 	case IncrementalTaskNotSelected:
 		return WorkflowTaskResult{fullHistory: true}
 	case IncrementalTaskCompletionFailure:
+		if errors.Is(result.Err, protocol.ErrPayloadTooLarge) {
+			return reportCommandsTooLarge(runtimeCtx, task, backend, result.Err)
+		}
 		return WorkflowTaskResult{ReportErr: result.Err}
 	case IncrementalTaskCacheFailure:
 		return WorkflowTaskResult{Outcome: "error", Error: result.Err, ReportErr: result.Err}

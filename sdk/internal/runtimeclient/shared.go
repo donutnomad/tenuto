@@ -73,8 +73,12 @@ func (e *StatusError) Error() string {
 }
 
 // Is 让由请求本身引起、重发也不会成功的应答（400、404、409、413、422）满足 errors.Is(err, protocol.ErrInvalidRequest)，
-// 与进程内调用的错误一致：Worker 据此不立即退回这份投递。
+// 与进程内调用的错误一致：Worker 据此不立即退回这份投递。413 另外满足 protocol.ErrPayloadTooLarge：Workflow Task
+// 的提交因此记为 payload_size_limit_exceeded 失败。
 func (e *StatusError) Is(target error) bool {
+	if target == protocol.ErrPayloadTooLarge {
+		return e.Code == http.StatusRequestEntityTooLarge
+	}
 	if target != protocol.ErrInvalidRequest {
 		return false
 	}

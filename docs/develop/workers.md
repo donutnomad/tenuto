@@ -202,7 +202,8 @@ Server 以不可重试的 4xx（400、404、409、413、422）拒绝时，重发
 | --- | --- | --- |
 | Activity `begin` | 按连续拒绝次数退避（1s 起翻倍，最长 1 分钟）后退回租约 | WARN `server rejected the activity begin request; returning the task after a backoff` |
 | Activity 结果 | 改报一次不可重试的失败，Type `ActivityResultRejected` | 任务结束记录 |
-| Workflow Task 上报 | 既不确认也不退回，投递留到队列的可见性超时；已开始的 Workflow Task 由 Server 超时重新调度 | ERROR `server rejected the workflow task report; leaving the delivery to the queue's visibility timeout` |
+| Workflow Task 提交，应答 413 | 改报 `WorkflowTaskFailed`（`payload_size_limit_exceeded`），Run Blocked 并退避重试；Worker 在提交前已检查命令总量（3.5 MiB），超限时同样改报、不发送 | 任务结束记录 |
+| Workflow Task 的其他上报 | 既不确认也不退回，投递留到队列的可见性超时；已开始的 Workflow Task 由 Server 超时重新调度 | ERROR `server rejected the workflow task report; leaving the delivery to the queue's visibility timeout` |
 
 Workflow 程序要求的能力超出 Worker 声明时，Workflow Task 照常立即退回，由具备能力的 Worker 领取。载荷上限见 [容量上限](/operations/capacity-limits#载荷大小)。
 

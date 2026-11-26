@@ -15,12 +15,13 @@ import (
 	"github.com/donutnomad/tenuto/server/infra/memory"
 )
 
-// Workflow 代码的运行时 panic（越界）按 Temporal 缺省的 BlockWorkflow 处理：Workflow Task 以 workflow_panic 失败，
+// Workflow 代码的运行时 panic（越界、nil 指针取字段，含赋给 `_` 的表达式）按 Temporal 缺省的 BlockWorkflow 处理：Workflow Task 以 workflow_panic 失败，
 // Run 保持 Running 并显示为 Blocked，不写 WorkflowFailed。
 func TestWorkflowCodePanicBlocksRun(t *testing.T) {
 	for name, statement := range map[string]string{
-		"used value": "x := items[n]\n\t_ = x",
-		"discarded":  "_ = items[n]",
+		"used value":          "x := items[n]\n\t_ = x",
+		"discarded":           "_ = items[n]",
+		"discarded nil field": "var item *Item\n\tif n > 0 {\n\t\t_ = item.N\n\t}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			source := `package flows
@@ -29,6 +30,7 @@ import (
 	workflow "github.com/donutnomad/tenuto/sdk/workflow"
 	"example.com/activities"
 )
+type Item struct{ N int }
 func W(ctx workflow.Context, input map[string]any) error {
 	var out map[string]any
 	if err := workflow.ExecuteActivity(ctx, activities.A0, input, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}).Get(ctx, &out); err != nil {
@@ -76,7 +78,7 @@ func W(ctx workflow.Context, input map[string]any) error {
 				var panicFailure *history.WorkflowTaskFailedEvent
 				for _, event := range events {
 					if event.WorkflowFailed != nil || event.WorkflowCompleted != nil {
-						t.Fatalf("run closed after a runtime panic: %+v", event)
+						t.Fatalf("run closed after a runtime panic: %+v", event.WorkflowFailed)
 					}
 					if event.WorkflowTaskFailed != nil && event.WorkflowTaskFailed.Cause == history.WorkflowTaskFailedCauseWorkflowPanic {
 						panicFailure = event.WorkflowTaskFailed

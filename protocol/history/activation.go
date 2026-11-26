@@ -100,9 +100,14 @@ const WorkflowTaskFailedCauseSessionInvalid = "execution_session_invalid"
 // Go SDK 缺省的 BlockWorkflow panic 策略，WORKFLOW_WORKER_UNHANDLED_FAILURE）。
 const WorkflowTaskFailedCauseWorkflowPanic = "workflow_panic"
 
+// WorkflowTaskFailedCausePayloadSizeLimitExceeded 是命令载荷超限（单个载荷超过 PayloadSizeLimit，或全部命令超过
+// protocol.MaxWorkflowTaskCommandsSize）时 WorkflowTaskFailed 的 cause：Run 保持 Running 并按 WFT 失败退避重试，
+// 缩小载荷后发布新代码即可继续。Temporal 对同样的情况终止 Run，这里选择可恢复的 Block。
+const WorkflowTaskFailedCausePayloadSizeLimitExceeded = "payload_size_limit_exceeded"
+
 // IsWorkerWorkflowTaskFailureCause 报告 cause 是否是 Worker 可以上报的 Workflow Task 失败原因。其余原因（如
 // unhandled_events、run_resumed、reset_workflow）只由 Server 写入，Worker 上报时被拒绝。
 func IsWorkerWorkflowTaskFailureCause(cause string) bool {
 	return cause == WorkflowTaskFailedCauseNonDeterministic || cause == WorkflowTaskFailedCauseSessionInvalid ||
-		cause == WorkflowTaskFailedCauseWorkflowPanic
+		cause == WorkflowTaskFailedCauseWorkflowPanic || cause == WorkflowTaskFailedCausePayloadSizeLimitExceeded
 }

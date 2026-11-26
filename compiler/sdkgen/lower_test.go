@@ -134,13 +134,15 @@ func TestLowerEvaluatesBlankAssignedExpression(t *testing.T) {
 	_ = items[n]
 	_ = n
 	_ = strings.ToUpper
+	var out *Out
+	_ = out.Sum
 	return Out{}, nil`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	program := string(result.ProgramJSON)
-	if !strings.Contains(program, "zzDiscard1") || strings.Contains(program, "zzDiscard2") {
-		t.Fatalf("program should evaluate only the discarded index expression:\n%s", program)
+	if !strings.Contains(program, "zzDiscard1") || !strings.Contains(program, "zzDiscard2") || strings.Contains(program, "zzDiscard3") {
+		t.Fatalf("program should evaluate only the discarded index and field expressions:\n%s", program)
 	}
 }
 

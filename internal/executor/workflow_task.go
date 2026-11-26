@@ -26,8 +26,8 @@ type workflowTaskContextReader interface {
 }
 
 type WorkflowTaskOptions struct {
-	Capabilities  []string
-	Execute       func(context.Context, *program.WorkflowConfig, []history.Event) ([]history.Command, error)
+	Capabilities []string
+	Execute      func(context.Context, *program.WorkflowConfig, []history.Event) ([]history.Command, error)
 	// BlockedCause 返回让 Workflow Task 失败（Run 保持 Running）的执行错误的 cause；返回空串的错误让 Workflow 失败。
 	BlockedCause func(error) string
 }
@@ -86,7 +86,13 @@ func RunWorkflowTask(taskCtx, runtimeCtx context.Context, task protocol.Task, ba
 			}
 			return WorkflowTaskResult{Outcome: "failed", Error: result.err, ReportErr: err}
 		}
-		err = backend.HandleWorkflowTaskCompleted(runtimeCtx, task.RunID, task.ScheduledEventID, result.commands, task.WorkerIdentity)
+		err = protocol.CheckWorkflowTaskCommandsSize(result.commands)
+		if err == nil {
+			err = backend.HandleWorkflowTaskCompleted(runtimeCtx, task.RunID, task.ScheduledEventID, result.commands, task.WorkerIdentity)
+		}
+		if errors.Is(err, protocol.ErrPayloadTooLarge) {
+			return reportCommandsTooLarge(runtimeCtx, task, backend, err)
+		}
 		return WorkflowTaskResult{ReportErr: err}
 	case <-taskCtx.Done():
 		return reportWorkflowTimeout(taskCtx, runtimeCtx, task, backend, taskCtx.Err())
@@ -141,6 +147,15 @@ func ReadWorkflowEvents(ctx context.Context, backend WorkflowTaskBackend, runID 
 		return nil, err
 	}
 	return backend.GetEvents(runID)
+}
+
+// reportCommandsTooLarge 把超过大小上限的提交（Worker 提交前的总量检查，或 Server 应答 413）改报为
+// payload_size_limit_exceeded 失败：同样的命令重新提交只会再次超限，等 Workflow Task 超时只会无退避地循环。
+// Server 按 WFT 失败退避重试，Run 显示为 Blocked。
+func reportCommandsTooLarge(runtimeCtx context.Context, task protocol.Task, backend WorkflowTaskBackend, err error) WorkflowTaskResult {
+	reportErr := backend.HandleWorkflowTaskFailed(runtimeCtx, task.RunID, task.ScheduledEventID,
+		history.WorkflowTaskFailedCausePayloadSizeLimitExceeded, err.Error())
+	return WorkflowTaskResult{Outcome: "failed", Error: err, ReportErr: reportErr}
 }
 
 func (o WorkflowTaskOptions) blockedCause(err error) string {

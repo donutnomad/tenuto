@@ -25,7 +25,9 @@ func TestWorkflowTaskBlockedCause(t *testing.T) {
 		{name: "index out of range", err: fmt.Errorf("eval: %w", wlerrors.Newf(wlerrors.CodeRuntime, "arr.get index 6 out of range [0,3)")), want: history.WorkflowTaskFailedCauseWorkflowPanic},
 		{name: "explicit panic", err: wlerrors.New(wlerrors.CodePanic, "boom"), want: history.WorkflowTaskFailedCauseWorkflowPanic},
 		{name: "nil receiver", err: wlerrors.New(wlerrors.CodeNilReceiver, "nil"), want: history.WorkflowTaskFailedCauseWorkflowPanic},
-		{name: "symbol error", err: wlerrors.New(wlerrors.CodeSymbol, "missing"), want: ""},
+		{name: "nil pointer field", err: wlerrors.New(wlerrors.CodeSymbol, `variable path "p.N" not found and no default`), want: history.WorkflowTaskFailedCauseWorkflowPanic},
+		{name: "budget", err: wlerrors.New(wlerrors.CodeBudget, "MaxStringBytes exceeded"), want: ""},
+		{name: "type error", err: wlerrors.New(wlerrors.CodeType, "mismatch"), want: ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

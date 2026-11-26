@@ -36,16 +36,11 @@ var ErrScheduleActivityDuplicateID = errors.New("schedule activity duplicate id"
 // WorkflowTaskFailedCauseScheduleActivityDuplicateID 是 ActivityID 重复时 WorkflowTaskFailed 的 cause。
 const WorkflowTaskFailedCauseScheduleActivityDuplicateID = "schedule_activity_duplicate_id"
 
-// ErrPayloadSizeLimitExceeded 表示命令的输入或结果超过载荷上限（protocol.DefaultPayloadSizeLimit）。
-var ErrPayloadSizeLimitExceeded = errors.New("payload size limit exceeded")
-
-// WorkflowTaskFailedCausePayloadSizeLimitExceeded 是命令载荷超限时 WorkflowTaskFailed 的 cause。
-const WorkflowTaskFailedCausePayloadSizeLimitExceeded = "payload_size_limit_exceeded"
-
 // CheckCommandPayloadSize 校验命令携带的载荷（Activity、子 Workflow 与 Continue-As-New 的输入，Marker 数据，
-// Workflow 结果）不超过 limit 字节；limit <= 0 表示不检查。
+// Workflow 结果，Update 结果）不超过 limit 字节；limit <= 0 表示不检查。超限时返回包装 protocol.ErrPayloadTooLarge
+// 的错误。
 func CheckCommandPayloadSize(command history.Command, limit int) error {
-	what, payload := "", map[string]any(nil)
+	what, payload := "", any(nil)
 	switch command.Type {
 	case history.CmdScheduleActivity:
 		what, payload = fmt.Sprintf("input of activity %q (type %s)", command.ActivityID, command.ActivityType), command.Input
@@ -57,13 +52,19 @@ func CheckCommandPayloadSize(command history.Command, limit int) error {
 		what, payload = fmt.Sprintf("data of marker %q", command.MarkerName), command.Input
 	case history.CmdCompleteWorkflow:
 		what, payload = "workflow result", command.Output
+	case history.CmdCompleteWorkflowUpdate:
+		if command.UpdateOutcome == nil {
+			return nil
+		}
+		what = fmt.Sprintf("outcome of update %q", command.UpdateID)
+		if success := command.UpdateOutcome.Success; success != nil {
+			return protocol.CheckPayloadBytes(what, len(success.Data), limit)
+		}
+		payload = command.UpdateOutcome.Failure
 	default:
 		return nil
 	}
-	if err := protocol.CheckPayloadSize(what, payload, limit); err != nil {
-		return fmt.Errorf("%w: %s", ErrPayloadSizeLimitExceeded, err)
-	}
-	return nil
+	return protocol.CheckPayloadSize(what, payload, limit)
 }
 
 // MaxActivityIDLength 是 ActivityID 的最大字符数，与 tenuto_activity_states.activity_id 的列宽一致。
@@ -98,7 +99,8 @@ type PreparedWorkflowTask struct {
 
 // PrepareWorkflowTask resolves all external references before RunInTx begins.
 //
-// 命令载荷超过 payloadLimit 字节时返回 ErrPayloadSizeLimitExceeded。
+// 单个命令的载荷超过 payloadLimit 字节，或全部命令超过 protocol.MaxWorkflowTaskCommandsSize 时返回包装
+// protocol.ErrPayloadTooLarge 的错误。
 func PrepareWorkflowTask(runID string, commands []history.Command, traceContext map[string]string, payloadLimit int, resolver WorkflowCommandResolver) (PreparedWorkflowTask, error) {
 	prepared := PreparedWorkflowTask{
 		Commands:        make([]history.Command, len(commands)),
@@ -107,6 +109,9 @@ func PrepareWorkflowTask(runID string, commands []history.Command, traceContext 
 		ChildRefs:       make(map[int]WorkflowTargetRef),
 		ContinuedRunIDs: make(map[int]string),
 		ContinuedRefs:   make(map[int]WorkflowTargetRef),
+	}
+	if err := protocol.CheckWorkflowTaskCommandsSize(commands); err != nil {
+		return PreparedWorkflowTask{}, err
 	}
 	for i, command := range commands {
 		if err := CheckCommandPayloadSize(command, payloadLimit); err != nil {

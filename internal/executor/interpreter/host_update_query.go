@@ -94,12 +94,12 @@ func (e *WorkflowExecutor) spawnUpdateHandlerCoroutine(rec history.WorkflowUpdat
 		invokeArgs = append(invokeArgs, businessArgs...)
 		out, err := e.activeWLExec.InvokeClosure(handler.Closure, invokeArgs)
 		if err != nil {
-			// 错误路由：先判非确定性——handler 内 R 类护栏 panic 经 wlang safeCall
-			// 上浮（LangError.Cause 保留错误链，typed non-det 传播已落地）。非确定性绝不降级为
-			// update 失败：升级为 executor 级错误 → Execute 返回错误 → worker 失败路径（与 body
-			// 内 R 类 panic 的处置一致），本 update 不产完成命令。
-			var nd executor.NonDeterministicError
-			if errors.As(err, &nd) {
+			// 错误路由：非确定性与 panic（越界、nil 解引用、显式 panic，经 wlang safeCall 上浮，LangError.Cause
+			// 保留错误链）不降级为 update 失败：升级为 executor 级错误 → Execute 返回错误 → Worker 以
+			// non_deterministic_error / workflow_panic 让 Workflow Task 失败，与主流程一致（Temporal Go SDK 的
+			// update handler panic 同样按 WorkflowPanicPolicy 处理，缺省 BlockWorkflow）。本 update 不产完成命令，
+			// 修复代码后重放时重新执行 handler。handler 显式返回的 error 走 completeUpdateHandlerResult，仍是 update 失败。
+			if executor.WorkflowTaskBlockedCause(err) != "" {
 				e.evalErr = err
 				return
 			}

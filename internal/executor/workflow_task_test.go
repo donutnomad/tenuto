@@ -19,6 +19,7 @@ type workflowTaskBackendStub struct {
 	configReads    int
 	completed      []history.Command
 	completedCalls int
+	completedErr   error
 	failedCause    string
 	timeoutMessage string
 	timeoutCtx     context.Context
@@ -40,7 +41,7 @@ func (s *workflowTaskBackendStub) GetWorkflowConfig(_ context.Context, _, _ stri
 func (s *workflowTaskBackendStub) HandleWorkflowTaskCompleted(_ context.Context, _ string, _ int64, commands []history.Command, _ string) error {
 	s.completedCalls++
 	s.completed = commands
-	return nil
+	return s.completedErr
 }
 func (s *workflowTaskBackendStub) HandleWorkflowTaskTimedOut(ctx context.Context, _ string, _ int64, message string) error {
 	s.timeoutCtx = ctx
@@ -87,7 +88,9 @@ func TestRunWorkflowTaskReportsCommandsAndExecutionFailure(t *testing.T) {
 		Execute: func(context.Context, *program.WorkflowConfig, []history.Event) ([]history.Command, error) {
 			return nil, wantErr
 		},
-		BlockedCause: func(err error) string { return map[bool]string{true: "non_deterministic_error"}[errors.Is(err, wantErr)] },
+		BlockedCause: func(err error) string {
+			return map[bool]string{true: "non_deterministic_error"}[errors.Is(err, wantErr)]
+		},
 	})
 	if result.Outcome != "failed" || !errors.Is(result.Error, wantErr) || result.ReportErr != nil || backend.failedCause != "non_deterministic_error" || backend.completedCalls != 0 {
 		t.Fatalf("blocked task result = %+v, cause = %q", result, backend.failedCause)

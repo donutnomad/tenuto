@@ -125,10 +125,10 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		// Workflow 代码的确定性错误：关闭本次 WFT 并退避重试，Run 显示为 Blocked，修复代码后恢复。
 		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, execution.WorkflowTaskFailedCauseBadScheduleActivityAttributes, err.Error())
 	}
-	if errors.Is(err, execution.ErrPayloadSizeLimitExceeded) {
+	if errors.Is(err, protocol.ErrPayloadTooLarge) {
 		// 与 ErrBadScheduleActivityAttributes 同类：同样的命令重放只会再次超限。关闭本次 WFT 并退避重试，
 		// Run 显示为 Blocked，修复代码后恢复。
-		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, execution.WorkflowTaskFailedCausePayloadSizeLimitExceeded, err.Error())
+		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, history.WorkflowTaskFailedCausePayloadSizeLimitExceeded, err.Error())
 	}
 	if err != nil {
 		return err
