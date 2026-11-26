@@ -146,7 +146,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 
 `start` 在该 Workflow ID 已有进行中的 Run 时返回 `current run conflict`；`signal-with-start` 与 `update-with-start` 复用进行中的 Run。三者在 current Run 已结束时都启动新 Run，新 Run 使用该 Workflow Type 当前 active 的 Program。
 
-`request_id`（至多 128 字节，超出返回 400）让调用方安全地重发应答丢失的请求。`start` 的 `request_id` 记在 `WorkflowStarted` 里：Workflow ID 的 current Run（运行中或已结束）由同一个 `request_id` 启动时，应答这个 Run，不报冲突、不启动新 Run。`signal` 与 `signal-with-start` 的 `request_id` 记在 `WorkflowSignaled` 里：同一个 Run 上同一个 `request_id` 只记一条，重发应答第一次的 `event_id`。Go SDK 为每次调用生成 request ID，见 [瞬时错误与重试](/sdk/client#瞬时错误与重试)。
+`request_id`（至多 128 字节，超出返回 400）让调用方安全地重发应答丢失的请求。`start` 的 `request_id` 记在 `WorkflowStarted` 里：Workflow ID 的 current Run（运行中或已结束）由同一个 `request_id` 启动时，应答这个 Run，不报冲突、不启动新 Run。`signal` 与 `signal-with-start` 的 `request_id` 记在 `WorkflowSignaled` 里：同一个 Run 上同一个 `request_id` 只记一条，重发应答第一次的 `event_id`。`signal-with-start` 启动新 Run 时 `request_id` 同时记在 `WorkflowStarted` 里；同一个 request ID 的重发：current Run（运行中或已结束）记过这条 Signal，或 current Run 的链（continue-as-new、失败重试）由这个 request ID 启动时，返回第一次的 Run 与 `event_id`，不启动新 Run、不再记 Signal。Go SDK 为每次调用生成 request ID，见 [瞬时错误与重试](/sdk/client#瞬时错误与重试)。
 
 ## 载荷中的数字
 

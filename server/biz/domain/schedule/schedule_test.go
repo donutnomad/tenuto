@@ -67,6 +67,7 @@ func TestNew_Invalid(t *testing.T) {
 		{name: "Error Case: missing cron", params: schedule.NewParams{WorkflowType: "wf"}, wantErr: "cron_expression is required"},
 		{name: "Error Case: invalid timezone", params: schedule.NewParams{WorkflowType: "wf", CronExpression: "* * * * *", Timezone: "Invalid/Zone"}, wantErr: `invalid timezone "Invalid/Zone"`},
 		{name: "Error Case: invalid cron", params: schedule.NewParams{WorkflowType: "wf", CronExpression: "99 * * * *"}, wantErr: "invalid cron_expression"},
+		{name: "Error Case: cron never matches", params: schedule.NewParams{WorkflowType: "wf", CronExpression: "0 0 31 2 *"}, wantErr: "never matches"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -143,6 +144,15 @@ func TestSchedule_Update(t *testing.T) {
 		cron := "bad"
 
 		assert.ErrorContains(t, entity.Update(schedule.Changes{CronExpression: &cron}, later), "invalid cron_expression")
+	})
+
+	t.Run("Error Case: cron never matches", func(t *testing.T) {
+		entity := newSchedule(t, schedule.NewParams{})
+		cron := "0 0 31 4,6,9,11 *"
+
+		err := entity.Update(schedule.Changes{CronExpression: &cron}, later)
+		assert.ErrorContains(t, err, "never matches")
+		assert.ErrorIs(t, err, protocol.ErrInvalidRequest)
 	})
 
 	t.Run("Error Case: invalid timezone", func(t *testing.T) {

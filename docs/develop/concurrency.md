@@ -189,7 +189,7 @@ sel.Select(ctx)
 | 方法 | case 就绪条件 | 回调签名 |
 | --- | --- | --- |
 | `AddFuture(ctx, f, cb)` | Activity 完成或失败 | `func(f workflow.ActivityFuture)` |
-| `AddSignalFuture(ctx, f, cb)` | `WaitSignal` 对应的 Signal 已到达 | `func(f workflow.SignalFuture)` |
+| `AddSignalFuture(ctx, f, cb)` | 此刻有未消费的同名 Signal（`f` 已消费过时恒就绪），每次 `Select` 重新判定；选中时 `f` 取走这条 Signal，同名 Signal 已被别的 Future 取走时继续等待 | `func(f workflow.SignalFuture)` |
 | `AddChildFuture(ctx, f, cb)` | Child Workflow 完成或失败 | `func(f workflow.ChildWorkflowFuture)` |
 | `AddReceive(ctx, ch, cb)` | Channel 有值可收或已关闭 | `func(ch workflow.Channel, more bool)` |
 | `AddSend(ctx, ch, v, cb)` | Channel 接受了值 | `func()` |
@@ -203,6 +203,7 @@ sel.Select(ctx)
 - 在回调里对 Future 调用 `Get` 取得结果或错误；`AddReceive` 的回调里调用 `ch.Receive` 取出值。
 - 方法返回 Selector，支持链式写法，也可以逐条调用。
 - 处理 N 个事件需要调用 N 次 `Select`。
+- `SignalFuture` 被选中时才消费 Signal，没被选中的不占 Signal，所以循环里每轮新建 Selector、内联调用 `WaitSignal` 不会漏掉 Signal（与 Temporal 的 Signal Channel 相同，见 [Signal](/develop/signals#接收-signal)）。
 
 Signal 与 Child Workflow 的 case：
 

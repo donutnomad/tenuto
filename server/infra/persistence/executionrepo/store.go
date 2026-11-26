@@ -395,6 +395,18 @@ func (s *Repository) GetWorkflowTaskScheduledEvent(runID string, scheduledEventI
 	return *event, true, nil
 }
 
+func (s *Repository) GetEventIDByDedupeKey(_, branchID, dedupeKey string) (int64, bool, error) {
+	row, err := gsql.From[EventPO](EventSchema).
+		Where(
+			EventSchema.BranchID.Eq(branchID),
+			EventSchema.DedupeKey.Eq(&dedupeKey),
+		).Take(s.db)
+	if err != nil || row == nil {
+		return 0, false, err
+	}
+	return row.NodeID, true, nil
+}
+
 func (s *Repository) AppendWorkflowTaskClosed(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
 	var eventID int64
 	var inserted bool
