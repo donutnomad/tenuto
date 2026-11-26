@@ -47,6 +47,7 @@ func TestScheduleDriverAutoTriggersDueSchedule(t *testing.T) {
 		CronExpression: "*/5 * * * *",
 		Timezone:       "UTC",
 		OverlapPolicy:  string(schedule.OverlapPolicyEnums.AllowAll),
+		CatchupWindow:  schedule.DefaultCatchupWindow,
 		NextRunAt:      &past,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),

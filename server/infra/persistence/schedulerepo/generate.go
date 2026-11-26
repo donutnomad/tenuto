@@ -12,24 +12,27 @@ import (
 // ================ gormgen ================
 
 type ScheduleSchemaType struct {
-	ID             gsql.StringField   // string
-	Namespace      gsql.StringField   // string
-	WorkflowType   gsql.StringField   // string
-	Description    gsql.StringField   // string
-	CronExpression gsql.StringField   // string
-	Timezone       gsql.StringField   // string
-	InputJSON      gsql.StringField   // []byte
-	Paused         gsql.IntField      // bool
-	OverlapPolicy  gsql.StringField   // string
-	LastRunAt      gsql.DateTimeField // *time.Time
-	NextRunAt      gsql.DateTimeField // *time.Time
-	LastRunID      gsql.StringField   // string
-	RunCount       gsql.IntField      // int
-	CreatedAt      gsql.DateTimeField // time.Time
-	UpdatedAt      gsql.DateTimeField // time.Time
-	fieldType      SchedulePO
-	alias          string
-	tableName      string
+	ID                  gsql.StringField   // string
+	Namespace           gsql.StringField   // string
+	WorkflowType        gsql.StringField   // string
+	Description         gsql.StringField   // string
+	CronExpression      gsql.StringField   // string
+	Timezone            gsql.StringField   // string
+	InputJSON           gsql.StringField   // []byte
+	Paused              gsql.IntField      // bool
+	OverlapPolicy       gsql.StringField   // string
+	LastRunAt           gsql.DateTimeField // *time.Time
+	NextRunAt           gsql.DateTimeField // *time.Time
+	LastRunID           gsql.StringField   // string
+	RunCount            gsql.IntField      // int
+	CatchupWindow       gsql.ScalarField   // time.Duration
+	MissedCatchupWindow gsql.IntField      // int64
+	BufferDropped       gsql.IntField      // int64
+	CreatedAt           gsql.DateTimeField // time.Time
+	UpdatedAt           gsql.DateTimeField // time.Time
+	fieldType           SchedulePO
+	alias               string
+	tableName           string
 }
 
 func (t ScheduleSchemaType) TableName() string {
@@ -55,6 +58,9 @@ func (t *ScheduleSchemaType) WithTable(tableName string) {
 	t.NextRunAt = t.NextRunAt.WithTable(&tn)
 	t.LastRunID = t.LastRunID.WithTable(&tn)
 	t.RunCount = t.RunCount.WithTable(&tn)
+	t.CatchupWindow = t.CatchupWindow.WithTable(&tn)
+	t.MissedCatchupWindow = t.MissedCatchupWindow.WithTable(&tn)
+	t.BufferDropped = t.BufferDropped.WithTable(&tn)
 	t.CreatedAt = t.CreatedAt.WithTable(&tn)
 	t.UpdatedAt = t.UpdatedAt.WithTable(&tn)
 }
@@ -89,6 +95,9 @@ func (t ScheduleSchemaType) AllFields() field.BaseFields {
 		t.NextRunAt,
 		t.LastRunID,
 		t.RunCount,
+		t.CatchupWindow,
+		t.MissedCatchupWindow,
+		t.BufferDropped,
 		t.CreatedAt,
 		t.UpdatedAt,
 	}
@@ -102,23 +111,26 @@ func (t ScheduleSchemaType) Star() field.IField {
 }
 
 var ScheduleSchema = ScheduleSchemaType{
-	tableName:      "tenuto_schedules",
-	ID:             gsql.StringFieldOf[string]("tenuto_schedules", "id"),
-	Namespace:      gsql.StringFieldOf[string]("tenuto_schedules", "namespace"),
-	WorkflowType:   gsql.StringFieldOf[string]("tenuto_schedules", "workflow_type"),
-	Description:    gsql.StringFieldOf[string]("tenuto_schedules", "description"),
-	CronExpression: gsql.StringFieldOf[string]("tenuto_schedules", "cron_expression"),
-	Timezone:       gsql.StringFieldOf[string]("tenuto_schedules", "timezone"),
-	InputJSON:      gsql.StringFieldOf[[]byte]("tenuto_schedules", "input_json"),
-	Paused:         gsql.IntFieldOf[bool]("tenuto_schedules", "paused"),
-	OverlapPolicy:  gsql.StringFieldOf[string]("tenuto_schedules", "overlap_policy"),
-	LastRunAt:      gsql.DateTimeFieldOf[*time.Time]("tenuto_schedules", "last_run_at"),
-	NextRunAt:      gsql.DateTimeFieldOf[*time.Time]("tenuto_schedules", "next_run_at"),
-	LastRunID:      gsql.StringFieldOf[string]("tenuto_schedules", "last_run_id"),
-	RunCount:       gsql.IntFieldOf[int]("tenuto_schedules", "run_count"),
-	CreatedAt:      gsql.DateTimeFieldOf[time.Time]("tenuto_schedules", "created_at"),
-	UpdatedAt:      gsql.DateTimeFieldOf[time.Time]("tenuto_schedules", "updated_at"),
-	fieldType:      SchedulePO{},
+	tableName:           "tenuto_schedules",
+	ID:                  gsql.StringFieldOf[string]("tenuto_schedules", "id"),
+	Namespace:           gsql.StringFieldOf[string]("tenuto_schedules", "namespace"),
+	WorkflowType:        gsql.StringFieldOf[string]("tenuto_schedules", "workflow_type"),
+	Description:         gsql.StringFieldOf[string]("tenuto_schedules", "description"),
+	CronExpression:      gsql.StringFieldOf[string]("tenuto_schedules", "cron_expression"),
+	Timezone:            gsql.StringFieldOf[string]("tenuto_schedules", "timezone"),
+	InputJSON:           gsql.StringFieldOf[[]byte]("tenuto_schedules", "input_json"),
+	Paused:              gsql.IntFieldOf[bool]("tenuto_schedules", "paused"),
+	OverlapPolicy:       gsql.StringFieldOf[string]("tenuto_schedules", "overlap_policy"),
+	LastRunAt:           gsql.DateTimeFieldOf[*time.Time]("tenuto_schedules", "last_run_at"),
+	NextRunAt:           gsql.DateTimeFieldOf[*time.Time]("tenuto_schedules", "next_run_at"),
+	LastRunID:           gsql.StringFieldOf[string]("tenuto_schedules", "last_run_id"),
+	RunCount:            gsql.IntFieldOf[int]("tenuto_schedules", "run_count"),
+	CatchupWindow:       gsql.ScalarFieldOf[time.Duration]("tenuto_schedules", "catchup_window_ns"),
+	MissedCatchupWindow: gsql.IntFieldOf[int64]("tenuto_schedules", "missed_catchup_window"),
+	BufferDropped:       gsql.IntFieldOf[int64]("tenuto_schedules", "buffer_dropped"),
+	CreatedAt:           gsql.DateTimeFieldOf[time.Time]("tenuto_schedules", "created_at"),
+	UpdatedAt:           gsql.DateTimeFieldOf[time.Time]("tenuto_schedules", "updated_at"),
+	fieldType:           SchedulePO{},
 }
 
 // ================ settergen ================
@@ -127,7 +139,7 @@ var ScheduleSchema = ScheduleSchemaType{
 func (s *SchedulePO) ToPatch(input *schedule.Schedule) map[string]any {
 	b := s.ToPO(input)
 	fields := input.ExportPatch()
-	values := make(map[string]any, 14)
+	values := make(map[string]any, 17)
 	if fields.ID.IsPresent() {
 		values["id"] = b.ID
 	}
@@ -163,6 +175,15 @@ func (s *SchedulePO) ToPatch(input *schedule.Schedule) map[string]any {
 	}
 	if fields.RunCount.IsPresent() {
 		values["run_count"] = b.RunCount
+	}
+	if fields.CatchupWindow.IsPresent() {
+		values["catchup_window_ns"] = b.CatchupWindow
+	}
+	if fields.MissedCatchupWindow.IsPresent() {
+		values["missed_catchup_window"] = b.MissedCatchupWindow
+	}
+	if fields.BufferDropped.IsPresent() {
+		values["buffer_dropped"] = b.BufferDropped
 	}
 	if fields.CreatedAt.IsPresent() {
 		values["created_at"] = b.CreatedAt

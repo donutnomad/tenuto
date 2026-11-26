@@ -13,6 +13,7 @@ import { scheduleRunsHref } from "@/lib/schedule-runs"
 import { ActionFeedback } from "@/components/dashboard/action-feedback"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { formatCatchupWindow, parseCatchupWindow } from "@/lib/schedule-catchup"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -71,6 +72,7 @@ export default function SchedulesPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [form, setForm] = useState<CreateScheduleRequest>({ ...EMPTY_FORM, namespace })
   const [inputJson, setInputJson] = useState("")
+  const [catchupWindow, setCatchupWindow] = useState("")
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState("")
 
@@ -190,29 +192,40 @@ export default function SchedulesPage() {
       }
     }
 
+    let catchupWindowNs: number | undefined
+    try {
+      catchupWindowNs = parseCatchupWindow(catchupWindow)
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : "Invalid catch-up window")
+      return
+    }
+
     setCreating(true)
     try {
       const created = await api.createSchedule({
         ...form,
         namespace,
         input: parsedInput,
+        catchup_window: catchupWindowNs,
       })
       setActionError(null)
       setActionSuccess(<>Schedule <span className="font-mono">{created.id}</span> created.</>)
       setCreateOpen(false)
       setForm({ ...EMPTY_FORM, namespace })
       setInputJson("")
+      setCatchupWindow("")
       mutate()
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : "Failed to create schedule")
     } finally {
       setCreating(false)
     }
-  }, [form, inputJson, namespace, mutate])
+  }, [form, inputJson, catchupWindow, namespace, mutate])
 
   const openCreateDialog = useCallback(() => {
     setForm({ ...EMPTY_FORM, namespace })
     setInputJson("")
+    setCatchupWindow("")
     setCreateError("")
     setCreateOpen(true)
   }, [namespace])
@@ -285,13 +298,14 @@ export default function SchedulesPage() {
                 <TableHead>Last Run</TableHead>
                 <TableHead>Next Run</TableHead>
                 <TableHead>Run Count</TableHead>
+                <TableHead title="Catch-up window; fire times skipped because they were outside it or over the 1000 buffer limit">Catch-up</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {schedules.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-24 text-center">
+                  <TableCell colSpan={11} className="h-24 text-center">
                     No schedules found.
                   </TableCell>
                 </TableRow>
@@ -339,6 +353,14 @@ export default function SchedulesPage() {
                       >
                         {s.run_count ?? 0}
                       </Link>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground" title={`missed ${s.missed_catchup_window ?? 0} outside the catch-up window, ${s.buffer_dropped ?? 0} dropped over the buffer limit`}>
+                      <span className="font-mono">{formatCatchupWindow(s.catchup_window)}</span>
+                      {(s.missed_catchup_window ?? 0) + (s.buffer_dropped ?? 0) > 0 && (
+                        <span className="ml-1 text-yellow-500">
+                          missed {s.missed_catchup_window ?? 0} · dropped {s.buffer_dropped ?? 0}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -490,6 +512,15 @@ export default function SchedulesPage() {
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-xs font-medium">Catch-up Window</label>
+              <Input
+                placeholder="365d (default), e.g. 1h"
+                value={catchupWindow}
+                onChange={(e) => setCatchupWindow((e.target as HTMLInputElement).value)}
+              />
             </div>
 
             <div className="grid gap-1.5">

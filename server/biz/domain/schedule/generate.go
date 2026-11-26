@@ -10,21 +10,24 @@ import (
 // ================ settergen ================
 
 type SchedulePatch struct {
-	ID             mo.Option[string]
-	Namespace      mo.Option[string]
-	WorkflowType   mo.Option[string]
-	Description    mo.Option[string]
-	CronExpression mo.Option[string]
-	Timezone       mo.Option[string]
-	Input          mo.Option[map[string]any]
-	Paused         mo.Option[bool]
-	OverlapPolicy  mo.Option[string]
-	LastRunAt      mo.Option[*time.Time]
-	NextRunAt      mo.Option[*time.Time]
-	LastRunID      mo.Option[string]
-	RunCount       mo.Option[int]
-	CreatedAt      mo.Option[time.Time]
-	UpdatedAt      mo.Option[time.Time]
+	ID                  mo.Option[string]
+	Namespace           mo.Option[string]
+	WorkflowType        mo.Option[string]
+	Description         mo.Option[string]
+	CronExpression      mo.Option[string]
+	Timezone            mo.Option[string]
+	Input               mo.Option[map[string]any]
+	Paused              mo.Option[bool]
+	OverlapPolicy       mo.Option[string]
+	CatchupWindow       mo.Option[time.Duration]
+	LastRunAt           mo.Option[*time.Time]
+	NextRunAt           mo.Option[*time.Time]
+	LastRunID           mo.Option[string]
+	RunCount            mo.Option[int]
+	MissedCatchupWindow mo.Option[int64]
+	BufferDropped       mo.Option[int64]
+	CreatedAt           mo.Option[time.Time]
+	UpdatedAt           mo.Option[time.Time]
 }
 
 func (s *Schedule) setID(iD string) {
@@ -72,6 +75,11 @@ func (s *Schedule) setOverlapPolicy(overlapPolicy string) {
 	s.patch.OverlapPolicy = mo.Some(overlapPolicy)
 }
 
+func (s *Schedule) setCatchupWindow(catchupWindow time.Duration) {
+	s.CatchupWindow = catchupWindow
+	s.patch.CatchupWindow = mo.Some(catchupWindow)
+}
+
 func (s *Schedule) setLastRunAt(lastRunAt *time.Time) {
 	s.LastRunAt = lastRunAt
 	s.patch.LastRunAt = mo.Some(lastRunAt)
@@ -90,6 +98,16 @@ func (s *Schedule) setLastRunID(lastRunID string) {
 func (s *Schedule) setRunCount(runCount int) {
 	s.RunCount = runCount
 	s.patch.RunCount = mo.Some(runCount)
+}
+
+func (s *Schedule) setMissedCatchupWindow(missedCatchupWindow int64) {
+	s.MissedCatchupWindow = missedCatchupWindow
+	s.patch.MissedCatchupWindow = mo.Some(missedCatchupWindow)
+}
+
+func (s *Schedule) setBufferDropped(bufferDropped int64) {
+	s.BufferDropped = bufferDropped
+	s.patch.BufferDropped = mo.Some(bufferDropped)
 }
 
 func (s *Schedule) setCreatedAt(createdAt time.Time) {

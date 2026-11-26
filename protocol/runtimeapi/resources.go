@@ -297,12 +297,18 @@ type Schedule struct {
 	Input          map[string]any `json:"input,omitempty"`
 	Paused         bool           `json:"paused"`
 	OverlapPolicy  string         `json:"overlap_policy,omitempty"`
-	LastRunAt      *time.Time     `json:"last_run_at,omitempty"`
-	NextRunAt      *time.Time     `json:"next_run_at,omitempty"`
-	LastRunID      string         `json:"last_run_id,omitempty"`
-	RunCount       int            `json:"run_count"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	// CatchupWindow 是到期点之后仍会补触发的最长延迟（纳秒），逐个到期点判定。
+	CatchupWindow time.Duration `json:"catchup_window"`
+	LastRunAt     *time.Time    `json:"last_run_at,omitempty"`
+	NextRunAt     *time.Time    `json:"next_run_at,omitempty"`
+	LastRunID     string        `json:"last_run_id,omitempty"`
+	RunCount      int           `json:"run_count"`
+	// MissedCatchupWindow 是因超出 catchup window 没有触发的到期点数。
+	MissedCatchupWindow int64 `json:"missed_catchup_window"`
+	// BufferDropped 是补触发时因超出 1000 个的缓冲上限而丢弃的到期点数。
+	BufferDropped int64     `json:"buffer_dropped"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // ScheduleCreateRequest 是 create-schedule 的请求体。
@@ -315,6 +321,8 @@ type ScheduleCreateRequest struct {
 	Input          map[string]any `json:"input,omitempty"`
 	OverlapPolicy  string         `json:"overlap_policy,omitempty"`
 	Paused         bool           `json:"paused,omitempty"`
+	// CatchupWindow（纳秒）为 0 时取 365 天，最小 10 秒。
+	CatchupWindow time.Duration `json:"catchup_window,omitempty"`
 }
 
 // ScheduleUpdate 只改写非 nil 的字段。
@@ -324,6 +332,7 @@ type ScheduleUpdate struct {
 	Timezone       *string         `json:"timezone,omitempty"`
 	Input          *map[string]any `json:"input,omitempty"`
 	OverlapPolicy  *string         `json:"overlap_policy,omitempty"`
+	CatchupWindow  *time.Duration  `json:"catchup_window,omitempty"`
 }
 
 type ScheduleListFilter struct {

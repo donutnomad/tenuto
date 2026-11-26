@@ -189,7 +189,7 @@ func TestSchedule_AdvanceNextRunAt(t *testing.T) {
 		before := *entity.NextRunAt
 		now := testNow.Add(2 * time.Hour)
 
-		previous := entity.AdvanceNextRunAt(now)
+		previous := entity.AdvanceNextRunAt(now, now)
 
 		require.NotNil(t, previous)
 		assert.True(t, previous.Equal(before))
@@ -201,7 +201,7 @@ func TestSchedule_AdvanceNextRunAt(t *testing.T) {
 		entity := newSchedule(t, schedule.NewParams{Paused: true})
 		now := testNow.Add(2 * time.Hour)
 
-		previous := entity.AdvanceNextRunAt(now)
+		previous := entity.AdvanceNextRunAt(now, now)
 
 		assert.Nil(t, previous)
 		assert.Nil(t, entity.NextRunAt)
@@ -210,15 +210,60 @@ func TestSchedule_AdvanceNextRunAt(t *testing.T) {
 	})
 }
 
-func TestSchedule_MissedCatchupWindow(t *testing.T) {
+func TestParseCatchupWindow(t *testing.T) {
+	got, err := schedule.ParseCatchupWindow(0)
+	require.NoError(t, err)
+	assert.Equal(t, schedule.DefaultCatchupWindow, got)
+	got, err = schedule.ParseCatchupWindow(schedule.MinCatchupWindow)
+	require.NoError(t, err)
+	assert.Equal(t, schedule.MinCatchupWindow, got)
+	for _, window := range []time.Duration{-time.Hour, time.Second, schedule.MinCatchupWindow - time.Nanosecond} {
+		_, err := schedule.ParseCatchupWindow(window)
+		assert.ErrorIs(t, err, protocol.ErrInvalidRequest, "window %s", window)
+	}
+	_, err = schedule.New("sch-1", schedule.NewParams{WorkflowType: "wf", CronExpression: "* * * * *", CatchupWindow: time.Second}, testNow)
+	assert.ErrorIs(t, err, protocol.ErrInvalidRequest)
 	entity := newSchedule(t, schedule.NewParams{})
-	due := *entity.NextRunAt
+	assert.Equal(t, schedule.DefaultCatchupWindow, entity.CatchupWindow)
+	tooSmall := 5 * time.Second
+	assert.ErrorIs(t, entity.Update(schedule.Changes{CatchupWindow: &tooSmall}, testNow), protocol.ErrInvalidRequest)
+}
 
-	// Edge Case: 恰好等于窗口仍补触发，超过才跳过。
-	assert.False(t, entity.MissedCatchupWindow(due.Add(schedule.CatchupWindow)))
-	assert.True(t, entity.MissedCatchupWindow(due.Add(schedule.CatchupWindow+time.Nanosecond)))
-	// Edge Case: 没有 NextRunAt 的 Schedule 不算超窗。
-	assert.False(t, newSchedule(t, schedule.NewParams{Paused: true}).MissedCatchupWindow(due.Add(48*time.Hour)))
+// SkipUnstartable 逐个到期点判定：超出窗口的计入 MissedCatchupWindow，窗口内超过 MaxBufferSize 的较早到期点计入 BufferDropped。
+func TestSchedule_SkipUnstartable(t *testing.T) {
+	t.Run("missed fire times outside the window are counted one by one", func(t *testing.T) {
+		entity := newSchedule(t, schedule.NewParams{CronExpression: "0 * * * *", CatchupWindow: time.Hour})
+		first := *entity.NextRunAt // 11:00
+		// 13:30：11:00、12:00 超出 1h 窗口，13:00 在窗口内。
+		previous, skipped := entity.SkipUnstartable(first.Add(150 * time.Minute))
+		require.True(t, skipped)
+		assert.True(t, previous.Equal(first))
+		assert.True(t, entity.NextRunAt.Equal(first.Add(2*time.Hour)))
+		assert.Equal(t, int64(2), entity.MissedCatchupWindow)
+		assert.Zero(t, entity.BufferDropped)
+	})
+	t.Run("a fire time exactly at the window edge is still fired", func(t *testing.T) {
+		entity := newSchedule(t, schedule.NewParams{CronExpression: "0 * * * *", CatchupWindow: time.Hour})
+		first := *entity.NextRunAt
+		_, skipped := entity.SkipUnstartable(first.Add(time.Hour))
+		assert.False(t, skipped)
+		assert.True(t, entity.NextRunAt.Equal(first))
+	})
+	t.Run("pending fire times over the buffer limit drop the oldest", func(t *testing.T) {
+		entity := newSchedule(t, schedule.NewParams{CronExpression: "* * * * *"})
+		first := *entity.NextRunAt
+		// first 起 1500 个到期点都已到期且在 365 天窗口内。
+		_, skipped := entity.SkipUnstartable(first.Add(1499 * time.Minute))
+		require.True(t, skipped)
+		assert.Zero(t, entity.MissedCatchupWindow)
+		assert.Equal(t, int64(500), entity.BufferDropped)
+		assert.True(t, entity.NextRunAt.Equal(first.Add(500*time.Minute)))
+	})
+	t.Run("paused schedule is untouched", func(t *testing.T) {
+		entity := newSchedule(t, schedule.NewParams{Paused: true})
+		_, skipped := entity.SkipUnstartable(testNow.Add(48 * time.Hour))
+		assert.False(t, skipped)
+	})
 }
 
 func TestParseOverlapPolicy(t *testing.T) {

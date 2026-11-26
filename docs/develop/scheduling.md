@@ -40,6 +40,7 @@ scheduleID := handle.GetID() // 由 Server 生成
 | `Args` | 否 | 至多一个，编码成 JSON 对象作为每次启动的 Workflow 输入 |
 | `OverlapPolicy` | 否 | `ScheduleOverlapPolicySkip`（`SKIP`，缺省）或 `ScheduleOverlapPolicyAllowAll`（`ALLOW_ALL`）；其他值创建失败 |
 | `Paused` | 否 | 创建后处于暂停状态 |
+| `CatchupWindow` | 否 | 到期点之后仍会补触发的最长延迟（HTTP 字段 `catchup_window`，纳秒）；0 取 365 天，小于 10 秒创建失败。见[触发流程与错过触发](#触发流程与错过触发) |
 | `Description` | 否 | 说明文字 |
 
 Schedule 与它启动的 Run 在 Client 的 Namespace 里。
@@ -152,14 +153,14 @@ err = handle.Delete(ctx)
 
 调度器处理到期的 Schedule：
 
-1. 到期点落后当前时间超过 1 小时：跳过触发，只把下一次执行时间推进到未来。
+1. 到期点落后当前时间超过 `CatchupWindow`：不触发，计入 `MissedCatchupWindow`，处理下一个到期点。
 2. `SKIP` 策略下检查上一次触发的执行链是否仍在运行，仍在运行就跳过这个到期点，推进下一次执行时间。
-3. 以这个到期点的 Workflow ID（`schedule-<Schedule ID>-<到期点>`）启动 Workflow。这个 Workflow ID 的 Run 已在运行时（上一次启动其实已提交，或另一个副本刚启动了它）不再启动第二个，直接推进下一次执行时间。启动失败时下一次执行时间不动，调度器在下一轮扫描重试这次触发，直到超出 1 小时窗口。
-4. 用 CAS 推进下一次执行时间；多个 Server 副本同时触发同一个到期点时只有一个推进成功，由它记录 `LastRunAt`、`LastRunID`、`RunCount`。
+3. 以这个到期点的 Workflow ID（`schedule-<Schedule ID>-<到期点>`）启动 Workflow。这个 Workflow ID 的 Run 已在运行时（上一次启动其实已提交，或另一个副本刚启动了它）不再启动第二个，直接推进下一次执行时间。启动失败时下一次执行时间不动，调度器在下一轮扫描重试这次触发，直到超出 `CatchupWindow`。
+4. 用 CAS 把下一次执行时间推进到这个到期点之后的下一个 cron 时刻（错过的后续到期点接着处理）；多个 Server 副本同时触发同一个到期点时只有一个推进成功，由它记录 `LastRunAt`、`LastRunID`、`RunCount`。
 
 先启动再推进：两步之间进程退出时，下一次执行时间仍是这个到期点，下一轮以同一个 Workflow ID 重新启动，得到已启动的那个 Run，不会重复执行。
 
-Server 停机或数据库不可用期间错过的到期点，恢复后最多补触发一次（落在 1 小时窗口内的那一次），更早的到期点不补跑。需要补齐每个周期的业务在 Workflow 输入或业务数据库里记录处理进度，由 Workflow 自己计算要处理的区间。
+Server 停机或数据库不可用期间错过的到期点在恢复后补触发。错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，较早的那部分计入 `buffer_dropped`，只保留最近的 1000 个（Temporal 保留最早的 1000 个）。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。 不希望停机后补跑的 Schedule 把 `CatchupWindow` 设小（例如 `time.Minute`）；`Describe` 返回的 `MissedCatchupWindow` 与 `BufferDropped` 是累计跳过的到期点数。需要补齐每个周期的业务在 Workflow 输入或业务数据库里记录处理进度，由 Workflow 自己计算要处理的区间。
 
 ## 周期任务设计
 

@@ -207,7 +207,13 @@ type ScheduleOptions struct {
     Description    string
     OverlapPolicy  ScheduleOverlapPolicy // ScheduleOverlapPolicySkip（缺省）、ScheduleOverlapPolicyAllowAll
     Paused         bool
+    CatchupWindow  time.Duration // 0 取 365 天，最小 10 秒
 }
+```
+
+`ScheduleDescription` 带 `CatchupWindow`、`MissedCatchupWindow`（超出窗口没有触发的到期点数）与 `BufferDropped`（待补到期点超过 1000 个时丢弃的数量）；`ScheduleUpdateOptions.CatchupWindow` 是 `*time.Duration`。
+
+```go
 ```
 
 ## 批量操作

@@ -148,7 +148,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 /runtime/workflow/trigger-schedule
 ```
 
-`create-schedule` 的请求体用 `workflow_type` 指定要启动的 Workflow Type；`list-schedules` 的 `filter.workflow_type` 按它过滤。每次触发启动的 Run 的 Workflow ID 是 `schedule-<Schedule ID>-<名义触发时间>`，搜索属性带 `TemporalScheduledById`（Schedule ID）与 `TemporalScheduledStartTime`（名义触发时间，UTC RFC 3339 秒级）；`list` 与 `start-batch` 的 `filter.search_attributes` 写 `{"TemporalScheduledById": "<Schedule ID>"}` 选出这个 Schedule 的全部 Run。这两个键与 `TemporalChangeVersion` 由 Server 维护，`search-attributes` 写入它们返回 400。
+`create-schedule` 的请求体用 `workflow_type` 指定要启动的 Workflow Type，`catchup_window`（纳秒，可省略）是补触发窗口：省略或 0 取 365 天，小于 10 秒返回 400，`update-schedule` 的 `update.catchup_window` 同样校验；Schedule 的应答带 `catchup_window`、`missed_catchup_window` 与 `buffer_dropped`（见 [错过触发](/develop/scheduling#触发流程与错过触发)）。`list-schedules` 的 `filter.workflow_type` 按它过滤。每次触发启动的 Run 的 Workflow ID 是 `schedule-<Schedule ID>-<名义触发时间>`，搜索属性带 `TemporalScheduledById`（Schedule ID）与 `TemporalScheduledStartTime`（名义触发时间，UTC RFC 3339 秒级）；`list` 与 `start-batch` 的 `filter.search_attributes` 写 `{"TemporalScheduledById": "<Schedule ID>"}` 选出这个 Schedule 的全部 Run。这两个键与 `TemporalChangeVersion` 由 Server 维护，`search-attributes` 写入它们返回 400。
 
 ## 启动请求体
 

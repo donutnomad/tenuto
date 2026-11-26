@@ -9,8 +9,27 @@ import (
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 )
 
-// CatchupWindow 是到期后仍会补触发的最长延迟；超过它的到期点只推进 NextRunAt。
-const CatchupWindow = 1 * time.Hour
+// 补触发策略，与 Temporal scheduler 的同名默认值一致（service/worker/scheduler 的 DefaultCatchupWindow、
+// MinCatchupWindow、MaxBufferSize）。
+const (
+	// DefaultCatchupWindow 是创建时没有指定 catchup window 的 Schedule 使用的窗口。
+	DefaultCatchupWindow = 365 * 24 * time.Hour
+	// MinCatchupWindow 是 catchup window 的下限，更小的值返回 InvalidRequest。
+	MinCatchupWindow = 10 * time.Second
+	// MaxBufferSize 是一次补触发最多保留的到期点数：窗口内待触发的到期点超过它时，较早的到期点计入 BufferDropped。
+	MaxBufferSize = 1000
+)
+
+// ParseCatchupWindow 校验 catchup window：0 取 DefaultCatchupWindow，小于 MinCatchupWindow 返回 InvalidRequest。
+func ParseCatchupWindow(window time.Duration) (time.Duration, error) {
+	if window == 0 {
+		return DefaultCatchupWindow, nil
+	}
+	if window < MinCatchupWindow {
+		return 0, protocol.InvalidRequestf("catchup_window must be at least %s, got %s", MinCatchupWindow, window)
+	}
+	return window, nil
+}
 
 // OverlapPolicy 决定上一次触发的 Run 仍在运行时，这次触发是否启动新 Run，语义与 Temporal 的同名策略一致。
 type OverlapPolicy string
@@ -48,13 +67,19 @@ type Schedule struct {
 	Input          map[string]any `json:"input,omitempty"`
 	Paused         bool           `json:"paused"`
 	OverlapPolicy  string         `json:"overlap_policy,omitempty"`
-	LastRunAt      *time.Time     `json:"last_run_at,omitempty"`
+	// CatchupWindow 是到期点之后仍会补触发的最长延迟，逐个到期点判定。
+	CatchupWindow time.Duration `json:"catchup_window"`
+	LastRunAt     *time.Time    `json:"last_run_at,omitempty"`
 	NextRunAt      *time.Time     `json:"next_run_at,omitempty"`
 	LastRunID      string         `json:"last_run_id,omitempty"`
 	RunCount       int            `json:"run_count"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	patch          SchedulePatch
+	// MissedCatchupWindow 是因超出 catchup window 而没有触发的到期点数（Temporal ScheduleInfo.MissedCatchupWindow）。
+	MissedCatchupWindow int64 `json:"missed_catchup_window"`
+	// BufferDropped 是补触发时因超出 MaxBufferSize 而丢弃的到期点数（Temporal ScheduleInfo.BufferDropped）。
+	BufferDropped int64         `json:"buffer_dropped"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	patch         SchedulePatch
 }
 
 type NewParams struct {
@@ -66,6 +91,7 @@ type NewParams struct {
 	Input          map[string]any
 	OverlapPolicy  string
 	Paused         bool
+	CatchupWindow  time.Duration
 }
 
 // New 校验参数并创建 Schedule；未暂停时按 cron 计算首个 NextRunAt。
@@ -98,11 +124,15 @@ func New(id string, params NewParams, now time.Time) (*Schedule, error) {
 	if err != nil {
 		return nil, err
 	}
+	catchupWindow, err := ParseCatchupWindow(params.CatchupWindow)
+	if err != nil {
+		return nil, err
+	}
 	schedule := &Schedule{
 		ID: id, Namespace: params.Namespace, WorkflowType: params.WorkflowType,
 		Description: params.Description, CronExpression: params.CronExpression,
 		Timezone: params.Timezone, Input: params.Input, Paused: params.Paused,
-		OverlapPolicy: string(policy), CreatedAt: now, UpdatedAt: now,
+		OverlapPolicy: string(policy), CatchupWindow: catchupWindow, CreatedAt: now, UpdatedAt: now,
 	}
 	if !schedule.Paused {
 		schedule.NextRunAt = CronNextRunAt(schedule.CronExpression, now, loc)
@@ -133,6 +163,7 @@ type Changes struct {
 	Timezone       *string
 	Input          *map[string]any
 	OverlapPolicy  *string
+	CatchupWindow  *time.Duration
 }
 
 // Update 应用字段变更；cron 或时区变化且未暂停时重算 NextRunAt。
@@ -173,6 +204,13 @@ func (s *Schedule) Update(changes Changes, now time.Time) error {
 		}
 		s.setOverlapPolicy(string(policy))
 	}
+	if changes.CatchupWindow != nil {
+		window, err := ParseCatchupWindow(*changes.CatchupWindow)
+		if err != nil {
+			return err
+		}
+		s.setCatchupWindow(window)
+	}
 	if cronChanged && !s.Paused {
 		if loc == nil {
 			loc = s.location()
@@ -197,15 +235,50 @@ func (s *Schedule) Resume(now time.Time) {
 	s.setUpdatedAt(now)
 }
 
-// AdvanceNextRunAt 以 now 为基准把 NextRunAt 推进到下一个 cron 时刻，返回推进前的值供 CAS 比较。
-// 暂停中的 Schedule 保持 NextRunAt 不变。
-func (s *Schedule) AdvanceNextRunAt(now time.Time) (previous *time.Time) {
+// AdvanceNextRunAt 把 NextRunAt 推进到 after 之后的下一个 cron 时刻，返回推进前的值供 CAS 比较。
+// 定时触发传这次处理的到期点，错过的后续到期点留给下一次处理；手动触发传 now。暂停中的 Schedule 保持 NextRunAt 不变。
+func (s *Schedule) AdvanceNextRunAt(after, now time.Time) (previous *time.Time) {
 	previous = s.NextRunAt
 	if !s.Paused {
-		s.setNextRunAt(CronNextRunAt(s.CronExpression, now, s.location()))
+		s.setNextRunAt(CronNextRunAt(s.CronExpression, after, s.location()))
 	}
 	s.setUpdatedAt(now)
 	return previous
+}
+
+// SkipUnstartable 按 Temporal 的补触发规则跳过此刻不会触发的到期点，把 NextRunAt 推进到第一个要触发的到期点：
+//   - 落后 now 超过 CatchupWindow 的到期点逐个计入 MissedCatchupWindow；
+//   - 窗口内、不晚于 now 的到期点超过 MaxBufferSize 个时，较早的那部分计入 BufferDropped，保留最近的 MaxBufferSize 个。
+//
+// 返回推进前的值供 CAS 比较；skipped 为 false 表示没有要跳过的到期点，Schedule 不变。
+func (s *Schedule) SkipUnstartable(now time.Time) (previous *time.Time, skipped bool) {
+	if s.NextRunAt == nil || s.Paused {
+		return s.NextRunAt, false
+	}
+	loc := s.location()
+	next := s.NextRunAt
+	var missed int64
+	for next != nil && now.Sub(*next) > s.CatchupWindow {
+		missed++
+		next = CronNextRunAt(s.CronExpression, *next, loc)
+	}
+	var pending int64
+	for at := next; at != nil && !at.After(now); at = CronNextRunAt(s.CronExpression, *at, loc) {
+		pending++
+	}
+	dropped := max(pending-MaxBufferSize, 0)
+	for range dropped {
+		next = CronNextRunAt(s.CronExpression, *next, loc)
+	}
+	if missed == 0 && dropped == 0 {
+		return s.NextRunAt, false
+	}
+	previous = s.NextRunAt
+	s.setNextRunAt(next)
+	s.setMissedCatchupWindow(s.MissedCatchupWindow + missed)
+	s.setBufferDropped(s.BufferDropped + dropped)
+	s.setUpdatedAt(now)
+	return previous, true
 }
 
 // RestoreNextRunAt 把 NextRunAt 改回推进前的值 previous，返回被替换掉的值供 CAS 比较。
@@ -215,11 +288,6 @@ func (s *Schedule) RestoreNextRunAt(previous *time.Time, now time.Time) (advance
 	s.setNextRunAt(previous)
 	s.setUpdatedAt(now)
 	return advanced
-}
-
-// MissedCatchupWindow 报告到期点是否已超出补触发窗口。
-func (s *Schedule) MissedCatchupWindow(now time.Time) bool {
-	return s.NextRunAt != nil && now.Sub(*s.NextRunAt) > CatchupWindow
 }
 
 // ChecksPreviousRun 报告触发前是否要读取上一次触发的 Run 的状态：SKIP 策略且触发过。

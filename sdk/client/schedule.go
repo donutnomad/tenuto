@@ -43,6 +43,9 @@ type ScheduleOptions struct {
 	OverlapPolicy ScheduleOverlapPolicy
 	// Paused 让 Schedule 创建后先处于暂停状态。
 	Paused bool
+	// CatchupWindow 是到期点之后仍会补触发的最长延迟，Server 逐个到期点判定（与 Temporal SchedulePolicies.CatchupWindow 相同）。
+	// 0 取 365 天，小于 10 秒时 Server 返回 400。
+	CatchupWindow time.Duration
 }
 
 // ScheduleUpdateOptions 修改 Schedule；只改写非 nil 的字段。
@@ -53,6 +56,8 @@ type ScheduleUpdateOptions struct {
 	// Args 替换每次启动的输入；指向空切片表示清空输入。
 	Args          *[]any
 	OverlapPolicy *ScheduleOverlapPolicy
+	// CatchupWindow 不小于 10 秒。
+	CatchupWindow *time.Duration
 }
 
 // ScheduleHandle 操作一个 Schedule。
@@ -82,6 +87,7 @@ type ScheduleDescription struct {
 	Description    string
 	OverlapPolicy  ScheduleOverlapPolicy
 	Paused         bool
+	CatchupWindow  time.Duration
 	// Input 是每次启动的输入。
 	Input map[string]any
 	// LastRunAt、LastRunID 是最近一次触发；NextRunAt 是下一次触发时刻，暂停时为 nil。
@@ -89,9 +95,13 @@ type ScheduleDescription struct {
 	LastRunID string
 	NextRunAt *time.Time
 	// RunCount 是累计触发次数。
-	RunCount  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	RunCount int
+	// MissedCatchupWindow 是因超出 CatchupWindow 没有触发的到期点数；BufferDropped 是停机恢复后待补的到期点超过
+	// 1000 个时丢弃的较早到期点数。
+	MissedCatchupWindow int64
+	BufferDropped       int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // ScheduleListOptions 是 List 的过滤与分页条件。
@@ -126,7 +136,7 @@ func (s scheduleClient) Create(ctx context.Context, options ScheduleOptions) (Sc
 	created, err := s.client.workflows().CreateSchedule(ctx, runtimeapi.ScheduleCreateRequest{
 		Namespace: s.client.namespace, WorkflowType: options.WorkflowType, Description: options.Description,
 		CronExpression: options.CronExpression, Timezone: options.TimeZone, Input: input,
-		OverlapPolicy: string(options.OverlapPolicy), Paused: options.Paused,
+		OverlapPolicy: string(options.OverlapPolicy), Paused: options.Paused, CatchupWindow: options.CatchupWindow,
 	})
 	if err != nil {
 		return nil, mapError(callOther, err)
@@ -176,6 +186,7 @@ func (h scheduleHandle) Describe(ctx context.Context) (*ScheduleDescription, err
 func (h scheduleHandle) Update(ctx context.Context, options ScheduleUpdateOptions) error {
 	update := runtimeapi.ScheduleUpdate{
 		Description: options.Description, CronExpression: options.CronExpression, Timezone: options.TimeZone,
+		CatchupWindow: options.CatchupWindow,
 	}
 	if options.OverlapPolicy != nil {
 		policy := string(*options.OverlapPolicy)
@@ -225,7 +236,8 @@ func scheduleDescription(s runtimeapi.Schedule) ScheduleDescription {
 	return ScheduleDescription{
 		ID: s.ID, WorkflowType: s.WorkflowType, CronExpression: s.CronExpression, TimeZone: s.Timezone,
 		Description: s.Description, OverlapPolicy: ScheduleOverlapPolicy(s.OverlapPolicy), Paused: s.Paused,
-		Input: s.Input, LastRunAt: s.LastRunAt, LastRunID: s.LastRunID, NextRunAt: s.NextRunAt,
-		RunCount: s.RunCount, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
+		CatchupWindow: s.CatchupWindow, Input: s.Input, LastRunAt: s.LastRunAt, LastRunID: s.LastRunID, NextRunAt: s.NextRunAt,
+		RunCount: s.RunCount, MissedCatchupWindow: s.MissedCatchupWindow, BufferDropped: s.BufferDropped,
+		CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 	}
 }

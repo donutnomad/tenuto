@@ -300,6 +300,10 @@ CREATE TABLE IF NOT EXISTS `tenuto_schedules` (
   `next_run_at`     DATETIME(3),
   `last_run_id`     VARCHAR(191) NOT NULL DEFAULT '',
   `run_count`       INT          NOT NULL DEFAULT 0,
+  -- catchup_window_ns 是补触发窗口（纳秒）；missed_catchup_window 与 buffer_dropped 是跳过的到期点计数。
+  `catchup_window_ns`     BIGINT NOT NULL,
+  `missed_catchup_window` BIGINT NOT NULL DEFAULT 0,
+  `buffer_dropped`        BIGINT NOT NULL DEFAULT 0,
   `created_at`      DATETIME(3)  NOT NULL,
   `updated_at`      DATETIME(3)  NOT NULL,
   PRIMARY KEY (`namespace`, `id`),

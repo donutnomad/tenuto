@@ -477,10 +477,14 @@ export interface Schedule {
   input?: Record<string, unknown>
   paused: boolean
   overlap_policy?: string
+  // catchup_window 是纳秒；missed_catchup_window 与 buffer_dropped 是跳过的到期点计数。
+  catchup_window: number
   last_run_at?: string
   next_run_at?: string
   last_run_id?: string
   run_count: number
+  missed_catchup_window: number
+  buffer_dropped: number
   created_at: string
   updated_at: string
 }
@@ -499,6 +503,8 @@ export interface CreateScheduleRequest {
   input?: Record<string, unknown>
   overlap_policy?: string
   paused?: boolean
+  // catchup_window 是纳秒，省略时 Server 取 365 天。
+  catchup_window?: number
 }
 
 // --- Batch Operations ---

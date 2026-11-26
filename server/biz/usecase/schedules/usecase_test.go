@@ -965,7 +965,7 @@ func TestFireDue_RecordsRun(t *testing.T) {
 	// Happy Path: 自动触发后记录 LastRunAt、LastRunID 与 RunCount
 	store := memory.NewScheduleRepository()
 	firer := newFakeFirer(store)
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	if err := store.CreateSchedule(newTestSchedule("sch-record", "wf-record", "* * * * *", "ALLOW_ALL", &past)); err != nil {
 		t.Fatal(err)
 	}
