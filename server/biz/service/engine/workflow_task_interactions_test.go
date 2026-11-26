@@ -261,6 +261,45 @@ func TestResetRequestIDReturnsFirstResult(t *testing.T) {
 	}
 }
 
+// RequestID 去重只看 reset 出的 Run 自己 branch 上的 reset 标记：A 以 K reset 出 B，B 在它的 reset 标记之后以 K2
+// reset 出 C（C 的祖先前缀里带着 B 的 K 标记），再以 K reset B 时照常 reset，不返回 C。
+func TestResetRequestIDIgnoresInheritedResetMarker(t *testing.T) {
+	ctx := context.Background()
+	mgr := memory.NewExecutionManager()
+	server := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
+	defer server.Stop()
+	runA := batchResetRun(t, ctx, server, mgr, "wf-reset-request-id-inherited")
+	reset := func(runID, requestID string) string {
+		t.Helper()
+		newRunID, err := server.ResetWorkflow(ctx, execution.ResetWorkflowRequest{
+			RunID: runID, ResetType: execution.ResetTypeEnums.LastWorkflowTask, Reason: "fix", RequestID: requestID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return newRunID
+	}
+	runB := reset(runA, "K")
+	// B 的首个 WFT 完成：B 的最后一个 Workflow Task 边界在它的 reset 标记之后。
+	open := openWorkflowTaskID(t, mgr, runB)
+	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(ctx, runB, open), runB, open, nil, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	runC := reset(runB, "K2")
+	inherited, err := mgr.GetEventsByDedupeKeys(runC, []string{execution.ResetRequestDedupeKey("K")})
+	if err != nil || len(inherited) != 1 {
+		t.Fatalf("C's visible history holds %d K reset markers (err %v), want B's marker inherited through the fork", len(inherited), err)
+	}
+
+	runD := reset(runB, "K")
+	if runD == runC || runD == runB {
+		t.Fatalf("reset of B with K returned %s (B=%s, C=%s): the K marker C inherited from B was taken as C's own request", runD, runB, runC)
+	}
+	if again := reset(runA, "K"); again != runB {
+		t.Fatalf("repeated reset of A with K returned %s, want B %s", again, runB)
+	}
+}
+
 // barrierRuns 让两个驱动都先读完同一页、再各自执行动作：模拟租约切换瞬间的两个 leader 同时处理同一页。
 type barrierRuns struct {
 	execution.ExecutionManager

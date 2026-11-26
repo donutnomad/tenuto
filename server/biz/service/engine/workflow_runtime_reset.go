@@ -78,16 +78,26 @@ func (s *Server) resetOnce(ctx context.Context, req execution.ResetWorkflowReque
 }
 
 // resetDuplicateOf 返回 base 最近一次 reset 出的 Run，当且仅当那次 reset 来自同一个 RequestID 的请求；否则返回空。
-// 去重键写在 reset 出的 Run 的 reset 标记上（见 execution.ResetRequestDedupeKey）。
+// 去重键写在 reset 出的 Run 的 reset 标记上（见 execution.ResetRequestDedupeKey），只在这个 Run 自己的 branch 上
+// 查找：reset 出的 Run 再被 reset 时，新 Run fork 来的祖先前缀里带着上一代的 reset 标记，不能算作新 Run 的创建请求
+// （对齐 Temporal 只比较 current Run 的 CreateRequestId）。
 func (s *Server) resetDuplicateOf(base *execution.Run, requestID string) (string, error) {
 	if requestID == "" || base.ResetRunID == "" {
 		return "", nil
 	}
-	events, err := s.mgr.GetEventsByDedupeKeys(base.ResetRunID, []string{execution.ResetRequestDedupeKey(requestID)})
-	if err != nil || len(events) == 0 {
+	reset, err := s.mgr.Get(base.ResetRunID)
+	if err != nil {
 		return "", err
 	}
-	return base.ResetRunID, nil
+	_, branchID, err := runBranchInfoFromRun(reset)
+	if err != nil {
+		return "", err
+	}
+	_, found, err := s.mgr.GetEventIDByDedupeKey(reset.ID, branchID, execution.ResetRequestDedupeKey(requestID))
+	if err != nil || !found {
+		return "", err
+	}
+	return reset.ID, nil
 }
 
 // prepareReset 在事务之外完成 reset 的全部校验与 History 分支的 fork，构造新 Run 与提交内容：被拒绝的 reset
