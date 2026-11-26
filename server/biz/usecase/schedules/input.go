@@ -1,6 +1,10 @@
 package schedules
 
-import "github.com/donutnomad/tenuto/server/biz/domain/schedule"
+import (
+	"time"
+
+	"github.com/donutnomad/tenuto/server/biz/domain/schedule"
+)
 
 type CreateRequest struct {
 	Namespace      string         `json:"namespace,omitempty"`
@@ -11,6 +15,8 @@ type CreateRequest struct {
 	Input          map[string]any `json:"input,omitempty"`
 	OverlapPolicy  string         `json:"overlap_policy,omitempty"`
 	Paused         bool           `json:"paused,omitempty"`
+	// CatchupWindow 为 0 时取 schedule.DefaultCatchupWindow。
+	CatchupWindow time.Duration `json:"catchup_window,omitempty"`
 }
 
 type UpdateRequest struct {
@@ -19,6 +25,7 @@ type UpdateRequest struct {
 	Timezone       *string         `json:"timezone,omitempty"`
 	Input          *map[string]any `json:"input,omitempty"`
 	OverlapPolicy  *string         `json:"overlap_policy,omitempty"`
+	CatchupWindow  *time.Duration  `json:"catchup_window,omitempty"`
 }
 
 type ListFilter struct {

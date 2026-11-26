@@ -405,7 +405,15 @@ func (a *application) configureMySQLTaskQ(ctx context.Context, taskTokens *dispa
 	if err != nil {
 		return fmt.Errorf("resolve TaskQ service %q: %w", a.cfg.TaskQ.ServiceName, err)
 	}
-	a.dbProbes = []*dbProbe{{db: a.workflowDB}, {db: a.taskQDB}}
+	workflowProbe, err := newDBProbe("workflow", a.workflowDB)
+	if err != nil {
+		return err
+	}
+	taskQProbe, err := newDBProbe("TaskQ", a.taskQDB)
+	if err != nil {
+		return err
+	}
+	a.dbProbes = []*dbProbe{workflowProbe, taskQProbe}
 	a.health.checks = []func(context.Context) error{
 		a.dbProbes[0].check,
 		a.dbProbes[1].check,

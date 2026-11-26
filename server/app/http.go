@@ -128,11 +128,23 @@ func (h *healthState) readiness(w http.ResponseWriter, r *http.Request) {
 
 // dbProbe 用一条专用连接检查数据库可达。readiness 因此不在业务连接池上排队：池被业务请求占满时探针照常通过，
 // 不会让所有副本同时摘除；数据库失联时 Ping 失败。连接坏掉后丢弃，下一次检查重新取一条。
-// 它长期占用连接池的一个连接。
+// 它长期占用连接池的一个连接，所以连接池至少要有 minProbedPoolConns 条连接，见 newDBProbe。
 type dbProbe struct {
 	db   *sql.DB
 	mu   sync.Mutex
 	conn *sql.Conn
+}
+
+// minProbedPoolConns 是带 readiness 探针的连接池的最小连接数：探针占一条，业务至少还有一条。
+const minProbedPoolConns = 2
+
+// newDBProbe 为 pool 建探针。pool 的连接上限低于 minProbedPoolConns 时返回错误：探针占住唯一的连接后，
+// 业务查询在连接池上无限等待，而 readiness 照常通过。
+func newDBProbe(name string, pool *sql.DB) (*dbProbe, error) {
+	if limit := pool.Stats().MaxOpenConnections; limit > 0 && limit < minProbedPoolConns {
+		return nil, fmt.Errorf("%s database pool allows %d open connections, need at least %d: readiness holds one connection (WORKFLOW_DB_MAX_OPEN_CONNS)", name, limit, minProbedPoolConns)
+	}
+	return &dbProbe{db: pool}, nil
 }
 
 func (p *dbProbe) check(ctx context.Context) error {

@@ -213,9 +213,9 @@ func createExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) 
 	return nil
 }
 
-// updateExecutionState 把 state 经 setter 改过的字段写回，没有改动时不写库。
+// updateExecutionState 把 state 经 setter 改过的字段写回，没有改动时不写库；搜索属性改过时同时改写 tenuto_run_search_attributes。
 // blocked_json 由四个投影字段合成，其中任何一个改过就重写这一列；needs_workflow_task 随 WFT 状态与 open WFT 重算。
-func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) error {
+func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState, storedAttributes map[string]string) error {
 	row, err := executionStateToRow(state)
 	if err != nil {
 		return err
@@ -244,6 +244,12 @@ func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) 
 		Where(WorkflowExecutionStateSchema.RunID.Eq(state.RunID)).
 		Update(db, patch).Error; err != nil {
 		return err
+	}
+	// 搜索属性的索引行与投影同事务改写。
+	if changed.SearchAttributes.IsPresent() {
+		if err := updateRunSearchAttributes(db, state.RunID, storedAttributes, state.SearchAttributes); err != nil {
+			return err
+		}
 	}
 	state.ClearPatch()
 	return nil
@@ -280,15 +286,18 @@ func (t *gormExecutionTx) lockedState(runID string) (*execution.WorkflowExecutio
 func (t *gormExecutionTx) keepState(state *execution.WorkflowExecutionState) {
 	if t.states == nil {
 		t.states = make(map[string]*execution.WorkflowExecutionState)
+		t.storedAttributes = make(map[string]map[string]string)
 	}
 	t.states[state.RunID] = state
+	// 投影会原地改 SearchAttributes，留一份副本作为 tenuto_run_search_attributes 现有行的依据。
+	t.storedAttributes[state.RunID] = maps.Clone(state.SearchAttributes)
 }
 
 // flushStates 把本事务改过的 execution state 各写回一次（每个 Run 一条 UPDATE，没有改动的不写），在提交前调用。
 // 行锁都已持有，写回顺序不影响加锁顺序。
 func (t *gormExecutionTx) flushStates() error {
 	for _, runID := range slices.Sorted(maps.Keys(t.states)) {
-		if err := updateExecutionState(t.db, t.states[runID]); err != nil {
+		if err := updateExecutionState(t.db, t.states[runID], t.storedAttributes[runID]); err != nil {
 			return err
 		}
 	}

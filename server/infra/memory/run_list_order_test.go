@@ -23,3 +23,11 @@ func TestRecoveryRunIDsContract(t *testing.T) {
 func TestRunScanWithoutTotalContract(t *testing.T) {
 	executiontest.RunScanWithoutTotalContract(t, func(*testing.T) execution.ExecutionManager { return memory.NewExecutionManager() })
 }
+
+func TestRunListSearchAttributeContract(t *testing.T) {
+	executiontest.RunListSearchAttributeContract(t, func(*testing.T) execution.ExecutionManager { return memory.NewExecutionManager() })
+}
+
+func TestRunListPageTokenContract(t *testing.T) {
+	executiontest.RunListPageTokenContract(t, func(*testing.T) execution.ExecutionManager { return memory.NewExecutionManager() })
+}

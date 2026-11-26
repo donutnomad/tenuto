@@ -249,6 +249,31 @@ CREATE TABLE IF NOT EXISTS tenuto_execution_states (
 `
 }
 
+// RunSearchAttributePO 是 tenuto_run_search_attributes 的一行：Run 的一个搜索属性 term。
+// @Gsql
+// @Setter(setter=false, patch=v2)
+type RunSearchAttributePO struct {
+	RunID     string    `gorm:"column:run_id"`
+	AttrHash  []byte    `gorm:"column:attr_hash"`
+	Namespace string    `gorm:"column:namespace"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+}
+
+func (RunSearchAttributePO) TableName() string { return "tenuto_run_search_attributes" }
+
+func (RunSearchAttributePO) MysqlCreateTable() string {
+	return `
+CREATE TABLE IF NOT EXISTS tenuto_run_search_attributes (
+  run_id     VARCHAR(191) NOT NULL,
+  attr_hash  BINARY(32)   NOT NULL,
+  namespace  VARCHAR(191) NOT NULL,
+  created_at DATETIME(3)  NOT NULL,
+  PRIMARY KEY (run_id, attr_hash),
+  INDEX idx_run_search_attributes_lookup (namespace, attr_hash, created_at, run_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
+`
+}
+
 // ActivityStatePO
 // @Gsql
 // @Setter(setter=false, patch=v2)

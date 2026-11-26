@@ -51,7 +51,7 @@ func TestScheduleUpdateWithoutChangesIsNoOp(t *testing.T) {
 
 	advancer, err := store.Schedules.GetSchedule(entity.Namespace, entity.ID)
 	require.NoError(t, err)
-	previous := advancer.AdvanceNextRunAt(advancer.NextRunAt.Add(time.Hour))
+	previous := advancer.AdvanceNextRunAt(advancer.NextRunAt.Add(time.Hour), advancer.NextRunAt.Add(time.Hour))
 	advanced, err := store.Schedules.UpdateScheduleNextRunAtCAS(advancer, previous)
 	require.NoError(t, err)
 	require.True(t, advanced)

@@ -80,7 +80,7 @@ task_queue
 - 开启内置认证：`WORKFLOW_HTTP_AUTH_TOKEN`（或 `_FILE`）要求 Bearer token，`WORKFLOW_HTTP_TLS_CLIENT_CA_FILE` 要求客户端证书，两者可同时使用；需要按调用方分权时再在网关按路径分组授权，见 [安全部署](./security.md)。同一端口上的 `/admin/partitions` 只对运维网段开放。
 - Server HTTP TLS 使用 `WORKFLOW_HTTP_TLS_CERT_FILE` 与 `WORKFLOW_HTTP_TLS_KEY_FILE`。开启 mTLS 后配置 `WORKFLOW_HEALTH_ADDR`，探针改探这个明文端口。
 - Console 持有 Server 的 token（`TENUTO_SERVER_AUTH_TOKEN`）且没有用户登录，放在你自己的 SSO 或鉴权代理之后。
-- TaskQ gRPC TLS 使用 `TASKQ_TLS_ENABLED=true` 及 CA、Server Name、Client Cert 配置。
+- TaskQ gRPC TLS 使用 `TASKQ_TLS_ENABLED=true` 及 CA、Server Name、Client Cert 配置，只适用于外置 matching（`TASKQ_MATCHING_ENABLED=false`），与内嵌 matching 同时开启时 Server 启动失败；内嵌 matching 的 `:7235` 只对 Server 副本开放。
 - 内嵌 matching 的 gRPC 端口（7235）只在副本之间可达，不暴露给 Worker 或外部网络。
 - `WORKFLOW_PPROF_ADDR`（缺省关闭）的 pprof 监听不鉴权：只在排查时开启，绑定本机或运维网段。
 - MySQL 使用独立账号、最小权限和加密连接。Server 运行账号只需读写数据；DDL 权限只给执行 `tenuto-server migrate` 的账号。

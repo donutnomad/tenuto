@@ -92,19 +92,22 @@ type RunListFilter struct {
 	Statuses         []history.Status  `json:"statuses,omitempty"`
 	SearchAttributes map[string]string `json:"search_attributes,omitempty"`
 	IncludeTerminal  bool              `json:"include_terminal,omitempty"`
-	Offset           int               `json:"offset,omitempty"`
 	Limit            int               `json:"limit,omitempty"`
 	OrderDesc        bool              `json:"order_desc,omitempty"`
 	BlockedOnly      bool              `json:"blocked_only,omitempty"`
-	// SkipTotal 为 true 时 Server 不计算 Total（应答 0），翻页看 HasMore。
+	// SkipTotal 为 true 时 Server 不计算 Total（应答 0），翻页看 NextPageToken。
 	SkipTotal bool `json:"skip_total,omitempty"`
+	// PageToken 是上一页应答的 next_page_token，为空时从第一页开始；过滤条件变了再用返回 400。
+	PageToken string `json:"page_token,omitempty"`
 }
 
-// RunListResult 是一页 Run。Total 是满足条件的 Run 总数（SkipTotal 时为 0），HasMore 表示这一页之后还有 Run。
+// RunListResult 是一页 Run。Total 是满足条件的 Run 总数（SkipTotal 时为 0），HasMore 表示这一页之后还有 Run，
+// 此时 NextPageToken 是下一页的 page_token。
 type RunListResult struct {
-	Items   []RunListItem `json:"items"`
-	Total   int           `json:"total"`
-	HasMore bool          `json:"has_more"`
+	Items         []RunListItem `json:"items"`
+	Total         int           `json:"total"`
+	HasMore       bool          `json:"has_more"`
+	NextPageToken string        `json:"next_page_token,omitempty"`
 }
 
 type RunListItem struct {
@@ -297,12 +300,18 @@ type Schedule struct {
 	Input          map[string]any `json:"input,omitempty"`
 	Paused         bool           `json:"paused"`
 	OverlapPolicy  string         `json:"overlap_policy,omitempty"`
-	LastRunAt      *time.Time     `json:"last_run_at,omitempty"`
-	NextRunAt      *time.Time     `json:"next_run_at,omitempty"`
-	LastRunID      string         `json:"last_run_id,omitempty"`
-	RunCount       int            `json:"run_count"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	// CatchupWindow 是到期点之后仍会补触发的最长延迟（纳秒），逐个到期点判定。
+	CatchupWindow time.Duration `json:"catchup_window"`
+	LastRunAt     *time.Time    `json:"last_run_at,omitempty"`
+	NextRunAt     *time.Time    `json:"next_run_at,omitempty"`
+	LastRunID     string        `json:"last_run_id,omitempty"`
+	RunCount      int           `json:"run_count"`
+	// MissedCatchupWindow 是因超出 catchup window 没有触发的到期点数。
+	MissedCatchupWindow int64 `json:"missed_catchup_window"`
+	// BufferDropped 是补触发时 buffer（1000 个）满之后到达而被丢弃的到期点数。
+	BufferDropped int64     `json:"buffer_dropped"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // ScheduleCreateRequest 是 create-schedule 的请求体。
@@ -315,6 +324,8 @@ type ScheduleCreateRequest struct {
 	Input          map[string]any `json:"input,omitempty"`
 	OverlapPolicy  string         `json:"overlap_policy,omitempty"`
 	Paused         bool           `json:"paused,omitempty"`
+	// CatchupWindow（纳秒）为 0 时取 365 天，最小 10 秒。
+	CatchupWindow time.Duration `json:"catchup_window,omitempty"`
 }
 
 // ScheduleUpdate 只改写非 nil 的字段。
@@ -324,6 +335,7 @@ type ScheduleUpdate struct {
 	Timezone       *string         `json:"timezone,omitempty"`
 	Input          *map[string]any `json:"input,omitempty"`
 	OverlapPolicy  *string         `json:"overlap_policy,omitempty"`
+	CatchupWindow  *time.Duration  `json:"catchup_window,omitempty"`
 }
 
 type ScheduleListFilter struct {

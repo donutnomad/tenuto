@@ -135,13 +135,13 @@ func TestNewValidatesAndNormalizes(t *testing.T) {
 
 	op, err := batch.New("op", batch.NewParams{
 		Type:   batch.TypeEnums.Cancel,
-		Filter: execution.RunListFilter{RunIDs: []string{"r1"}, Offset: 10, Limit: 5, OrderDesc: true},
+		Filter: execution.RunListFilter{RunIDs: []string{"r1"}, PageToken: "token", Limit: 5, OrderDesc: true},
 	}, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f := op.Filter
-	if op.Namespace != "default" || f.Namespace != "default" || f.Offset != 0 || f.Limit != 0 || f.OrderDesc || !f.IncludeTerminal {
+	if op.Namespace != "default" || f.Namespace != "default" || f.PageToken != "" || f.Limit != 0 || f.OrderDesc || !f.IncludeTerminal {
 		t.Fatalf("operation = %+v, filter = %+v", op, f)
 	}
 	if op.Status != batch.StatusEnums.Pending || !op.CreatedAt.Equal(t0) || !op.SelectedBefore().Equal(t0.Add(time.Millisecond)) {

@@ -338,6 +338,10 @@ func (s *Repository) deleteRunRows(tx *gorm.DB, runIDs []string) error {
 		Where(WorkflowExecutionStateSchema.RunID.IN(runIDs...)).Delete(tx).Error; err != nil {
 		return fmt.Errorf("workflow execution state: %w", err)
 	}
+	if err := gsql.From[RunSearchAttributePO](RunSearchAttributeSchema).
+		Where(RunSearchAttributeSchema.RunID.IN(runIDs...)).Delete(tx).Error; err != nil {
+		return fmt.Errorf("run search attributes: %w", err)
+	}
 	if err := gsql.From[ActivityStatePO](ActivityStateSchema).
 		Where(ActivityStateSchema.RunID.IN(runIDs...)).Delete(tx).Error; err != nil {
 		return fmt.Errorf("activity state: %w", err)

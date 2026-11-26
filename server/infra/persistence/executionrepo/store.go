@@ -5,10 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"math"
-	"slices"
-	"strings"
 
 	"github.com/donutnomad/gsql"
 	"github.com/donutnomad/tenuto/protocol"
@@ -194,11 +191,11 @@ var terminalRunStatuses = []string{
 	string(history.StatusContinuedAsNew),
 }
 
-// List 在分页之前应用全部过滤条件，Total 是过滤后的总数（SkipTotal 时不计数）。排序键是 (created_at, id)，
+// List 在分页之前应用全部过滤条件，Total 是过滤后的总数（SkipTotal 时不计数，与游标无关）。排序键是 (created_at, id)，
 // created_at 相同的 Run 跨页不重复也不丢失。
 //
-// blocked 与搜索属性取自 tenuto_execution_states 的投影列，经 EXISTS 子查询下推。
-// 两种方言都能表达的属性条件走 SQL；其余条件（见 splitSearchAttributeFilter）走 listByAttributeScan。
+// blocked 取自 tenuto_execution_states 的投影列，经 EXISTS 子查询下推；带搜索属性条件时由 listBySearchAttributes
+// 从 tenuto_run_search_attributes 的索引读。
 func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreListResult, error) {
 	runConds := []gsql.Expression{RunSchema.ID.In(filter.RunIDs...)}
 	if filter.Namespace != "" {
@@ -216,36 +213,24 @@ func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreList
 	} else if !filter.IncludeTerminal {
 		runConds = append(runConds, RunSchema.Status.NotIn(terminalRunStatuses...))
 	}
-	if filter.CreatedBefore != nil {
-		runConds = append(runConds, RunSchema.CreatedAt.Lt(*filter.CreatedBefore))
-	}
-	if after := filter.After; after != nil {
-		// 位于游标之后：created_at 更晚，或 created_at 相同而 id 更大（降序时反向）。
-		createdAfter, idAfter := RunSchema.CreatedAt.Gt(after.CreatedAt), gsql.Expr("? > ?", RunSchema.ID, after.RunID)
-		if filter.OrderDesc {
-			createdAfter, idAfter = RunSchema.CreatedAt.Lt(after.CreatedAt), gsql.Expr("? < ?", RunSchema.ID, after.RunID)
-		}
-		runConds = append(runConds, gsql.Or(createdAfter, gsql.And(RunSchema.CreatedAt.Eq(after.CreatedAt), idAfter)))
-	}
 
 	states := WorkflowExecutionStateSchema
 	var stateConds []gsql.Expression
 	if filter.BlockedOnly {
 		stateConds = append(stateConds, states.Blocked.Eq(true))
 	}
-	sqlAttributes, scanAttributes := splitSearchAttributeFilter(filter.SearchAttributes)
-	for _, key := range slices.Sorted(maps.Keys(sqlAttributes)) {
-		stateConds = append(stateConds, searchAttributeCondition(key, sqlAttributes[key]))
-	}
 
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	if len(scanAttributes) > 0 {
-		return s.listByAttributeScan(runConds, stateConds, scanAttributes, filter, limit)
+	if len(filter.SearchAttributes) > 0 {
+		return s.listBySearchAttributes(runConds, stateConds, filter, limit)
 	}
 
+	if filter.CreatedBefore != nil {
+		runConds = append(runConds, RunSchema.CreatedAt.Lt(*filter.CreatedBefore))
+	}
 	query := gsql.From[RunPO](RunSchema).Where(runConds...)
 	if len(stateConds) > 0 {
 		query = query.Where(gsql.Exists(
@@ -262,10 +247,13 @@ func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreList
 			return execution.StoreListResult{}, err
 		}
 	}
+	if filter.After != nil {
+		query = query.Where(cursorCondition(RunSchema.CreatedAt, RunSchema.ID, filter.After, filter.OrderDesc))
+	}
 	// 多取一行判断是否还有下一页。
 	rows, err := infradb.Find(s.db, query.Order(RunSchema.CreatedAt, !filter.OrderDesc).
 		Order(RunSchema.ID, !filter.OrderDesc).
-		Offset(filter.Offset).Limit(limit+1))
+		Limit(limit+1))
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}
@@ -277,89 +265,13 @@ func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreList
 	return execution.StoreListResult{Runs: runs, Total: int(total), HasMore: hasMore}, nil
 }
 
-// splitSearchAttributeFilter 把属性条件分成 SQL 可表达的全等条件与需要在 Go 中判定的条件。
-//
-// 走 Go 判定的两类：ChangeVersionSearchAttribute 的值是 JSON 数组编码成的字符串，成员匹配要把
-// 字符串再解析成数组；键含引号、反斜杠或控制字符时，拼进 JSON path 需要额外转义。
-func splitSearchAttributeFilter(attributes map[string]string) (sqlAttributes, scanAttributes map[string]string) {
-	sqlAttributes, scanAttributes = map[string]string{}, map[string]string{}
-	for key, value := range attributes {
-		unsafePath := key == "" || strings.ContainsFunc(key, func(r rune) bool { return r == '"' || r == '\\' || r < 0x20 })
-		if key == history.ChangeVersionSearchAttribute || unsafePath {
-			scanAttributes[key] = value
-			continue
-		}
-		sqlAttributes[key] = value
+// cursorCondition 表达「位于游标之后」：created_at 更晚，或 created_at 相同而 id 更大（降序时反向）。
+func cursorCondition(createdAt gsql.DateTimeField, id gsql.StringField, after *execution.RunCursor, desc bool) gsql.Expression {
+	createdAfter, idAfter := createdAt.Gt(after.CreatedAt), gsql.Expr("? > ?", id, after.RunID)
+	if desc {
+		createdAfter, idAfter = createdAt.Lt(after.CreatedAt), gsql.Expr("? < ?", id, after.RunID)
 	}
-	return sqlAttributes, scanAttributes
-}
-
-// searchAttributeCondition 表达 attrs[key] == value，缺失的键等同空串（与 execution.MatchSearchAttributes 一致）。
-// 列类型是 LONGBLOB，先 CAST 成字符再交给 JSON_EXTRACT。
-func searchAttributeCondition(key, value string) gsql.Expression {
-	extracted := gsql.JsonOf(WorkflowExecutionStateSchema.SearchAttributesJSON.CastChar()).Extract(`$."` + key + `"`)
-	if value == "" {
-		return gsql.Or(extracted.IsNull(), extracted.Eq(""))
-	}
-	return extracted.Eq(value)
-}
-
-type runAttributesRow struct {
-	RunID                string `gorm:"column:run_id"`
-	SearchAttributesJSON []byte `gorm:"column:search_attributes_json"`
-}
-
-// listByAttributeScan 按排序取出候选 Run 的 (run_id, 搜索属性)，用 execution.MatchSearchAttributes
-// 过滤后再分页，页内容与 Total 都来自过滤后的集合。候选集已经过全部 SQL 条件收窄。
-func (s *Repository) listByAttributeScan(runConds, stateConds []gsql.Expression, attributes map[string]string, filter execution.StoreListFilter, limit int) (execution.StoreListResult, error) {
-	states := WorkflowExecutionStateSchema
-	candidates, err := infradb.Find(s.db, gsql.SelectG[runAttributesRow](states.RunID, states.SearchAttributesJSON).
-		From(states).
-		Join(gsql.InnerJoin(RunSchema).On(RunSchema.ID.EqF(states.RunID))).
-		Where(runConds...).
-		Where(stateConds...).
-		Order(RunSchema.CreatedAt, !filter.OrderDesc).
-		Order(RunSchema.ID, !filter.OrderDesc))
-	if err != nil {
-		return execution.StoreListResult{}, err
-	}
-	matched := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		var attrs map[string]string
-		if len(candidate.SearchAttributesJSON) > 0 {
-			if err := json.Unmarshal(candidate.SearchAttributesJSON, &attrs); err != nil {
-				return execution.StoreListResult{}, fmt.Errorf("run %s search attributes: %w", candidate.RunID, err)
-			}
-		}
-		if execution.MatchSearchAttributes(attrs, attributes) {
-			matched = append(matched, candidate.RunID)
-		}
-	}
-	result := execution.StoreListResult{Total: len(matched)}
-	if filter.SkipTotal {
-		result.Total = 0
-	}
-	page := matched[min(max(filter.Offset, 0), len(matched)):]
-	result.HasMore = len(page) > limit
-	page = page[:min(limit, len(page))]
-	if len(page) == 0 {
-		return result, nil
-	}
-	rows, err := infradb.Find(s.db, gsql.From[RunPO](RunSchema).Where(RunSchema.ID.In(page...)))
-	if err != nil {
-		return execution.StoreListResult{}, err
-	}
-	runs, err := runRowsToDomain(rows)
-	if err != nil {
-		return execution.StoreListResult{}, err
-	}
-	position := make(map[string]int, len(page))
-	for i, runID := range page {
-		position[runID] = i
-	}
-	slices.SortFunc(runs, func(a, b *execution.Run) int { return position[a.ID] - position[b.ID] })
-	result.Runs = runs
-	return result, nil
+	return gsql.Or(createdAfter, gsql.And(createdAt.Eq(after.CreatedAt), idAfter))
 }
 
 // ── EventStore ──
@@ -534,6 +446,8 @@ type gormExecutionTx struct {
 	store  *Repository
 	db     *gorm.DB
 	states map[string]*execution.WorkflowExecutionState
+	// storedAttributes 是 states 里每个 Run 在加锁读取（或创建）时已写入库的搜索属性。
+	storedAttributes map[string]map[string]string
 }
 
 func (t *gormExecutionTx) AppendIdempotent(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
@@ -691,6 +605,9 @@ func (t *gormExecutionTx) CreateRun(run *execution.Run) error {
 		return err
 	}
 	if err := createExecutionState(t.db, state); err != nil {
+		return err
+	}
+	if err := insertRunSearchAttributes(t.db, run.ID, row.Namespace, row.CreatedAt, execution.SearchAttributeTerms(state.SearchAttributes)); err != nil {
 		return err
 	}
 	t.keepState(state)

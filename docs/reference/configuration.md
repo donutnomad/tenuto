@@ -55,7 +55,7 @@ status: Stable
 | --- | --- | --- |
 | `WORKFLOW_DB_DSN` | 生产后端必填 | MySQL DSN；`tenuto-server migrate` 在这个库上执行 Tenuto 的迁移。`parseTime=true`、`loc=UTC`、`interpolateParams=true` 由 Server 设置；字符集用 `utf8mb4`，GBK、Big5、SJIS 等不能与客户端插值同用的字符集启动失败（见[部署 Tenuto Server](../deploy/server.md#必需配置)）。DSN 没有给出 `readTimeout` / `writeTimeout` 时，Server 设为 `60s` / `30s`：数据库失联或主从切换时，挂在连接上的读写在这个期限内以连接错误返回（应答 503）；`readTimeout` 大于 `innodb_lock_wait_timeout` 的缺省值 50s，锁等待照常以 `1205` 返回。`tenuto-server migrate` 不设这两项 |
 | `WORKFLOW_HISTORY_PAGE_TOKEN_KEY_BASE64` | 生产后端必填 | Base64 编码的 History Page Token HMAC Key，解码后至少 32 字节 |
-| `WORKFLOW_DB_MAX_OPEN_CONNS` | `50` | 最大连接数；Workflow 与 TaskQ 两个连接池各自的上限，所有副本合计最多 `副本数 × 2 × 该值`，要小于 MySQL 的 `max_connections`（见[数据库连接数](../deploy/production.md#数据库连接数)） |
+| `WORKFLOW_DB_MAX_OPEN_CONNS` | `50` | 最大连接数，最小 `2`：readiness 探针在每个池里长期占一条连接，小于 2 时 Server 启动失败（注入的连接池同样检查）；Workflow 与 TaskQ 两个连接池各自的上限，所有副本合计最多 `副本数 × 2 × 该值`，要小于 MySQL 的 `max_connections`（见[数据库连接数](../deploy/production.md#数据库连接数)） |
 | `WORKFLOW_DB_MAX_IDLE_CONNS` | `10` | 最大空闲连接数，同样作用于两个连接池；不能大于 `WORKFLOW_DB_MAX_OPEN_CONNS` |
 | `WORKFLOW_DB_CONN_MAX_LIFETIME` | `30m` | 连接最大生命周期 |
 | `WORKFLOW_DB_CONN_MAX_IDLE_TIME` | `5m` | 空闲连接生命周期 |
@@ -94,7 +94,7 @@ status: Stable
 
 | 变量 | 说明 |
 | --- | --- |
-| `TASKQ_TLS_ENABLED` | 启用 gRPC TLS |
+| `TASKQ_TLS_ENABLED` | 连接外置 matching 时启用 gRPC TLS；要求 `TASKQ_MATCHING_ENABLED=false` |
 | `TASKQ_TLS_CA_FILE` | CA Certificate |
 | `TASKQ_TLS_SERVER_NAME` | TLS Server Name |
 | `TASKQ_TLS_CERT_FILE` | mTLS Client Certificate |
@@ -117,3 +117,5 @@ OTLP 连接使用 OpenTelemetry 标准环境变量，例如 `OTEL_EXPORTER_OTLP_
 `WORKFLOW_BACKEND=memory` 用于本地开发和自动化测试，Workflow state 与 queue 都保存在进程内。`WORKFLOW_BACKEND=mysql-taskq` 启用 MySQL 持久化和 TaskQ 路由，并要求配置数据库 DSN、History Token Key 与 Task Token Secret；Activity Queue 映射 `TASKQ_ACTIVITY_QUEUES_JSON` 可选，未配置的路由使用 `activity:<namespace>/<task_queue>`。
 
 TLS Certificate 与 Private Key 需要成对配置。启用任一 TaskQ TLS 文件或 Server Name 时，同时设置 `TASKQ_TLS_ENABLED=true`。
+
+TaskQ TLS 只用于连接外置 matching：内嵌 matching（`TASKQ_MATCHING_ENABLED=true`，缺省）的 gRPC 监听是明文，`TASKQ_TLS_ENABLED=true` 与它同时配置时 Server 启动失败。内嵌模式下副本之间的 matching 流量（`:7235`）靠网络隔离保护，只对 Server 副本开放。

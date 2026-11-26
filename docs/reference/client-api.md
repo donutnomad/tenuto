@@ -153,15 +153,16 @@ type ListWorkflowOptions struct {
     WorkflowID       string
     Statuses         []WorkflowExecutionStatus
     SearchAttributes map[string]string
-    Offset, Limit    int
+    Limit            int
     NewestFirst      bool
-    SkipTotal        bool // 不计算 Total（为 0），翻页看 HasMore
+    SkipTotal        bool   // 不计算 Total（为 0）
+    NextPageToken    string // 上一页的 ListWorkflowResult.NextPageToken；过滤条件变了再用返回 ErrInvalidArgument
 }
 
 type ListWorkflowResult struct {
-    Executions []WorkflowExecutionInfo
-    Total      int
-    HasMore    bool
+    Executions    []WorkflowExecutionInfo
+    Total         int
+    NextPageToken string // 有下一页时非空
 }
 
 type ResetWorkflowExecutionOptions struct {
@@ -207,7 +208,13 @@ type ScheduleOptions struct {
     Description    string
     OverlapPolicy  ScheduleOverlapPolicy // ScheduleOverlapPolicySkip（缺省）、ScheduleOverlapPolicyAllowAll
     Paused         bool
+    CatchupWindow  time.Duration // 0 取 365 天，最小 10 秒
 }
+```
+
+`ScheduleDescription` 带 `CatchupWindow`、`MissedCatchupWindow`（超出窗口没有触发的到期点数）与 `BufferDropped`（待补到期点超过 1000 个时，buffer 满之后到达而被丢弃的数量）；`ScheduleUpdateOptions.CatchupWindow` 是 `*time.Duration`。
+
+```go
 ```
 
 ## 批量操作

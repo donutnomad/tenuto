@@ -202,7 +202,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | 配置与部署 Worker、优雅停止、启动 Server、MySQL schema 迁移（`tenuto-server migrate`）与改表流程 | `worker.New`、`worker.Options`、`Worker.Run` / `Stop`、`activity.NewRegistry` | `references/workers.md` |
 | 从调用端启动、等待结果、查询、Signal、Update、管理 Run | `client.Dial`、`client.Client`、`WorkflowRun.Get`、`/runtime/workflow/*` | `references/client-api.md` |
 | 周期启动、列出一个 Schedule 的全部 Run | `CreateSchedule` 等、`TemporalScheduledById` | `references/schedules.md` |
-| 按业务字段检索 Run | `UpsertSearchAttributes`、`ListRuns`、保留键 | `references/search-attributes.md` |
+| 按业务字段检索 Run、翻页 | `UpsertSearchAttributes`、`ListWorkflow`（`NextPageToken` 翻页）、保留键 | `references/search-attributes.md` |
 | Reset（含重置点上未结束的 Activity / Timer 怎样带进新 Run、`ResetWorkflowError`）、批量操作（异步、可取消）、恢复暂停的 Run | `ResetWorkflow`、`StartBatchOperation`、`CancelBatchOperation`、`SetRunPolicy` | `references/operations.md` |
 | 上线前确认保证、生产必需配置、已测场景与实测数字、已知限制 | — | `references/operations.md#生产就绪` |
 | 多副本故障注入（kill -9 / SIGSTOP、数据库断连与卡死、副本间分区后核对结果与 History）、长时间浸泡、滚动升级演练、压测与 CPU profile；matching 广播地址与监听地址不同 | `cmd/tenuto-cluster failover` / `soak` / `upgrade` / `bench`、`BenchmarkHarness`、`WORKFLOW_PPROF_ADDR`、`TASKQ_MATCHING_ADVERTISE_ADDR` | `references/operations.md#多副本故障注入与压测` |
@@ -242,6 +242,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | Run 显示 Blocked，`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues` | 定义与调用处都没有声明队列，几个服务在互不相关的队列上提供同一类型 | 在 `@Activity(queue)` 或 `ActivityOptions.TaskQueue` 声明队列后重新生成发布，或停掉其中一个服务；Run 按退避自动继续，见 `references/activities.md` 的「队列如何决定」 |
 | `worker.New` 返回 `activity "..." is registered on task queue "...", which ActivityTaskQueues [...] does not include` | 显式设置的 `ActivityTaskQueues` 漏了 registry 登记的队列 | 删掉 `ActivityTaskQueues` 让 Worker 用登记的队列，或把缺的队列加进去 |
 | `CreateSchedule`/`UpdateSchedule` 返回 `invalid overlap_policy`；`TriggerSchedule` 返回 409 `previous scheduled run is still running` | Overlap Policy 只接受 `SKIP`、`ALLOW_ALL`；`SKIP` 下上一次触发的执行链仍在运行 | 改用大写取值；等执行链结束，或改用 `ALLOW_ALL`，见 `references/schedules.md` |
+| Server 停机恢复后 Schedule 一次补启了很多 Run，或该补的到期点没有触发，`MissedCatchupWindow` / `BufferDropped` 增长 | 错过的到期点逐个按 `CatchupWindow`（缺省 365 天）判定，窗口内的按 Overlap Policy 补触发，待补超过 1000 个时保留最早的 1000 个、丢弃之后到达的 | 按业务容忍的延迟设置 `CatchupWindow`（最小 10 秒），见 `references/schedules.md` |
 | `StartWorkflow` 返回 `current run conflict` | 该 Workflow ID 已有活跃 Run | 换一个 Workflow ID 启动并行实例；或等它结束、取消或终止 |
 | Query 被拒：`workflow has not completed its first workflow task yet; query handlers are not registered` | Run 刚启动 | 稍后重试 |
 | Activity 一直重试、Run 不结束 | 缺省重试策略不限次数，没有设置 `ScheduleToCloseTimeout` 或 `MaxAttempts` | 给调用设置 `ScheduleToCloseTimeout` 或 `RetryPolicy{MaxAttempts: n}`，永久失败返回 `apperror.NewNonRetryable` |
