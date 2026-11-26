@@ -38,13 +38,13 @@ func TestScheduleDriverAutoTriggersDueSchedule(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 到期的 schedule：NextRunAt 在过去（但在 catchup window 内），driver tick 应自动触发
-	past := time.Now().Add(-2 * time.Second)
+	// 到期的 schedule：NextRunAt 是不晚于现在的整点（与 cron 对齐），下一个到期点在未来，driver tick 只触发这一次
+	past := time.Now().Truncate(time.Hour)
 	sch := &schedule.Schedule{
 		ID:             "sch-auto",
 		Namespace:      protocol.DefaultNamespace,
 		WorkflowType:   wf.Type,
-		CronExpression: "*/5 * * * *",
+		CronExpression: "0 * * * *",
 		Timezone:       "UTC",
 		OverlapPolicy:  string(schedule.OverlapPolicyEnums.AllowAll),
 		CatchupWindow:  schedule.DefaultCatchupWindow,
