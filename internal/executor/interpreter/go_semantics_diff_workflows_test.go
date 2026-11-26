@@ -384,3 +384,65 @@ func summarizeRawResult(d map[string]any) DiffOut {
 	_, ok := d["Tags"]
 	return DiffOut{Flag: ok && d["Tags"] == nil, Count: len(d)}
 }
+
+// summarizeNested 读 map[string]any 载荷里的嵌套数组与嵌套对象：x.([]any)、x.(map[string]any) 的 comma-ok 断言，
+// 以及 type switch 的 case []any、case map[string]any。
+func summarizeNested(d map[string]any) DiffOut {
+	text := ""
+	count := 0
+	if items, ok := d["items"].([]any); ok {
+		count += len(items)
+		for _, item := range items {
+			switch v := item.(type) {
+			case map[string]any:
+				if name, ok := v["name"].(string); ok {
+					text += "obj:" + name + " "
+				}
+			case []any:
+				count += 10 * len(v)
+			case string:
+				text += "str:" + v + " "
+			case float64:
+				if v > 1.5 {
+					count += 100
+				}
+			case nil:
+				text += "nil "
+			default:
+				text += "other "
+			}
+		}
+	}
+	if meta, ok := d["meta"].(map[string]any); ok {
+		count += 1000 * len(meta)
+		if meta["n"] == 3.0 {
+			text += "n=3 "
+		}
+	}
+	if _, ok := d["items"].(map[string]any); ok {
+		text += "items-is-map "
+	}
+	if wrong, ok := d["meta"].([]any); ok || wrong != nil {
+		text += "meta-is-list "
+	}
+	return DiffOut{Text: text, Count: count}
+}
+
+func DiffMapInputNested(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	return summarizeNested(input), nil
+}
+
+func DiffSignalNested(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var d map[string]any
+	if err := workflow.WaitSignal(ctx, "order").Get(ctx, &d); err != nil {
+		return DiffOut{}, err
+	}
+	return summarizeNested(d), nil
+}
+
+// 不带 comma-ok 的断言：动态类型不对时 Go panic。
+func DiffAssertNested(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	items := input["items"].([]any)
+	meta := input["meta"].(map[string]any)
+	return DiffOut{Count: len(items) + 10*len(meta)}, nil
+}

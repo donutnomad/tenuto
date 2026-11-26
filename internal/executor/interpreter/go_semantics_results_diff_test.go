@@ -242,3 +242,44 @@ func TestMapPayloadNumbersDifferential(t *testing.T) {
 		}
 	}
 }
+
+// TestSignalNestedPayloadDifferential：Signal 载荷里的嵌套数组与嵌套对象按 x.([]any)、x.(map[string]any) 与
+// type switch 读取，结果与 Go 相同。
+func TestSignalNestedPayloadDifferential(t *testing.T) {
+	src, err := os.ReadFile(diffWorkflowsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: "DiffSignalNested", FuncName: "DiffSignalNested", Filename: diffWorkflowsFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range []string{
+		`{"items": [{"name": "a"}, {"name": "b"}, [1, 2, 3], "s", 2, null], "meta": {"n": 3}}`,
+		`{"items": {"name": "a"}, "meta": [1, 2]}`,
+		`{"items": [], "meta": {}}`,
+	} {
+		var native map[string]any
+		if err := json.Unmarshal([]byte(payload), &native); err != nil {
+			t.Fatal(err)
+		}
+		want := canonicalJSON(t, summarizeNested(native))
+		var stored map[string]any
+		if err := jsonvalue.Unmarshal([]byte(payload), &stored); err != nil {
+			t.Fatal(err)
+		}
+		events := []history.Event{
+			executionSessionEvent(1, history.NewWorkflowStartedEvent(map[string]any{}, "", "", "", "", 0)),
+			executionSessionEvent(2, history.NewWorkflowTaskScheduledEvent(0)),
+			executionSessionEvent(3, history.NewWorkflowTaskStartedEvent(2, "worker", "build", 0)),
+			executionSessionEvent(4, history.NewWorkflowTaskCompletedEvent(2, "worker")),
+			executionSessionEvent(5, history.NewWorkflowSignaledEvent("order", stored)),
+			executionSessionEvent(6, history.NewWorkflowTaskScheduledEvent(0)),
+			executionSessionEvent(7, history.NewWorkflowTaskStartedEvent(6, "worker", "build", 0)),
+		}
+		commands, err := NewWorkflowExecutor(result.Workflow, events).Execute()
+		if got := terminalOutcome(t, commands, err); got != want {
+			t.Errorf("signal %s: Go = %s, 解释器 = %s", payload, want, got)
+		}
+	}
+}

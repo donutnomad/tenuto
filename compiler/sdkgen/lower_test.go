@@ -329,3 +329,31 @@ func W(ctx workflow.Context, input map[string]any) (Out, error) {
 		t.Fatalf("err = %v, want a type information error at w.go:15", err)
 	}
 }
+
+// 目标是 []any、map[string]any 的类型断言（含 comma-ok 与 type switch 的 case）改写成 workflow 包的宿主函数；
+// 其他目标保持 WLang 的断言。
+func TestFoldRewritesAnyContainerAssertions(t *testing.T) {
+	result, err := generateLowered(`
+	a := input["a"].([]any)
+	b, ok := input["b"].(map[string]any)
+	switch v := input["c"].(type) {
+	case []any:
+		return Out{Sum: len(v)}, nil
+	case string:
+		return Out{Text: v}, nil
+	}
+	s, _ := input["s"].(string)
+	return Out{Sum: len(a) + len(b), Text: s}, func() error { if ok { return nil }; return nil }()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	for _, want := range []string{`"TypeAssert"`, `"TypeAssertOK"`, `"TypeIs"`, `"type.assert.ok"`, `"type.is"`} {
+		if !strings.Contains(program, want) {
+			t.Fatalf("program misses %s:\n%s", want, program)
+		}
+	}
+	if strings.Contains(program, `"type.assert": [`+"\n") && strings.Contains(program, `"value": "array<any>"`) {
+		t.Fatalf("program still asserts array<any> with WLang type.assert:\n%s", program)
+	}
+}

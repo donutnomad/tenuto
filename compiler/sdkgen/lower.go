@@ -694,7 +694,8 @@ func (p *lowerPass) coveredByEdit(node ast.Node) bool {
 //
 //   - `time.Second` 等常量换成 int64 / string 字面量；
 //   - `time.Duration(x)` 与 `int(x)` 换成 x（Duration、int、int64 在 WLang 里都是 int64）；
-//   - 类型名 time.Duration 换成 int64。
+//   - 类型名 time.Duration 换成 int64；
+//   - 目标是 []any、map[string]any 的类型断言换成宿主函数调用（见 anyContainerAssertion）。
 //
 // timeAliases 是产物 import 表里指向 time 包的别名。
 func foldProgram(node any, timeAliases map[string]bool) any {
@@ -705,6 +706,9 @@ func foldProgram(node any, timeAliases map[string]bool) any {
 		}
 		return value
 	case map[string]any:
+		if call, ok := anyContainerAssertion(value); ok {
+			return foldProgram(call, timeAliases)
+		}
 		if symbol, ok := value["symbol"].(string); ok && len(value) == 1 {
 			if alias, name, found := strings.Cut(symbol, "."); found && timeAliases[alias] {
 				switch constant := timeConstants[name].(type) {
@@ -743,4 +747,32 @@ func foldProgram(node any, timeAliases map[string]bool) any {
 		return value
 	}
 	return node
+}
+
+// anyContainerTargets 是 WLang 的类型断言不能按 Go 语义判断的目标：解释器里 []any、map[string]any 值的类型名与
+// 断言目标不同，`x.([]any)`、`x.(map[string]any)` 与对应的 type switch case 永远不成立。
+var anyContainerTargets = map[string]bool{"array<any>": true, "map<string,any>": true}
+
+// anyContainerAssertion 把目标是 []any、map[string]any 的 type.assert、type.assert.ok、type.is 改写成
+// workflow 包的 TypeAssert、TypeAssertOK、TypeIs 调用（解释器的宿主函数，按 Go 的动态类型判断）：断言失败时
+// 非 comma-ok 形式 panic，comma-ok 形式得到 nil 与 false；type switch 的 case 经 type.is 判断。
+func anyContainerAssertion(node map[string]any) (map[string]any, bool) {
+	if len(node) != 1 {
+		return nil, false
+	}
+	hosts := map[string]string{"type.assert": "TypeAssert", "type.assert.ok": "TypeAssertOK", "type.is": "TypeIs"}
+	for op, args := range node {
+		host, ok := hosts[op]
+		list, isList := args.([]any)
+		if !ok || !isList || len(list) != 2 {
+			return nil, false
+		}
+		targetNode, _ := list[1].(map[string]any)
+		literal, _ := targetNode["literal"].(map[string]any)
+		if target, _ := literal["value"].(string); literal["type"] != "string" || !anyContainerTargets[target] {
+			return nil, false
+		}
+		return map[string]any{host: []any{map[string]any{"pkg": "workflow"}, list[0], list[1]}}, true
+	}
+	return nil, false
 }
