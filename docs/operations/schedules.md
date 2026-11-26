@@ -8,7 +8,7 @@ status: Preview
 
 <FeatureStatus status="Preview" />
 
-Schedule 保存 Cron、时区、Workflow Type、输入、Overlap Policy 和下一次触发时间。每次触发的 Run 有自己的 Workflow ID `schedule-<Schedule ID>-<触发时刻 UTC RFC 3339>`，一个 Schedule 的 Run 都以 `schedule-<Schedule ID>-` 开头，最近一次触发的 Run ID 在 `last_run_id`。MySQL 部署使用 leader election，多副本通过 `next_run_at` CAS 防止重复触发。
+Schedule 保存 Cron、时区、Workflow Type、输入、Overlap Policy 和下一次触发时间。每次触发的 Run 有自己的 Workflow ID `schedule-<Schedule ID>-<触发时刻 UTC RFC 3339>`，一个 Schedule 的 Run 都以 `schedule-<Schedule ID>-` 开头，最近一次触发的 Run ID 在 `last_run_id`。MySQL 部署使用 leader election，多副本同时处理同一个到期点时，按到期点的 Workflow ID 只启动一个 Run，`next_run_at` 的 CAS 决定由哪个副本记录它。
 
 ## 支持的策略
 
@@ -34,7 +34,7 @@ Policy 只接受以上大写值，空值保存为 `SKIP`；其他值在 Create/U
 
 ## Leader 与 CAS
 
-MySQL 模式使用 `tenuto_leader_lock` 选举 Schedule Driver leader，lease TTL 为 15 秒，Heartbeat 为 5 秒。每秒扫描 due Schedule，CAS 成功的节点获得本次触发权。
+MySQL 模式使用 `tenuto_leader_lock` 选举 Schedule Driver leader，lease TTL 为 15 秒，Heartbeat 为 5 秒。每秒扫描 due Schedule：先以到期点的 Workflow ID 启动 Run（已在运行则不再启动），再 CAS 推进 `next_run_at`，CAS 成功的节点记录这次触发。
 
 ## 排障矩阵
 

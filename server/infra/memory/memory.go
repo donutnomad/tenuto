@@ -77,6 +77,11 @@ func (s *EventStore) branchEvents(runID string) []history.Event {
 	return events
 }
 
+func (s *EventStore) GetEventIDByDedupeKey(runID, _, dedupeKey string) (int64, bool, error) {
+	id, found := s.findDedupe(runID, dedupeKey)
+	return id, found, nil
+}
+
 // findDedupe 在 runID 自己 branch 上已提交的事件里找去重键为 key 的事件。
 func (s *EventStore) findDedupe(runID, key string) (int64, bool) {
 	s.mu.RLock()

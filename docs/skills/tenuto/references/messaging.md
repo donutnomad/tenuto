@@ -23,7 +23,7 @@ if err := workflow.WaitSignal(ctx, "approval-result").Get(ctx, &decision); err !
 
 - `Get` 的目标是 `*map[string]any`，内容是调用端发送的 JSON object。
 - Signal 可以先于等待点到达：它保存在 History 里，Workflow 走到 `WaitSignal` 时立即取得。
-- 按名称计数消费：对同一名称的第 N 次 `WaitSignal` 对应 History 里该名称的第 N 条 Signal。
+- 同名 Signal 是队列（同 Temporal Signal Channel）：`SignalFuture` 第一次被消费（`Get` 返回或 Selector 回调执行）时取走下一条未消费的同名 Signal，之后 `Get` 返回同一条；`WaitSignal` 调用本身与没被选中的 Future 都不占 Signal。多个同名 Future 按消费先后分配。Selector 循环里每轮内联 `WaitSignal` 不会漏 Signal。
 - `map[string]any` 的元素是 `any`，在 Workflow 里直接与字面量比较恒为 `false`；需要按 Signal 内容分支时把 map 交给 Activity 处理并返回 struct。
 
 循环接收（长期接收的 Workflow 用 Continue-As-New 控制 History 长度）：
@@ -87,7 +87,8 @@ run, err := c.SignalWithStartWorkflow(ctx, workflowID, "approval-requested",
 - `runID` 为空时按 Namespace + Workflow ID 解析 current Run。Signal 参数是 JSON object，可以为 nil。
 - 交付是业务层 at-least-once：调用超时可能发生在事件已提交之后，重试形成第二条 Signal。payload 带稳定的 `message_id`，由处理它的 Activity 去重。
 - 目标 Run 已终态时返回 `client.ErrInvalidArgument`；Workflow 不再等待该名称时 Signal 留在 History 无人消费。
-- `SignalWithStartWorkflow`：该 Workflow ID 存在运行中的 Run 时向它写 Signal；没有 Run 或 current Run 已结束时按 Workflow Type 启动新 Run，启动与 Signal 在一个事务里提交。`workflowID` 留空时 SDK 生成，等同于每次都启动新 Run。
+- `SignalWithStartWorkflow`：该 Workflow ID 存在运行中的 Run 时向它写 Signal；没有 Run 或 current Run 已结束时按 Workflow Type 启动新 Run，启动与 Signal 在一个事务里提交。`workflowID` 留空时 SDK 生成，等同于每次都启动新 Run。SDK 以同一个 request ID 重发时，current Run（含已结束）或它的链首（continue-as-new、失败重试）记过这条 Signal 就返回第一次的 Run 与事件 ID，不启动第二个 Run（同 Temporal）。
+- 重试 Run 在 Workflow 重试的退避期内收到 Signal：写入 History，不提前开始，退避到期一并处理；取消请求与 Update 让它立即开始（同 Temporal）。
 
 ## Query
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
@@ -184,14 +183,8 @@ func (s *Server) reconcileRunStatus(ctx context.Context, runID string, event his
 func (s *Server) recoverWorkflowActivation(ctx context.Context, runID string, state *execution.WorkflowExecutionState, force bool) error {
 	if state.NeedsWorkflowTask() {
 		// 重试 run 的首个 WFT 由 RetryBackoff timer 到期时调度，退避期内不提前补调度。
-		timers, err := s.mgr.ListTimerStates(runID)
-		if err != nil {
+		if pending, err := s.pendingOnWorkflowTaskBackoff(state); err != nil || pending {
 			return err
-		}
-		if slices.ContainsFunc(timers, func(timer *execution.TimerState) bool {
-			return timer.Kind == execution.TimerKindEnums.RetryBackoff && !timer.IsTerminal()
-		}) {
-			return nil
 		}
 		return s.scheduleWorkflowTask(ctx, runID)
 	}

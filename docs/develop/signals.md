@@ -23,7 +23,8 @@ if err := workflow.WaitSignal(ctx, "approval-result").Get(ctx, &decision); err !
 
 - `Get` 的目标是 `*map[string]any`，内容是调用端发送的 JSON object。
 - Signal 可以先于等待点到达：它保存在 History 里，Workflow 走到 `WaitSignal` 时立即取得。
-- 按名称计数消费：对同一个名称的第 N 次 `WaitSignal` 调用对应 History 里该名称的第 N 条 Signal。
+- 同名 Signal 是一个队列，语义与 Temporal 的 Signal Channel 相同：`SignalFuture` 第一次被消费（`Get` 返回，或 Selector 选中它并执行回调）时取走该名称下一条未消费的 Signal，之后对它 `Get` 一直返回这一条。调用 `WaitSignal` 本身不占 Signal；没被消费的 Future（例如 Selector 循环里没被选中、随后丢弃的那个）也不占。
+- 多个同名 Future 按消费的先后分配 Signal：先 `Get` 的取到较早的一条，与调用 `WaitSignal` 的先后无关。消费顺序由 History 决定，重放时相同。
 
 把 Signal 内容交给 Activity 处理：
 
@@ -40,7 +41,7 @@ if err := workflow.ExecuteActivity(ctx, activities.ApplyDecision, decision, work
 
 ## 循环接收
 
-每次调用 `WaitSignal` 消费下一条同名 Signal：
+每次 `Get` 消费下一条同名 Signal：
 
 ```go
 for i := 0; i < in.ExpectedApprovals; i++ {
@@ -88,6 +89,25 @@ sel.AddSignalFuture(ctx, reject, func(f workflow.SignalFuture) {
     outcome = "rejected"
 })
 sel.Select(ctx)
+```
+
+在循环里每轮新建 Selector、重新调用 `WaitSignal` 是安全的：上一轮没被选中的 Future 没有消费 Signal，之后到达的 Signal 由新一轮的 Future 收到。
+
+```go
+for !approved {
+    sel := workflow.NewSelector(ctx)
+    sel.AddSignalFuture(ctx, workflow.WaitSignal(ctx, "approve"), func(f workflow.SignalFuture) {
+        var out map[string]any
+        _ = f.Get(ctx, &out)
+        approved = true
+    })
+    sel.AddSignalFuture(ctx, workflow.WaitSignal(ctx, "tick"), func(f workflow.SignalFuture) {
+        var out map[string]any
+        _ = f.Get(ctx, &out)
+        ticks++
+    })
+    sel.Select(ctx)
+}
 ```
 
 Signal 与 Activity、Child Workflow、Channel 的组合见 [并发、Channel 与 Selector](/develop/concurrency)。Signal 与超时的组合见 [Timer 与 Workflow Sleep](/develop/timers)。
@@ -144,7 +164,9 @@ run, err := c.SignalWithStartWorkflow(
 
 ## 交付模型
 
-Go SDK 的每次 `SignalWorkflow` / `SignalWithStartWorkflow` 带一个 SDK 生成的 request ID：连接中断、网关 502/504 等瞬时错误由 SDK 重发，同一个 Run 上同一个 request ID 只记一条 `WorkflowSignaled`（HTTP 调用方在请求体里给 `request_id` 得到同样的去重）。
+Go SDK 的每次 `SignalWorkflow` / `SignalWithStartWorkflow` 带一个 SDK 生成的 request ID：连接中断、网关 502/504 等瞬时错误由 SDK 重发，同一个 Run 上同一个 request ID 只记一条 `WorkflowSignaled`（HTTP 调用方在请求体里给 `request_id` 得到同样的去重）。`SignalWithStartWorkflow` 的重发在第一次启动的 Run 已经结束时同样返回那个 Run 与第一次的事件 ID，不启动第二个 Run，见 [Signal-With-Start](/sdk/signal-with-start#重发与去重)。
+
+Workflow 失败后按重试策略等待退避的重试 Run 收到 Signal 时，Signal 写入它的 History，不让重试提前开始，退避到期后的第一个 Workflow Task 一并处理（同 Temporal）。
 
 跨越一次调用的重试仍是 at-least-once：调用超出 `ctx` 期限后应用代码再调用一次、或进程重启后重放消息，是新的 request ID，会形成第二条 Signal。在 payload 中携带稳定的 `message_id`，由处理该 Signal 的 Workflow 或 Activity 依据它去重。
 

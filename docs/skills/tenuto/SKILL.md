@@ -123,7 +123,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - IO、环境变量、数据库、HTTP 放进 Activity。Workflow 里可以调用一组列明的确定性标准库函数（`strings` 的 `ToUpper`/`Split`/`TrimSpace` 等、`strconv.Itoa`/`Atoi`/`ParseInt` 等、`fmt.Sprintf`/`Sprint`/`Errorf`、`math.Max`/`Round`/`Sqrt` 等），结果与 Go 相同；清单之外的标准库函数（`sort.*`、`time.Parse`、`math.Pow`、`strconv.Quote`）与其他包的函数生成期报 `file:line`。清单与 `fmt` 格式串规则见 `references/go-subset.md`。
 - Workflow 可以调用同包普通函数与值接收者方法（含其他文件里的、递归、带 `workflow.Context` 调度 Activity 的）：函数体一起翻译进产物，改它就改变内容版本。泛型、可变参数、指针接收者、包级变量、函数当值在生成期报错。
 - 决定 Activity 调度顺序、协程启动顺序、Selector case 顺序的数据用 slice。Workflow 里的 `range m` 按 key 升序遍历（确定、可重放），但升序通常不是业务顺序。
-- 翻译后的 WLang 与 Go 源码行为一致（结构体是值、slice 共享底层数组、nil slice 输出 `null`、`for` 条件每轮求值）；做不到一致的写法在生成期报错，清单见 `references/go-subset.md`。
+- 翻译后的 WLang 与 Go 源码行为一致（结构体是值、slice 共享底层数组、nil slice 输出 `null`、`for` 条件每轮求值）；做不到一致的写法在生成期报错（如定长数组 `[N]T`，改用 slice），清单见 `references/go-subset.md`。
 - Workflow 接触的数据类型（子 Workflow / Activity / continue-as-new 实参、Signal、Update、Query 载荷，任意嵌套深度，含递归类型与契约包类型）都登记进类型表；channel、函数、嵌入字段等无法编码的类型在生成期按 `file:line` 与类型路径报错，见 `references/go-subset.md` 的「数据类型」。
 - `workflow.Await` 的条件闭包与 Query Handler 只读 Workflow 内存变量：它们在重放时反复求值，Query 产生的命令被丢弃。
 - 对已有运行中 Run 的 Workflow，新增、删除、重排 Activity / Timer / Child / `SideEffect` / `RandomUUID` / `RandomInt` / 协程 / Selector case 需要 `GetVersion` 保护或 `pinned`：这些改动改变命令序列。
@@ -173,7 +173,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - 数据库访问量：TaskQ 分区的行都已投递或确认时 poll 与可见性扫描不读库；内嵌 Workflow Worker 的 Workflow Task 长轮询持续 `TASKQ_POLL_TIMEOUT`（默认 30s）。每个 Workflow 的语句数按入口分组看 `TestStatementBudgetPerWorkflow`（`TENUTO_TEST_MYSQL=1`，见 `references/operations.md`），事务外读 Run 与 execution state 的次数看 `TestRepositoryReadsPerWorkflow`（内存后端）。Server 给 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN` 设置 `parseTime=true`、`loc=UTC`、`interpolateParams=true`，字符集用 `utf8mb4`。
 - Server 补偿分两档，都只在 leader 上运行：周期补偿（`WORKFLOW_RECONCILE_INTERVAL`，默认 30s）按到期索引只处理有到期或待处理事项的 Running Run，代价与 Running Run 总数无关；全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`，默认 10m）逐页检查全部 Running Run，补建崩溃后缺失的子 Run，补做终态传播、终态写回、父关闭策略与子 Run 取消请求。
 - 投递在队列里丢失时 Run 不会停住：已入队却超过等待时长（30s 宽限期起按派发次数翻倍，最长 8 分钟）仍没被领取的 open Workflow Task 与 Scheduled Activity attempt 由 leader 的 reconciler 再投一份（日志 `task dispatched but not claimed; redelivering`）。已关闭 WFT 的陈旧投递由 Server 领取时确认丢弃，不交给 Worker。
-- 配置了 Workflow RetryPolicy 的 Run 不再重试时，终态 `WorkflowFailed` 的 `retryState` 写明原因（`MaximumAttemptsReached`、`NonRetryableFailure`、`Timeout`）；没有 RetryPolicy 时为空。
+- 配置了 Workflow RetryPolicy 的 Run 不再重试时，终态 `WorkflowFailed` 的 `retryState` 写明原因（`MaximumAttemptsReached`、`NonRetryableFailure`、`Timeout`）；没有 RetryPolicy 时为空。重试 Run 在退避期内收到的 Signal 只写入 History、等退避到期一并处理；取消请求与 Update 让重试 Run 立即开始（同 Temporal）。
 - 新旧 Activity build 并存时 BuildID 必须不同：相同 BuildID 的登记互相覆盖，引擎分不出新旧契约。
 - 旧 build 下线前先排空只有它满足契约的 Activity（`pinned` 在旧 Program 上的 Run）：下线之后这些任务留在队列里被新 build 反复拒绝，直到旧 build 回来或 `ScheduleToStartTimeout` 到期。契约不变、或只做兼容改动（入参新增字段）的发布没有这个限制。
 - 取消按 Temporal 语义交给 Workflow 代码：根 Context 被取消，已取消 ctx 上的 Activity / `Sleep` / 子 Workflow 返回取消错误，代码继续运行。补偿发在 `workflow.NewDisconnectedContext(ctx)` 上；返回取消错误 → `cancelled`，返回 nil → `completed`。局部取消用 `workflow.WithCancel`。

@@ -85,7 +85,7 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 			return LeaseAction{}, e
 		}
 		eventID = id // 闭包捕获传出（fn 只返回 LeaseAction）
-		return LeaseAction{ScheduleWFT: true}, nil
+		return LeaseAction{ScheduleWFT: true, AfterSignal: true}, nil
 	})
 	if err != nil {
 		return 0, err
@@ -306,8 +306,9 @@ func (s *Server) UpdateWithStart(
 }
 
 // SignalWithStart 原子地「确保该 Workflow ID 有进行中的 Run」+「发送 Signal」。启动判定与 UpdateWithStart
-// 相同；Signal 发出即返回，返回 Signal 的 eventID。requestID 是 Signal 的幂等键，语义同 SignalWorkflow：
-// 重发的请求落到第一次启动或找到的运行中 Run 上时不再多记 Signal。
+// 相同；Signal 发出即返回，返回 Signal 的 eventID。requestID 是启动与 Signal 的幂等键：启动时记进
+// WorkflowStarted.RequestID；重发时 current Run（含已结束）或它的链首已记过这个 requestID 的 Signal，
+// 返回那个 Run 与第一次的事件 ID，不启动新 Run、不再记 Signal。
 func (s *Server) SignalWithStart(
 	ctx context.Context, namespace, workflowType, workflowID string,
 	startInput map[string]any, signalName, requestID string, signalInput map[string]any,

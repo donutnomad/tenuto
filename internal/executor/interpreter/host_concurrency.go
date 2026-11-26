@@ -452,6 +452,10 @@ func (st *selectorState) invokeCase(e *WorkflowExecutor, index int) {
 		// `p.futureFunc = nil`：future 一旦 ready 恒 ready，命中即标记 consumed，
 		// 重复 Select 时 TrySelect 跳过本 case（第 k 次 Select 命中第 k 个 ready future）。
 		st.sel.MarkConsumed(index)
+		// SignalFuture 在被选中时消费：取走该名称下一条未消费的 Signal（见 SignalFuture）。
+		if signal, ok := fc.value.(SignalFuture); ok {
+			signal.consume()
+		}
 		cl := st.caseCbs[index]
 		if cl == nil {
 			return

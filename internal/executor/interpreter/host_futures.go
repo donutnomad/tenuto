@@ -128,34 +128,61 @@ func (f ActivityFuture) poll() (out map[string]any, failure error, ready bool) {
 	return nil, nil, false
 }
 
+// SignalFuture 等待某个名称的一条 Signal。语义与 Temporal 的 Signal Channel 一样是队列：Future 第一次被消费
+// （Get 返回、或 Selector 选中它并执行回调）时取走该名称下一条未消费的 Signal，之后 Get 一直返回这一条。
+// 没被消费的 Future（例如 Selector 循环里没被选中、随后丢弃的那个）不占序号。
+//
+// 消费发生在协程执行里，协程的调度只由 History 决定，所以每条 Signal 分给哪个 Future 在 live 与重放时相同。
 type SignalFuture struct {
 	executor *WorkflowExecutor
 	name     string
-	index    int
+	// claim 由 Future 的各个副本共享（WLang 值按值传递）。
+	claim *signalClaim
 }
 
-// poll 查 signals[name][index] 事实表报告 ready（纯查表，不 park/产命令/progressed）——
-// signals 由 applyBatch 灌入、批内恒定。Get 与 selector 桥共用。
-// Signal 无失败态（外部事件，恒成功），errMsg 恒空。
+type signalClaim struct {
+	claimed bool
+	index   int
+}
+
+// poll 报告 Future 是否 ready（纯查表，不消费、不 park、不产命令）：已消费的 Future 恒 ready；未消费的 Future
+// 在该名称还有未消费的 Signal 时 ready。Signal 无失败态。Get 与 selector 桥共用。
 func (f SignalFuture) poll() (out map[string]any, failure error, ready bool) {
 	values := f.executor.signals[f.name]
-	if f.index < len(values) {
-		return values[f.index], nil, true
+	if f.claim.claimed {
+		return values[f.claim.index], nil, true
+	}
+	if next := f.executor.signalsConsumed[f.name]; next < len(values) {
+		return values[next], nil, true
 	}
 	return nil, nil, false
 }
 
-// Get 检查-yield 循环（照 Temporal channelImpl.Receive）：对应 index 的 Signal 已到 →
-// progressed()+返回其值；未到 → blocked+yield，被下轮 resume 后回循环顶重查（Signal 在同一 WFT 内不会
-// 新到，故实质每轮又立刻 yield、keptBlocked 保持 → 稳定 block；下一 WFT replay 若 Signal 已到则放行）。
+// consume 让 Future 取走该名称下一条未消费的 Signal；已消费或暂时没有 Signal 时不变。返回 Future 是否已消费。
+func (f SignalFuture) consume() bool {
+	if f.claim.claimed {
+		return true
+	}
+	next := f.executor.signalsConsumed[f.name]
+	if next >= len(f.executor.signals[f.name]) {
+		return false
+	}
+	f.claim.claimed, f.claim.index = true, next
+	f.executor.signalsConsumed[f.name] = next + 1
+	return true
+}
+
+// Get 检查-yield 循环（照 Temporal channelImpl.Receive）：能消费 → progressed()+返回这条 Signal；没有未消费的
+// Signal → blocked+yield，被下轮 resume 后回循环顶重查（Signal 在同一 WFT 内不会新到，故实质每轮又立刻 yield、
+// keptBlocked 保持 → 稳定 block；下一 WFT replay 若 Signal 已到则放行）。
 func (f SignalFuture) Get(ctx workflowContext, out *map[string]any) error {
 	if f.executor == nil {
 		return errors.New("workflow executor missing")
 	}
 	for {
-		if values, _, ready := f.poll(); ready {
+		if f.consume() {
 			if out != nil {
-				*out = values
+				*out = f.executor.signals[f.name][f.claim.index]
 			}
 			f.executor.progressed()
 			return nil

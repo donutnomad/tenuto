@@ -41,6 +41,8 @@ type EventStore interface {
 	AppendWorkflowTaskCompletedWithEvents(runID, treeID, branchID string, closeEvent history.Event, commandEvents []history.Event) (WorkflowTaskCompletionResult, error)
 	// GetWorkflowTaskScheduledEvent 返回持久化的 WorkflowTaskScheduled 事件，供复用 open WFT 的调度读取 trace context。
 	GetWorkflowTaskScheduledEvent(runID string, scheduledEventID int64) (history.Event, bool, error)
+	// GetEventIDByDedupeKey 返回 Run 的 branch 上去重键（history.DedupeKey）为 dedupeKey 的事件 ID。
+	GetEventIDByDedupeKey(runID, branchID, dedupeKey string) (eventID int64, found bool, err error)
 }
 
 // StoreListFilter 的全部条件都由存储层在分页之前应用。
