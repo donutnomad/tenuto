@@ -64,6 +64,13 @@ func (m *failingEventManager) AppendIdempotent(runID, treeID, branchID string, e
 	return m.ExecutionManager.AppendIdempotent(runID, treeID, branchID, event)
 }
 
+func (m *failingEventManager) AppendWorkflowTaskScheduled(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
+	if m.fails(event) {
+		return 0, false, errAppendEventFailed
+	}
+	return m.ExecutionManager.AppendWorkflowTaskScheduled(runID, treeID, branchID, event)
+}
+
 func (m *failingEventManager) RunInTx(fn func(tx execution.ExecutionTx) error) error {
 	return m.ExecutionManager.RunInTx(func(tx execution.ExecutionTx) error {
 		return fn(&failingEventTx{ExecutionTx: tx, m: m})

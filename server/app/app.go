@@ -245,7 +245,7 @@ func newApplication(ctx context.Context, cfg Config, options ...RunOption) (_ *a
 			ActivityRouter: memory.NewActivityQueueRouter(1024),
 			TaskTokens:     taskTokenCodec,
 			Clock:          app.clock,
-		}, engine.WithTelemetry(app.telemetry), engine.WithPayloadSizeLimit(cfg.payloadSizeLimit()))
+		}, engine.WithTelemetry(app.telemetry), engine.WithPayloadSizeLimit(cfg.payloadSizeLimit()), engine.WithQueryConcurrency(cfg.QueryConcurrency))
 	} else if err := app.configureMySQLTaskQ(ctx, taskTokenCodec); err != nil {
 		return nil, err
 	}
@@ -399,7 +399,7 @@ func (a *application) configureMySQLTaskQ(ctx context.Context, taskTokens *dispa
 		ActivityRouter: a.activityRouter,
 		TaskTokens:     taskTokens,
 		Clock:          a.clock,
-	}, engine.WithTelemetry(a.telemetry), engine.WithPayloadSizeLimit(a.cfg.payloadSizeLimit()))
+	}, engine.WithTelemetry(a.telemetry), engine.WithPayloadSizeLimit(a.cfg.payloadSizeLimit()), engine.WithQueryConcurrency(a.cfg.QueryConcurrency))
 
 	resolver, err := a.monitor.GetResolver(a.cfg.TaskQ.ServiceName)
 	if err != nil {

@@ -898,6 +898,19 @@ func (s *Repository) getEventsWithDB(db infradb.DB, run *execution.Run) ([]histo
 //
 // 已有索引 idx_workflow_events_branch_node (branch_id, node_id) 覆盖 OR 组的每一支加范围项。
 func (s *Repository) getEventsRangeWithDB(db infradb.DB, run *execution.Run, afterExclusive, throughInclusive int64) ([]history.Event, error) {
+	var filters []gsql.Expression
+	if afterExclusive > 0 {
+		filters = append(filters, EventSchema.NodeID.Gt(afterExclusive))
+	}
+	if throughInclusive > 0 {
+		filters = append(filters, EventSchema.NodeID.Lte(throughInclusive))
+	}
+	return s.getVisibleEventsWithDB(db, run, filters...)
+}
+
+// getVisibleEventsWithDB 读取 Run 可见 History（自己的 branch 加祖先前缀）里满足 filters 的事件，按事件 ID 升序。
+// filters 作为独立的 AND 项追加在 branch 可见性的 OR 组之外，结果与「先全量取出再过滤」一致（见 getEventsRangeWithDB）。
+func (s *Repository) getVisibleEventsWithDB(db infradb.DB, run *execution.Run, filters ...gsql.Expression) ([]history.Event, error) {
 	branch, err := runBranch(run)
 	if err != nil {
 		return nil, err
@@ -938,13 +951,9 @@ func (s *Repository) getEventsRangeWithDB(db infradb.DB, run *execution.Run, aft
 		branchRanges = append(branchRanges, gsql.And(conditions...))
 	}
 
-	// 范围项作为独立的 AND 项追加在整个 OR 组之外。
 	query = query.Where(gsql.Or(branchRanges...))
-	if afterExclusive > 0 {
-		query = query.Where(EventSchema.NodeID.Gt(afterExclusive))
-	}
-	if throughInclusive > 0 {
-		query = query.Where(EventSchema.NodeID.Lte(throughInclusive))
+	if len(filters) > 0 {
+		query = query.Where(filters...)
 	}
 	rows, err := infradb.Find(db, query.Order(EventSchema.NodeID))
 	if err != nil {

@@ -24,7 +24,7 @@ Tenuto 的 Go Client 使用 JSON Runtime HTTP API。业务系统通过 SDK 调�
 | 415 | POST 的 `Content-Type` 不是 `application/json`（可带 `charset` 等参数），没有请求体的端点也一样 | 表单或 `text/plain` 提交：`Content-Type must be application/json` |
 | 500 | Server 故障：数据库返回的非瞬时错误（缺表、数据超长等）或代码错误。原因看 Server 日志 | `internal server error` |
 | 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发 | `service temporarily unavailable; the request may have taken effect` |
-| 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）；在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`；请求在生效之前被取消。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable`、`too many requests in flight; retry`、`request cancelled before taking effect; retry` |
+| 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）；在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`；同时重放的 Query 数达到 `WORKFLOW_QUERY_CONCURRENCY`；请求在生效之前被取消。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable`、`too many requests in flight; retry`、`request cancelled before taking effect; retry` |
 | 504 | 请求在 Server 端等待超时 | `context deadline exceeded` |
 
 成功应答总带 JSON 响应体（长轮询的 204 除外）；2xx 空响应体说明应答没有完整送达，Go SDK 把它当作传输错误。
@@ -182,7 +182,7 @@ complete · activation · complete-activation · timed-out · failed
 
 `config`、`events`、`status` 的请求体是 `{task_token, program_version?}`，读取 token 所属的 Run。`complete` 提交按完整 History 重放得到的命令；`activation` 与 `complete-activation` 是 Execution Cache 命中时的增量激活与提交。两组端点都只接受 Workflow Task 的 token。
 
-`failed` 的请求体是 `{task_token, cause, reason}`，`cause` 只接受 Worker 的失败原因：`non_deterministic_error`（重放与 History 不一致）、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）、`workflow_panic`（Workflow 代码或解释器 panic，见 [Failure 参考](/reference/failures#workflow-代码的-panic)）、`payload_size_limit_exceeded`（命令总量超过上限，或 `complete` 被 413 拒绝，见 [容量上限](/operations/capacity-limits#载荷大小)）。`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入（Workflow Task 需要重做，不计连续失败、不退避），Worker 上报它们或其他取值返回 400。
+`failed` 的请求体是 `{task_token, cause, reason}`，`cause` 只接受 Worker 的失败原因：`non_deterministic_error`（重放与 History 不一致）、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）、`workflow_panic`（Workflow 代码或解释器 panic，见 [Failure 参考](/reference/failures#workflow-代码的-panic)）、`payload_size_limit_exceeded`（命令总量超过上限，或 `complete` 被 413 拒绝，见 [容量上限](/operations/capacity-limits#载荷大小)）。`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入（Workflow Task 需要重做，不计连续失败、不退避），Worker 上报它们或其他取值返回 400。`unhandled_events` 只在一批含结束 Workflow 的命令（Complete、Fail、Cancel、ContinueAsNew）、而 Workflow Task 执行期间到达了 Worker 没有看到的事实时写入；其他命令照常提交，新事实交给下一个 Workflow Task。
 
 ## Update 请求体
 

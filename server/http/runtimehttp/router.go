@@ -183,7 +183,8 @@ func writeRuntimeError(c *gin.Context, err error) {
 const retryAfterSeconds = "1"
 
 // runtimeErrorStatus 是错误到 HTTP 状态码的唯一映射：
-// 目标不存在为 404，与已有记录或并发写入冲突为 409，请求本身的问题为 400，等待超时为 504；
+// 目标不存在为 404，与已有记录或并发写入冲突为 409，请求本身的问题为 400，等待超时为 504，Server 没有余量处理
+// （protocol.ErrResourceExhausted）为 503；
 // 数据库或任务队列暂时不可用（transient 命中、gRPC Unavailable）在幂等端点上为 503，在重发会再执行一次的端点
 // （runtimeapi.IsIdempotent 为 false）上为 502：这类失败不说明请求有没有部分生效，503 会让客户端重发；
 // 其余错误属于服务端故障，为 500。transient 可为 nil。
@@ -201,6 +202,9 @@ func runtimeErrorStatus(path string, err error, transient func(error) bool) int 
 		return http.StatusBadRequest
 	case errors.Is(err, context.DeadlineExceeded):
 		return http.StatusGatewayTimeout
+	case errors.Is(err, protocol.ErrResourceExhausted):
+		// 请求没有生效，任何端点上都可以重发。
+		return http.StatusServiceUnavailable
 	case (transient != nil && transient(err)) || grpcUnavailable(err):
 		if runtimeapi.IsIdempotent(path) {
 			return http.StatusServiceUnavailable

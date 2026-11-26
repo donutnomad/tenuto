@@ -18,6 +18,7 @@ import (
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/runtimeapi"
 	"github.com/donutnomad/tenuto/server/biz/domain/dispatch"
+	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/biz/usecase/retention"
 	"github.com/donutnomad/tenuto/telemetry"
 )
@@ -105,6 +106,8 @@ type Config struct {
 	Artifacts ArtifactConfig
 	// WorkflowWorker 控制本进程内执行 Workflow Task 的 worker。
 	WorkflowWorker WorkflowWorkerConfig
+	// QueryConcurrency 是同时在本进程重放 History 求值 Query 的上限（WORKFLOW_QUERY_CONCURRENCY）；<=0 取引擎默认值。
+	QueryConcurrency int
 	// PayloadSizeLimit 是单个载荷（Workflow 输入与结果、Activity 输入、输出与心跳详情等）JSON 编码后的字节上限
 	// （WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES）。<=0 取 protocol.DefaultPayloadSizeLimit，上限
 	// protocol.MaxPayloadSizeLimit。
@@ -375,6 +378,7 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 		PayloadSizeLimit:          protocol.DefaultPayloadSizeLimit,
 		ReconcileInterval:         defaultReconcileInterval,
 		ReconcileFullScanInterval: defaultReconcileFullScanInterval,
+		QueryConcurrency:          engine.DefaultQueryConcurrency,
 		Retention: RetentionConfig{
 			Retention:        defaultRetention,
 			Jitter:           defaultRetentionJitter,
@@ -477,6 +481,7 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 		{"WORKFLOW_WORKER_CONCURRENCY", &cfg.WorkflowWorker.Concurrency},
 		{"WORKFLOW_WORKER_CACHE_MAX_ENTRIES", &cfg.WorkflowWorker.CacheMaxEntries},
 		{"WORKFLOW_WORKER_CACHE_MAX_BYTES", &cfg.WorkflowWorker.CacheMaxBytes},
+		{"WORKFLOW_QUERY_CONCURRENCY", &cfg.QueryConcurrency},
 		{"WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES", &cfg.PayloadSizeLimit},
 	}
 	for _, value := range integers {

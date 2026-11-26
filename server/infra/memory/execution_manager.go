@@ -215,6 +215,10 @@ func (m *ExecutionManager) GetEventsRange(runID string, afterExclusive, throughI
 	return m.EventStore.getEventsRange(runID, afterExclusive, throughInclusive), nil
 }
 
+func (m *ExecutionManager) GetEventsByDedupeKeys(runID string, keys []string) ([]history.Event, error) {
+	return m.EventStore.eventsByDedupeKeys(runID, keys), nil
+}
+
 func (m *ExecutionManager) GetEventPage(request execution.HistoryPageRequest) (execution.HistoryPage, error) {
 	request, err := execution.NormalizeHistoryPageRequest(request)
 	if err != nil {

@@ -20,7 +20,19 @@ type ServerOption func(*serverOptions)
 
 type serverOptions struct {
 	telemetry        tenutotel.Providers
+	queryConcurrency int
 	payloadSizeLimit int
+}
+
+// DefaultQueryConcurrency 是一个 Server 进程同时在本地重放 History 求值 Query 的默认上限。
+const DefaultQueryConcurrency = 8
+
+// WithQueryConcurrency 设定同时在本进程重放 History 求值 Query 的上限；n <= 0 时取 DefaultQueryConcurrency。
+// 超过上限的 Query 立即以 protocol.ErrResourceExhausted 失败（HTTP 503 与 Retry-After），由调用方退避重发。
+func WithQueryConcurrency(n int) ServerOption {
+	return func(options *serverOptions) {
+		options.queryConcurrency = n
+	}
 }
 
 // WithPayloadSizeLimit 设置单个载荷的字节上限（见 protocol.DefaultPayloadSizeLimit）；不设置时使用缺省值。
@@ -45,6 +57,9 @@ func resolveServerOptions(options []ServerOption) serverOptions {
 		}
 	}
 	resolved.telemetry = tenutotel.Resolve(resolved.telemetry)
+	if resolved.queryConcurrency <= 0 {
+		resolved.queryConcurrency = DefaultQueryConcurrency
+	}
 	return resolved
 }
 

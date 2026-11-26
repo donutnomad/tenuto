@@ -293,7 +293,7 @@ func TestUpdateWorkflow_SignalWakeMatchesHistory(t *testing.T) {
 }
 
 // TestUpdateWorkflow_WaitCompleted_SoftTimeoutFallsBackToPoll
-// Edge Case: completed 直接写入历史、没有唤醒任何等待方时，等待方读取的数据源（lookupUpdateFromHistory）
+// Edge Case: completed 直接写入历史、没有唤醒任何等待方时，等待方读取的数据源（lookupUpdate）
 // 给出完成的结果。
 func TestUpdateWorkflow_WaitCompleted_SoftTimeoutFallsBackToPoll(t *testing.T) {
 	env := newUpdateWaitTestEnv(t, "run-poll-fallback")
@@ -316,9 +316,9 @@ func TestUpdateWorkflow_WaitCompleted_SoftTimeoutFallsBackToPoll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// lookupUpdateFromHistory 直接验证等待方的数据源正确（复用 QueryWorkflow 组装逻辑）：
+	// lookupUpdate 直接验证等待方的数据源正确（复用 QueryWorkflow 组装逻辑）：
 	// CompletedEventID>0 的完成历史必须带 Outcome。
-	rec, ok := env.runtime.lookupUpdateFromHistory("", env.run.WorkflowID, env.run.ID, updateID)
+	rec, ok := env.runtime.lookupUpdate("", env.run.WorkflowID, env.run.ID, updateID)
 	if !ok || rec.CompletedEventID == 0 || rec.Outcome == nil || rec.Outcome.Success == nil {
 		t.Fatalf("poll fallback source wrong: ok=%v rec=%+v", ok, rec)
 	}

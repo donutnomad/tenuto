@@ -10,6 +10,7 @@ import (
 
 	workerpkg "github.com/donutnomad/tenuto/internal/worker"
 	"github.com/donutnomad/tenuto/protocol"
+	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/biz/usecase/retention"
 )
 
@@ -95,6 +96,25 @@ func TestLoadConfigParsesEmbeddedWorkflowWorkerSettings(t *testing.T) {
 	if worker.Concurrency != 3 || worker.TaskTimeout != 30*time.Second ||
 		worker.CacheMaxEntries != 50 || worker.CacheMaxBytes != 1<<20 || worker.CacheIdleTTL != time.Minute {
 		t.Fatalf("workflow worker settings = %+v", worker)
+	}
+}
+
+func TestLoadConfigParsesQueryConcurrency(t *testing.T) {
+	cfg, err := loadConfig(mapLookup(validEnvironment()), "workflow-node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.QueryConcurrency != engine.DefaultQueryConcurrency {
+		t.Fatalf("default query concurrency = %d, want %d", cfg.QueryConcurrency, engine.DefaultQueryConcurrency)
+	}
+	env := validEnvironment()
+	env["WORKFLOW_QUERY_CONCURRENCY"] = "2"
+	if cfg, err = loadConfig(mapLookup(env), "workflow-node-a"); err != nil || cfg.QueryConcurrency != 2 {
+		t.Fatalf("query concurrency = %d, err = %v, want 2", cfg.QueryConcurrency, err)
+	}
+	env["WORKFLOW_QUERY_CONCURRENCY"] = "0"
+	if _, err := loadConfig(mapLookup(env), "workflow-node-a"); err == nil {
+		t.Fatal("WORKFLOW_QUERY_CONCURRENCY=0 was accepted")
 	}
 }
 

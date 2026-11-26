@@ -16,7 +16,7 @@ Workflow 重放时必须得到与首次执行相同的值。Tenuto 把时间取�
 now := workflow.Now(ctx)
 ```
 
-`workflow.Now` 返回最近一条已应用 Event 的时间戳。同一个 Workflow Task 内多次调用得到相同的值，时间随新 Event 推进。
+`workflow.Now` 返回本次 Workflow Task 的 `WorkflowTaskStarted` 事件时间戳；同一个 Workflow Task 内多次调用得到相同的值，下一个 Workflow Task 推进到它的 started 时间。live 执行、sticky 增量与冷重放读到同一个值。
 
 ## 随机 UUID
 

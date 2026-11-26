@@ -20,7 +20,7 @@ if workflow.Now(ctx).After(deadline) { ... }
 stamp := now.Format(time.RFC3339)    // 按 UTC 格式化
 ```
 
-- 返回最近一条已应用 Event 的时间戳；同一个 Workflow Task 内多次调用得到相同的值。
+- 返回本次 Workflow Task 的 `WorkflowTaskStarted` 事件时间戳；同一个 Workflow Task 内多次调用得到相同的值，下一个 Workflow Task 推进到它的 started 时间。live 执行、sticky 增量与冷重放读到同一个值。
 - `time.Time` 值可用的方法：`Add`、`Sub`、`Before`、`After`、`Equal`、`Unix`、`UnixMilli`、`Format`、`String`；其他 `time.Time` 方法与 `time.Duration` 的方法生成期报错。
 - `time.Now`、`time.Since`、`time.Until`、`time.Parse`、`time.Unix`、`time.Date` 在生成期被拒绝；解析与构造时间放进 Activity。
 

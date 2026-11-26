@@ -85,7 +85,8 @@ type WorkflowExecutionState struct {
 
 // WorkflowTaskProjection 记录调度与恢复 WFT 所需的当前事实。
 type WorkflowTaskProjection struct {
-	// StartedScheduledEventID 与 StartedProgramVersion 取自最近一次 WorkflowTaskStarted。
+	// StartedEventID、StartedScheduledEventID 与 StartedProgramVersion 取自最近一次 WorkflowTaskStarted。
+	StartedEventID          int64  `json:"started_event_id,omitempty"`
 	StartedScheduledEventID int64  `json:"started_scheduled_event_id,omitempty"`
 	StartedProgramVersion   string `json:"started_program_version,omitempty"`
 	// StartToCloseDeadline 是已 started 且仍 open 的 WFT 的超时时刻，取自 WorkflowTaskStarted 的时间与 TimeoutMs；
@@ -94,8 +95,11 @@ type WorkflowTaskProjection struct {
 	// LastFailedAt 与 LastFailureTraceContext 取自当前连续失败串里最近一次 WorkflowTaskFailed。
 	LastFailedAt            *time.Time        `json:"last_failed_at,omitempty"`
 	LastFailureTraceContext map[string]string `json:"last_failure_trace_context,omitempty"`
-	// ActivationPending 表示最近一次 WFT 生命周期事件之后出现了需要 Workflow 处理的新事实。
+	// ActivationPending 表示有需要 Workflow 处理、还没有被任何已完成的 WFT 看到的事实。
 	ActivationPending bool `json:"activation_pending,omitempty"`
+	// LastActivationEventID 是最近一个需要 Workflow 处理的事实的事件 ID。WFT 完成时与 Worker 看到的位置
+	// （WorkflowTaskCompleted.SeenThroughEventID）比较，得出进行期间是否到达了 Worker 没有看到的事实。
+	LastActivationEventID int64 `json:"last_activation_event_id,omitempty"`
 }
 
 // WorkflowExecutionStateStore 读写 execution state。Run 不存在时各方法返回 ErrRunNotFound。
@@ -250,11 +254,18 @@ func (s *WorkflowExecutionState) WorkflowTaskProgramVersion(scheduledEventID int
 	return s.WorkflowTask.StartedProgramVersion
 }
 
-// WorkflowTaskSuperseded 报告 scheduledEventID 对应的 open WFT 在 started 之后是否出现了新事实。
-func (s *WorkflowExecutionState) WorkflowTaskSuperseded(scheduledEventID int64) bool {
-	return s.WorkflowTaskOpen(scheduledEventID) &&
-		s.WorkflowTask.StartedScheduledEventID == scheduledEventID &&
-		s.WorkflowTask.ActivationPending
+// WorkflowTaskStartedEventID 返回 scheduledEventID 对应 WFT 的 WorkflowTaskStarted 事件 ID；它不是最近一次
+// started 的 WFT 时返回 0。
+func (s *WorkflowExecutionState) WorkflowTaskStartedEventID(scheduledEventID int64) int64 {
+	if s.WorkflowTask.StartedScheduledEventID != scheduledEventID {
+		return 0
+	}
+	return s.WorkflowTask.StartedEventID
+}
+
+// UnseenFacts 报告 open WFT 的 Worker 看到 seenThroughEventID 为止之后，是否还落库了需要 Workflow 处理的事实。
+func (s *WorkflowExecutionState) UnseenFacts(seenThroughEventID int64) bool {
+	return s.WorkflowTask.LastActivationEventID > seenThroughEventID
 }
 
 // WorkflowTaskTimeoutDeadline 返回已 started 且仍 open 的 WFT 的调度事件 ID 与 start-to-close 超时时刻。
@@ -478,6 +489,11 @@ func applyWorkflowTaskEvent(state *WorkflowExecutionState, event history.Event) 
 	switch {
 	case isWorkflowActivationEvent(typ):
 		task.ActivationPending = true
+		task.LastActivationEventID = event.ID
+	case typ == history.EventWorkflowTaskCompleted:
+		// 完成的 WFT 看到 SeenThroughEventID 为止的事实；进行期间到达的事实仍待处理，由下一个 WFT 看到。
+		seen := event.WorkflowTaskCompleted.SeenThroughEventID
+		task.ActivationPending = seen > 0 && task.LastActivationEventID > seen
 	case isWorkflowTaskLifecycleEvent(typ):
 		task.ActivationPending = false
 	default:
@@ -485,6 +501,7 @@ func applyWorkflowTaskEvent(state *WorkflowExecutionState, event history.Event) 
 	}
 	switch typ {
 	case history.EventWorkflowTaskStarted:
+		task.StartedEventID = event.ID
 		task.StartedScheduledEventID = event.WorkflowTaskStarted.ScheduledEventID
 		task.StartedProgramVersion = event.WorkflowTaskStarted.ProgramVersion
 		task.StartToCloseDeadline = nil

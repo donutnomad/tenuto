@@ -32,7 +32,7 @@ if err := c.GetWorkflow(ctx, workflowID, runID).Get(ctx, nil); workflow.IsCancel
 ### 取消送达 Workflow 代码
 
 1. Server 在 History 写入 `WorkflowCancellationRequested` 并调度 Workflow Task。
-2. Worker 处理这个 Workflow Task 时，在协程推进之前取消 Workflow 的根 Context。送达点是这条事件，重放时在同一位置送达。
+2. Worker 处理这个 Workflow Task 时，在协程推进之前取消 Workflow 的根 Context。送达点是这条事件，重放时在同一位置送达。同一个 Workflow Task 看到的事件里，取消请求之前已有结果的 Activity、timer、子 Workflow 照常返回结果；取消请求之后才到的结果不改变已按取消返回的 Future（与 Temporal 按事件顺序处理相同）。
 3. Workflow 代码继续运行。在已取消的 Context 上：
    - `ExecuteActivity` 的 Activity 被请求取消（`RequestCancelActivity`），Future 返回取消错误；
    - `Sleep` 的 timer 被取消（`CancelTimer` → `TimerCancelled`），`Sleep` 返回取消错误；

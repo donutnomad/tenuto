@@ -230,3 +230,59 @@ func (f *eventFiller) requireFilled(t *testing.T, value reflect.Value, path stri
 		}
 	}
 }
+
+// EventsByDedupeKeysContract 断言按去重键读取只返回去重键属于 keys 的事件，按事件 ID 升序；Update 的记录按
+// execution.UpdateDedupeKeys 读到的事件组装，与在完整 History 上组装的结果相同；终态事件随同一次读取返回，
+// 已接受、未完成的 Update 按 Run 结束失败。
+func EventsByDedupeKeysContract(t *testing.T, newManager func(t *testing.T) execution.ExecutionManager) {
+	manager := newManager(t)
+	const runID = "run-dedupe-keys"
+	createRun(t, manager, execution.NewRun(execution.NewRunOptions{ID: runID, WorkflowID: "wf-dedupe-keys", WorkflowConfigVersion: "v1", CreatedAt: contractNow}))
+	payload, err := protocol.NewJSONPayload(map[string]any{"ok": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.RunInTx(func(tx execution.ExecutionTx) error {
+		for _, event := range []history.Event{
+			history.NewWorkflowSignaledEvent("noise", nil),
+			history.NewWorkflowUpdateAcceptedEvent("place", "u1", nil),
+			history.NewWorkflowSignaledEvent("noise", nil),
+			history.NewWorkflowUpdateAcceptedEvent("place", "u2", nil),
+			{WorkflowUpdateCompleted: &history.WorkflowUpdateCompletedEvent{Name: "place", UpdateID: "u1", Outcome: &protocol.UpdateOutcome{Success: &payload}}},
+			history.NewWorkflowCompletedEvent(nil),
+		} {
+			if _, _, err := tx.AppendIdempotent(runID, runID, runID, event); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	all, err := manager.GetEvents(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, updateID := range []string{"u1", "u2", "missing"} {
+		events, err := manager.GetEventsByDedupeKeys(runID, execution.UpdateDedupeKeys(updateID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 1; i < len(events); i++ {
+			if events[i].ID <= events[i-1].ID {
+				t.Fatalf("%s: events are not in event ID order: %d then %d", updateID, events[i-1].ID, events[i].ID)
+			}
+		}
+		got, gotOK := execution.UpdateRecordFromEvents(updateID, events)
+		want, wantOK := execution.UpdateRecordFromEvents(updateID, all)
+		if gotOK != wantOK || !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: record from dedupe keys = %+v (%v), from full history = %+v (%v)", updateID, got, gotOK, want, wantOK)
+		}
+	}
+	if events, err := manager.GetEventsByDedupeKeys(runID, execution.UpdateDedupeKeys("u1")); err != nil || len(events) != 3 {
+		t.Fatalf("u1 events = %d, err = %v, want accepted, completed and the terminal event", len(events), err)
+	}
+	if record, ok := execution.UpdateRecordFromEvents("u2", all); !ok || record.Outcome == nil || record.Outcome.Failure == nil {
+		t.Fatalf("u2 = %+v (found %v), want the failure from the run closing", record, ok)
+	}
+}

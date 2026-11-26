@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"time"
@@ -45,6 +46,23 @@ type openWorkflowTask struct {
 	branch           runBranch
 	state            *execution.WorkflowExecutionState
 	scheduledEventID int64
+}
+
+// seenThroughEventID 返回 Worker 做这次决策时看到的最后一个事件 ID。增量激活路径由 Worker 报告；
+// 全量路径的 Worker 只执行到本次 WFT 的 WorkflowTaskStarted（executor.RunWorkflowTask），取它的事件 ID。
+// WFT 已关闭（scheduledEventID 为 0）时提交是空操作，返回 0。open 的 WFT 没有 started 记录时无法确定 Worker
+// 看到的边界，返回错误。
+func (o openWorkflowTask) seenThroughEventID(ctx context.Context) (int64, error) {
+	if seen := activatedThroughEventID(ctx); seen > 0 {
+		return seen, nil
+	}
+	if o.scheduledEventID == 0 {
+		return 0, nil
+	}
+	if started := o.state.WorkflowTaskStartedEventID(o.scheduledEventID); started > 0 {
+		return started, nil
+	}
+	return 0, fmt.Errorf("workflow task %d of run %s has no WorkflowTaskStarted; the events its worker saw are unknown", o.scheduledEventID, o.ref.ID)
 }
 
 // programVersion 返回本次 Workflow Task 在 started 时选中的 Program 版本。
@@ -141,6 +159,11 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	}
 	treeID, branchID := open.branch.treeID, open.branch.branchID
 	closeEvent := history.NewWorkflowTaskCompletedEvent(workflowTaskScheduledID, workerIdentity)
+	seen, err := open.seenThroughEventID(ctx)
+	if err != nil {
+		return err
+	}
+	closeEvent.WorkflowTaskCompleted.SeenThroughEventID = seen
 
 	// 终态命令派生的接续 Run 在事务外备好，与终态事件、旧 Run 的终态状态、current 切换同事务提交：
 	// History 写下终态之后，同 Workflow ID 的启动、Signal 与 Update 看到的只有接续 Run。
@@ -191,8 +214,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 			Run: run, TreeID: treeID, BranchID: branchID,
 			CloseEvent: closeEvent, CommandEvents: commandEvents, Commands: commands,
 			ChildTargets: prepared.ChildTargets, TraceContext: traceContext,
-			SeenThroughEventID: activatedThroughEventID(ctx),
-			ProgramVersion:     programVersion, Now: now,
+			ProgramVersion: programVersion, Now: now,
 		})
 		if err != nil || !result.ClosedInserted {
 			return err
@@ -232,6 +254,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		return nil
 	}
 	s.stopWorkflowTaskTimeout(runID, workflowTaskScheduledID)
+
 	// current 的提升与 UpgradeError 的清除已随 WFT 完成同事务提交。
 	if promoted {
 		s.logger.Info("workflow content upgraded at workflow task boundary",
@@ -247,7 +270,21 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	if err := s.runWorkflowTaskPostCommit(context.WithoutCancel(ctx), run, commands, result, prepared, traceContext, workflowFailedInserted, continued, retry, now); err != nil {
 		return err
 	}
-	return s.captureWorkflowTaskCompletion(ctx, result, closeEvent, commandEvents, commands)
+	if err := s.captureWorkflowTaskCompletion(ctx, result, closeEvent, commandEvents, commands); err != nil {
+		return err
+	}
+	if result.UnseenFacts {
+		// 进行期间到达的事实没有被这次决策看到，留给下一个 WFT。它在回执分配 sticky 之后调度，仍交给这个 Worker；
+		// 完成已提交，调度失败不能报成完成失败（Worker 会因此逐出 session）：记日志，由 reconcileRun 按
+		// ActivationPending 补上。
+		if err := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID); err != nil {
+			s.logger.Error("post-commit workflow task schedule for unseen facts failed; reconciler will schedule it",
+				slog.String("run_id", runID),
+				slog.Any("err", err),
+			)
+		}
+	}
+	return nil
 }
 
 // continueAsNewInserted 报告本次提交是否插入了 CmdContinueAsNew 的 WorkflowContinuedAsNew 事件。终态事件先到先得，

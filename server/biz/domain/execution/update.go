@@ -54,6 +54,44 @@ func UpdateRecordsFromEvents(events []history.Event) []history.WorkflowUpdateRec
 	return records
 }
 
+// UpdateDedupeKeys 返回查找一个 Update 记录要读的去重键（history.DedupeKey）：它的 WorkflowUpdateAccepted、
+// WorkflowUpdateCompleted，以及 Run 的终态事件。三类事件在一次读取里取到，来自同一时刻的 History：终态事件与同批
+// 提交的 WorkflowUpdateCompleted 要么都在、要么都不在，已接受、未完成的 Update 只在终态事件确实在时按 Run 结束失败。
+func UpdateDedupeKeys(updateID string) []string {
+	var keys []string
+	for _, event := range []history.Event{
+		history.NewWorkflowUpdateAcceptedEvent("", updateID, nil),
+		{WorkflowUpdateCompleted: &history.WorkflowUpdateCompletedEvent{UpdateID: updateID}},
+		{WorkflowCompleted: &history.WorkflowCompletedEvent{}},
+	} {
+		if key, ok := history.DedupeKey(event); ok {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// UpdateRecordFromEvents 从 UpdateDedupeKeys 读到的事件组装 updateID 的记录，与 UpdateRecordsFromEvents 在完整
+// History 上的结果相同。
+func UpdateRecordFromEvents(updateID string, events []history.Event) (history.WorkflowUpdateRecord, bool) {
+	for _, record := range UpdateRecordsFromEvents(events) {
+		if record.UpdateID == updateID {
+			return record, true
+		}
+	}
+	return history.WorkflowUpdateRecord{}, false
+}
+
+// UpdateCompletedIn 在一段新增事件里找 updateID 的 WorkflowUpdateCompleted，返回它的结果。
+func UpdateCompletedIn(updateID string, events []history.Event) (*history.UpdateOutcome, bool) {
+	for _, event := range events {
+		if completed := event.WorkflowUpdateCompleted; completed != nil && completed.UpdateID == updateID {
+			return completed.Outcome, true
+		}
+	}
+	return nil, false
+}
+
 // CompleteUpdateResult 把 handler 的执行结果定型为对外结果。Outcome 是唯一权威来源：
 // Failure 非 nil 即失败（message 可以为空）；否则成功。
 func CompleteUpdateResult(result protocol.WorkflowUpdateResult, outcome *history.UpdateOutcome) protocol.WorkflowUpdateResult {

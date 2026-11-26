@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 	"time"
 
@@ -40,12 +41,16 @@ const (
 //  1. Activate(events)：events 紧接 appliedThrough，executor 以 live 方式推进并产出命令；
 //     appliedThrough 保持原值，会话记住本次的 ActivationID、命令摘要与 ThroughEventID。
 //  2. 调用方把命令提交给 Server（Complete）。
-//  3. Commit(ack)：ack 必须对应第 1 步的 Activation 与命令摘要，且 ack.CommittedEvents 紧接
-//     ThroughEventID。会话把这些事件（WorkflowTaskCompleted 与命令事件）灌入事实表，
-//     再把 appliedThrough 推进到 ack.CommittedThroughEventID。
+//  3. Commit(ack)：ack 必须对应第 1 步的 Activation 与命令摘要，ack.CommittedEvents 是 ID 连续的
+//     WorkflowTaskCompleted 与命令事件，排在 ThroughEventID 之后。会话把它们灌入事实表。
+//     它们紧接 ThroughEventID 时 appliedThrough 推进到 ack.CommittedThroughEventID；中间隔着 Workflow Task
+//     进行期间落库的事实时，appliedThrough 停在 ThroughEventID，已灌入的提交事件记为 committedAhead，
+//     下一次 Activate 的增量从这些事实开始，跳过 committedAhead。
 //
-// 不变量：Idle 状态下，executor 的状态等于「用 appliedThrough 之前的全部 History 从头 replay」得到的状态。
-// Restore 用已提交的 History 建立这个不变量，所以它要求 History 以已提交的 Workflow Task 结尾。
+// 不变量：Idle 状态下，executor 的状态等于「用 SplitBatches 重放 appliedThrough 之前的已提交决策批，
+// 再加上 committedAhead 所属的那一批」得到的状态；下一次 Activate 的事件（去掉 committedAhead）
+// 正是 SplitBatches 给出的下一批。Restore 用已提交的 History 建立这个不变量，所以它要求 History 以已提交的
+// Workflow Task 结尾。
 type workflowExecutionSession struct {
 	mu                  sync.Mutex
 	state               executionSessionState
@@ -54,11 +59,14 @@ type workflowExecutionSession struct {
 	lifetimeCancel      context.CancelFunc
 	executionGeneration int64
 	appliedThrough      int64
-	pendingActivation   string
-	pendingDigest       string
-	pendingThrough      int64
-	closeOnce           sync.Once
-	closeErr            error
+	// committedAhead 是已灌入、但排在 appliedThrough 之后未看到的事实后面的提交事件（WorkflowTaskCompleted
+	// 与命令事件）的 ID 区间；没有时为零值。
+	committedAhead    eventRange
+	pendingActivation string
+	pendingDigest     string
+	pendingThrough    int64
+	closeOnce         sync.Once
+	closeErr          error
 }
 
 func NewExecutionSession(lifetimeCtx context.Context, workflow *program.WorkflowConfig, executionGeneration int64) executor2.ExecutionSession {
@@ -101,8 +109,9 @@ func (s *workflowExecutionSession) Restore(ctx context.Context, history executor
 	}
 	batches := executor2.SplitBatches(events)
 	committed := len(batches) - 1
-	if len(batches[committed]) != 0 {
-		return executor2.RestoreResult{}, s.failLocked(invalidSession(errors.New("restore requires history through a committed WorkflowTaskCompleted tail")))
+	appliedThrough, committedAhead, err := restoreCursor(events, batches[committed])
+	if err != nil {
+		return executor2.RestoreResult{}, s.failLocked(invalidSession(err))
 	}
 	s.executor.startScheduler()
 	if err := s.executor.restore(batches[:committed]); err != nil {
@@ -111,11 +120,33 @@ func (s *workflowExecutionSession) Restore(ctx context.Context, history executor
 	s.executor.isReplay = false
 	s.executor.commands = nil
 	s.executor.replayCommands = nil
-	if len(events) > 0 {
-		s.appliedThrough = events[len(events)-1].ID
-	}
+	s.appliedThrough = appliedThrough
+	s.committedAhead = committedAhead
 	s.state = executionSessionIdle
 	return executor2.RestoreResult{AppliedThroughEventID: s.appliedThrough, EstimatedSize: s.estimatedSizeLocked()}, nil
+}
+
+// restoreCursor 返回 Restore 之后的游标。History 以已提交的 Workflow Task 结尾时，未归入已提交批的只能是
+// 最后一个 Workflow Task 没有看到的事实（carried，ID 小于最后一个 WorkflowTaskCompleted）：游标停在它们之前，
+// 最后一个 WorkflowTaskCompleted 到 History 末尾的提交事件记为 committedAhead。
+func restoreCursor(events, carried []history.Event) (int64, eventRange, error) {
+	if len(events) == 0 {
+		return 0, eventRange{}, nil
+	}
+	last := events[len(events)-1].ID
+	if len(carried) == 0 {
+		return last, eventRange{}, nil
+	}
+	completed := slices.IndexFunc(events, func(event history.Event) bool {
+		return event.WorkflowTaskCompleted != nil && event.ID > carried[len(carried)-1].ID
+	})
+	if completed < 0 {
+		return 0, eventRange{}, errors.New("restore requires history through a committed WorkflowTaskCompleted tail")
+	}
+	if carried[len(carried)-1].ID != events[completed].ID-1 {
+		return 0, eventRange{}, fmt.Errorf("restore: unseen events end at %d, not before WorkflowTaskCompleted %d", carried[len(carried)-1].ID, events[completed].ID)
+	}
+	return carried[0].ID - 1, eventRange{from: events[completed].ID, through: last}, nil
 }
 
 // readRestoreHistory 读完迭代器并要求 Event ID 从 1 起连续。
@@ -155,16 +186,25 @@ func (s *workflowExecutionSession) Activate(ctx context.Context, activation hist
 	if err := validateActivation(s.executionGeneration, s.appliedThrough, activation); err != nil {
 		return history.ActivationResult{}, s.failLocked(invalidSession(err))
 	}
+
+	live, err := s.committedAhead.skip(activation.Events)
+	if err != nil {
+		return history.ActivationResult{}, s.failLocked(invalidSession(err))
+	}
+	if !endsWithStartedWorkflowTask(live) {
+		return history.ActivationResult{}, s.failLocked(invalidSession(errors.New("workflow activation delta must end with a started workflow task")))
+	}
 	if err := s.contextGate.Begin(ctx); err != nil {
 		return history.ActivationResult{}, s.failLocked(err)
 	}
 	defer s.contextGate.End()
 
 	s.state = executionSessionActivating
+	s.committedAhead = eventRange{}
 	s.executor.commands = nil
 	s.executor.evalErr = nil
 	s.executor.execErr = nil
-	if err := s.executor.activate(activation.Events); err != nil {
+	if err := s.executor.activate(live); err != nil {
 		return history.ActivationResult{}, s.failLocked(err)
 	}
 	if err := s.contextGate.Err(); err != nil {
@@ -206,7 +246,13 @@ func (s *workflowExecutionSession) Commit(ack history.WorkflowTaskCompletionAck)
 	if err := s.executor.executionError(); err != nil {
 		return s.failLocked(err)
 	}
-	s.appliedThrough = ack.CommittedThroughEventID
+	if first := ack.CommittedEvents[0].ID; first == s.pendingThrough+1 {
+		s.appliedThrough = ack.CommittedThroughEventID
+	} else {
+		// Workflow Task 进行期间落库的事实（pendingThrough, first）没有被这次决策看到，留给下一次 Activate。
+		s.appliedThrough = s.pendingThrough
+		s.committedAhead = eventRange{from: first, through: ack.CommittedThroughEventID}
+	}
 	s.pendingActivation = ""
 	s.pendingDigest = ""
 	s.pendingThrough = 0
@@ -249,11 +295,20 @@ func (s *workflowExecutionSession) validateAckLocked(ack history.WorkflowTaskCom
 	if ack.CommandDigest != s.pendingDigest {
 		return fmt.Errorf("workflow task completion command digest %q does not match pending digest %q", ack.CommandDigest, s.pendingDigest)
 	}
-	if err := history.ValidateEventSequence(s.pendingThrough, ack.CommittedEvents); err != nil {
-		return fmt.Errorf("workflow task completion authoritative tail: %w", err)
-	}
 	if len(ack.CommittedEvents) == 0 || ack.CommittedEvents[0].WorkflowTaskCompleted == nil {
 		return errors.New("workflow task completion authoritative tail must begin with WorkflowTaskCompleted")
+	}
+	first := ack.CommittedEvents[0]
+	if first.ID <= s.pendingThrough {
+		return fmt.Errorf("workflow task completion authoritative tail starts at %d, not after activated event %d", first.ID, s.pendingThrough)
+	}
+	if err := history.ValidateEventSequence(first.ID-1, ack.CommittedEvents); err != nil {
+		return fmt.Errorf("workflow task completion authoritative tail: %w", err)
+	}
+	// SeenThroughEventID 为 0 表示 Worker 看到了 WorkflowTaskCompleted 之前的全部事件，只在两者之间没有间隙时成立。
+	seen := first.WorkflowTaskCompleted.SeenThroughEventID
+	if seen == 0 && first.ID != s.pendingThrough+1 || seen != 0 && seen != s.pendingThrough {
+		return fmt.Errorf("workflow task completion saw through event %d, activation was through %d", seen, s.pendingThrough)
 	}
 	terminal := false
 	for i, event := range ack.CommittedEvents[1:] {
@@ -344,10 +399,33 @@ func validateActivation(generation, appliedThrough int64, activation history.Wor
 	if activation.ThroughEventID != last {
 		return fmt.Errorf("workflow activation through event %d does not match delta tail %d", activation.ThroughEventID, last)
 	}
-	if !endsWithStartedWorkflowTask(activation.Events) {
-		return errors.New("workflow activation delta must end with a started workflow task")
-	}
 	return nil
+}
+
+// eventRange 是一段闭区间的 Event ID；零值表示空。
+type eventRange struct {
+	from, through int64
+}
+
+// skip 从增量里去掉区间内已灌入的事件。区间非空时增量必须完整覆盖它，且区间以 WorkflowTaskCompleted 开头。
+func (r eventRange) skip(events []history.Event) ([]history.Event, error) {
+	if r.from == 0 {
+		return events, nil
+	}
+	if len(events) == 0 || events[len(events)-1].ID < r.through {
+		return nil, fmt.Errorf("workflow activation delta does not cover committed events %d-%d", r.from, r.through)
+	}
+	live := make([]history.Event, 0, len(events))
+	for _, event := range events {
+		if event.ID < r.from || event.ID > r.through {
+			live = append(live, event)
+			continue
+		}
+		if event.ID == r.from && event.WorkflowTaskCompleted == nil {
+			return nil, fmt.Errorf("workflow activation delta event %d is not the committed WorkflowTaskCompleted", event.ID)
+		}
+	}
+	return live, nil
 }
 
 // endsWithStartedWorkflowTask 报告增量里最后一个 Workflow Task 生命周期事件是否为 WorkflowTaskStarted。

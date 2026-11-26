@@ -25,6 +25,7 @@ status: Stable
 | `WORKFLOW_WORKER_CACHE_MAX_ENTRIES` | `1000` | Sticky Execution Cache 的 session 上限 |
 | `WORKFLOW_WORKER_CACHE_MAX_BYTES` | `268435456` | Sticky Execution Cache 的估算内存上限 |
 | `WORKFLOW_WORKER_CACHE_IDLE_TTL` | `5m` | Sticky Execution Cache 空闲逐出时间 |
+| `WORKFLOW_QUERY_CONCURRENCY` | `8` | 本进程同时重放 History 求值 Query 的上限；超出的 Query 立即应答 503 与 `Retry-After`，Go SDK 退避重发。`__stack_trace` 不占名额 |
 | `WORKFLOW_ARTIFACTS` | 空 | 启动时加载的生成产物目录，逗号分隔，递归查找 `workflow.json`；空表示不加载 |
 | `WORKFLOW_ARTIFACTS_NAMESPACE` | `default` | `WORKFLOW_ARTIFACTS` 中产物登记到的 Namespace |
 | `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES` | `2097152`（2 MiB） | 单个载荷 JSON 编码后的字节上限：Workflow 输入与结果、Signal 输入、Update 参数、Activity 输入、结果与心跳详情、子 Workflow 与 Continue-As-New 输入、Marker 数据。最大 `3145728`（3 MiB，载荷连同请求其余部分要放进 4 MiB 的 Runtime 请求体）。超限时的处理见 [容量上限](/operations/capacity-limits#载荷大小) |

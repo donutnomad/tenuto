@@ -42,6 +42,9 @@ const CloseEventScan = 8
 type HistoryPageStore interface {
 	GetEventPage(request HistoryPageRequest) (HistoryPage, error)
 	GetEventsRange(runID string, afterExclusive, throughInclusive int64) ([]history.Event, error)
+	// GetEventsByDedupeKeys 返回 Run 可见 History 里去重键（history.DedupeKey）属于 keys 的事件，按事件 ID 升序。
+	// 范围与 GetEvents 相同（含 reset 从祖先 fork 来的前缀），读取走去重键索引，与 History 长度无关。
+	GetEventsByDedupeKeys(runID string, keys []string) ([]history.Event, error)
 }
 
 var (

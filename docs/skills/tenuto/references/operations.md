@@ -23,7 +23,7 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 | `status` 是 `running`、无错误、`__stack_trace` 的 `waiting.type` 是 `timer`，或 `waiting` 为空（等 Signal、`Await` 条件） | 正常等待 | 推进它等待的事件 |
 | `status` 是 `failed` | 终态 | `terminal_failure`，或 `c.GetWorkflow(...).Get` 的错误 `errors.As` 到 `*apperror.Error` 看 Type 与 details；需要重跑时 Reset |
 
-`WorkflowTaskFailed` 的 `cause`：Worker 上报的只有 `non_deterministic_error`、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）与 `workflow_panic`（Workflow 代码越界、nil 解引用、`panic` 或解释器 panic），计入连续失败并退避；`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入，表示 Workflow Task 需要重做，不计连续失败、不退避。`POST /runtime/workflow-task/failed` 收到其他取值（含后三个）返回 400。
+`WorkflowTaskFailed` 的 `cause`：Worker 上报的只有 `non_deterministic_error`、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）与 `workflow_panic`（Workflow 代码越界、nil 解引用、`panic` 或解释器 panic），计入连续失败并退避；`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入，表示 Workflow Task 需要重做，不计连续失败、不退避。`POST /runtime/workflow-task/failed` 收到其他取值（含后三个）返回 400。`unhandled_events` 只在一批含结束 Workflow 的命令（Complete、Fail、Cancel、ContinueAsNew）、而 Workflow Task 执行期间到达了 Worker 没有看到的事实时写入；其他命令照常提交，新事实交给下一个 Workflow Task。
 
 错误原文与成因：
 

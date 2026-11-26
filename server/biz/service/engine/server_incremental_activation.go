@@ -126,7 +126,11 @@ func (s *Server) captureWorkflowTaskCompletion(
 		event.ID = eventResult.EventID
 		committed = append(committed, event)
 	}
-	if err := history.ValidateEventSequence(capture.activation.Activation.ActivatedThroughEventID, committed); err != nil {
+	// 提交事件 ID 连续，排在 Worker 看到的位置之后；中间可能隔着 Workflow Task 进行期间到达的事实。
+	if committed[0].ID <= capture.activation.Activation.ActivatedThroughEventID {
+		return fmt.Errorf("workflow completion close event %d is not after activated event %d", committed[0].ID, capture.activation.Activation.ActivatedThroughEventID)
+	}
+	if err := history.ValidateEventSequence(committed[0].ID-1, committed); err != nil {
 		return fmt.Errorf("workflow completion store returned non-contiguous authoritative tail: %w", err)
 	}
 	terminal := false

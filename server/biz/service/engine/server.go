@@ -60,6 +60,8 @@ type Server struct {
 	scheduleUseCase *schedules.UseCase
 	batches         *batches.UseCase
 	queryEvaluator  executions.QueryEvaluator
+	// querySlots 限制同时在本进程重放 History 求值 Query 的数量（WithQueryConcurrency）。
+	querySlots chan struct{}
 
 	// updateValidators 按 update name 注册无状态校验器，为空则不校验。RegisterUpdateValidator（写）可能与
 	// UpdateWorkflow（读）并发，由 updateValidatorsMu 保护。
@@ -139,6 +141,7 @@ func NewServer(deps ServerDeps, options ...ServerOption) *Server {
 		activityRoutes:    dispatch.NewActivityRouteCatalog(deps.Clock),
 		schedules:         deps.Schedules,
 		queryEvaluator:    deps.QueryEvaluator,
+		querySlots:        make(chan struct{}, resolved.queryConcurrency),
 		tokens:            deps.TaskTokens,
 		updateSoftTimeout: updateSoftTimeout,
 		payloadSizeLimit:  resolved.payloadSizeLimit,

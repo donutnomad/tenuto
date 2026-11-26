@@ -20,8 +20,11 @@ type WorkflowTaskCommandEventResult struct {
 }
 
 type WorkflowTaskCompletionResult struct {
-	// Superseded 表示 started 之后有新事实，本次完成没有提交，已写入 WorkflowTaskFailed，调用方立即重新调度。
-	Superseded     bool
+	// Superseded 表示本批含终态命令、而 Worker 没有看到 Workflow Task 进行期间到达的新事实：本次完成没有提交，
+	// 已写入 WorkflowTaskFailed(unhandled_events)，调用方立即重新调度。
+	Superseded bool
+	// UnseenFacts 表示本次完成已提交，Workflow Task 进行期间到达的事实留给下一个 Workflow Task，调用方提交后调度它。
+	UnseenFacts    bool
 	ClosedInserted bool
 	ClosedEventID  int64
 	CommandEvents  []WorkflowTaskCommandEventResult

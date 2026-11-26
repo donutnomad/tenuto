@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/donutnomad/tenuto/internal/executor"
 	"github.com/donutnomad/tenuto/protocol"
@@ -13,6 +14,7 @@ import (
 
 // applyBatch 把一批事件灌入事实表。它只更新事实，协程由调用方推进。
 // 每遇到一个 WorkflowTaskStarted 就固定一次 GetInfo 快照（见 snapshotActivationInfo）。
+// workflow.Now 的取值不在这里更新：它属于决策批，由 runDecisionBatch 设定（见 batchTime）。
 func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 	for _, event := range events {
 		e.unmeasuredEvents = append(e.unmeasuredEvents, event)
@@ -21,9 +23,6 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 		}
 	}
 	for _, event := range events {
-		if !event.Timestamp.IsZero() {
-			e.currentTime = event.Timestamp
-		}
 		if event.WorkflowCompleted != nil || event.WorkflowFailed != nil ||
 			event.WorkflowCancelled != nil || event.WorkflowTerminated != nil {
 			e.terminated = true
@@ -142,6 +141,27 @@ func (e *WorkflowExecutor) setActivationInfo(metrics history.HistoryMetrics, rea
 		CurrentHistorySize:   metrics.SizeBytes,
 		ContinueAsNewReasons: append([]workflow.ContinueAsNewReason(nil), reasons...),
 	}
+}
+
+// batchTime 返回一个决策批里 workflow.Now 的取值：批内最后一个 WorkflowTaskStarted 的时间戳，与 Temporal
+// 取 WorkflowTaskStarted 时间一致。live 执行时批尾就是这个事件；同一个批提交之后多出的 WorkflowTaskCompleted
+// 与命令事件（时间是提交时刻）排在它后面，重放时不影响取值，所以 live 与重放读到同一个值。
+// 没有 WorkflowTaskStarted 的批（裸历史）取批内最后一个带时间戳的事件。ok 为 false 时批内没有时间戳，沿用原值。
+func batchTime(batch []history.Event) (time.Time, bool) {
+	var last time.Time
+	for i := len(batch) - 1; i >= 0; i-- {
+		event := batch[i]
+		if event.Timestamp.IsZero() {
+			continue
+		}
+		if event.WorkflowTaskStarted != nil {
+			return event.Timestamp, true
+		}
+		if last.IsZero() {
+			last = event.Timestamp
+		}
+	}
+	return last, !last.IsZero()
 }
 
 func (e *WorkflowExecutor) marker(name, id string) (map[string]any, bool) {
