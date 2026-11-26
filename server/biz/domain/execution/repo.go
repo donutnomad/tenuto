@@ -142,7 +142,8 @@ type ExecutionManager interface {
 	ChildWorkflowStateStore
 	WorkflowExecutionStateStore
 	// RunInTx 在一个事务里执行 fn。数据库因死锁回滚事务时，后端可以用新事务把 fn 整体再执行一次（MySQL 最多
-	// 3 次）：fn 只经 tx 读写，结果赋给外层变量，提交后的副作用（调度、timer、通知）放在 RunInTx 返回之后。
+	// 3 次）：fn 只经 tx 读写，结果赋给外层变量，并在开头把这些变量重置为零值（重放可能走另一条分支，不能残留
+	// 上一次尝试的值）；提交后的副作用（调度、timer、通知）放在 RunInTx 返回之后。
 	RunInTx(fn func(tx ExecutionTx) error) error
 }
 

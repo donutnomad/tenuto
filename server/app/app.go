@@ -678,7 +678,7 @@ func (a *application) startRecovery(ctx context.Context) {
 // 已逐个汇总，未完成的部分由周期 reconciler 继续补偿。
 func (a *application) recoverRunningWorkflows(ctx context.Context) {
 	started := a.clock.Now()
-	if err := a.server.RecoverRunningWorkflows(ctx, 2*a.cfg.ReconcileInterval); err != nil {
+	if err := a.server.RecoverRunningWorkflows(ctx, a.reconcileLoop().Lookahead()); err != nil {
 		a.telemetry.Logger.Error("recover running workflows incomplete; reconciler will retry", "err", err)
 	}
 	if err := a.server.FallbackExpiredStickyWorkflowTasks(ctx); err != nil {
@@ -687,10 +687,15 @@ func (a *application) recoverRunningWorkflows(ctx context.Context) {
 	a.telemetry.Logger.Info("startup recovery finished", "duration", a.clock.Now().Sub(started))
 }
 
+// reconcileLoop 是本应用的周期补偿循环（见 engine.Reconciler）。
+func (a *application) reconcileLoop() engine.Reconciler {
+	return engine.Reconciler{Server: a.server, Interval: a.cfg.ReconcileInterval, FullScanInterval: a.cfg.ReconcileFullScanInterval}
+}
+
 // startReconciler 启动周期补偿。单副本（内存后端）在本进程里运行；MySQL 后端经 dbleader 选主，只有 leader
 // 副本扫描，副本数不放大扫描量。补偿的每一步都幂等，租约切换瞬间的两个 leader 不会造成重复副作用。
 func (a *application) startReconciler(ctx context.Context) error {
-	task := reconcilerTask{app: a}
+	task := a.reconcileLoop()
 	if a.cfg.Backend != BackendMemory {
 		reconciler, err := leaderinfra.StartReconciler(task, a.workflowHandle, a.cfg.NodeID)
 		if err != nil {
@@ -707,69 +712,6 @@ func (a *application) startReconciler(ctx context.Context) error {
 		_ = task.Start(reconcileCtx)
 	}()
 	return nil
-}
-
-// reconcilerTask 每隔 ReconcileInterval 做一次按到期索引的周期补偿，每隔 ReconcileFullScanInterval 做一次全量补偿，
-// 两者各用一个 goroutine：全量补偿运行期间周期补偿照常接管到期的定时器。ctx 取消时两者都返回后 Start 返回。
-type reconcilerTask struct{ app *application }
-
-func (reconcilerTask) Name() string { return "workflow-reconciler" }
-
-func (t reconcilerTask) Start(ctx context.Context) error {
-	var wg sync.WaitGroup
-	wg.Go(func() { runEvery(ctx, t.app.cfg.ReconcileInterval, t.app.reconcile) })
-	wg.Go(func() { runEvery(ctx, t.app.cfg.ReconcileFullScanInterval, t.app.reconcileAll) })
-	wg.Wait()
-	return nil
-}
-
-// runEvery 每隔 interval 调用一次 fn，直到 ctx 取消；fn 运行超过 interval 时跳过错过的节拍。
-func runEvery(ctx context.Context, interval time.Duration, fn func(context.Context)) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			fn(ctx)
-		}
-	}
-}
-
-// reconcile 处理有到期或待处理事项的 Running Run：补投任务、把两个周期内到期的定时器挂到本进程，
-// 再接管持久化状态已过期的定时器。单个 Run 的失败不影响其余 Run。
-func (a *application) reconcile(ctx context.Context) {
-	result, overdue, err := a.server.Reconcile(ctx, engine.DefaultOverdueTimerGrace, 2*a.cfg.ReconcileInterval)
-	if err != nil {
-		a.telemetry.Logger.Error("workflow reconciliation incomplete", "err", err)
-	}
-	if result.WorkflowTasks > 0 || result.ActivityTasks > 0 {
-		a.telemetry.Logger.Info("workflow dispatch reconciliation completed", "workflow_tasks", result.WorkflowTasks, "activity_tasks", result.ActivityTasks)
-	}
-	if overdue != (engine.OverdueTimerResult{}) {
-		a.telemetry.Logger.Warn("workflow overdue timers taken over",
-			"run_timeouts", overdue.RunTimeouts,
-			"durable_timers", overdue.DurableTimers,
-			"activity_timeouts", overdue.ActivityTimeouts,
-			"workflow_task_timeouts", overdue.WorkflowTaskTimeouts,
-			"workflow_tasks", overdue.WorkflowTasks,
-			"activity_tasks", overdue.ActivityTasks)
-	}
-}
-
-// reconcileAll 逐页批量检查全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 补建、
-// 终态写回、父关闭策略、子 Run 取消请求补发）。
-func (a *application) reconcileAll(ctx context.Context) {
-	started := a.clock.Now()
-	result, err := a.server.DispatchPendingTasks(ctx)
-	if err != nil {
-		a.telemetry.Logger.Error("workflow full reconciliation incomplete", "err", err)
-	}
-	a.telemetry.Logger.Info("workflow full reconciliation finished",
-		"duration", a.clock.Now().Sub(started),
-		"workflow_tasks", result.WorkflowTasks,
-		"activity_tasks", result.ActivityTasks)
 }
 
 func (a *application) close() {

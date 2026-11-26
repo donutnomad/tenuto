@@ -54,6 +54,7 @@ func (s *Server) propagateChildWorkflowClose(ctx context.Context, childRunID, pa
 	now := s.clock.Now()
 	propagated := false
 	if txErr := s.telemetry.runInTx(ctx, "propagate_child_close", s.mgr, func(tx execution.ExecutionTx) error {
+		propagated = false // 死锁重放时上一次尝试的结果作废。
 		child, err := tx.GetRunForUpdate(childRunID)
 		if err != nil || child.ParentScheduledEventID == 0 {
 			return err

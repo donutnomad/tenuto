@@ -69,7 +69,9 @@ func (p *WorkflowExecutionStatePO) ToPO(state *execution.WorkflowExecutionState)
 
 // truncateMillis 把时间截断到毫秒。activity state 的时间列是 DATETIME(3)，MySQL 写入时把亚毫秒部分四舍五入，
 // 持久化的超时截止时间可能比进程内按纳秒计时的 timer 晚最多 0.5ms，timer 触发后复核会判为未到期。写入前向下截断，
-// 持久化的截止时间不晚于进程内 timer。
+// 持久化的截止时间不晚于进程内 timer。ActivityStatePO.ToPO 是 activity state 写入的唯一入口：整行插入直接用它，
+// patch 写入的生成代码 ToPatch 也先调 ToPO 再取改过的列，两条路径写入的都是截断后的值。
+// 其他表不需要截断：timer 触发与 Run 超时不按持久化的截止时间复核，WFT 的超时时刻存在 execution state 的 JSON 列里。
 func truncateMillis(t *time.Time) *time.Time {
 	if t == nil {
 		return nil

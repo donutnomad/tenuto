@@ -300,6 +300,89 @@ func TestActivityTimeoutSurvivesSubMillisecondRounding(t *testing.T) {
 	}
 }
 
+// 已存在的 activity state 行走 patch 写入（ToPatch）：StartActivity 写 started_time、心跳写 last_heartbeat_at，
+// 时间带亚毫秒部分。截断与整行插入共用 ActivityStatePO.ToPO，patch 写入的也是截断后的值：按读回的 state
+// 重算的截止时间不晚于进程内 timer，StartToClose 与 Heartbeat 超时都在进程内 timer 到期的时刻生效。
+func TestActivityPatchWritesTruncateSubMillisecondTimes(t *testing.T) {
+	store := requireMySQL(t)
+	base := time.Now().UTC().Truncate(time.Millisecond)
+	for _, tc := range []struct {
+		name        string
+		timeoutType protocol.TimeoutType
+		// heartbeat 为 false 时不心跳，超时从 started_time 起算。
+		heartbeat bool
+	}{
+		{"StartToClose", protocol.TimeoutTypeStartToClose, false},
+		{"Heartbeat", protocol.TimeoutTypeHeartbeat, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runID := "run-patch-rounding-" + tc.name
+			startTestRunWithHistory(t, store, runID, "wf-"+runID)
+			scheduledID, err := store.Executions.Append(runID, runID, runID, historypkg.NewActivityScheduledEvent(historypkg.ActivityScheduledEvent{ActivityID: "charge", ActivityType: "charge"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			const timeout = time.Second
+			// 先整行插入一个 scheduled 的 attempt（毫秒整数），之后的写入都是 patch。
+			if err := store.Executions.UpsertActivityState(&execution.ActivityState{
+				RunID: runID, ScheduledEventID: scheduledID, ActivityID: "charge", ActivityType: "charge",
+				Attempt: 1, Stamp: 1, Status: execution.ActivityStatusEnums.Scheduled, ScheduledTime: base,
+				StartToCloseTimeoutMs: timeout.Milliseconds(), HeartbeatTimeoutMs: timeout.Milliseconds(),
+				RetryPolicy: &historypkg.RetryPolicy{MaxAttempts: 1}, CreatedAt: base, UpdatedAt: base,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			transition := func(now time.Time) execution.ActivityTransition {
+				return execution.ActivityTransition{RunID: runID, TreeID: runID, BranchID: runID, ScheduledEventID: scheduledID, Attempt: 1, Stamp: 1, Now: now}
+			}
+			// 亚毫秒部分 0.6ms：MySQL 四舍五入会进位到下一毫秒。
+			startedAt := base.Add(10*time.Millisecond + 600*time.Microsecond)
+			if err := store.Executions.RunInTx(func(tx execution.ExecutionTx) error {
+				started, err := execution.StartActivity(tx, transition(startedAt), "worker-1", "build-1")
+				if err == nil && !started {
+					t.Fatal("StartActivity did not apply")
+				}
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			from := startedAt
+			if tc.heartbeat {
+				from = startedAt.Add(200*time.Millisecond + 700*time.Microsecond)
+				if err := store.Executions.RunInTx(func(tx execution.ExecutionTx) error {
+					state, err := execution.RecordActivityHeartbeat(tx, transition(from), map[string]any{"n": 1})
+					if err == nil && state == nil {
+						t.Fatal("heartbeat did not apply")
+					}
+					return err
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			persisted, _, err := store.Executions.GetActivityState(runID, scheduledID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if persisted.StartedTime == nil || persisted.StartedTime.After(startedAt) ||
+				tc.heartbeat && (persisted.LastHeartbeatAt == nil || persisted.LastHeartbeatAt.After(from)) {
+				t.Fatalf("patched times rounded up: started %v (wrote %v), heartbeat %v (wrote %v)", persisted.StartedTime, startedAt, persisted.LastHeartbeatAt, from)
+			}
+			// 进程内 timer 在 from+timeout 准点到期。
+			var result execution.ActivityFailureResult
+			if err := store.Executions.RunInTx(func(tx execution.ExecutionTx) error {
+				var err error
+				result, err = execution.TimeoutActivity(tx, transition(from.Add(timeout)), tc.timeoutType)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if !result.Applied {
+				t.Fatalf("%s timeout at the in-process deadline was judged not yet due", tc.timeoutType)
+			}
+		})
+	}
+}
+
 // 仓储用 RowsAffected 区分「INSERT 新写入」与「撞唯一键没有写入」（appendEvent 的去重、insertOrPatch 的 upsert）。
 // DSN 带 clientFoundRows=true 时，MySQL 对 ON DUPLICATE KEY UPDATE col = col 的撞键返回 1：去重命中被当成新写入。
 // ConfigureMySQL 把它固定为 false：DSN 里写成 true 也不生效，去重与 upsert 照常工作。

@@ -360,6 +360,8 @@ func (s *Repository) AppendWorkflowTaskScheduled(runID, treeID, branchID string,
 	var eventID int64
 	var inserted bool
 	err := s.inTx(func(tx *gormExecutionTx) error {
+		// 死锁重放时上一次尝试的结果作废。
+		eventID, inserted = 0, false
 		// open 的 Workflow Task 由 execution state 记录，在持有状态行锁的事务内判定并追加。
 		state, err := tx.lockedState(runID)
 		if err != nil {
@@ -466,7 +468,7 @@ const maxDeadlockAttempts = 3
 //
 // InnoDB 选中本事务作为死锁的牺牲者（Error 1213）时整个事务已回滚，inTx 用新事务把 fn 整体再执行一次，最多
 // maxDeadlockAttempts 次。fn 是可重放的闭包（见 execution.ExecutionManager.RunInTx），每次执行都从新的
-// gormExecutionTx 开始。
+// gormExecutionTx 开始；fn 写到外层的结果变量在闭包开头重置，重放走了另一条分支时不残留上一次尝试的值。
 func (s *Repository) inTx(fn func(tx *gormExecutionTx) error) error {
 	for attempt := 1; ; attempt++ {
 		err := s.db.Transaction(func(db *gorm.DB) error {

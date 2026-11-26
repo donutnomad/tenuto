@@ -16,8 +16,8 @@ import (
 const (
 	// DefaultOverdueTimerGrace 是到期扫描接管定时器前的等待时长，让持有内存定时器的存活副本优先触发。
 	DefaultOverdueTimerGrace = 30 * time.Second
-	// DefaultReconcileLookahead 是默认周期补偿间隔（30s）下的 lookahead：两个间隔内到期的定时器在到期前至少被一轮挂上。
-	DefaultReconcileLookahead = time.Minute
+	// DefaultReconcileLookahead 是默认周期补偿间隔下的 lookahead（见 Reconciler.Lookahead）。
+	DefaultReconcileLookahead = 2 * DefaultReconcileInterval
 	// runScanPageSize 是全量扫描 Running Run 时每页的 Run 数（见 forEachRunningRunPage）。
 	runScanPageSize = 200
 )

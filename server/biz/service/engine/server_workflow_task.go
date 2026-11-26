@@ -174,6 +174,8 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		workflowFailedInserted bool
 	)
 	if txErr := s.telemetry.runInTx(ctx, "complete_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+		// 死锁重放时上一次尝试的结果作废。
+		run, promoted, result, continuedInserted, workflowFailedInserted = nil, false, execution.WorkflowTaskCompletionResult{}, false, false
 		// 锁下读取 Run：提交用它把 current 提升到本次采用的 Program 版本，终态命令在它上面关闭 Run。
 		var err error
 		if run, err = tx.GetRunForUpdate(runID); err != nil {
