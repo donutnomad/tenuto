@@ -39,7 +39,7 @@ func TestConfigErrorPausesRun(t *testing.T) {
 		t.Fatalf("pause changed current content to %q", paused.WorkflowConfigVersion)
 	}
 	before := countEvents(t, server, current.ID)
-	if err := server.scheduleWorkflowTaskIfRunning(testContext(), current.ID); err != nil {
+	if err := server.scheduleWorkflowTask(testContext(), current.ID); err != nil {
 		t.Fatal(err)
 	}
 	if after := countEvents(t, server, current.ID); after != before {

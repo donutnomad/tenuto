@@ -180,7 +180,7 @@ func (s *Server) SetRunPolicy(ctx context.Context, namespace, runID, policy stri
 		return nil, err
 	}
 	// 显式恢复入口：暂停中的 Run 在策略更新后重新调度 WFT；未暂停的 Run 无影响。
-	if err := s.scheduleWorkflowTaskIfRunning(writeCtx, ref.ID); err != nil {
+	if err := s.resumeWorkflowTask(writeCtx, ref.ID); err != nil {
 		return nil, err
 	}
 	return updated, nil

@@ -122,7 +122,7 @@ Workflow 级的等待上限用 Timer 表达：一条协程 `workflow.Sleep`，�
 单个 Workflow Task 的执行上限由 `worker.Options.WorkflowTaskTimeout` 控制，缺省 10 秒。Worker 领取时把它报给 Server，Server 记在 `WorkflowTaskStarted.timeoutMs` 并从领取时刻计时：
 
 - Worker 超时内没执行完时自己上报超时；Worker 领取后崩溃或失联时，Server 到期记 `WorkflowTaskTimedOut`。同一个 Workflow Task 只记一次。
-- 超时后 Server 立即调度新的 Workflow Task 并结束 sticky 会话，新任务进普通队列，任何 Worker 都能领取。
+- 超时后 Server 立即调度新的 Workflow Task 并结束 sticky 会话，新任务进普通队列，任何 Worker 都能领取。超时已提交、新任务还没调度时副本退出或写库失败，周期补偿与启动恢复补上调度。
 - 计时持久化：Server 重启后继续计时；持有计时的副本下线后，其他副本的到期扫描在 30 秒宽限期后接管。
 
 Workflow 函数体里的纯计算受执行预算约束（见 `go-subset.md`）；耗时计算放进 Activity。

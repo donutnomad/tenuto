@@ -279,13 +279,15 @@ type WorkflowTaskTimedOutEvent struct {
 }
 
 type WorkflowTaskFailedEvent struct {
-	ScheduledEventID int64             `json:"scheduledEventId,omitempty"`
-	StartedEventID   int64             `json:"startedEventId,omitempty"`
-	Cause            string            `json:"cause,omitempty"`
-	BaseRunID        string            `json:"baseRunId,omitempty"`
-	ResetRunID       string            `json:"resetRunId,omitempty"`
-	Reason           string            `json:"reason,omitempty"`
-	TraceContext     map[string]string `json:"traceContext,omitempty"`
+	ScheduledEventID int64  `json:"scheduledEventId,omitempty"`
+	StartedEventID   int64  `json:"startedEventId,omitempty"`
+	Cause            string `json:"cause,omitempty"`
+	BaseRunID        string `json:"baseRunId,omitempty"`
+	ResetRunID       string `json:"resetRunId,omitempty"`
+	// RequestID 只出现在 reset 标记上：Reset 请求的幂等键，同一个 base Run 上重复的请求返回这次 reset 出的 Run。
+	RequestID    string            `json:"requestId,omitempty"`
+	Reason       string            `json:"reason,omitempty"`
+	TraceContext map[string]string `json:"traceContext,omitempty"`
 }
 
 // ── Activity ──

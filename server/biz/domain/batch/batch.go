@@ -92,6 +92,12 @@ type Operation struct {
 	patch      OperationPatch
 }
 
+// ResetRequestID 返回这个批量操作 reset runID 时使用的确定性 Reset 幂等键（对标 Temporal batcher 的
+// deterministicRequestID）：重做同一页或两个重叠的驱动处理同一页时，对同一个 Run 的 Reset 只生效一次。
+func (o *Operation) ResetRequestID(runID string) string {
+	return "batch-reset:" + o.ID + ":" + runID
+}
+
 type NewParams struct {
 	Namespace string
 	Type      Type
