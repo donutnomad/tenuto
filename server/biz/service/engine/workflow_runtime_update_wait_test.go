@@ -367,6 +367,45 @@ func TestUpdateWorkflow_WaitCompleted_TimeoutReturnsAcceptedStage(t *testing.T) 
 	}
 }
 
+// Update 在写入 UpdateAccepted 之后、进入等结果的长等待之前调用 WithLongWaitRelease 的回调：入口的在途名额
+// 只覆盖拿锁与写库阶段。
+func TestUpdateWorkflow_ReleasesInFlightSlotBeforeWaiting(t *testing.T) {
+	env := newUpdateWaitTestEnv(t, "run-release-slot")
+	released := make(chan int, 1)
+	ctx := WithLongWaitRelease(context.Background(), func() {
+		events, err := env.server.mgr.GetEvents(env.run.ID)
+		if err != nil {
+			t.Error(err)
+		}
+		accepted := 0
+		for _, event := range events {
+			if event.WorkflowUpdateAccepted != nil {
+				accepted++
+			}
+		}
+		released <- accepted
+	})
+	returned := make(chan struct{}, 1)
+	go func() {
+		_, _ = env.runtime.UpdateWorkflow(ctx, "", env.run.WorkflowID, env.run.ID, "set_priority", "", protocol.UpdateWaitStageEnums.Completed, updateArgs(map[string]any{"priority": "high"}))
+		returned <- struct{}{}
+	}()
+	select {
+	case accepted := <-released:
+		if accepted != 1 {
+			t.Fatalf("slot released with %d UpdateAccepted events, want the update written first", accepted)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("update did not release its in-flight slot before waiting")
+	}
+	select {
+	case <-returned:
+		t.Fatal("update returned before its soft timeout")
+	default:
+	}
+	advanceUntilReturned(t, env.clk, env.server.updateSoftTimeout, returned)
+}
+
 // TestUpdateWaiter_DeadlockRegression
 // Edge Case (-race): 并发发起 N 个 WaitStage=Completed 的 update，driver 逐个完成，
 // 断言无死锁（watchdog 超时即失败）——验证"等在锁外、Notify 非阻塞"。

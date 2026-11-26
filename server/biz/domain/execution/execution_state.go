@@ -262,6 +262,25 @@ func (s *WorkflowExecutionState) NeedsWorkflowTask() bool {
 	return s.OpenWorkflowTaskEventID == 0 && s.WorkflowTask.ActivationPending
 }
 
+// HadOrHasWorkflowTask 报告 Run 调度过 Workflow Task：现在有 open 的，或有过 started 的。
+func (s *WorkflowExecutionState) HadOrHasWorkflowTask() bool {
+	return s.OpenWorkflowTaskEventID != 0 || s.WorkflowTask.StartedScheduledEventID != 0
+}
+
+// PendingOnWorkflowTaskBackoff 报告重试 Run 仍在等首个 Workflow Task 的退避：RetryBackoff timer 未结束，
+// 且 Run 还没有调度过 Workflow Task。对应 Temporal 的 IsWorkflowPendingOnWorkflowTaskBackoff。
+func (s *WorkflowExecutionState) PendingOnWorkflowTaskBackoff(timers []*TimerState) bool {
+	if s.HadOrHasWorkflowTask() {
+		return false
+	}
+	for _, timer := range timers {
+		if timer.Kind == TimerKindEnums.RetryBackoff && !timer.IsTerminal() {
+			return true
+		}
+	}
+	return false
+}
+
 // BlockedInfo 返回对外展示的 blocked 描述：只有处于 blocked 时才带失败次数与原因。
 func (s *WorkflowExecutionState) BlockedInfo() BlockedInfo {
 	if !s.Blocked.Blocked {

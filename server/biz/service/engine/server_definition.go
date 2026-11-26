@@ -38,6 +38,9 @@ func (r definitionRoutes) ValidateWorkflowConfigInNamespace(namespace string, wo
 // worker.ActivityWorkerVersionRegistryAPI。
 func (s *Server) RegisterActivityWorkerVersion(ctx context.Context, worker protocol.ActivityWorkerVersion) error {
 	worker.Namespace = protocol.NormalizeNamespace(worker.Namespace)
+	if err := dispatch.ValidateWorkerVersionIdentifiers(worker); err != nil {
+		return err
+	}
 	ttl, err := dispatch.WorkerVersionTTL(worker)
 	if err != nil {
 		return err
@@ -51,6 +54,27 @@ func (s *Server) RegisterActivityWorkerVersion(ctx context.Context, worker proto
 func (s *Server) HeartbeatActivityWorkerVersionInNamespace(ctx context.Context, namespace, identity, buildID string) error {
 	namespace = protocol.NormalizeNamespace(namespace)
 	return s.workerVersions.HeartbeatActivityWorkerVersionInNamespace(namespace, identity, buildID, s.clock.Now(), protocol.DefaultActivityWorkerVersionTTL)
+}
+
+// expiredWorkerVersionRetention 是 Activity Worker 路由到期后保留的时长：Console 在这段时间里仍能看到刚下线的
+// Worker，之后由 PurgeExpiredActivityWorkerVersions 删除。
+const expiredWorkerVersionRetention = 24 * time.Hour
+
+// PurgeExpiredActivityWorkerVersions 删除到期超过 expiredWorkerVersionRetention 的 Activity Worker 路由，返回删除的行数。
+// identity 含 Pod 名的 Worker 每次发布都留下一组到期的行；由应用入口的 leader 周期任务调用。
+// Running Run 指定的 Worker（TargetWorkerIdentity）不删：这些 Run 的 Activity 按它最后登记的队列排队等它回来，
+// 受 ScheduleToStart 约束（与 Temporal 一致）。仍在工作的 Worker 被删除后，下一次心跳得到 404 并重新登记。
+func (s *Server) PurgeExpiredActivityWorkerVersions() (int64, error) {
+	targets, err := s.mgr.ListRunningTargetWorkers()
+	if err != nil {
+		return 0, err
+	}
+	pinned := make(map[execution.TargetWorker]bool, len(targets))
+	for _, target := range targets {
+		pinned[target] = true
+	}
+	return s.workerVersions.DeleteExpiredActivityWorkerVersions(s.clock.Now().Add(-expiredWorkerVersionRetention),
+		func(namespace, identity string) bool { return pinned[execution.TargetWorker{Namespace: namespace, Identity: identity}] })
 }
 
 // DeregisterActivityWorkerVersionInNamespace 注销一个 Activity Worker：它的路由立刻退出选路。

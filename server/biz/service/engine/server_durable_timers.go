@@ -114,6 +114,16 @@ func (s *Server) handleRetryBackoffFired(ctx context.Context, runID string, sche
 		return
 	}
 	s.stopDurableTimer(runID, scheduledEventID)
+	// 退避期内的取消请求或 Update 已经调度过 WFT 时，Run 已经开始，到期不再调度（同 Temporal 的
+	// workflowBackoffTimer 对 HadOrHasWorkflowTask 的检查）。
+	state, err := s.mgr.GetWorkflowExecutionState(runID)
+	if err != nil {
+		s.logger.Error("read execution state after retry backoff failed", "run_id", runID, "err", err)
+		return
+	}
+	if state.HadOrHasWorkflowTask() {
+		return
+	}
 	// 调度新 run 的首个 WFT（幂等：若 run 已非 Running 则跳过）
 	if err := s.scheduleWorkflowTaskIfRunning(ctx, runID); err != nil {
 		s.logger.Error("schedule first workflow task after retry backoff failed", "run_id", runID, "err", err)

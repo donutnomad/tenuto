@@ -135,7 +135,8 @@ func runListResultToWire(result execution.RunListResult, err error) (runtimeapi.
 				Blocked:               blocked,
 			}
 		}),
-		Total: result.Total,
+		Total:   result.Total,
+		HasMore: result.HasMore,
 	}, err
 }
 

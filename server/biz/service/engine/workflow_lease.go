@@ -12,6 +12,9 @@ import (
 // fn 只描述意图，由骨架在事务外、锁内统一执行——保持 fn 体纯业务。
 type LeaseAction struct {
 	ScheduleWFT bool // 需要调度一次 WorkflowTask（仅当 run 仍 Running）
+	// AfterSignal 表示这次调度由 Signal 触发：重试 Run 仍在首个 Workflow Task 的退避期内时不调度，
+	// 见 scheduleWorkflowTaskAfterSignal。
+	AfterSignal bool
 }
 
 // resolveRun 加载请求寻址的 Run，规则见 execution.ResolveRun。它在事务之外读取，只供读路径使用；写路径经
@@ -111,6 +114,9 @@ func (s *Server) withWorkflowLease(ctx context.Context, namespace, workflowID, r
 
 	if act.ScheduleWFT { // 锁内、事务外调度
 		postCommitCtx := context.WithoutCancel(ctx)
+		if act.AfterSignal {
+			return s.scheduleWorkflowTaskAfterSignal(postCommitCtx, ref.ID)
+		}
 		return s.scheduleWorkflowTaskIfRunning(postCommitCtx, ref.ID)
 	}
 	return nil
@@ -161,6 +167,9 @@ func (s *Server) ensureStartedThenAcceptUpdate(
 		if e != nil {
 			return e
 		}
+		if e := execution.RequireCurrentRunOf(current, namespace, workflowID); e != nil {
+			return e
+		}
 		if e := requireWorkflowType(current, workflowType); e != nil {
 			return e
 		}
@@ -187,10 +196,13 @@ func (s *Server) ensureStartedThenAcceptUpdate(
 }
 
 // ensureStartedThenSignal 是 SignalWithStart 的原子内核。在 per-(namespace, workflowID) keyed lock 内：
-//   - 该 Workflow ID 没有进行中的 Run → 新 Run、current CAS、WorkflowStarted 与 WorkflowSignaled 写入同一个事务；
-//   - 已有进行中的 Run → 复用它，只写 WorkflowSignaled。
+//   - requestID 已经生效（见 signalWithStartByRequest）→ 返回第一次的 Run 与 Signal 事件 ID，不启动、不再记 Signal；
+//   - 该 Workflow ID 没有进行中的 Run → 新 Run、current CAS、WorkflowStarted（记下 requestID）与 WorkflowSignaled
+//     写入同一个事务；
+//   - 已有进行中的 Run → 复用它，只写 WorkflowSignaled，并调度 Workflow Task（重试 Run 的退避期内也立即调度）。
 //
-// requestID 非空时是 Signal 的幂等键（见 execution.RecordSignal）；为空时调用方重试会多记一条 WorkflowSignaled。
+// requestID 非空时是启动与 Signal 的幂等键（Signal 一侧见 execution.RecordSignal）；为空时调用方重试会多记一条
+// WorkflowSignaled，Run 已结束时还会启动新 Run。
 func (s *Server) ensureStartedThenSignal(
 	ctx context.Context, namespace, workflowType, workflowID string,
 	startInput map[string]any,
@@ -202,11 +214,15 @@ func (s *Server) ensureStartedThenSignal(
 	}
 	defer release()
 
+	if runID, eventID, err := s.signalWithStartByRequest(namespace, workflowID, requestID); err != nil || runID != "" {
+		return runID, eventID, err
+	}
 	plan, currentID, err := s.planStart(namespace, workflowType, workflowID, startInput, execution.InitiatorEnums.Workflow)
 	if err != nil {
 		return "", 0, err
 	}
 	if plan != nil {
+		plan.started.WorkflowStarted.RequestID = requestID
 		if err := s.commitStart(ctx, plan, func(tx execution.ExecutionTx) error {
 			id, e := execution.RecordSignal(tx, plan.run, plan.treeID, plan.branchID, signalName, requestID, signalInput)
 			eventID = id
@@ -222,6 +238,9 @@ func (s *Server) ensureStartedThenSignal(
 		if e != nil {
 			return e
 		}
+		if e := execution.RequireCurrentRunOf(current, namespace, workflowID); e != nil {
+			return e
+		}
 		if e := requireWorkflowType(current, workflowType); e != nil {
 			return e
 		}
@@ -235,7 +254,8 @@ func (s *Server) ensureStartedThenSignal(
 	}); txErr != nil {
 		return "", 0, txErr
 	}
-	// 锁内、事务外调度（幂等：已有 open WFT 则 no-op）。
+	// 锁内、事务外调度（幂等：已有 open WFT 则 no-op）。重试 Run 的退避期内也立即调度：同 Temporal
+	// signalwithstartworkflow 在 EnableSignalWithStartWorkflowTaskBackoff 默认关闭时的行为，与普通 Signal 不同。
 	if e := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), currentID); e != nil {
 		return "", 0, e
 	}

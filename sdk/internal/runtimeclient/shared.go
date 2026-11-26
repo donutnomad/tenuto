@@ -135,7 +135,7 @@ func runtimePostRetrying(ctx context.Context, retry RetryPolicy, mode retryMode,
 }
 
 // runtimePost 发一次 JSON POST。apiName 前缀非 2xx 的错误文本；applyHeaders 可以为 nil，非 nil 时写入额外的请求头
-// （Worker 信息）。连接失败、连接中断与读应答体失败包成 *transportError，供重试判定。
+// （Worker 信息）。连接失败、连接中断、读应答体失败与 2xx 空 body 包成 *transportError，供重试判定。
 func runtimePost(ctx context.Context, client *http.Client, baseURL, path, apiName string, applyHeaders func(*http.Request), req, resp any) error {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -175,6 +175,11 @@ func runtimePost(ctx context.Context, client *http.Client, baseURL, path, apiNam
 			return err
 		}
 		return &transportError{err: err}
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		// 每个成功应答都带 JSON body（204 已在上面处理）；空 body 的 2xx 说明应答没有完整送达或 Server 没有处理请求，
+		// 不能当作成功。
+		return &transportError{err: fmt.Errorf("%s: HTTP %d with empty body: %w", apiName, httpResp.StatusCode, io.ErrUnexpectedEOF)}
 	}
 	if resp == nil {
 		return nil

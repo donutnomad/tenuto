@@ -65,7 +65,9 @@ type application struct {
 	taskQDB        *sql.DB
 	ownsWorkflowDB bool
 	ownsTaskQDB    bool
-	monitor        membership.Monitor
+	// dbProbes 是 readiness 检查两个连接池用的专用连接，close 在关闭连接池之前归还。
+	dbProbes []*dbProbe
+	monitor  membership.Monitor
 	// matching 是内嵌的 taskq matching 服务；TASKQ_MATCHING_ENABLED=false 时为 nil（外置模式）。
 	matching *matching.Server
 	// matchingAddr 是内嵌 matching 的实际监听地址（probeListenAddr 解析后的结果）。
@@ -177,7 +179,10 @@ func (a *application) run(ctx, startupCtx context.Context) error {
 		}
 	}
 
-	a.httpServer.BaseContext = func(net.Listener) context.Context { return lifecycleCtx }
+	// 请求的 context 不随停机取消：停机时只结束长轮询（StopLongPolls），其余请求在 Shutdown 的期限内照常做完，
+	// 不会在等 keyed lock 时被取消成一次没有生效的写入。
+	requestCtx := context.WithoutCancel(lifecycleCtx)
+	a.httpServer.BaseContext = func(net.Listener) context.Context { return requestCtx }
 	serveErrors := make(chan error, 1)
 	go func() {
 		if cfg.HTTP.TLSCertFile != "" {
@@ -204,6 +209,7 @@ func (a *application) run(ctx, startupCtx context.Context) error {
 	}
 
 	a.health.ready.Store(false)
+	a.server.StopLongPolls()
 	lifecycleCancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
 	defer shutdownCancel()
@@ -252,7 +258,7 @@ func newApplication(ctx context.Context, cfg Config, options ...RunOption) (_ *a
 	)
 	app.httpServer = &http.Server{
 		Addr:              cfg.HTTP.Address,
-		Handler:           newHTTPHandler(runtimeHandler, app.health, app.partitionAdmin(), newBearerAuth(cfg.HTTP.AuthTokens)),
+		Handler:           newHTTPHandler(limitInFlight(runtimeHandler, cfg.HTTP.MaxInFlight), app.health, app.partitionAdmin(), newBearerAuth(cfg.HTTP.AuthTokens)),
 		TLSConfig:         listenerTLS,
 		ReadHeaderTimeout: cfg.HTTP.ReadHeaderTimeout,
 		ReadTimeout:       cfg.HTTP.ReadTimeout,
@@ -399,9 +405,10 @@ func (a *application) configureMySQLTaskQ(ctx context.Context, taskTokens *dispa
 	if err != nil {
 		return fmt.Errorf("resolve TaskQ service %q: %w", a.cfg.TaskQ.ServiceName, err)
 	}
+	a.dbProbes = []*dbProbe{{db: a.workflowDB}, {db: a.taskQDB}}
 	a.health.checks = []func(context.Context) error{
-		a.workflowDB.PingContext,
-		a.taskQDB.PingContext,
+		a.dbProbes[0].check,
+		a.dbProbes[1].check,
 		func(context.Context) error {
 			_, err := resolver.Lookup("tenuto-server/readiness")
 			return err
@@ -754,12 +761,17 @@ func (a *application) reconcile(ctx context.Context) {
 }
 
 // reconcileAll 逐个补偿全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 补建、
-// 终态写回、父关闭策略、子 Run 取消请求补发）。
+// 终态写回、父关闭策略、子 Run 取消请求补发），再删除到期超过一天的 Activity Worker 路由。
 func (a *application) reconcileAll(ctx context.Context) {
 	started := a.clock.Now()
 	result, err := a.server.DispatchPendingTasks(ctx)
 	if err != nil {
 		a.telemetry.Logger.Error("workflow full reconciliation incomplete", "err", err)
+	}
+	if purged, err := a.server.PurgeExpiredActivityWorkerVersions(); err != nil {
+		a.telemetry.Logger.Error("purge expired activity worker versions failed", "err", err)
+	} else if purged > 0 {
+		a.telemetry.Logger.Info("expired activity worker versions purged", "rows", purged)
 	}
 	a.telemetry.Logger.Info("workflow full reconciliation finished",
 		"duration", a.clock.Now().Sub(started),
@@ -830,6 +842,9 @@ func (a *application) close() {
 				a.telemetry.Logger.Error("unregister database pool metrics failed", "err", err)
 			}
 		}
+		for _, probe := range a.dbProbes {
+			probe.close()
+		}
 		// 注入的连接归调用方所有，本进程只关自己拨号建立的那些。
 		// 两个 store 的 Close 都会无条件关闭底层连接池，故一律不经由它们，
 		// 直接关本进程持有的 *sql.DB——所有权信息（owns*）只在这里齐备。
@@ -861,14 +876,29 @@ func (a *application) checkSchema(ctx context.Context, database db.DB, migration
 	return nil
 }
 
-func openMySQL(ctx context.Context, dsn string, pool DatabaseConfig) (*gorm.DB, *sql.DB, error) {
+// mysqlConfig 解析 DSN 并加上 Server 固定的参数：parseTime、interpolateParams 与 loc 由 Server 设置，DSN 里写成
+// 别的值也不生效；DSN 没有给出 I/O 超时时用 pool 的缺省值（迁移不设，ALTER TABLE 可以运行很久）。
+func mysqlConfig(dsn string, pool DatabaseConfig) (*mysqldriver.Config, error) {
 	parsed, err := mysqldriver.ParseDSN(dsn)
 	if err != nil {
-		return nil, nil, fmt.Errorf("parse MySQL DSN: %w", err)
+		return nil, fmt.Errorf("parse MySQL DSN: %w", err)
 	}
-	// parseTime、interpolateParams 与 loc 由 Server 设置，DSN 里写成别的值也不生效。
 	parsed.Loc = time.UTC
+	if parsed.ReadTimeout == 0 {
+		parsed.ReadTimeout = pool.ReadTimeout
+	}
+	if parsed.WriteTimeout == 0 {
+		parsed.WriteTimeout = pool.WriteTimeout
+	}
 	if err := db.ConfigureMySQL(parsed); err != nil {
+		return nil, err
+	}
+	return parsed, nil
+}
+
+func openMySQL(ctx context.Context, dsn string, pool DatabaseConfig) (*gorm.DB, *sql.DB, error) {
+	parsed, err := mysqlConfig(dsn, pool)
+	if err != nil {
 		return nil, nil, err
 	}
 	db, err := gorm.Open(gormmysql.Open(parsed.FormatDSN()), &gorm.Config{TranslateError: true})

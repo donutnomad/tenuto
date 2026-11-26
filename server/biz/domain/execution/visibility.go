@@ -20,11 +20,15 @@ type RunListFilter struct {
 	Limit            int               `json:"limit,omitempty"`
 	OrderDesc        bool              `json:"order_desc,omitempty"`
 	BlockedOnly      bool              `json:"blocked_only,omitempty"`
+	// SkipTotal 为 true 时不计算 Total（应答 0），翻页看 HasMore。
+	SkipTotal bool `json:"skip_total,omitempty"`
 }
 
+// RunListResult 是一页 Run。Total 是满足条件的 Run 总数（SkipTotal 时为 0），HasMore 表示这一页之后还有 Run。
 type RunListResult struct {
-	Items []RunListItem `json:"items"`
-	Total int           `json:"total"`
+	Items   []RunListItem `json:"items"`
+	Total   int           `json:"total"`
+	HasMore bool          `json:"has_more"`
 }
 
 type RunListItem struct {
@@ -84,7 +88,7 @@ func ListRuns(store VisibilityStore, filter RunListFilter) (RunListResult, error
 		Namespace: filter.Namespace, RunIDs: filter.RunIDs, WorkflowID: filter.WorkflowID,
 		Statuses: filter.Statuses, SearchAttributes: filter.SearchAttributes, BlockedOnly: filter.BlockedOnly,
 		IncludeTerminal: filter.IncludeTerminal,
-		OrderDesc:       filter.OrderDesc, Offset: filter.Offset, Limit: filter.Limit,
+		OrderDesc:       filter.OrderDesc, Offset: filter.Offset, Limit: filter.Limit, SkipTotal: filter.SkipTotal,
 	}
 	if len(filter.RunIDs) > 0 {
 		// 指定 RunIDs 时一次返回全部命中项，已结束的 Run 也在内。
@@ -124,7 +128,7 @@ func ListRuns(store VisibilityStore, filter RunListFilter) (RunListResult, error
 		}
 		items = append(items, view)
 	}
-	return RunListResult{Items: items, Total: storeResult.Total}, nil
+	return RunListResult{Items: items, Total: storeResult.Total, HasMore: storeResult.HasMore}, nil
 }
 
 // MatchSearchAttributes 是搜索属性过滤的唯一判据，两个存储后端共用：
@@ -154,9 +158,11 @@ func changeVersionsContain(encoded, value string) bool {
 }
 
 // GetRunStats 按 Run 行状态聚合 namespace 内的 Run 数量，与 ListRuns 的状态过滤同源。
-func GetRunStats(store interface{ CountRuns() ([]RunCount, error) }, namespace string) (RunStats, error) {
+func GetRunStats(store interface {
+	CountRuns(namespace string) ([]RunCount, error)
+}, namespace string) (RunStats, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
-	counts, err := store.CountRuns()
+	counts, err := store.CountRuns(namespace)
 	if err != nil {
 		return RunStats{}, err
 	}

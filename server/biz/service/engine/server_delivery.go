@@ -18,8 +18,10 @@ import (
 // PollWorkflowTask 取一个 workflow task lease。不再属于 open Workflow Task 的陈旧投递由 Server Ack 丢弃，
 // 继续下一轮 poll；用循环而非递归，队列里堆积大量陈旧投递时栈深度恒定。
 //
-// 取到 lease 之后的准备、领取与 Ack/Nack 不随 ctx 取消（见 pollWorkflowTaskOnce）。
+// 等待随 ctx 或 StopLongPolls 结束；取到 lease 之后的准备、领取与 Ack/Nack 不随它们取消（见 pollWorkflowTaskOnce）。
 func (s *Server) PollWorkflowTask(ctx context.Context) (protocol.TaskLease, error) {
+	ctx, cancel := s.longPollContext(ctx)
+	defer cancel()
 	for {
 		polled, matched, err := s.pollWorkflowTaskOnce(ctx)
 		if err != nil {
@@ -279,7 +281,9 @@ func (s *Server) validateWorkflowTaskWorkerCapabilities(ctx context.Context, con
 }
 
 func (s *Server) PollActivityTask(ctx context.Context, taskQueue string) (protocol.TaskLease, error) {
-	lease, err := s.actQueue.Dequeue(ctx, taskQueue)
+	pollCtx, cancel := s.longPollContext(ctx)
+	defer cancel()
+	lease, err := s.actQueue.Dequeue(pollCtx, taskQueue)
 	if err != nil {
 		return protocol.TaskLease{}, err
 	}
@@ -427,6 +431,33 @@ func (s *Server) scheduleWorkflowTask(ctx context.Context, runID string) error {
 		)
 	}
 	return nil
+}
+
+// scheduleWorkflowTaskAfterSignal 在 Signal 写入之后调度 Workflow Task。重试 Run 仍在首个 Workflow Task 的退避期内时
+// 不调度：Signal 留在 History 里，由退避到期时的 Workflow Task 一并处理。与 Temporal signalworkflow 的
+// createWorkflowTask := !IsWorkflowPendingOnWorkflowTaskBackoff() 一致；取消请求、Update 与 SignalWithStart 不看退避，立即调度。
+func (s *Server) scheduleWorkflowTaskAfterSignal(ctx context.Context, runID string) error {
+	state, err := s.mgr.GetWorkflowExecutionState(runID)
+	if err != nil {
+		return err
+	}
+	if pending, err := s.pendingOnWorkflowTaskBackoff(state); err != nil || pending {
+		return err
+	}
+	return s.scheduleWorkflowTaskIfRunning(ctx, runID)
+}
+
+// pendingOnWorkflowTaskBackoff 见 execution.WorkflowExecutionState.PendingOnWorkflowTaskBackoff；调度过
+// Workflow Task 的 Run 不读 timer。
+func (s *Server) pendingOnWorkflowTaskBackoff(state *execution.WorkflowExecutionState) (bool, error) {
+	if state.HadOrHasWorkflowTask() {
+		return false, nil
+	}
+	timers, err := s.mgr.ListTimerStates(state.RunID)
+	if err != nil {
+		return false, err
+	}
+	return state.PendingOnWorkflowTaskBackoff(timers), nil
 }
 
 func (s *Server) scheduleWorkflowTaskIfRunning(ctx context.Context, runID string) error {

@@ -38,3 +38,14 @@ func ResolveRun(runs RunLookup, namespace, workflowID, runID string) (*Run, erro
 	}
 	return run, nil
 }
+
+// RequireCurrentRunOf 确认按 (namespace, workflowID) 找到的 current Run 确实属于这个 Workflow，按字节比较。
+// 存储的比较规则与 Go 不一致时（例如不区分大小写的排序规则），寻址会落到另一个 Workflow 的 Run 上；
+// 这时返回 ErrCurrentRunConflict，不在别的 Workflow 上写入。
+func RequireCurrentRunOf(run *Run, namespace, workflowID string) error {
+	if protocol.NormalizeNamespace(run.Namespace) != protocol.NormalizeNamespace(namespace) || run.WorkflowID != workflowID {
+		return fmt.Errorf("current run %s of workflow %q in namespace %q was found for workflow %q in namespace %q: %w",
+			run.ID, run.WorkflowID, run.Namespace, workflowID, namespace, ErrCurrentRunConflict)
+	}
+	return nil
+}

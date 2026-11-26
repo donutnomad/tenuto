@@ -153,6 +153,7 @@ func validTimeoutConfig() Config {
 			ReadHeaderTimeout: time.Second,
 			ReadTimeout:       time.Second,
 			IdleTimeout:       time.Second,
+			MaxInFlight:       10,
 		},
 		Database: DatabaseConfig{
 			DSN:                 "d",

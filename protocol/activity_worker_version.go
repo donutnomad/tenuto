@@ -1,6 +1,13 @@
 package protocol
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrActivityWorkerVersionNotRegistered 表示心跳续期的 Worker 登记不存在（从未登记，或到期后已被清理）。
+// HTTP 应答 404；Worker 收到它时重新登记。
+var ErrActivityWorkerVersionNotRegistered = errors.New("activity worker version is not registered")
 
 const (
 	// DefaultActivityTaskQueue 是 Activity 未指定队列时使用的队列名。

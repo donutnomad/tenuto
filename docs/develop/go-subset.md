@@ -161,9 +161,9 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 
 ## 数据类型
 
-Workflow 代码接触到的每个数据类型都登记进 Program 的类型表（`workflow.json` 里 `program.types`），嵌套深度不限：入口签名、局部变量、复合字面量（包括只出现在 `ExecuteChildWorkflow`、`ExecuteActivity`、`ContinueAsNew` 实参或 Query 结果里的字面量）、闭包与同包函数的参数和结果、Signal 与 Activity 结果的接收变量、Update Handler 的参数和结果，以及从这些类型经字段、指针、slice、array、map 元素和具名类型的底层类型能到达的全部类型。
+Workflow 代码接触到的每个数据类型都登记进 Program 的类型表（`workflow.json` 里 `program.types`），嵌套深度不限：入口签名、局部变量、复合字面量（包括只出现在 `ExecuteChildWorkflow`、`ExecuteActivity`、`ContinueAsNew` 实参或 Query 结果里的字面量）、闭包与同包函数的参数和结果、Signal 与 Activity 结果的接收变量、Update Handler 的参数和结果，以及从这些类型经字段、指针、slice、map 元素和具名类型的底层类型能到达的全部类型。
 
-- 当前包与其他非 SDK 包（契约包、DTO 包）声明的 struct、具名基础类型、具名 slice / map / array 都可以用。
+- 当前包与其他非 SDK 包（契约包、DTO 包）声明的 struct、具名基础类型、具名 slice / map 都可以用；定长数组见下文「数据类型」。
 - 递归与互相递归的类型可以用，递归要经过指针、slice 或 map，与 Go 相同：
 
 ```go
@@ -226,6 +226,7 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 
 - Workflow 输入输出、Activity 输入输出使用带 `json` tag 的结构体。Go `int` 在 WLang 里归一化为 `int64`。
 - 结构体是值：赋值、传参、存入 slice / map / 其他结构体时复制，与 Go 相同。slice 与 map 是引用：`ys := xs` 后的元素写入互相可见，`append` 在容量足够时复用底层数组。
+- 定长数组（`[N]T`、`[...]T{...}`、底层是数组的具名类型、数组字段）在生成期报错（`file:line`）：Go 的数组赋值与传参是复制，Workflow 程序里只有引用语义的 slice，翻译后会共享元素；改用 slice `[]T`。
 - `var xs []T`、`var m map[K]V` 是 nil，作为输出编码为 JSON `null`；`[]T{}` 编码为 `[]`。写 nil map 让 Workflow Task 失败（Go 里是 panic）。
 - `map[string]any` 可以作为输入输出和 `Get` 的目标。它的元素类型是 `any`，与字符串、数字字面量直接用 `==` 比较的结果是 `false`；需要按字段分支时声明结构体 DTO。
 - Side Effect 和 Marker 的值经过 JSON 持久化，超过 2^53 的整数用字符串表示。

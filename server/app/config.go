@@ -54,9 +54,15 @@ const (
 	defaultMembershipPollInterval    = 3 * time.Second
 	defaultMembershipReplicaPoints   = 200
 	defaultDatabaseMaxOpenConns      = 50
-	defaultDatabaseMaxIdleConns      = 10
-	defaultDatabaseConnMaxLifetime   = 30 * time.Minute
-	defaultDatabaseConnMaxIdleTime   = 5 * time.Minute
+	// defaultDatabaseReadTimeout 大于 InnoDB 行锁等待的缺省上限（innodb_lock_wait_timeout = 50s），
+	// 锁等待仍以 MySQL 1205 返回，不被当成连接失败。
+	defaultDatabaseReadTimeout  = 60 * time.Second
+	defaultDatabaseWriteTimeout = 30 * time.Second
+	// defaultMaxInFlightPerConn 是 WORKFLOW_HTTP_MAX_IN_FLIGHT 缺省值相对 Workflow 连接池大小的倍数。
+	defaultMaxInFlightPerConn      = 4
+	defaultDatabaseMaxIdleConns    = 10
+	defaultDatabaseConnMaxLifetime = 30 * time.Minute
+	defaultDatabaseConnMaxIdleTime = 5 * time.Minute
 	// memory 后端未设 WORKFLOW_TASK_TOKEN_SECRET 时使用的开发密钥。
 	defaultDevelopmentTokenSecret = "workflow-task-token-development-secret"
 	defaultOTELServiceName        = "tenuto-server"
@@ -199,6 +205,10 @@ type HTTPConfig struct {
 	// （runtimehttp.MaxRuntimePollTimeout），否则正常的长轮询会被 server 掐断。
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+	// MaxInFlight 是 /runtime/* 上同时处理的非长轮询请求数上限（WORKFLOW_HTTP_MAX_IN_FLIGHT），超出时应答 503 与
+	// Retry-After。缺省为 WORKFLOW_DB_MAX_OPEN_CONNS 的 defaultMaxInFlightPerConn 倍：请求在连接池上排队的深度
+	// 有界，数据库变慢时积压不会无限增长。长轮询（领取 Task、wait-closed、Update）不计入。
+	MaxInFlight int
 }
 
 type DatabaseConfig struct {
@@ -208,6 +218,10 @@ type DatabaseConfig struct {
 	MaxIdleConns        int
 	ConnMaxLifetime     time.Duration
 	ConnMaxIdleTime     time.Duration
+	// ReadTimeout / WriteTimeout 是 DSN 没有给出 readTimeout / writeTimeout 时使用的连接 I/O 超时：数据库失联或
+	// 主从切换时，挂在连接上的读写在这个期限内以连接错误返回，不无限期占住连接与请求。0 表示不设。
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
 }
 
 type TaskQConfig struct {
@@ -329,6 +343,8 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 			MaxIdleConns:        defaultDatabaseMaxIdleConns,
 			ConnMaxLifetime:     defaultDatabaseConnMaxLifetime,
 			ConnMaxIdleTime:     defaultDatabaseConnMaxIdleTime,
+			ReadTimeout:         defaultDatabaseReadTimeout,
+			WriteTimeout:        defaultDatabaseWriteTimeout,
 		},
 		TaskQ: TaskQConfig{
 			DSN:                     envOrDefault(lookup, "TASKQ_DB_DSN", databaseDSN),
@@ -468,6 +484,12 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 			return Config{}, err
 		}
 	}
+	if err := applyPositiveInt(lookup, "WORKFLOW_HTTP_MAX_IN_FLIGHT", &cfg.HTTP.MaxInFlight); err != nil {
+		return Config{}, err
+	}
+	if cfg.HTTP.MaxInFlight == 0 {
+		cfg.HTTP.MaxInFlight = defaultMaxInFlightPerConn * cfg.Database.MaxOpenConns
+	}
 	// TASKQ_WORKFLOW_QUEUE_PARTITIONS 可选：>=1 才覆盖 workflow queue 分区，省略=0=不覆盖。
 	if err := applyPositiveInt(lookup, "TASKQ_WORKFLOW_QUEUE_PARTITIONS", &cfg.TaskQ.WorkflowQueuePartitions); err != nil {
 		return Config{}, err
@@ -523,6 +545,9 @@ func (c Config) validate(workflowDBInjected, taskQDBInjected bool) error {
 	}
 	if c.StartupTimeout <= 0 || c.ReconcileInterval <= 0 || c.ReconcileFullScanInterval <= 0 || c.HTTP.ShutdownTimeout <= 0 || c.HTTP.ReadHeaderTimeout <= 0 || c.HTTP.IdleTimeout <= 0 {
 		return fmt.Errorf("workflow timeouts and reconcile interval must be positive")
+	}
+	if c.HTTP.MaxInFlight <= 0 {
+		return fmt.Errorf("WORKFLOW_HTTP_MAX_IN_FLIGHT must be positive")
 	}
 	// ReadTimeout / WriteTimeout 允许为 0（= 不限制，Go 的语义），但不允许为负。
 	if c.HTTP.ReadTimeout < 0 || c.HTTP.WriteTimeout < 0 {

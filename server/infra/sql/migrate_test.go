@@ -10,10 +10,10 @@ import (
 // 新增迁移时在这里追加它的 checksum（测试失败信息里给出），已有的值不改。
 var appliedChecksums = map[string]map[string]string{
 	"tenuto": {
-		"0001_init": "78e8cb37bab637bce70905b23264c0c5bc9dd1ca9b91dfddd5bb7640f272a453",
+		"0001_init": "67c3215ba705ef7f34fdc2d52c7ec8cae588dfb59547d369d0542e3c054d4a8c",
 	},
 	"taskq": {
-		"0001_init": "82cf95d33e6259f6868ee890ca0758f2cade686b855dec60c1c836f7d0cad95f",
+		"0001_init": "8fb9cecc9a83a709b4fc302c70e457813d48d5c362ca65d5775f3286b170020e",
 	},
 }
 

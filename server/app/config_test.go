@@ -342,6 +342,9 @@ func TestLoadConfigParsesExplicitSettings(t *testing.T) {
 	if cfg.HTTP.Address != "127.0.0.1:8080" || cfg.NodeID != "workflow-01" {
 		t.Fatalf("HTTP/node = %q/%q", cfg.HTTP.Address, cfg.NodeID)
 	}
+	if cfg.HTTP.MaxInFlight != defaultMaxInFlightPerConn*80 {
+		t.Fatalf("in-flight limit = %d, want %d times the workflow pool", cfg.HTTP.MaxInFlight, defaultMaxInFlightPerConn)
+	}
 	if cfg.Database.MaxOpenConns != 80 || cfg.Database.MaxIdleConns != 20 {
 		t.Fatalf("database pool = %d/%d", cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns)
 	}
@@ -434,7 +437,7 @@ func TestValidateRejectsActivityPhysicalEqualToWorkflowQueue(t *testing.T) {
 	cfg := Config{
 		Backend:                   BackendMySQLTaskQ,
 		TaskTokenSecret:           []byte("0123456789abcdef0123456789abcdef"),
-		HTTP:                      HTTPConfig{Address: ":7400", ShutdownTimeout: time.Second, ReadHeaderTimeout: time.Second, IdleTimeout: time.Second},
+		HTTP:                      HTTPConfig{Address: ":7400", ShutdownTimeout: time.Second, ReadHeaderTimeout: time.Second, IdleTimeout: time.Second, MaxInFlight: 1},
 		Database:                  DatabaseConfig{DSN: "d", HistoryPageTokenKey: []byte("0123456789abcdef0123456789abcdef"), MaxOpenConns: 10, MaxIdleConns: 5, ConnMaxLifetime: time.Minute, ConnMaxIdleTime: time.Minute},
 		NodeID:                    "n",
 		StartupTimeout:            time.Second,
@@ -699,5 +702,19 @@ func TestLoadConfigPayloadSizeLimit(t *testing.T) {
 		if _, err := loadConfig(mapLookup(env), "workflow-node-a"); err == nil || !strings.Contains(err.Error(), "WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES") {
 			t.Fatalf("WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES=%s: err = %v, want it rejected", value, err)
 		}
+	}
+}
+
+// WORKFLOW_HTTP_MAX_IN_FLIGHT 覆盖按连接池推导的缺省值，必须是正整数。
+func TestLoadConfigMaxInFlight(t *testing.T) {
+	env := validEnvironment()
+	env["WORKFLOW_HTTP_MAX_IN_FLIGHT"] = "7"
+	cfg, err := loadConfig(mapLookup(env), "node")
+	if err != nil || cfg.HTTP.MaxInFlight != 7 {
+		t.Fatalf("max in flight = %d, %v", cfg.HTTP.MaxInFlight, err)
+	}
+	env["WORKFLOW_HTTP_MAX_IN_FLIGHT"] = "0"
+	if _, err := loadConfig(mapLookup(env), "node"); err == nil || !strings.Contains(err.Error(), "WORKFLOW_HTTP_MAX_IN_FLIGHT") {
+		t.Fatalf("zero limit error = %v", err)
 	}
 }

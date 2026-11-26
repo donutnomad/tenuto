@@ -349,6 +349,9 @@ type ActivityFailedEvent struct {
 	RetryState string `json:"retryState,omitempty"`
 	// Failure 是终态结构化失败（message/type/nonRetryable/details/cause）。
 	Failure *protocol.Failure `json:"failure,omitempty"`
+	// LastHeartbeatDetails 是 Workflow Reset 打断已开始的 Activity 时，旧 Run 里这个 Activity 最后一次心跳的详情
+	// （Temporal ResetWorkflowFailureInfo.last_heartbeat_details）。
+	LastHeartbeatDetails map[string]any `json:"lastHeartbeatDetails,omitempty"`
 }
 
 type ActivityAttemptFailedEvent struct {
