@@ -139,24 +139,28 @@ func TestTimerFireAndRunCloseLockInSameOrder(t *testing.T) {
 func TestClosedRunsLeaveStickyFallbackScan(t *testing.T) {
 	store := requireMySQL(t)
 	const limit = 3
-	expires := time.Now().Add(-time.Minute)
-	prepare := func(runID string, startWFT bool) {
+	// sticky schedule-to-start 期限从 WFT 调度时起算：先绑定 sticky，再调度一个早于期限的 WFT，
+	// 让它的 sticky 期限已过、仍未被领取。
+	prepare := func(runID string, _ bool) {
 		startTestRunWithHistory(t, store, runID, "wf-"+runID)
-		scheduledID, _, err := store.Executions.AppendWorkflowTaskScheduled(runID, runID, runID, historypkg.NewWorkflowTaskScheduledEvent(0))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if startWFT {
-			if _, _, err := store.Executions.AppendIdempotent(runID, runID, runID, historypkg.NewWorkflowTaskStartedEvent(scheduledID, "worker-1", "build-1", 0)); err != nil {
-				t.Fatal(err)
-			}
-		}
 		state, err := store.Executions.GetWorkflowExecutionState(runID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, assigned, err := store.Executions.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-1", "build-1", expires); err != nil || !assigned {
+		if _, assigned, err := store.Executions.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-1", "build-1"); err != nil || !assigned {
 			t.Fatalf("assign sticky: %v %v", assigned, err)
+		}
+		scheduled := historypkg.NewWorkflowTaskScheduledEvent(0)
+		scheduled.Timestamp = time.Now().Add(-execution.StickyScheduleToStartTimeout - time.Minute)
+		if _, _, err := store.Executions.AppendWorkflowTaskScheduled(runID, runID, runID, scheduled); err != nil {
+			t.Fatal(err)
+		}
+		state, err = store.Executions.GetWorkflowExecutionState(runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.StickyExpiresAt == nil || state.StickyValidAt(time.Now()) {
+			t.Fatalf("准备数据：sticky 期限应已过，expires=%v", state.StickyExpiresAt)
 		}
 	}
 	// limit 个 Run 在 WFT 执行期间被终止（Terminate API、Workflow 超时等）。
@@ -338,7 +342,7 @@ func TestActivityPatchWritesTruncateSubMillisecondTimes(t *testing.T) {
 			// 亚毫秒部分 0.6ms：MySQL 四舍五入会进位到下一毫秒。
 			startedAt := base.Add(10*time.Millisecond + 600*time.Microsecond)
 			if err := store.Executions.RunInTx(func(tx execution.ExecutionTx) error {
-				started, err := execution.StartActivity(tx, transition(startedAt), "worker-1", "build-1")
+				started, err := execution.StartActivity(tx, transition(startedAt), "worker-1", "build-1", "")
 				if err == nil && !started {
 					t.Fatal("StartActivity did not apply")
 				}
