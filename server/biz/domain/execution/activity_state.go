@@ -49,9 +49,12 @@ type ActivityState struct {
 	// 已开始的 attempt 经心跳得知取消。
 	CancelRequested bool `json:"cancelRequested,omitempty"`
 
-	StartedTime      *time.Time     `json:"startedTime,omitempty"`
-	WorkerIdentity   string         `json:"workerIdentity,omitempty"` // started 时 worker 上报
-	WorkerBuildID    string         `json:"workerBuildId,omitempty"`  // started 时 worker 上报；只用于观测，不参与路由
+	StartedTime    *time.Time `json:"startedTime,omitempty"`
+	WorkerIdentity string     `json:"workerIdentity,omitempty"` // started 时 worker 上报
+	WorkerBuildID  string     `json:"workerBuildId,omitempty"`  // started 时 worker 上报；只用于观测，不参与路由
+	// StartRequestID 是开始当前 attempt 的 Begin 请求标识（Worker 每个 lease 生成一次，对标 Temporal
+	// ActivityInfo.RequestId）：同一标识的重发得到原来的开始结果，其他投递得到 attempt_already_started。
+	StartRequestID   string         `json:"startRequestId,omitempty"`
 	LastHeartbeat    map[string]any `json:"lastHeartbeat,omitempty"`
 	LastHeartbeatAt  *time.Time     `json:"lastHeartbeatAt,omitempty"`
 	RetryLastFailure string         `json:"retryLastFailure,omitempty"` // 上次 attempt 失败原因

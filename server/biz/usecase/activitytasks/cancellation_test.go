@@ -87,3 +87,5 @@ func TestWorkflowCancellationRequestDoesNotStopActivities(t *testing.T) {
 		t.Fatalf("cancellation check after workflow cancellation request = %+v err=%v, want no cancel", cancel, err)
 	}
 }
+
+func (b *closedRunBackend) PayloadSizeLimit() int { return 0 }

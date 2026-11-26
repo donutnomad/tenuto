@@ -87,8 +87,7 @@ func TestRunWorkflowTaskReportsCommandsAndExecutionFailure(t *testing.T) {
 		Execute: func(context.Context, *program.WorkflowConfig, []history.Event) ([]history.Command, error) {
 			return nil, wantErr
 		},
-		BlocksOnError: func(err error) bool { return errors.Is(err, wantErr) },
-		BlockedCause:  "non_deterministic_error",
+		BlockedCause: func(err error) string { return map[bool]string{true: "non_deterministic_error"}[errors.Is(err, wantErr)] },
 	})
 	if result.Outcome != "failed" || !errors.Is(result.Error, wantErr) || result.ReportErr != nil || backend.failedCause != "non_deterministic_error" || backend.completedCalls != 0 {
 		t.Fatalf("blocked task result = %+v, cause = %q", result, backend.failedCause)

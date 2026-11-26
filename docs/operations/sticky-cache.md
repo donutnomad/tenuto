@@ -80,8 +80,16 @@ cache budget = worker memory limit
 
 常用告警：预热后命中率低于 80%、持续 rejected admission、capacity eviction 超过 admission 的 10%、sticky fallback 超过 Workflow Task 的 1%。
 
+## Sticky 绑定的生命周期
+
+与 Temporal 相同：
+
+- Worker 完成一个 Workflow Task 后，Run 绑定到这个 Worker（sticky 会话）。绑定不随时间失效，Activity、Timer 或等待 Signal 持续多久，下一个 Workflow Task 仍投给它。
+- 有绑定时调度的 Workflow Task 投到该 Worker 的 sticky 队列，并从**调度时刻**起计 sticky schedule-to-start（固定 5s）。Worker 在期限内领取，Workflow Task 消费缓存里的 session；期限过后仍未领取，Server 清除绑定，把这个 Workflow Task 改投普通队列。
+- Workflow Task 超时或失败（`non_deterministic_error`、`workflow_panic`、`payload_size_limit_exceeded` 等）时清除绑定，下一次执行走普通队列。Server 因新事实或恢复写入的重做（`unhandled_events`、`run_resumed`）不是 Worker 的失败，绑定保留。
+
 ## 回退路径
 
-Worker 停止、缓存 miss、Entry 逐出、sticky schedule-to-start 超时或 Workflow Task 超时后，任务回到普通队列并执行 cold restore。Event History 与 mutable state始终是权威数据来源。
+Worker 停止、缓存 miss、Entry 逐出、sticky schedule-to-start 超时或 Workflow Task 超时与失败后，任务回到普通队列并执行 cold restore。Event History 与 mutable state始终是权威数据来源。
 
 sticky 投递的代数或目标 Worker 与 Run 当前的 sticky 会话不一致时（会话在投递交到 Worker 之后被清除或换了 Worker），这份投递按普通投递处理：Workflow Task 仍 open 时照常开始，已关闭时由 Server 确认丢弃。

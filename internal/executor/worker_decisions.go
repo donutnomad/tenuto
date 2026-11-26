@@ -77,8 +77,8 @@ func reportIncrementalTaskResult(taskCtx, runtimeCtx context.Context, task proto
 			return reportWorkflowTimeout(taskCtx, runtimeCtx, task, backend, result.Err)
 		}
 		var reportErr error
-		if opts.BlocksOnError != nil && opts.BlocksOnError(result.Err) {
-			reportErr = backend.HandleWorkflowTaskFailed(runtimeCtx, task.RunID, task.ScheduledEventID, opts.BlockedCause, result.Err.Error())
+		if cause := opts.blockedCause(result.Err); cause != "" {
+			reportErr = backend.HandleWorkflowTaskFailed(runtimeCtx, task.RunID, task.ScheduledEventID, cause, result.Err.Error())
 		} else {
 			reportErr = backend.HandleWorkflowTaskCompleted(runtimeCtx, task.RunID, task.ScheduledEventID,
 				[]history.Command{{Type: history.CmdFailWorkflow, Error: result.Err.Error()}}, task.WorkerIdentity)

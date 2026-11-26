@@ -28,8 +28,8 @@ type workflowTaskContextReader interface {
 type WorkflowTaskOptions struct {
 	Capabilities  []string
 	Execute       func(context.Context, *program.WorkflowConfig, []history.Event) ([]history.Command, error)
-	BlocksOnError func(error) bool
-	BlockedCause  string
+	// BlockedCause 返回让 Workflow Task 失败（Run 保持 Running）的执行错误的 cause；返回空串的错误让 Workflow 失败。
+	BlockedCause func(error) string
 }
 
 type WorkflowTaskResult struct {
@@ -78,8 +78,8 @@ func RunWorkflowTask(taskCtx, runtimeCtx context.Context, task protocol.Task, ba
 			return reportWorkflowTimeout(taskCtx, runtimeCtx, task, backend, result.err)
 		}
 		if result.err != nil {
-			if opts.BlocksOnError != nil && opts.BlocksOnError(result.err) {
-				err = backend.HandleWorkflowTaskFailed(runtimeCtx, task.RunID, task.ScheduledEventID, opts.BlockedCause, result.err.Error())
+			if cause := opts.blockedCause(result.err); cause != "" {
+				err = backend.HandleWorkflowTaskFailed(runtimeCtx, task.RunID, task.ScheduledEventID, cause, result.err.Error())
 			} else {
 				err = backend.HandleWorkflowTaskCompleted(runtimeCtx, task.RunID, task.ScheduledEventID,
 					[]history.Command{{Type: history.CmdFailWorkflow, Error: result.err.Error()}}, task.WorkerIdentity)
@@ -141,4 +141,11 @@ func ReadWorkflowEvents(ctx context.Context, backend WorkflowTaskBackend, runID 
 		return nil, err
 	}
 	return backend.GetEvents(runID)
+}
+
+func (o WorkflowTaskOptions) blockedCause(err error) string {
+	if o.BlockedCause == nil {
+		return ""
+	}
+	return o.BlockedCause(err)
 }

@@ -27,6 +27,7 @@ status: Stable
 | `WORKFLOW_WORKER_CACHE_IDLE_TTL` | `5m` | Sticky Execution Cache 空闲逐出时间 |
 | `WORKFLOW_ARTIFACTS` | 空 | 启动时加载的生成产物目录，逗号分隔，递归查找 `workflow.json`；空表示不加载 |
 | `WORKFLOW_ARTIFACTS_NAMESPACE` | `default` | `WORKFLOW_ARTIFACTS` 中产物登记到的 Namespace |
+| `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES` | `2097152`（2 MiB） | 单个载荷 JSON 编码后的字节上限：Workflow 输入与结果、Signal 输入、Update 参数、Activity 输入、结果与心跳详情、子 Workflow 与 Continue-As-New 输入、Marker 数据。最大 `3145728`（3 MiB，载荷连同请求其余部分要放进 4 MiB 的 Runtime 请求体）。超限时的处理见 [容量上限](/operations/capacity-limits#载荷大小) |
 | `WORKFLOW_PPROF_ADDR` | 空 | 非空时在这个 `host:port` 上另开 `net/http/pprof` 监听（`/debug/pprof/`），并开启 mutex（1/100）与 block（阻塞超过 100µs）采样；空表示关闭。调试用，不鉴权、不走业务 HTTP，只绑定本机或内网地址，不要暴露到公网 |
 | `WORKFLOW_ARTIFACTS_PUBLISH` | `false` | `true` 时启动加载把 latest 指向这些产物；`false` 只登记，旧 Worker 重启不会把 latest 拉回旧版本。取值按 Go `strconv.ParseBool` 解析，非法取值（如 `ture`）使启动失败 |
 

@@ -77,7 +77,7 @@ func StatePatchContract(t *testing.T, newManager func(t *testing.T) execution.Ex
 		transition := execution.ActivityTransition{RunID: runID, TreeID: runID, BranchID: runID, ScheduledEventID: 7, Attempt: 1, Stamp: 1, Now: now.Add(time.Second)}
 		// 写入方 A 记录 Activity 开始。
 		inTx(t, manager, func(tx execution.ExecutionTx) error {
-			started, err := execution.StartActivity(tx, transition, "worker-1", "build-1")
+			started, err := execution.StartActivity(tx, transition, "worker-1", "build-1", "begin-request-1")
 			if err == nil && !started {
 				t.Fatal("StartActivity did not apply")
 			}
@@ -95,8 +95,8 @@ func StatePatchContract(t *testing.T, newManager func(t *testing.T) execution.Ex
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.Status != execution.ActivityStatusEnums.Started || got.WorkerIdentity != "worker-1" || got.StartedTime == nil || got.StartedEventID != execution.TransientEventID {
-			t.Errorf("start was overwritten by the heartbeat writer: status=%s worker=%q started=%v startedEventID=%d", got.Status, got.WorkerIdentity, got.StartedTime, got.StartedEventID)
+		if got.Status != execution.ActivityStatusEnums.Started || got.WorkerIdentity != "worker-1" || got.StartedTime == nil || got.StartedEventID != execution.TransientEventID || got.StartRequestID != "begin-request-1" {
+			t.Errorf("start was overwritten by the heartbeat writer: status=%s worker=%q started=%v startedEventID=%d startRequestID=%q", got.Status, got.WorkerIdentity, got.StartedTime, got.StartedEventID, got.StartRequestID)
 		}
 		if got.LastHeartbeat["offset"] != int64(7) || got.LastHeartbeatAt == nil {
 			t.Errorf("heartbeat missing: %#v at %v", got.LastHeartbeat, got.LastHeartbeatAt)
@@ -408,8 +408,7 @@ func ExecutionStateContract(t *testing.T, newManager func(t *testing.T) executio
 	}
 	state := requireProjection("workflow task scheduled")
 
-	expires := time.Now().Add(time.Hour)
-	stickyGeneration, assigned, err := manager.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-1", "build-1", expires)
+	stickyGeneration, assigned, err := manager.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-1", "build-1")
 	if err != nil || !assigned {
 		t.Fatalf("assign sticky: assigned=%v err=%v", assigned, err)
 	}
@@ -422,7 +421,8 @@ func ExecutionStateContract(t *testing.T, newManager func(t *testing.T) executio
 	appendEvent("cancel requested", history.NewWorkflowCancellationRequestedEvent("operator"))
 
 	state = requireProjection("independent writes")
-	if state.StickyWorkerIdentity != "worker-1" || state.StickyWorkerBuildID != "build-1" || !state.StickyValidAt(time.Now()) {
+	// 绑定发生在这个 WFT 调度之后：它不是 sticky 投递，没有 sticky schedule-to-start 期限。
+	if state.StickyWorkerIdentity != "worker-1" || state.StickyWorkerBuildID != "build-1" || state.StickyExpiresAt != nil {
 		t.Errorf("sticky assignment lost after later writes: %q/%q expires=%v", state.StickyWorkerIdentity, state.StickyWorkerBuildID, state.StickyExpiresAt)
 	}
 	if state.CurrentActivationID != "activation-1" || state.CurrentActivationAttempt != 1 {
@@ -432,7 +432,7 @@ func ExecutionStateContract(t *testing.T, newManager func(t *testing.T) executio
 		t.Errorf("projection fields lost: open_wft=%d attrs=%v cancel=%v", state.OpenWorkflowTaskEventID, state.SearchAttributes, state.CancelRequested)
 	}
 
-	// 失败的 Workflow Task 关闭 open 槽并写入 blocked 投影，sticky 仍保留。
+	// 失败的 Workflow Task 关闭 open 槽并写入 blocked 投影，并清除 sticky 绑定（Temporal ClearStickyTaskQueue）。
 	if _, _, err := manager.AppendWorkflowTaskClosed(runID, runID, runID, history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{
 		ScheduledEventID: scheduledID, Cause: "workflow_task_failed", Reason: "panic in workflow code",
 	})); err != nil {
@@ -442,8 +442,8 @@ func ExecutionStateContract(t *testing.T, newManager func(t *testing.T) executio
 	if !state.Blocked.Blocked || state.Blocked.ConsecutiveFailures != 1 || state.OpenWorkflowTaskEventID != 0 || state.CurrentActivationID != "" {
 		t.Errorf("failed task projection: blocked=%+v open_wft=%d activation=%q", state.Blocked, state.OpenWorkflowTaskEventID, state.CurrentActivationID)
 	}
-	if state.StickyWorkerIdentity != "worker-1" {
-		t.Errorf("sticky assignment lost when the workflow task closed: %q", state.StickyWorkerIdentity)
+	if state.StickyWorkerIdentity != "" || state.StickyExpiresAt != nil {
+		t.Errorf("sticky assignment kept after the workflow task failed: %q expires=%v", state.StickyWorkerIdentity, state.StickyExpiresAt)
 	}
 	// 关闭之后才到达的重复投递不再为这个 WFT 开始激活，下一个 WFT 不会被陈旧的激活挡住。
 	begun, err = beginActivation(manager, runID, scheduledID, state.ExecutionGeneration, state.StickyGeneration, "activation-late")
@@ -462,14 +462,20 @@ func ExecutionStateContract(t *testing.T, newManager func(t *testing.T) executio
 		t.Errorf("after clearing sticky: identity=%q expires=%v blocked=%+v", state.StickyWorkerIdentity, state.StickyExpiresAt, state.Blocked)
 	}
 
-	// 领取 WFT 记下 start-to-close 截止时间；超时关闭它时清除截止时间并结束 sticky 会话，sticky 代数不变。
-	retryID, inserted, err := manager.AppendWorkflowTaskScheduled(runID, runID, runID, history.NewWorkflowTaskScheduledEvent(1000))
+	// 有 sticky 绑定时调度的 WFT 从调度时刻起计 sticky schedule-to-start；领取时清空这个期限、保留绑定，并记下
+	// start-to-close 截止时间；超时关闭它时清除截止时间并结束 sticky 会话，sticky 代数不变。
+	if _, assigned, err := manager.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-1", "build-1"); err != nil || !assigned {
+		t.Fatalf("assign sticky again: assigned=%v err=%v", assigned, err)
+	}
+	retryScheduled := history.NewWorkflowTaskScheduledEvent(1000)
+	retryScheduled.Timestamp = contractNow.Add(30 * time.Second)
+	retryID, inserted, err := manager.AppendWorkflowTaskScheduled(runID, runID, runID, retryScheduled)
 	if err != nil || !inserted {
 		t.Fatalf("schedule retry workflow task: inserted=%v err=%v", inserted, err)
 	}
 	state = requireProjection("retry workflow task scheduled")
-	if _, assigned, err := manager.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-1", "build-1", expires); err != nil || !assigned {
-		t.Fatalf("assign sticky again: assigned=%v err=%v", assigned, err)
+	if want := retryScheduled.Timestamp.Add(execution.StickyScheduleToStartTimeout); state.StickyExpiresAt == nil || !state.StickyExpiresAt.Equal(want) {
+		t.Errorf("sticky schedule-to-start deadline = %v, want %v", state.StickyExpiresAt, want)
 	}
 	startedAt := contractNow.Add(time.Minute)
 	started := history.NewWorkflowTaskStartedEvent(retryID, "worker-1", "build-1", 0)
@@ -477,6 +483,9 @@ func ExecutionStateContract(t *testing.T, newManager func(t *testing.T) executio
 	started.WorkflowTaskStarted.TimeoutMs = 10_000
 	appendEvent("workflow task started", started)
 	state = requireProjection("workflow task started")
+	if state.StickyWorkerIdentity != "worker-1" || state.StickyExpiresAt != nil {
+		t.Errorf("started sticky workflow task: identity=%q expires=%v, want the binding kept without a deadline", state.StickyWorkerIdentity, state.StickyExpiresAt)
+	}
 	if id, deadline, ok := state.WorkflowTaskTimeoutDeadline(); !ok || id != retryID || !deadline.Equal(startedAt.Add(10*time.Second)) {
 		t.Errorf("start-to-close deadline: id=%d deadline=%v ok=%v, want %d %v", id, deadline, ok, retryID, startedAt.Add(10*time.Second))
 	}

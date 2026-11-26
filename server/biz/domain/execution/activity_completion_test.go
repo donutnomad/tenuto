@@ -119,7 +119,7 @@ func TestStartAndHeartbeatActivityRespectAttemptStamp(t *testing.T) {
 	start := func() error {
 		return store.RunInTx(func(tx execution.ExecutionTx) error {
 			var err error
-			accepted, err = execution.StartActivity(tx, progress, "worker-1", "build-3")
+			accepted, err = execution.StartActivity(tx, progress, "worker-1", "build-3", "")
 			return err
 		})
 	}
@@ -386,7 +386,7 @@ func TestFailActivityPersistsNextAttemptTime(t *testing.T) {
 	}
 
 	if err := store.RunInTx(func(tx execution.ExecutionTx) error {
-		_, err := execution.StartActivity(tx, execution.ActivityTransition{RunID: "run-1", TreeID: "run-1", BranchID: "run-1", ScheduledEventID: 7, Attempt: 2, Stamp: 2, Now: now.Add(10 * time.Minute)}, "worker-1", "")
+		_, err := execution.StartActivity(tx, execution.ActivityTransition{RunID: "run-1", TreeID: "run-1", BranchID: "run-1", ScheduledEventID: 7, Attempt: 2, Stamp: 2, Now: now.Add(10 * time.Minute)}, "worker-1", "", "")
 		return err
 	}); err != nil {
 		t.Fatal(err)

@@ -16,12 +16,14 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 | `config_error` 以 `workflow task cannot be prepared: ` 开头 | 暂停：准备 Workflow Task 时遇到每次都会重现的失败，Server 不再重投这个任务 | 修复原因后「恢复暂停的 Run」 |
 | `upgrade_error` 非空，`auto upgrade to ... failed ...; retrying with backoff` | 不阻塞：留在旧内容，按退避重试升级 | 发布兼容内容，或 `SetRunPolicy(..., "pinned")` |
 | `blocked.cause` 为 `non_deterministic_error`，reason 含 `nondeterministic workflow: ...` | Workflow Task 反复失败 | 修复代码（恢复命令序列或补 `GetVersion`）后重新发布，下一次重试自动继续 |
+| `blocked.cause` 为 `workflow_panic`，reason 含 `[E_RUNTIME]`、`[E_NIL_RECEIVER]`、`[E_PANIC]` 或 `workflow executor panic` | Workflow 代码 panic（Temporal 缺省的 BlockWorkflow），Run 保持 Running | 修复代码后重新发布，下一次重试从 History 恢复并继续 |
+| `blocked.cause` 为 `payload_size_limit_exceeded` | Workflow Task 的命令带的载荷（Activity / 子 Workflow / Continue-As-New 输入、Marker、Workflow 结果）超过 `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES` | 缩小载荷（大数据放外部存储、传引用）后重新发布 |
 | `blocked.cause` 为 `activity_route_unavailable` | 没声明队列，路由目录里没有可用的 Activity Worker 或路由歧义 | 启动注册了该 `type` 的 Worker 或声明队列，自动继续 |
 | `status` 是 `running`、无错误、History 末尾是 `ActivityScheduled` | Activity 没被领取或正在执行；Server 日志反复 `activity claim refused` 时在线 Worker 的契约与声明不兼容 | 核对队列与 Worker（`workers.md`）；看 Activity 状态；契约不兼容时让契约兼容的 build 上线，或 `SetRunPolicy(..., "auto_upgrade")` |
 | `status` 是 `running`、无错误、`__stack_trace` 的 `waiting.type` 是 `timer`，或 `waiting` 为空（等 Signal、`Await` 条件） | 正常等待 | 推进它等待的事件 |
 | `status` 是 `failed` | 终态 | `terminal_failure`，或 `c.GetWorkflow(...).Get` 的错误 `errors.As` 到 `*apperror.Error` 看 Type 与 details；需要重跑时 Reset |
 
-`WorkflowTaskFailed` 的 `cause`：Worker 上报的只有 `non_deterministic_error` 与 `execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复），计入连续失败并退避；`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入，表示 Workflow Task 需要重做，不计连续失败、不退避。`POST /runtime/workflow-task/failed` 收到其他取值（含后三个）返回 400。
+`WorkflowTaskFailed` 的 `cause`：Worker 上报的只有 `non_deterministic_error`、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）与 `workflow_panic`（Workflow 代码越界、nil 解引用、`panic` 或解释器 panic），计入连续失败并退避；`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入，表示 Workflow Task 需要重做，不计连续失败、不退避。`POST /runtime/workflow-task/failed` 收到其他取值（含后三个）返回 400。
 
 错误原文与成因：
 
@@ -183,6 +185,7 @@ Console（缺省端口 7401）提供同样的信息与操作：Run 列表与 His
 
 - 保证：Activity 至少一次（必须幂等）；Workflow 状态转换在一个事务里提交（History 与 mutable state 同事务，execution state 行锁跨副本互斥，first-wins 与 generation stamp 拦下旧任务）；确定性重放；`pinned` / `auto_upgrade` 与换版前的载荷检查；只向前的 schema 迁移；保留期 GC。
 - 必需配置：MySQL 8 且每次升级先 `tenuto-server migrate`；Server 强制的 DSN 参数；`副本数 × 2 × WORKFLOW_DB_MAX_OPEN_CONNS + 余量 < max_connections`；Bearer token 与 / 或 mTLS（mTLS 时探针用 `WORKFLOW_HEALTH_ADDR`）；Console 放在 SSO 之后、token 只在服务端；Task Token Secret 与 History Page Token Key 跨副本一致；NAT / Kubernetes 下设 `TASKQ_MATCHING_ADVERTISE_ADDR`；`WORKFLOW_RETENTION`；OTel；`terminationGracePeriodSeconds` 大于 `WORKFLOW_HTTP_SHUTDOWN_TIMEOUT` 加 OTel flush；pprof 关闭；Go ≥ 1.27.4。
+- 载荷上限：单个载荷 `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES`（默认 2 MiB，最大 3 MiB），Runtime 请求体 4 MiB；入口超限 400，命令超限时 Workflow Task 以 `payload_size_limit_exceeded` 失败，Activity 结果或心跳超限时 Attempt 以不可重试的 `PayloadSizeLimitExceeded` 失败（`operations/capacity-limits#载荷大小`）。
 - 已知限制：单个 MySQL 主库是扩展与可用性上限（没有分片，数据库 HA 由运维方负责）；TaskQ 分区易主（副本加入或离开）时投递停顿 2–3 s；WLang 只限制单个值，`MaxAllocBytes` 不执行，没有每次执行的总内存上限；没有内置多租户授权，Namespace 不是权限边界；长时间分区没有测量数据。
 - 实测数字（一台笔记本、共享 MySQL、3 副本 + 2 Worker 同机，是下限）与复现命令、通过标准都在该页，引用时以该页为准。
 
@@ -213,7 +216,7 @@ GOWORK=off go build -o bin/tenuto-cluster ./cmd/tenuto-cluster
 - 每条语句一次往返：Server 给 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN` 设置 `parseTime=true`、`loc=UTC`、`interpolateParams=true`（客户端插值，不再 prepare、execute、close 三步）；字符集用 `utf8mb4`，GBK、Big5、SJIS 等字符集启动失败。一个事务里 execution state 只加锁读一次、提交前写回一次，与追加几个事件无关。
 - 空闲时：TaskQ 分区的行都已投递或确认时 poll 与可见性扫描不读库；内嵌 Workflow Worker 的 Workflow Task 长轮询持续 `TASKQ_POLL_TIMEOUT`（默认 30s），不再每秒重新开始。
 - leader 副本是 `tenuto_leader_lock` 里 `lock_name = 'workflow:reconciler'` 且未过期的 `leader_ip`，值等于该副本的 `WORKFLOW_NODE_ID`。
-- 投递丢失由 reconciler 补投：open 未 started 的 Workflow Task 或 Scheduled Activity attempt 的派发记录是 `dispatched`、超过等待时长（30s 起按派发次数翻倍，最长 8 分钟）没被领取时，leader 再投一份，日志 `task dispatched but not claimed; redelivering`。运行中出现它说明有投递丢失，记下 `run_id` 与 `scheduled_event_id` 查原因；无故障的 `bench` 里不应出现。
+- 投递丢失由 reconciler 补投：open 未 started 的 Workflow Task 或 Scheduled Activity attempt 的派发记录是 `dispatched`、超过等待时长（30s 起按派发次数翻倍，最长 1 小时）没被领取时，leader 再投一份，日志 `task dispatched but not claimed; redelivering`。运行中出现它说明有投递丢失，记下 `run_id` 与 `scheduled_event_id` 查原因；无故障的 `bench` 里不应出现。
 - 重启的副本在后台做启动恢复（日志 `startup recovery finished`），不占 `WORKFLOW_STARTUP_TIMEOUT`，恢复慢时副本照常就绪。matching owner 被 kill 后、成员表剔除它之前，入队换到其他 owner 的分区，不再报 `frontend: enqueue: max retries exceeded`。
 - 已关闭 Workflow Task 的投递由 Server 在领取时确认丢弃，日志里不再出现成片的 `workflow task activation fence is stale`。
 

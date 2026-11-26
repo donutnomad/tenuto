@@ -231,6 +231,9 @@ func (s *Server) startWorkflowVersion(ctx context.Context, configRef definition.
 }
 
 func (s *Server) newWorkflowVersionRun(workflowID string, configRef definition.WorkflowConfigRef, input map[string]any, initiator string) (*execution.Run, error) {
+	if err := protocol.CheckPayloadSize("workflow input", input, s.payloadSizeLimit); err != nil {
+		return nil, protocol.InvalidRequestf("%w", err)
+	}
 	return execution.NewWorkflowVersionRun(execution.WorkflowStartOptions{
 		Namespace: configRef.Namespace, WorkflowID: workflowID,
 		WorkflowType: configRef.WorkflowType, ProgramVersion: configRef.Version,

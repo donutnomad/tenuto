@@ -183,6 +183,7 @@ func activityStateToWire(state *execution.ActivityState) *runtimeapi.ActivitySta
 		StartedTime:              state.StartedTime,
 		WorkerIdentity:           state.WorkerIdentity,
 		WorkerBuildID:            state.WorkerBuildID,
+		StartRequestID:           state.StartRequestID,
 		LastHeartbeat:            state.LastHeartbeat,
 		LastHeartbeatAt:          state.LastHeartbeatAt,
 		RetryLastFailure:         state.RetryLastFailure,

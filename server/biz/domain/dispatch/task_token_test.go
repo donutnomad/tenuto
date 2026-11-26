@@ -151,24 +151,6 @@ func TestTaskTokenRoundTripsActivationFences(t *testing.T) {
 	}
 }
 
-func TestTaskTokenPreservesActivityInputIntegers(t *testing.T) {
-	task := protocol.Task{
-		Type: protocol.TaskTypeActivity, RunID: "run-input", ScheduledEventID: 9,
-		Input: map[string]any{"maximum": ^uint64(0), "count": int64(9007199254740993)},
-	}
-	token, err := testCodec(t).Encode(task)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := testCodec(t).Decode(token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded.Input["maximum"] != ^uint64(0) || decoded.Input["count"] != int64(9007199254740993) {
-		t.Fatalf("task input = %#v", decoded.Input)
-	}
-}
-
 func TestTaskTokenRejectsUnknownPrefix(t *testing.T) {
 	token, err := testCodec(t).Encode(protocol.Task{Type: protocol.TaskTypeActivity, RunID: "run-prefix", ScheduledEventID: 9})
 	if err != nil {
@@ -229,5 +211,34 @@ func TestNormalizeTaskForTokenKeepsStamp(t *testing.T) {
 	got := normalizeTaskForToken(protocol.Task{Type: protocol.TaskTypeActivity, RunID: "r", ScheduledEventID: 1, Stamp: 9})
 	if got.Stamp != 9 {
 		t.Fatalf("normalize dropped stamp: got %d", got.Stamp)
+	}
+}
+
+// token 只签寻址与 fence 字段：载荷与 TraceContext 不进 token，token 大小与输入无关。
+func TestTaskTokenExcludesPayloads(t *testing.T) {
+	codec := testCodec(t)
+	task := protocol.Task{
+		Type: protocol.TaskTypeActivity, RunID: "run-payload", ScheduledEventID: 5, Attempt: 2, Stamp: 3,
+		ActivityID: "a", ActivityType: "t", TaskQueue: "q",
+		Input:                map[string]any{"blob": strings.Repeat("x", 64*1024)},
+		LastHeartbeatDetails: map[string]any{"progress": strings.Repeat("y", 64*1024)},
+		TraceContext:         map[string]string{"traceparent": "00-abc"},
+	}
+	token, err := codec.Encode(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(token) > 2048 {
+		t.Fatalf("token length = %d, want it independent of the 128KB payloads", len(token))
+	}
+	decoded, err := codec.Decode(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Input != nil || decoded.LastHeartbeatDetails != nil || decoded.TraceContext != nil {
+		t.Fatalf("decoded token carries payloads: %+v", decoded)
+	}
+	if decoded.RunID != task.RunID || decoded.ScheduledEventID != 5 || decoded.Attempt != 2 || decoded.Stamp != 3 || decoded.TaskQueue != "q" {
+		t.Fatalf("decoded token lost addressing fields: %+v", decoded)
 	}
 }

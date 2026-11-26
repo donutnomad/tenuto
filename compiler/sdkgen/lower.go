@@ -294,7 +294,7 @@ func (p *lowerPass) lowerListStmt(stmt ast.Stmt) {
 	}
 	switch s := stmt.(type) {
 	case *ast.AssignStmt:
-		if p.lowerMakeAssign(s) {
+		if p.lowerMakeAssign(s) || p.lowerBlankAssign(s) {
 			return
 		}
 		p.hoistAssertedFields(s)
@@ -380,6 +380,37 @@ func (p *lowerPass) lowerMakeAssign(stmt *ast.AssignStmt) bool {
 	p.replace(stmt, fmt.Sprintf("%s := (%s); %s %s %s{}; for %s := 0; %s < %s; %s++ { %s = append(%s, %s) }",
 		size, p.source(call.Args[1]), target.Name, stmt.Tok, typeText, index, index, size, index,
 		target.Name, target.Name, p.zeroLiteral(array.Elt)))
+	return true
+}
+
+// lowerBlankAssign 把 `_ = expr`（expr 不是调用）改写成先求值再丢弃：wlang 的翻译把赋给 `_` 的非调用表达式
+// 整句省略，Go 却会求值它，越界在 Go 里 panic。改写后同样报运行时错误。标识符、字面量与选择器保持原样；
+// 含类型断言的表达式由 hoistAssertedFields 处理，也保持原样。
+func (p *lowerPass) lowerBlankAssign(stmt *ast.AssignStmt) bool {
+	if len(stmt.Lhs) != 1 || len(stmt.Rhs) != 1 || stmt.Tok != token.ASSIGN {
+		return false
+	}
+	if target, ok := stmt.Lhs[0].(*ast.Ident); !ok || target.Name != "_" {
+		return false
+	}
+	switch rhs := ast.Unparen(stmt.Rhs[0]).(type) {
+	case *ast.CallExpr, *ast.Ident, *ast.BasicLit, *ast.FuncLit, *ast.SelectorExpr:
+		// 选择器多是 `_ = pkg.Func` 一类引用，保持原样。
+		return false
+	default:
+		assertion := false
+		ast.Inspect(rhs, func(node ast.Node) bool {
+			if _, ok := node.(*ast.TypeAssertExpr); ok {
+				assertion = true
+			}
+			return !assertion
+		})
+		if assertion {
+			return false
+		}
+	}
+	value := p.freeName("zzDiscard")
+	p.replace(stmt, fmt.Sprintf("%s := (%s); _ = %s", value, p.source(stmt.Rhs[0]), value))
 	return true
 }
 

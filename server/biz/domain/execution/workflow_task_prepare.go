@@ -36,6 +36,36 @@ var ErrScheduleActivityDuplicateID = errors.New("schedule activity duplicate id"
 // WorkflowTaskFailedCauseScheduleActivityDuplicateID 是 ActivityID 重复时 WorkflowTaskFailed 的 cause。
 const WorkflowTaskFailedCauseScheduleActivityDuplicateID = "schedule_activity_duplicate_id"
 
+// ErrPayloadSizeLimitExceeded 表示命令的输入或结果超过载荷上限（protocol.DefaultPayloadSizeLimit）。
+var ErrPayloadSizeLimitExceeded = errors.New("payload size limit exceeded")
+
+// WorkflowTaskFailedCausePayloadSizeLimitExceeded 是命令载荷超限时 WorkflowTaskFailed 的 cause。
+const WorkflowTaskFailedCausePayloadSizeLimitExceeded = "payload_size_limit_exceeded"
+
+// CheckCommandPayloadSize 校验命令携带的载荷（Activity、子 Workflow 与 Continue-As-New 的输入，Marker 数据，
+// Workflow 结果）不超过 limit 字节；limit <= 0 表示不检查。
+func CheckCommandPayloadSize(command history.Command, limit int) error {
+	what, payload := "", map[string]any(nil)
+	switch command.Type {
+	case history.CmdScheduleActivity:
+		what, payload = fmt.Sprintf("input of activity %q (type %s)", command.ActivityID, command.ActivityType), command.Input
+	case history.CmdStartChildWorkflow:
+		what, payload = fmt.Sprintf("input of child workflow %q (type %s)", command.ChildID, command.WorkflowType), command.Input
+	case history.CmdContinueAsNew:
+		what, payload = "continue-as-new input", command.Input
+	case history.CmdRecordMarker:
+		what, payload = fmt.Sprintf("data of marker %q", command.MarkerName), command.Input
+	case history.CmdCompleteWorkflow:
+		what, payload = "workflow result", command.Output
+	default:
+		return nil
+	}
+	if err := protocol.CheckPayloadSize(what, payload, limit); err != nil {
+		return fmt.Errorf("%w: %s", ErrPayloadSizeLimitExceeded, err)
+	}
+	return nil
+}
+
 // MaxActivityIDLength 是 ActivityID 的最大字符数，与 tenuto_activity_states.activity_id 的列宽一致。
 const MaxActivityIDLength = 191
 
@@ -67,7 +97,9 @@ type PreparedWorkflowTask struct {
 }
 
 // PrepareWorkflowTask resolves all external references before RunInTx begins.
-func PrepareWorkflowTask(runID string, commands []history.Command, traceContext map[string]string, resolver WorkflowCommandResolver) (PreparedWorkflowTask, error) {
+//
+// 命令载荷超过 payloadLimit 字节时返回 ErrPayloadSizeLimitExceeded。
+func PrepareWorkflowTask(runID string, commands []history.Command, traceContext map[string]string, payloadLimit int, resolver WorkflowCommandResolver) (PreparedWorkflowTask, error) {
 	prepared := PreparedWorkflowTask{
 		Commands:        make([]history.Command, len(commands)),
 		CommandEvents:   make([]history.Event, 0, len(commands)),
@@ -77,6 +109,9 @@ func PrepareWorkflowTask(runID string, commands []history.Command, traceContext 
 		ContinuedRefs:   make(map[int]WorkflowTargetRef),
 	}
 	for i, command := range commands {
+		if err := CheckCommandPayloadSize(command, payloadLimit); err != nil {
+			return PreparedWorkflowTask{}, err
+		}
 		if command.Type == history.CmdScheduleActivity {
 			if err := ValidateScheduleActivityCommand(command); err != nil {
 				return PreparedWorkflowTask{}, err

@@ -47,7 +47,9 @@ type WorkflowExecutionState struct {
 	StickyWorkerIdentity     string            `json:"sticky_worker_identity,omitempty"`
 	StickyWorkerBuildID      string            `json:"sticky_worker_build_id,omitempty"`
 	StickyGeneration         int64             `json:"sticky_generation"`
-	// StickyExpiresAt 用指针：nil 表示"无 sticky 会话"。
+	// StickyExpiresAt 是投给 sticky Worker 的 open WFT 的 sticky schedule-to-start 期限：WFT 调度时设为调度时刻加
+	// StickyScheduleToStartTimeout，WFT started 时清空。sticky 绑定（StickyWorkerIdentity）本身不随时间失效，
+	// 保留到 WFT 超时或失败（Temporal ClearStickyTaskQueue）。nil 表示当前没有待领取的 sticky 投递。
 	// 非指针 time.Time 的零值落 MySQL 会写成 '0000-00-00'，而 MySQL 8 默认 sql_mode 含
 	// NO_ZERO_DATE + STRICT_TRANS_TABLES，会直接报 Error 1292 拒绝写入（即使列 nullable）。
 	// 用指针后清 sticky 写的是 SQL NULL，这是"无值"的正确表达。
@@ -85,10 +87,11 @@ type WorkflowTaskProjection struct {
 type WorkflowExecutionStateStore interface {
 	GetWorkflowExecutionState(runID string) (*WorkflowExecutionState, error)
 	ListWorkflowExecutionStates(runIDs []string) (map[string]*WorkflowExecutionState, error)
-	// ListExpiredStickyExecutions 返回 sticky 已过期且仍有 open WFT 的 execution state，判据是
-	// StickyWorkerIdentity != "" && !StickyValidAt(now) && OpenWorkflowTaskEventID != 0；limit > 0 时封顶。
+	// ListExpiredStickyExecutions 返回 sticky schedule-to-start 期限已过、仍有 open WFT 的 execution state，判据是
+	// StickyWorkerIdentity != "" && StickyExpiresAt != nil && !StickyValidAt(now) && OpenWorkflowTaskEventID != 0；
+	// limit > 0 时封顶。
 	ListExpiredStickyExecutions(now time.Time, limit int) ([]*WorkflowExecutionState, error)
-	AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt time.Time) (int64, bool, error)
+	AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string) (int64, bool, error)
 	ClearStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64) (int64, bool, error)
 }
 
@@ -181,7 +184,8 @@ func (s *WorkflowExecutionState) BeginActivation(scheduledEventID, executionGene
 }
 
 // AssignSticky 把 sticky 会话交给 Worker；换了 Worker 或 build 时 sticky 代数加一。代数已变时返回 false，状态不变。
-func (s *WorkflowExecutionState) AssignSticky(executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt, now time.Time) bool {
+// 绑定不带期限：下一个 WFT 调度时才开始计 sticky schedule-to-start（见 StickyExpiresAt）。
+func (s *WorkflowExecutionState) AssignSticky(executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, now time.Time) bool {
 	if !s.sessionMatches(executionGeneration, expectedStickyGeneration) {
 		return false
 	}
@@ -190,7 +194,6 @@ func (s *WorkflowExecutionState) AssignSticky(executionGeneration, expectedStick
 	}
 	s.setStickyWorkerIdentity(workerIdentity)
 	s.setStickyWorkerBuildID(workerBuildID)
-	s.setStickyExpiresAt(&expiresAt)
 	s.setStateVersion(s.StateVersion + 1)
 	s.setUpdatedAt(now)
 	return true
@@ -321,9 +324,24 @@ func ApplyEventToExecutionState(state *WorkflowExecutionState, event history.Eve
 		state.setSearchAttributes(state.SearchAttributes)
 	case event.ActivityReset != nil:
 		invalidateExecutionSession(state)
+	case event.WorkflowTaskScheduled != nil:
+		// sticky schedule-to-start 从 WFT 调度时起算（Temporal GenerateScheduleWorkflowTaskTasks）。
+		if state.StickyWorkerIdentity != "" {
+			deadline := event.Timestamp.Add(StickyScheduleToStartTimeout)
+			state.setStickyExpiresAt(&deadline)
+		}
+	case event.WorkflowTaskStarted != nil:
+		// 已被领取：这份 sticky 投递不再有 schedule-to-start 期限，绑定保留。
+		if state.StickyExpiresAt != nil {
+			state.setStickyExpiresAt(nil)
+		}
 	case event.WorkflowTaskTimedOut != nil:
 		// 超时的 WFT 不再交给原 sticky Worker：下一个 WFT 走普通队列，任何 Worker 都能领取。sticky 代数不变，
 		// 原 Worker 迟到的上报仍能通过代数校验，按已关闭的 WFT 处理。
+		clearStickyRoute(state)
+	case event.WorkflowTaskFailed != nil && !isRedoWorkflowTaskFailure(event.WorkflowTaskFailed.Cause):
+		// 失败的 WFT 同样清除 sticky 绑定（Temporal failWorkflowTask 的 ClearStickyTaskQueue）：重试走普通队列。
+		// 由新事实或恢复触发的重做不是 Worker 的失败，绑定保留。
 		clearStickyRoute(state)
 	}
 
@@ -454,6 +472,10 @@ func invalidateExecutionSession(state *WorkflowExecutionState) {
 	clearStickyRoute(state)
 }
 
+// StickyScheduleToStartTimeout 是 sticky 投递等待 sticky Worker 领取的时长，与 Temporal 的缺省值相同：到期后
+// sticky 绑定被清除，WFT 改投普通队列。
+const StickyScheduleToStartTimeout = 5 * time.Second
+
 // clearStickyRoute 结束 sticky 会话，之后的 WFT 走普通队列。
 func clearStickyRoute(state *WorkflowExecutionState) {
 	state.setStickyWorkerIdentity("")
@@ -461,9 +483,8 @@ func clearStickyRoute(state *WorkflowExecutionState) {
 	state.setStickyExpiresAt(nil)
 }
 
-// StickyValidAt 报告 sticky 会话在 now 时刻是否仍然有效。
-// 集中处理 nil（无 sticky 会话）：nil 一律视为已失效，等价于原先零值 time.Time
-// 的 .After(now) 恒为 false 的行为，故调用方语义不变。
+// StickyValidAt 报告 open WFT 在 now 时刻是否仍可投给 sticky Worker：sticky schedule-to-start 期限存在且未到。
+// nil（没有待领取的 sticky 投递）视为不可投递，派发走普通队列。
 func (s *WorkflowExecutionState) StickyValidAt(now time.Time) bool {
 	return s.StickyExpiresAt != nil && s.StickyExpiresAt.After(now)
 }

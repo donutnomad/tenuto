@@ -246,7 +246,8 @@ curl --fail-with-body -sS "$TENUTO_URL/runtime/activity/complete" \
 ```
 
 - `failure` 为空表示成功，非空表示失败。
-- Token 是凭证：绑定 Run、Scheduled Event、Attempt 和 Stamp；加密存储。Activity Reset 后旧 Token 的完成请求按 stale 丢弃。
+- Token 是凭证：只签寻址与 fence 字段（Run、Scheduled Event、Attempt、Stamp、Activity ID / Type、Task Queue 等），不含 Activity 输入、心跳详情与 trace context，长度与输入大小无关；加密存储。Activity Reset 后旧 Token 的完成请求按 stale 丢弃。2026-11-26 之前签发的 Token 格式不同，不再有效。
+- 完成结果超过载荷上限（默认 2 MiB）时 Server 记为不可重试的 `PayloadSizeLimitExceeded` 失败。
 - 外部回调入口自己负责鉴权、签名验证和幂等；Runtime HTTP 端点只暴露在受信网络。
 - 给 pending Activity 配 `ScheduleToCloseTimeout`，外部系统失联时由超时推进恢复流程。
 

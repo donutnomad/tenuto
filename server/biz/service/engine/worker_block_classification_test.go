@@ -267,3 +267,5 @@ func (*blockClassifyWorkerAPI) ReleaseActivityAttempt(context.Context, *executio
 func (*blockClassifyWorkerAPI) RefuseIncompatibleActivityClaim(context.Context, protocol.Task, *execution.Run) (bool, error) {
 	return false, nil
 }
+
+func (a *blockClassifyWorkerAPI) PayloadSizeLimit() int { return 0 }

@@ -163,7 +163,7 @@ complete · activation · complete-activation · timed-out · failed
 
 `config`、`events`、`status` 的请求体是 `{task_token, program_version?}`，读取 token 所属的 Run。`complete` 提交按完整 History 重放得到的命令；`activation` 与 `complete-activation` 是 Execution Cache 命中时的增量激活与提交。两组端点都只接受 Workflow Task 的 token。
 
-`failed` 的请求体是 `{task_token, cause, reason}`，`cause` 只接受 Worker 的失败原因：`non_deterministic_error`（重放与 History 不一致）、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）。`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入（Workflow Task 需要重做，不计连续失败、不退避），Worker 上报它们或其他取值返回 400。
+`failed` 的请求体是 `{task_token, cause, reason}`，`cause` 只接受 Worker 的失败原因：`non_deterministic_error`（重放与 History 不一致）、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）、`workflow_panic`（Workflow 代码或解释器 panic，见 [Failure 参考](/reference/failures#workflow-代码的-panic)）。`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入（Workflow Task 需要重做，不计连续失败、不退避），Worker 上报它们或其他取值返回 400。
 
 ## Update 请求体
 
@@ -213,7 +213,16 @@ poll · ack · nack · begin · heartbeat
 cancellation · complete · fail · release
 ```
 
-`begin` 把 Attempt 记为 started 并答复 `{execute, reason, started_time}`。`execute` 为 `true` 时 `started_time` 是 Server 记下的 Attempt 开始时间（`activity.Info.StartedTime`），Worker 立即 `ack` 队列租约，然后执行 Activity；之后 Attempt 的存活由 StartToClose、ScheduleToClose 与 Heartbeat 超时判定。Attempt 已开始、已结束或任务已过期时 `execute` 为 `false`（`reason` 如 `attempt_already_started`、`activity_closed`、`stale_task`），Worker `ack` 丢弃这份投递。Run 收到取消请求不影响 `begin`：Workflow 代码可能在取消之后调度清理 Activity。
+`begin`、`heartbeat`、`cancellation`、`complete`、`fail`、`release` 的请求体只寻址一次 Attempt，不带任务载荷（与 Temporal 的 task token 加 identity 相同）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `task_token` | 必填，租约里 `task.task_token` 的值 |
+| `worker_identity`、`worker_build_id` | 可选，记进 `ActivityStarted` 与 Activity state，只用于观测 |
+| `request_id` | 只用于 `begin`：Worker 为每份投递生成一次（SDK 用 UUID），最长 128 字节 |
+| `details` / `output` / `failure` | 分别用于 `heartbeat`、`complete`、`fail` |
+
+`begin` 把 Attempt 记为 started 并答复 `{execute, reason, started_time, payload_size_limit}`。`execute` 为 `true` 时 `started_time` 是 Server 记下的 Attempt 开始时间（`activity.Info.StartedTime`），`payload_size_limit` 是 Activity 结果与心跳详情的字节上限（见 [容量上限](/operations/capacity-limits#载荷大小)），Worker 立即 `ack` 队列租约，然后执行 Activity；之后 Attempt 的存活由 StartToClose、ScheduleToClose 与 Heartbeat 超时判定。应答丢失后重发的 `begin` 带同一个 `request_id`，Server 把它认作开始这次 Attempt 的同一个请求，返回 `execute: true` 与原来的 `started_time`（Temporal `RecordActivityTaskStarted` 的 RequestId 语义）。Attempt 已由别的请求开始、已结束或任务已过期时 `execute` 为 `false`（`reason` 如 `attempt_already_started`、`activity_closed`、`stale_task`），Worker `ack` 丢弃这份投递。Run 收到取消请求不影响 `begin`：Workflow 代码可能在取消之后调度清理 Activity。
 
 `ack` 只清理队列，结局在此之前已经落库（`begin` 记下 started，或 `begin` 判定不执行），因此任务队列的确认失败不让请求失败：TaskQ 分区换主期间重试用完、租约属于旧的 ownership epoch（`stale ack token`）时 `ack` 仍应答 200，Server 记 WARN `task queue ack failed`。任务在可见性超时（TaskQ 默认 60s）后重新投递，`begin` 按 started 返回 `attempt_already_started`，Worker 确认丢弃。`/runtime/workflow-task/ack` 相同：Worker 在结果上报之后确认，重新投递的 Workflow Task 已关闭，Server 在 `poll` 里确认丢弃。`nack` 发生在结局落库之前，任务队列暂时不可用时应答 503，Worker 重试。
 
@@ -224,13 +233,15 @@ cancellation · complete · fail · release
 
 `cancellation` 只做上面的取消检查，不记录心跳。
 
-`release` 交还一个已开始、因 Worker 停止而没有结果的 Attempt，请求体与 `begin` 相同（`{task_token, task}`）。Server 不记失败，把 Attempt 恢复为待派发、序号不变、stamp 递增（被交还的执行晚到的结果按过期丢弃），从交还时刻起算 Schedule-To-Start 并立即重新派发；Attempt 已结束、已过期或尚未开始时什么也不做。`Worker.Stop()` 调用它，见[运行 Worker](/develop/workers#优雅退出)。
+`release` 交还一个已开始、因 Worker 停止而没有结果的 Attempt，请求体是 `{task_token, worker_identity, worker_build_id}`。Server 不记失败，把 Attempt 恢复为待派发、序号不变、stamp 递增（被交还的执行晚到的结果按过期丢弃），从交还时刻起算 Schedule-To-Start 并立即重新派发；Attempt 已结束、已过期或尚未开始时什么也不做。`Worker.Stop()` 调用它，见[运行 Worker](/develop/workers#优雅退出)。
 
 `poll` 返回的租约是 `{task, token}`：`token` 是队列的租约凭据，`ack` / `nack` 原样带回；`task` 的字段是 snake_case（`type`、`namespace`、`workflow_id`、`workflow_type`、`run_id`、`activity_id`（即 `activity.Info.ActivityID`）、`scheduled_event_id`、`scheduled_time`、`attempt`、`stamp`、`activity_type`、`task_queue`、`input`、`task_token`、`last_heartbeat_details`、超时字段以纳秒计等）。
 
 ## Task Token
 
-Workflow Task 和 Activity Task 使用 Server 签发的 HMAC Task Token。Token 绑定 Namespace、Run、Scheduled Event、Attempt、Stamp、Task Queue 和 Worker 信息。Worker 应原样回传 Token。
+Workflow Task 和 Activity Task 使用 Server 签发的 HMAC Task Token。Token 只签寻址与 fence 字段：任务类型、Namespace、Workflow ID / Type、Run、Scheduled Event、Attempt、Stamp、Activity ID / Type、Task Queue、四个超时、execution 与 sticky generation、activation ID 和目标 Worker。Activity 输入、心跳详情、trace context 不进 Token，Token 的长度与载荷大小无关（与 Temporal `common/tasktoken` 相同）。Worker 应原样回传 Token。
+
+Token 的格式随这次改动变化，之前签发的 Token（包括外部系统为异步完成保存的 Token）不再能被校验：升级前完成或放弃在途的异步完成，升级后由 Activity 重新签发。
 
 ## 鉴权
 

@@ -11,6 +11,7 @@ import (
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/sdk/activity"
 	"github.com/donutnomad/tenuto/sdk/apperror"
+	"github.com/google/uuid"
 )
 
 type ActivityRuntime interface {
@@ -73,6 +74,10 @@ func reportContext(ctx context.Context, deadline time.Time) (context.Context, co
 // min(the attempt's remaining time, 60s), at least 5s, so a Server restart
 // during that window does not drop them.
 func RunActivityTask(ctx context.Context, task protocol.Task, runtime ActivityRuntime, activities *activity.Registry, started func()) (outcome string, executionErr, reportErr error) {
+	if task.RequestID == "" {
+		// 每份投递一个 Begin 请求标识：应答丢失后的重发由 Server 认作同一次开始。
+		task.RequestID = uuid.NewString()
+	}
 	begin, err := runtime.BeginActivityTask(ctx, task)
 	if err != nil {
 		return "error", nil, err
@@ -94,7 +99,7 @@ func RunActivityTask(ctx context.Context, task protocol.Task, runtime ActivityRu
 
 	activityCtx, cancel := activityExecutionContext(ctx, task)
 	defer cancel(nil)
-	heartbeats := newHeartbeater(activityCtx, cancel, runtime, task)
+	heartbeats := newHeartbeater(activityCtx, cancel, runtime, task, begin.PayloadSizeLimit)
 	activityCtx = runtimectx.WithHeartbeat(activityCtx, heartbeats.record)
 	if task.LastHeartbeatDetails != nil {
 		activityCtx = runtimectx.WithLastHeartbeat(activityCtx, task.LastHeartbeatDetails)
@@ -107,7 +112,20 @@ func RunActivityTask(ctx context.Context, task protocol.Task, runtime ActivityRu
 	if err == nil && panicked == nil {
 		// 完成结果取代心跳 details，窗口内未发出的心跳不再发出。
 		heartbeats.stop()
-		return "success", nil, runtime.CompleteActivityTask(reportCtx, task, output, nil)
+		if limitErr := protocol.CheckPayloadSize("activity result", output, begin.PayloadSizeLimit); limitErr != nil {
+			// 结果超过 Server 的载荷上限：上报不可重试的失败，不发送这个结果。
+			return "failed", limitErr, runtime.FailActivityTask(reportCtx, task, protocol.PayloadSizeLimitFailure(limitErr))
+		}
+		if err := runtime.CompleteActivityTask(reportCtx, task, output, nil); errors.Is(err, protocol.ErrInvalidRequest) {
+			// Server 以不可重试的 4xx 拒绝这个结果：改报一次不可重试的失败，attempt 不必等到 StartToClose 超时后
+			// 重跑同样的副作用。
+			return "failed", err, runtime.FailActivityTask(reportCtx, task, protocol.Failure{
+				Message: "activity result rejected by server: " + err.Error(), Type: protocol.FailureTypeActivityResultRejected, NonRetryable: true,
+			})
+		} else if err != nil {
+			return "success", nil, err
+		}
+		return "success", nil, nil
 	}
 	cause := context.Cause(activityCtx)
 	if errors.Is(cause, errActivityAbandoned) {

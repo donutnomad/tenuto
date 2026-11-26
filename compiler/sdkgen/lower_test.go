@@ -125,6 +125,25 @@ func TestLowerFoldsTimeConstantsAndPackageConsts(t *testing.T) {
 	}
 }
 
+// `_ = items[i]` 与 Go 一样求值右侧：生成的程序保留这次索引，越界时运行时报错（engine 的
+// TestWorkflowCodePanicBlocksRun 覆盖执行结果）。`_ = x` 与 `_ = pkg.Func` 保持省略。
+func TestLowerEvaluatesBlankAssignedExpression(t *testing.T) {
+	result, err := generateLowered(`
+	items := []int{1, 2, 3}
+	n := len(input) + 5
+	_ = items[n]
+	_ = n
+	_ = strings.ToUpper
+	return Out{}, nil`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	if !strings.Contains(program, "zzDiscard1") || strings.Contains(program, "zzDiscard2") {
+		t.Fatalf("program should evaluate only the discarded index expression:\n%s", program)
+	}
+}
+
 // update handler 的结果是 map[string]any 时，Workflow 里带初始值的 map[string]any 字面量照常生成：
 // wlang 运行时的 any 接受任意值。
 func TestGenerateAcceptsMapLiteralWithMapTypedUpdateHandler(t *testing.T) {

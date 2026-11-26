@@ -71,11 +71,14 @@ func TestClearStickyExecutionUnderDefaultSQLMode(t *testing.T) {
 		t.Fatalf("初始化 execution state: %v", err)
 	}
 
-	expiresAt := time.Now().Add(time.Minute)
 	gen, assigned, err := store.Executions.AssignStickyExecution(
-		run.ID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-a", expiresAt)
+		run.ID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-a")
 	if err != nil || !assigned {
 		t.Fatalf("AssignStickyExecution: assigned=%v err=%v", assigned, err)
+	}
+	// 有 sticky 绑定时调度的 WFT 带 sticky schedule-to-start 期限。
+	if _, inserted, err := store.Executions.AppendWorkflowTaskScheduled(run.ID, run.ID, run.ID, history.NewWorkflowTaskScheduledEvent(1000)); err != nil || !inserted {
+		t.Fatalf("AppendWorkflowTaskScheduled: inserted=%v err=%v", inserted, err)
 	}
 
 	assignedState, err := store.Executions.GetWorkflowExecutionState(run.ID)

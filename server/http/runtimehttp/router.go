@@ -268,7 +268,12 @@ func verifyRuntimeTaskLease(codec *dispatch.TaskTokenCodec, lease protocol.TaskL
 	if task.Type != expectedType {
 		return protocol.TaskLease{}, protocol.InvalidRequestf("task token type %s is invalid for %s lease", task.Type, expectedType)
 	}
+	// 签名字段以 token 为准；token 不含的载荷（Input、心跳详情、TraceContext）取自 Worker 交回的 lease，
+	// 只有把 lease.Task 原样放回队列的内存后端在 Nack 时用到它们。
 	task.TaskToken = token
+	task.Input = lease.Task.Input
+	task.LastHeartbeatDetails = lease.Task.LastHeartbeatDetails
+	task.TraceContext = lease.Task.TraceContext
 	lease.Task = task
 	return lease, nil
 }
