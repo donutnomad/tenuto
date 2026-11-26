@@ -198,7 +198,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | 从调用端启动、等待结果、查询、Signal、Update、管理 Run | `client.Dial`、`client.Client`、`WorkflowRun.Get`、`/runtime/workflow/*` | `references/client-api.md` |
 | 周期启动、列出一个 Schedule 的全部 Run | `CreateSchedule` 等、`TemporalScheduledById` | `references/schedules.md` |
 | 按业务字段检索 Run | `UpsertSearchAttributes`、`ListRuns`、保留键 | `references/search-attributes.md` |
-| Reset、批量操作（异步、可取消）、恢复暂停的 Run | `ResetWorkflow`、`StartBatchOperation`、`CancelBatchOperation`、`SetRunPolicy` | `references/operations.md` |
+| Reset（含重置点上未结束的 Activity / Timer 怎样带进新 Run、`ResetWorkflowError`）、批量操作（异步、可取消）、恢复暂停的 Run | `ResetWorkflow`、`StartBatchOperation`、`CancelBatchOperation`、`SetRunPolicy` | `references/operations.md` |
 | 上线前确认保证、生产必需配置、已测场景与实测数字、已知限制 | — | `references/operations.md#生产就绪` |
 | 多副本故障注入（kill -9 / SIGSTOP、数据库断连与卡死、副本间分区后核对结果与 History）、长时间浸泡、滚动升级演练、压测与 CPU profile；matching 广播地址与监听地址不同 | `cmd/tenuto-cluster failover` / `soak` / `upgrade` / `bench`、`BenchmarkHarness`、`WORKFLOW_PPROF_ADDR`、`TASKQ_MATCHING_ADVERTISE_ADDR` | `references/operations.md#多副本故障注入与压测` |
 

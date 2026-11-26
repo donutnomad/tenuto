@@ -30,7 +30,7 @@ func resetPlanEvents() []history.Event {
 	return events
 }
 
-// PlanReset 依次校验 reset 位置、分叉点之前未结束的 Activity / timer、未结束的子 Workflow，通过时返回分叉位置。
+// PlanReset 依次校验 reset 位置与未结束的子 Workflow，通过时返回分叉位置；未结束的 Activity 不阻止 reset。
 func TestPlanReset(t *testing.T) {
 	openChild := func(scheduledEventID int64) *execution.ChildWorkflowState {
 		return &execution.ChildWorkflowState{ScheduledEventID: scheduledEventID, Status: execution.ChildWorkflowStatusEnums.Started}
@@ -70,10 +70,10 @@ func TestPlanReset(t *testing.T) {
 			wantErr: "is not a valid reset point",
 		},
 		{
-			name:    "Error Case: an activity still pending at the reset point",
-			events:  pendingActivity,
-			req:     execution.ResetWorkflowRequest{ResetType: execution.ResetTypeEnums.LastWorkflowTask},
-			wantErr: "pending activity scheduled at event 4",
+			name:   "Edge Case: an activity still pending at the reset point does not block",
+			events: pendingActivity,
+			req:    execution.ResetWorkflowRequest{ResetType: execution.ResetTypeEnums.LastWorkflowTask},
+			want:   execution.ResetPoint{NodeID: 7, ScheduledEventID: 6},
 		},
 		{
 			name:     "Error Case: a child still open at the reset point",
@@ -83,11 +83,11 @@ func TestPlanReset(t *testing.T) {
 			wantErr:  "pending child workflows",
 		},
 		{
-			name:     "Error Case: pending events are reported before pending children",
+			name:     "Error Case: a pending activity does not hide a pending child",
 			events:   pendingActivity,
 			children: []*execution.ChildWorkflowState{openChild(5)},
 			req:      execution.ResetWorkflowRequest{ResetType: execution.ResetTypeEnums.LastWorkflowTask},
-			wantErr:  "pending activity",
+			wantErr:  "pending child workflows",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

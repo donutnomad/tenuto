@@ -3,7 +3,9 @@ package executiontest
 import (
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 )
@@ -64,6 +66,103 @@ func HistoryBranchContract(t *testing.T, newManager func(t *testing.T) execution
 		}
 		if len(events) != 2 || events[0].ID != prefixID || events[1].ID != id {
 			t.Fatalf("forked run history = %+v, want the prefix event and the new event", events)
+		}
+	})
+
+	// reset 带着分叉点上未结束的 Activity / Timer 提交：补写的关闭事件、新 Run 的 state 与新 Run 一起写入；
+	// 提交失败时新 Run 与它的 state 都不存在。
+	t.Run("ResetCommitsPendingWorkWithTheForkedRun", func(t *testing.T) {
+		manager := newManager(t)
+		base := execution.NewRun(execution.NewRunOptions{ID: "run-pending-base", WorkflowID: "wf-pending", WorkflowConfigVersion: "v1", CreatedAt: contractNow})
+		createRun(t, manager, base)
+		redispatch, _ := appendIdempotent(t, manager, base, history.NewActivityScheduledEvent(history.ActivityScheduledEvent{ActivityID: "redispatch", ActivityType: "T"}))
+		interrupted, _ := appendIdempotent(t, manager, base, history.NewActivityScheduledEvent(history.ActivityScheduledEvent{ActivityID: "interrupted", ActivityType: "T"}))
+		appendIdempotent(t, manager, base, history.NewActivityStartedEvent(history.ActivityStartedEvent{ScheduledEventID: interrupted, Attempt: 1, Stamp: 1}))
+		timerID, _ := appendIdempotent(t, manager, base, timer("t-pending"))
+		cutoff, _ := appendIdempotent(t, manager, base, history.NewWorkflowTaskScheduledEvent(0))
+		for id, activityID := range map[int64]string{redispatch: "redispatch", interrupted: "interrupted"} {
+			if err := manager.UpsertActivityState(&execution.ActivityState{RunID: base.ID, ScheduledEventID: id, ActivityID: activityID, ActivityType: "T",
+				Attempt: 1, Stamp: 1, Status: execution.ActivityStatusEnums.Started, ScheduledTime: contractNow,
+				LastHeartbeat: map[string]any{"offset": "9"}, CreatedAt: contractNow, UpdatedAt: contractNow}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := manager.UpsertTimerState(&execution.TimerState{RunID: base.ID, ScheduledEventID: timerID, TimerID: "t-pending", Kind: execution.TimerKindEnums.UserTimer,
+			Deadline: contractNow.Add(time.Hour), Status: execution.TimerStatusEnums.Scheduled, CreatedAt: contractNow, UpdatedAt: contractNow}); err != nil {
+			t.Fatal(err)
+		}
+		events, err := manager.GetEvents(base.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		activities, err := manager.ListActivityStates(base.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		timers, err := manager.ListTimerStates(base.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		commit := func(newRunID, expectedCurrent string) error {
+			forked, err := manager.ForkBranch(execution.ForkBranchRequest{SourceRunID: base.ID, ForkNodeID: cutoff, NewRunID: newRunID, NewBranchID: newRunID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			branch, err := execution.DeserializeBranchToken(forked.BranchToken)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resetAt := contractNow.Add(time.Minute)
+			pending, err := execution.PlanResetPendingWork(events, cutoff, activities, timers, newRunID, "fix", resetAt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := execution.NewResetRun(base, newRunID, base.ID, forked.BranchToken, resetAt)
+			return manager.RunInTx(func(tx execution.ExecutionTx) error {
+				return execution.CommitResetRun(tx, execution.ResetRunCommit{
+					NewRun: next, ExpectedCurrent: expectedCurrent, BaseRunID: base.ID, TreeID: branch.TreeID, BranchID: branch.BranchID,
+					FailedEvent: history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{ScheduledEventID: cutoff, Cause: execution.WorkflowTaskFailedCauseResetWorkflow}),
+					Pending:     pending, Now: resetAt,
+				})
+			})
+		}
+
+		// 期望的 current 不是实际的 current：CAS 失败，整个事务回滚。
+		createRun(t, manager, execution.NewRun(execution.NewRunOptions{ID: "run-pending-stale", WorkflowID: "wf-pending-other", WorkflowConfigVersion: "v1", CreatedAt: contractNow}))
+		if err := commit("run-pending-conflict", "run-pending-stale"); !errors.Is(err, execution.ErrCurrentRunConflict) {
+			t.Fatalf("reset with a stale current: err=%v, want ErrCurrentRunConflict", err)
+		}
+		if states, err := manager.ListActivityStates("run-pending-conflict"); err != nil || len(states) != 0 {
+			t.Fatalf("a failed reset left activity states %+v (err %v)", states, err)
+		}
+		if states, err := manager.ListTimerStates("run-pending-conflict"); err != nil || len(states) != 0 {
+			t.Fatalf("a failed reset left timer states %+v (err %v)", states, err)
+		}
+
+		current, err := manager.GetCurrentRunID(base.Namespace, base.WorkflowID)
+		if err != nil && !errors.Is(err, execution.ErrNoCurrentRun) {
+			t.Fatal(err)
+		}
+		if err := commit("run-pending-reset", current); err != nil {
+			t.Fatal(err)
+		}
+		resetEvents, err := manager.GetEvents("run-pending-reset")
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := resetEvents[len(resetEvents)-1]
+		if last.ActivityFailed == nil || last.ActivityFailed.ScheduledEventID != interrupted || last.ActivityFailed.LastHeartbeatDetails["offset"] != "9" ||
+			last.ActivityFailed.Failure == nil || last.ActivityFailed.Failure.Type != protocol.ResetWorkflowFailureType {
+			t.Fatalf("reset history ends with %+v, want the interrupted activity's ResetWorkflowError", last)
+		}
+		states, err := manager.ListActivityStates("run-pending-reset")
+		if err != nil || len(states) != 1 || states[0].ScheduledEventID != redispatch || !states[0].IsScheduled() || !states[0].ScheduledTime.Equal(contractNow.Add(time.Minute)) {
+			t.Fatalf("reset run activity states = %+v (err %v), want the unstarted activity scheduled at the reset", states, err)
+		}
+		timer, found, err := manager.GetTimerState("run-pending-reset", timerID)
+		if err != nil || !found || !timer.IsScheduled() || !timer.Deadline.Equal(contractNow.Add(time.Hour)) {
+			t.Fatalf("reset run timer = %+v found=%v err=%v, want the original deadline", timer, found, err)
 		}
 	})
 

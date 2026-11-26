@@ -53,6 +53,10 @@ func (f Failure) Normalize() (Failure, error) {
 // 对标 Temporal 的 CanceledFailureInfo。
 const CanceledFailureType = "CanceledError"
 
+// ResetWorkflowFailureType 是 Workflow Reset 打断已开始的 Activity 时写入的 Failure.Type，不可重试，
+// 对标 Temporal 的 ResetWorkflowFailureInfo。
+const ResetWorkflowFailureType = "ResetWorkflowError"
+
 // TimeoutType 是超时的种类，取值与 Temporal 的 TimeoutType 同名。
 type TimeoutType string
 

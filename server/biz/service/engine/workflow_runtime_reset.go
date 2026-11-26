@@ -39,6 +39,7 @@ func (s *Server) ResetWorkflow(ctx context.Context, req execution.ResetWorkflowR
 		return "", err
 	}
 	// 核心原子化：终止被取代的 run + 建新 run + 切 current 到新 run + 改旧 run reset_run_id + 落 reset marker +
+	// 分叉点上未结束的 Activity / Timer（关闭被打断的 Activity，在新 run 上建保留项的 state）+
 	// 搬运 reset 点之后的外部输入（Signal / Update-Accepted，ReapplyExcludeTypes 排除指定类型）+
 	// 把父 run 的子关联改指新 run，在同一事务内，任一步失败整体回滚。scheduleWorkflowTask（含队列入队）
 	// 留事务外。对标 startRetryRun。
@@ -53,6 +54,7 @@ func (s *Server) ResetWorkflow(ctx context.Context, req execution.ResetWorkflowR
 	}
 
 	s.armRunTimers(commit.NewRun)
+	s.startResetPendingWork(ctx, commit.Pending)
 
 	postCommitCtx := context.WithoutCancel(ctx)
 	if err := s.scheduleWorkflowTask(postCommitCtx, commit.NewRun.ID); err != nil {
@@ -114,6 +116,19 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 	} else {
 		s.logger.Warn("workflow config unavailable for reset run; run deadlines not set", "run_id", newRunID, "err", err)
 	}
+	// 分叉点上未结束的 Activity 与 Timer：静态字段、Timer 的 Deadline 与心跳详情取 base run 的 state 行。
+	baseActivities, err := s.mgr.ListActivityStates(req.RunID)
+	if err != nil {
+		return execution.ResetRunCommit{}, err
+	}
+	baseTimers, err := s.mgr.ListTimerStates(req.RunID)
+	if err != nil {
+		return execution.ResetRunCommit{}, err
+	}
+	pending, err := execution.PlanResetPendingWork(events, resetNodeID, baseActivities, baseTimers, newRunID, req.Reason, now)
+	if err != nil {
+		return execution.ResetRunCommit{}, err
+	}
 	// 进事务前构造好 newTreeID/newBranchIDVal/wftFailedEvent（gorm 单连接：事务内不能再开非事务读，会死锁）。
 	newTreeID, newBranchIDVal, err := runBranchInfoFromRun(newRun)
 	if err != nil {
@@ -146,7 +161,7 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 	}
 	return execution.ResetRunCommit{
 		NewRun: newRun, ExpectedCurrent: expectedCurrent, BaseRunID: req.RunID,
-		TreeID: newTreeID, BranchID: newBranchIDVal, FailedEvent: wftFailedEvent,
+		TreeID: newTreeID, BranchID: newBranchIDVal, FailedEvent: wftFailedEvent, Pending: pending,
 		ReapplyEvents: execution.ResetReapplyEvents(events, resetNodeID, req.ReapplyExcludeTypes),
 		Terminate:     terminate,
 		Now:           now,
@@ -194,4 +209,21 @@ func resetTermination(run *execution.Run) (execution.ResetTermination, error) {
 		return execution.ResetTermination{}, err
 	}
 	return execution.ResetTermination{RunID: run.ID, TreeID: treeID, BranchID: branchID}, nil
+}
+
+// startResetPendingWork 在 reset 提交之后派发新 Run 保留的 Activity、挂上超时与 Timer。Activity 的
+// Schedule-To-Start 与 Schedule-To-Close 从 reset 时刻起算；已过期的 Timer 立即触发。派发失败时 state 已落库，
+// 由 reconciler 重投，只记日志。
+func (s *Server) startResetPendingWork(ctx context.Context, pending execution.ResetPendingWork) {
+	postCommitCtx := context.WithoutCancel(ctx)
+	for _, st := range pending.Activities {
+		s.armActivityTimeouts(st, true)
+		if _, err := s.dispatchActivityTask(postCommitCtx, s.activityTaskFromState(st)); err != nil {
+			s.logger.Error("post-commit reset activity dispatch failed; reconciler will redispatch",
+				"run_id", st.RunID, "scheduled_event_id", st.ScheduledEventID, "err", err)
+		}
+	}
+	for _, st := range pending.Timers {
+		s.startDurableTimer(st.RunID, st.ScheduledEventID, st.Deadline)
+	}
 }
