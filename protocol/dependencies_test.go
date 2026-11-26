@@ -126,7 +126,7 @@ func TestEngineWritePathsReadRunInTransaction(t *testing.T) {
 		"pollWorkflowTaskOnce": true, "prepareWorkflowFailure": true, "prepareRetryRun": true,
 		"continuedRunSource": true, "prepareReset": true,
 		// 扫描：列出要补偿或触发的 Run，每个 Run 的写入各自在事务内读取。
-		"runningRunIDs": true, "reconcileRun": true, "recoverChildWorkflow": true,
+		"forEachRunningRunPage": true, "reconcileRun": true, "recoverChildWorkflow": true,
 		"FireOverdueTimers": true, "Reconcile": true,
 	}
 	runReads := func(call *ast.CallExpr) bool {

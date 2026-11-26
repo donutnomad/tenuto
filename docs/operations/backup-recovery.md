@@ -36,7 +36,7 @@ Server 恢复会读取 mutable state 重建 pending Activity、Timer 和 Child W
 
 ## 副本下线
 
-定时器在副本进程内运行，下线不需要人工恢复。存活副本中当选 leader 的周期 reconciler 每轮分页扫描一遍 Running 的 Run，触发持久化状态已过期超过 30s 宽限期的定时器与超时，补调度退避到期的失败 WFT，并再投递一份已入队却超过等待时长仍没有被领取的 open WFT 与 Scheduled Activity attempt（等待时长从宽限期起按派发次数翻倍，最长 8 分钟）。宽限期让持有定时器的存活副本优先触发。重复触发由 handler 校验收敛：durable timer 与 Run 超时校验持久化状态，Activity 超时在事务内校验 attempt/stamp 和本次超时类型的持久化截止时间，未到期的触发被忽略；ScheduleToClose 到期后 Activity 直接终态失败，扫描不再重复命中。最长接管延迟约为宽限期加一个 `WORKFLOW_RECONCILE_INTERVAL`。
+定时器在副本进程内运行，下线不需要人工恢复。存活副本中当选 leader 的周期 reconciler 每轮按到期索引选出截止时间、timer 或 Activity 超时即将到期，或有待派发任务、open Workflow Task、blocked 的 Running Run，把两个周期内到期的定时器挂到本进程，触发持久化状态已过期超过 30s 宽限期的定时器与超时，补调度退避到期的失败 WFT，并再投递一份已入队却超过等待时长仍没有被领取的 open WFT 与 Scheduled Activity attempt（等待时长从宽限期起按派发次数翻倍，最长 8 分钟）。宽限期让持有定时器的存活副本优先触发。重复触发由 handler 校验收敛：durable timer 与 Run 超时校验持久化状态，Activity 超时在事务内校验 attempt/stamp 和本次超时类型的持久化截止时间，未到期的触发被忽略；ScheduleToClose 到期后 Activity 直接终态失败，扫描不再重复命中。最长接管延迟约为宽限期加一个 `WORKFLOW_RECONCILE_INTERVAL`。
 
 ## 演练项目
 

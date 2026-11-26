@@ -87,6 +87,13 @@ func activityStatePatch(state *execution.ActivityState) (*ActivityStatePO, map[s
 	if changed.TraceContext.IsPresent() {
 		patch["trace_context_json"] = row.TraceContextJSON
 	}
+	// timeout_at 由状态、各时间点与各超时字段合成，其中任何一个改过就按整份 state 重算这一列。
+	if changed.Status.IsPresent() || changed.ScheduledTime.IsPresent() || changed.StartedTime.IsPresent() ||
+		changed.NextAttemptAt.IsPresent() || changed.LastHeartbeatAt.IsPresent() ||
+		changed.ScheduleToStartTimeoutMs.IsPresent() || changed.StartToCloseTimeoutMs.IsPresent() ||
+		changed.ScheduleToCloseTimeoutMs.IsPresent() || changed.HeartbeatTimeoutMs.IsPresent() {
+		patch["timeout_at"] = row.TimeoutAt
+	}
 	return row, patch, nil
 }
 

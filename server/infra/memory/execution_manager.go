@@ -3,6 +3,7 @@ package memory
 import (
 	"crypto/rand"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -84,6 +85,51 @@ func (m *ExecutionManager) List(filter execution.StoreListFilter) (execution.Sto
 		}
 		return state.SearchAttributes, state.Blocked.Blocked, true
 	})
+}
+
+// ListRecoveryRunIDs 按与 gorm 后端相同的条件选出周期补偿的候选 Run（见 execution.Store）。
+func (m *ExecutionManager) ListRecoveryRunIDs(dueBefore time.Time) ([]string, error) {
+	candidates := map[string]bool{}
+	m.TimerStateStore.mu.RLock()
+	for runID, timers := range m.TimerStateStore.states {
+		for _, timer := range timers {
+			if timer.IsScheduled() && timer.Deadline.Before(dueBefore) {
+				candidates[runID] = true
+			}
+		}
+	}
+	m.TimerStateStore.mu.RUnlock()
+	m.ActivityStateStore.mu.RLock()
+	for runID, activities := range m.ActivityStateStore.states {
+		for _, activity := range activities {
+			if execution.RecoveryCandidateActivity(activity, dueBefore) {
+				candidates[runID] = true
+			}
+		}
+	}
+	m.ActivityStateStore.mu.RUnlock()
+	m.WorkflowExecutionStateStore.mu.RLock()
+	for runID, state := range m.WorkflowExecutionStateStore.states {
+		if state.OpenWorkflowTaskEventID > 0 || state.NeedsWorkflowTask() || state.Blocked.Blocked {
+			candidates[runID] = true
+		}
+	}
+	m.WorkflowExecutionStateStore.mu.RUnlock()
+
+	m.RunStore.mu.RLock()
+	defer m.RunStore.mu.RUnlock()
+	var runIDs []string
+	for runID, run := range m.RunStore.runs {
+		if run.Status != history.StatusRunning {
+			continue
+		}
+		due := func(deadline *time.Time) bool { return deadline != nil && deadline.Before(dueBefore) }
+		if candidates[runID] || due(run.DeadlineAt) || due(run.RunDeadlineAt) {
+			runIDs = append(runIDs, runID)
+		}
+	}
+	slices.Sort(runIDs)
+	return runIDs, nil
 }
 
 func (m *ExecutionManager) Append(runID, treeID, branchID string, event history.Event) (int64, error) {

@@ -115,14 +115,14 @@ func TestReconcileRedeliversLostWorkflowTask(t *testing.T) {
 	wftID := openWorkflowTaskForTest(t, mgr, runID)
 
 	// 等待时长未到：投递可能只是还在队列里等 Worker，不补投。
-	if dispatched, overdue, err := srv.Reconcile(ctx, time.Hour); err != nil || dispatched.WorkflowTasks != 0 || overdue.WorkflowTasks != 0 {
+	if dispatched, overdue, err := srv.Reconcile(ctx, time.Hour, 0); err != nil || dispatched.WorkflowTasks != 0 || overdue.WorkflowTasks != 0 {
 		t.Fatalf("reconcile before the wait: dispatched=%+v overdue=%+v err=%v", dispatched, overdue, err)
 	}
 	if _, ok := takeQueued(workflowTasks); ok {
 		t.Fatal("redelivered before the wait elapsed")
 	}
 
-	_, overdue, err := srv.Reconcile(ctx, 0)
+	_, overdue, err := srv.Reconcile(ctx, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestReconcileRedeliversLostWorkflowTask(t *testing.T) {
 	if _, err := srv.PollWorkflowTask(capableWorkerContext(ctx)); err != nil {
 		t.Fatal(err)
 	}
-	if _, overdue, err := srv.Reconcile(ctx, 0); err != nil || overdue.WorkflowTasks != 0 {
+	if _, overdue, err := srv.Reconcile(ctx, 0, 0); err != nil || overdue.WorkflowTasks != 0 {
 		t.Fatalf("reconcile after start: overdue=%+v err=%v", overdue, err)
 	}
 	if _, ok := takeQueued(workflowTasks); ok {
@@ -171,7 +171,7 @@ func TestReconcileRedeliversLostActivityTask(t *testing.T) {
 		t.Fatal("activity was not enqueued")
 	}
 
-	_, overdue, err := srv.Reconcile(ctx, 0)
+	_, overdue, err := srv.Reconcile(ctx, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

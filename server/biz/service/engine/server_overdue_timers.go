@@ -16,7 +16,7 @@ import (
 const (
 	// DefaultOverdueTimerGrace 是到期扫描接管定时器前的等待时长，让持有内存定时器的存活副本优先触发。
 	DefaultOverdueTimerGrace = 30 * time.Second
-	// runScanPageSize 是按状态分页扫描 Run 的页大小，到期扫描与 reconcileRunningRuns 共用。
+	// runScanPageSize 是全量扫描 Running Run 时每页的 Run 数（见 forEachRunningRunPage）。
 	runScanPageSize = 200
 )
 
@@ -31,8 +31,9 @@ type OverdueTimerResult struct {
 	ActivityTasks int
 }
 
-// FireOverdueTimers 扫描 Running 的 Run，触发持久化状态已过期超过 grace 的定时器与超时，
-// 接管已下线副本持有的进程内定时器。
+// FireOverdueTimers 触发持久化状态已过期超过 grace 的定时器与超时，接管已下线副本持有的进程内定时器，
+// 并重投派发后迟迟没有被领取的任务。只处理 ListRecoveryRunIDs(now-grace) 选出的 Run，代价与到期或待处理的
+// 事项数成正比。
 //
 // 多副本可同时扫描：重复触发由各 handler 的校验收敛（durable timer 与 Run 超时校验持久化状态，
 // Activity 超时在事务内校验 attempt/stamp 与本次超时类型的持久化截止时间，Workflow Task 超时在事务内
@@ -40,8 +41,7 @@ type OverdueTimerResult struct {
 // 未完成的触发在下一轮重新扫描。
 func (s *Server) FireOverdueTimers(ctx context.Context, grace time.Duration) (OverdueTimerResult, error) {
 	var result OverdueTimerResult
-	// 先收齐 ID 再逐个触发：触发会让 Run 离开 Running，边翻页边触发会漏掉 Run（见 runningRunIDs）。
-	runIDs, err := s.runningRunIDs(ctx)
+	runIDs, err := s.mgr.ListRecoveryRunIDs(s.clock.Now().Add(-grace))
 	errs := []error{err}
 	for _, runID := range runIDs {
 		if err := ctx.Err(); err != nil {
@@ -59,12 +59,18 @@ func (s *Server) FireOverdueTimers(ctx context.Context, grace time.Duration) (Ov
 	return result, errors.Join(errs...)
 }
 
-// Reconcile 是周期补偿：一次扫描 Running 的 Run，对每个 Run 先做 DispatchPendingTasks 的补偿，再做
-// FireOverdueTimers 的到期接管。两步的语义与单独调用相同，只是共用一份 Run 列表。
-func (s *Server) Reconcile(ctx context.Context, grace time.Duration) (dispatch.WorkflowDispatchResult, OverdueTimerResult, error) {
+// Reconcile 是周期补偿：只处理 ListRecoveryRunIDs(now+lookahead) 选出的 Run，即截止时间、timer 或 Activity
+// 超时在 lookahead 内到期，或有 Scheduled Activity、open 或待调度的 WFT、blocked 的 Running Run。对每个 Run 先做
+// reconcileRun 的补偿（补投任务、把 lookahead 内到期的定时器挂到本进程），再做 FireOverdueTimers 的到期接管。
+// 代价与到期或待处理的事项数成正比，与 Running Run 总数无关。lookahead 不短于两次调用的间隔时，定时器在到期前
+// 至少被一轮挂上，下线副本持有的定时器仍按原截止时间触发。
+//
+// 没有到期索引的崩溃窗口（子 Run 与接续 Run 补建、终态写回、父关闭策略、子 Run 取消请求补发）不在这里处理，
+// 由低频的全量补偿 DispatchPendingTasks 兜底。
+func (s *Server) Reconcile(ctx context.Context, grace, lookahead time.Duration) (dispatch.WorkflowDispatchResult, OverdueTimerResult, error) {
 	var dispatched dispatch.WorkflowDispatchResult
 	var overdue OverdueTimerResult
-	runIDs, err := s.runningRunIDs(ctx)
+	runIDs, err := s.mgr.ListRecoveryRunIDs(s.clock.Now().Add(lookahead))
 	errs := []error{err}
 	for _, runID := range runIDs {
 		if err := ctx.Err(); err != nil {

@@ -56,7 +56,7 @@ audit := workflow.ExecuteChildWorkflow(ctx, "audit-workflow", input, workflow.Ch
 
 - 任何关闭方式都适用：完成、失败（含超时、失败后重试）、Workflow 返回取消错误的 cancelled、终止、continue-as-new、被 reset 取代。子 Workflow 不随 continue-as-new 转给下一代 Run：要在下一代继续等待的子 Workflow，在切换前 `Get` 它，或用 Abandon 并在下一代按 Workflow ID 交互。
 - 作用在子 Workflow 的当前 Run（子 Workflow 自己 continue-as-new / 重试 / reset 后的接替 Run）；已结束的子 Workflow 不受影响；被终止的子 Workflow 按它自己子关联的策略继续向下处理。
-- 策略写在父 Run 的 `ChildWorkflowStarted.parentClosePolicy` 与子关联状态；崩溃后由仍在运行的子 Run 在恢复扫描中补做。
+- 策略写在父 Run 的 `ChildWorkflowStarted.parentClosePolicy` 与子关联状态；崩溃后由仍在运行的子 Run 在启动恢复或全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`，默认 10m）中补做。
 
 ### 并发
 

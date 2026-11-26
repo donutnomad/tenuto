@@ -162,9 +162,10 @@ func validTimeoutConfig() Config {
 			ConnMaxLifetime:     time.Minute,
 			ConnMaxIdleTime:     time.Minute,
 		},
-		NodeID:            "n",
-		StartupTimeout:    time.Second,
-		ReconcileInterval: time.Second,
+		NodeID:                    "n",
+		StartupTimeout:            time.Second,
+		ReconcileInterval:         time.Second,
+		ReconcileFullScanInterval: time.Minute,
 		TaskQ: TaskQConfig{
 			DSN:                     "d",
 			ServiceName:             "matching",

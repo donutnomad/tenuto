@@ -392,6 +392,9 @@ func (s *RunStore) list(filter execution.StoreListFilter, projection func(run *e
 	if end > total {
 		end = total
 	}
+	if filter.SkipTotal {
+		total = 0
+	}
 	return execution.StoreListResult{Runs: filtered[offset:end], Total: total}, nil
 }
 

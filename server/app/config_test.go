@@ -431,13 +431,14 @@ func TestLoadConfigWorkflowQueuePartitionsDefaultsToZero(t *testing.T) {
 
 func TestValidateRejectsActivityPhysicalEqualToWorkflowQueue(t *testing.T) {
 	cfg := Config{
-		Backend:           BackendMySQLTaskQ,
-		TaskTokenSecret:   []byte("0123456789abcdef0123456789abcdef"),
-		HTTP:              HTTPConfig{Address: ":7400", ShutdownTimeout: time.Second, ReadHeaderTimeout: time.Second, IdleTimeout: time.Second},
-		Database:          DatabaseConfig{DSN: "d", HistoryPageTokenKey: []byte("0123456789abcdef0123456789abcdef"), MaxOpenConns: 10, MaxIdleConns: 5, ConnMaxLifetime: time.Minute, ConnMaxIdleTime: time.Minute},
-		NodeID:            "n",
-		StartupTimeout:    time.Second,
-		ReconcileInterval: time.Second,
+		Backend:                   BackendMySQLTaskQ,
+		TaskTokenSecret:           []byte("0123456789abcdef0123456789abcdef"),
+		HTTP:                      HTTPConfig{Address: ":7400", ShutdownTimeout: time.Second, ReadHeaderTimeout: time.Second, IdleTimeout: time.Second},
+		Database:                  DatabaseConfig{DSN: "d", HistoryPageTokenKey: []byte("0123456789abcdef0123456789abcdef"), MaxOpenConns: 10, MaxIdleConns: 5, ConnMaxLifetime: time.Minute, ConnMaxIdleTime: time.Minute},
+		NodeID:                    "n",
+		StartupTimeout:            time.Second,
+		ReconcileInterval:         time.Second,
+		ReconcileFullScanInterval: time.Minute,
 		TaskQ: TaskQConfig{
 			DSN:                     "d",
 			ServiceName:             "matching",

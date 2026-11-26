@@ -29,6 +29,7 @@ type ActivityStateSchemaType struct {
 	LastHeartbeatAt          gsql.DateTimeField // *time.Time
 	RetryLastFailure         gsql.StringField   // string
 	NextAttemptAt            gsql.DateTimeField // *time.Time
+	TimeoutAt                gsql.DateTimeField // *time.Time
 	Status                   gsql.StringField   // string
 	ScheduledTime            gsql.DateTimeField // time.Time
 	StartedTime              gsql.DateTimeField // *time.Time
@@ -73,6 +74,7 @@ func (t *ActivityStateSchemaType) WithTable(tableName string) {
 	t.LastHeartbeatAt = t.LastHeartbeatAt.WithTable(&tn)
 	t.RetryLastFailure = t.RetryLastFailure.WithTable(&tn)
 	t.NextAttemptAt = t.NextAttemptAt.WithTable(&tn)
+	t.TimeoutAt = t.TimeoutAt.WithTable(&tn)
 	t.Status = t.Status.WithTable(&tn)
 	t.ScheduledTime = t.ScheduledTime.WithTable(&tn)
 	t.StartedTime = t.StartedTime.WithTable(&tn)
@@ -121,6 +123,7 @@ func (t ActivityStateSchemaType) AllFields() field.BaseFields {
 		t.LastHeartbeatAt,
 		t.RetryLastFailure,
 		t.NextAttemptAt,
+		t.TimeoutAt,
 		t.Status,
 		t.ScheduledTime,
 		t.StartedTime,
@@ -162,6 +165,7 @@ var ActivityStateSchema = ActivityStateSchemaType{
 	LastHeartbeatAt:          gsql.DateTimeFieldOf[*time.Time]("tenuto_activity_states", "last_heartbeat_at"),
 	RetryLastFailure:         gsql.StringFieldOf[string]("tenuto_activity_states", "retry_last_failure"),
 	NextAttemptAt:            gsql.DateTimeFieldOf[*time.Time]("tenuto_activity_states", "next_attempt_at"),
+	TimeoutAt:                gsql.DateTimeFieldOf[*time.Time]("tenuto_activity_states", "timeout_at"),
 	Status:                   gsql.StringFieldOf[string]("tenuto_activity_states", "status"),
 	ScheduledTime:            gsql.DateTimeFieldOf[time.Time]("tenuto_activity_states", "scheduled_time"),
 	StartedTime:              gsql.DateTimeFieldOf[*time.Time]("tenuto_activity_states", "started_time"),
@@ -792,6 +796,7 @@ type WorkflowExecutionStateSchemaType struct {
 	IsReset                  gsql.IntField      // bool
 	BlockedJSON              gsql.StringField   // []byte
 	Blocked                  gsql.IntField      // bool
+	NeedsWorkflowTask        gsql.IntField      // bool
 	OpenWorkflowTaskEventID  gsql.IntField      // int64
 	ExecutionGeneration      gsql.IntField      // int64
 	CurrentActivationID      gsql.StringField   // string
@@ -831,6 +836,7 @@ func (t *WorkflowExecutionStateSchemaType) WithTable(tableName string) {
 	t.IsReset = t.IsReset.WithTable(&tn)
 	t.BlockedJSON = t.BlockedJSON.WithTable(&tn)
 	t.Blocked = t.Blocked.WithTable(&tn)
+	t.NeedsWorkflowTask = t.NeedsWorkflowTask.WithTable(&tn)
 	t.OpenWorkflowTaskEventID = t.OpenWorkflowTaskEventID.WithTable(&tn)
 	t.ExecutionGeneration = t.ExecutionGeneration.WithTable(&tn)
 	t.CurrentActivationID = t.CurrentActivationID.WithTable(&tn)
@@ -874,6 +880,7 @@ func (t WorkflowExecutionStateSchemaType) AllFields() field.BaseFields {
 		t.IsReset,
 		t.BlockedJSON,
 		t.Blocked,
+		t.NeedsWorkflowTask,
 		t.OpenWorkflowTaskEventID,
 		t.ExecutionGeneration,
 		t.CurrentActivationID,
@@ -910,6 +917,7 @@ var WorkflowExecutionStateSchema = WorkflowExecutionStateSchemaType{
 	IsReset:                  gsql.IntFieldOf[bool]("tenuto_execution_states", "is_reset"),
 	BlockedJSON:              gsql.StringFieldOf[[]byte]("tenuto_execution_states", "blocked_json"),
 	Blocked:                  gsql.IntFieldOf[bool]("tenuto_execution_states", "blocked"),
+	NeedsWorkflowTask:        gsql.IntFieldOf[bool]("tenuto_execution_states", "needs_workflow_task"),
 	OpenWorkflowTaskEventID:  gsql.IntFieldOf[int64]("tenuto_execution_states", "open_workflow_task_event_id"),
 	ExecutionGeneration:      gsql.IntFieldOf[int64]("tenuto_execution_states", "execution_generation"),
 	CurrentActivationID:      gsql.StringFieldOf[string]("tenuto_execution_states", "current_activation_id"),
@@ -925,7 +933,7 @@ var WorkflowExecutionStateSchema = WorkflowExecutionStateSchemaType{
 
 // ================ settergen ================
 
-// Missing fields: input_json, last_heartbeat_json, retry_policy_json, trace_context_json
+// Missing fields: input_json, last_heartbeat_json, retry_policy_json, timeout_at, trace_context_json
 func (a *ActivityStatePO) ToPatch(input *execution.ActivityState) map[string]any {
 	b := a.ToPO(input)
 	fields := input.ExportPatch()
@@ -1170,7 +1178,7 @@ func (t *TimerStatePO) ToPatch(input *execution.TimerState) map[string]any {
 	return values
 }
 
-// Missing fields: blocked_json, current_waiting_json, open_waits_json, search_attributes_json
+// Missing fields: blocked_json, current_waiting_json, needs_workflow_task, open_waits_json, search_attributes_json
 func (w *WorkflowExecutionStatePO) ToPatch(input *execution.WorkflowExecutionState) map[string]any {
 	b := w.ToPO(input)
 	fields := input.ExportPatch()

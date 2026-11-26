@@ -709,7 +709,8 @@ func (a *application) startReconciler(ctx context.Context) error {
 	return nil
 }
 
-// reconcilerTask 每隔 ReconcileInterval 做一次 reconcile，ctx 取消时返回。
+// reconcilerTask 每隔 ReconcileInterval 做一次按到期索引的周期补偿，每隔 ReconcileFullScanInterval 做一次全量补偿，
+// ctx 取消时返回。
 type reconcilerTask struct{ app *application }
 
 func (reconcilerTask) Name() string { return "workflow-reconciler" }
@@ -717,20 +718,24 @@ func (reconcilerTask) Name() string { return "workflow-reconciler" }
 func (t reconcilerTask) Start(ctx context.Context) error {
 	ticker := time.NewTicker(t.app.cfg.ReconcileInterval)
 	defer ticker.Stop()
+	fullScan := time.NewTicker(t.app.cfg.ReconcileFullScanInterval)
+	defer fullScan.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
 			t.app.reconcile(ctx)
+		case <-fullScan.C:
+			t.app.reconcileAll(ctx)
 		}
 	}
 }
 
-// reconcile 一次扫描 Running 的 Run：补偿可恢复的副作用（补投任务、补建子 run / 接续 run、补传终态），
+// reconcile 处理有到期或待处理事项的 Running Run：补投任务、把两个周期内到期的定时器挂到本进程，
 // 再接管持久化状态已过期的定时器。单个 Run 的失败不影响其余 Run。
 func (a *application) reconcile(ctx context.Context) {
-	result, overdue, err := a.server.Reconcile(ctx, engine.DefaultOverdueTimerGrace)
+	result, overdue, err := a.server.Reconcile(ctx, engine.DefaultOverdueTimerGrace, 2*a.cfg.ReconcileInterval)
 	if err != nil {
 		a.telemetry.Logger.Error("workflow reconciliation incomplete", "err", err)
 	}
@@ -746,6 +751,20 @@ func (a *application) reconcile(ctx context.Context) {
 			"workflow_tasks", overdue.WorkflowTasks,
 			"activity_tasks", overdue.ActivityTasks)
 	}
+}
+
+// reconcileAll 逐个补偿全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 与接续 Run 补建、
+// 终态写回、父关闭策略、子 Run 取消请求补发）。
+func (a *application) reconcileAll(ctx context.Context) {
+	started := a.clock.Now()
+	result, err := a.server.DispatchPendingTasks(ctx)
+	if err != nil {
+		a.telemetry.Logger.Error("workflow full reconciliation incomplete", "err", err)
+	}
+	a.telemetry.Logger.Info("workflow full reconciliation finished",
+		"duration", a.clock.Now().Sub(started),
+		"workflow_tasks", result.WorkflowTasks,
+		"activity_tasks", result.ActivityTasks)
 }
 
 func (a *application) close() {

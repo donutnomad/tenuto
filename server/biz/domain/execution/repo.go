@@ -56,6 +56,8 @@ type StoreListFilter struct {
 	OrderDesc bool
 	Offset    int
 	Limit     int
+	// SkipTotal 为 true 时不计算 StoreListResult.Total（保持 0），按游标翻页的扫描用它省掉每页一次的计数。
+	SkipTotal bool
 }
 
 // RunCursor 是 Run 在列表排序键 (created_at, id) 上的位置。
@@ -93,6 +95,13 @@ type Store interface {
 	List(filter StoreListFilter) (StoreListResult, error)
 	// CountRuns 返回按 namespace 与 Run 行状态分组的 Run 数量。
 	CountRuns() ([]RunCount, error)
+	// ListRecoveryRunIDs 返回周期补偿要处理的 Running Run 的 ID（去重、升序），即满足任一条件的 Run：
+	//   - Run 的执行截止时间或 Run 截止时间早于 dueBefore；
+	//   - 有 deadline 早于 dueBefore 的 Scheduled timer；
+	//   - 有 Scheduled 的 Activity（待派发、等重试退避或等领取），或有 ActivityTimeoutAt 早于 dueBefore 的 Started Activity；
+	//   - execution state 有 open Workflow Task、有新事实待调度 Workflow Task（NeedsWorkflowTask）或处于 blocked。
+	// 每个条件都走索引，结果规模与到期或待处理的事项数成正比，与 Running Run 总数无关。
+	ListRecoveryRunIDs(dueBefore time.Time) ([]string, error)
 }
 
 var (

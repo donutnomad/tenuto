@@ -84,6 +84,7 @@ func (p *ActivityStatePO) ToPO(state *execution.ActivityState) *ActivityStatePO 
 		LastHeartbeatAt:          state.LastHeartbeatAt,
 		RetryLastFailure:         state.RetryLastFailure,
 		NextAttemptAt:            state.NextAttemptAt,
+		TimeoutAt:                execution.ActivityTimeoutAt(state),
 		Status:                   string(state.Status),
 		ScheduledTime:            state.ScheduledTime,
 		StartedTime:              state.StartedTime,

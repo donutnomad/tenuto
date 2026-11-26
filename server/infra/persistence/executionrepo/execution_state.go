@@ -47,6 +47,7 @@ func executionStateToRow(state *execution.WorkflowExecutionState) (*WorkflowExec
 	row.CurrentWaitingJSON = currentWaiting
 	row.OpenWaitsJSON = openWaits
 	row.BlockedJSON = blocked
+	row.NeedsWorkflowTask = state.NeedsWorkflowTask()
 	return row, nil
 }
 
@@ -213,7 +214,7 @@ func createExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) 
 }
 
 // updateExecutionState 把 state 经 setter 改过的字段写回，没有改动时不写库。
-// blocked_json 由四个投影字段合成，其中任何一个改过就重写这一列。
+// blocked_json 由四个投影字段合成，其中任何一个改过就重写这一列；needs_workflow_task 随 WFT 状态与 open WFT 重算。
 func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) error {
 	row, err := executionStateToRow(state)
 	if err != nil {
@@ -232,6 +233,9 @@ func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) 
 	}
 	if changed.Blocked.IsPresent() || changed.WorkflowTask.IsPresent() || changed.HasWorkflowStarted.IsPresent() || changed.CancelRequested.IsPresent() {
 		patch["blocked_json"] = row.BlockedJSON
+	}
+	if changed.WorkflowTask.IsPresent() || changed.OpenWorkflowTaskEventID.IsPresent() {
+		patch["needs_workflow_task"] = row.NeedsWorkflowTask
 	}
 	if len(patch) == 0 {
 		return nil

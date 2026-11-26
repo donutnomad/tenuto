@@ -431,7 +431,7 @@ func TestReconcileFiresOverdueTimersInOnePass(t *testing.T) {
 	survivor := loseReplica(t, srv, mgr, clk)
 	advanceTimerOverdue(t, mgr, clk, runID, schedID, 2*overdueTestGrace)
 
-	_, overdue, err := survivor.Reconcile(context.Background(), overdueTestGrace)
+	_, overdue, err := survivor.Reconcile(context.Background(), overdueTestGrace, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +439,7 @@ func TestReconcileFiresOverdueTimersInOnePass(t *testing.T) {
 		t.Fatalf("overdue timer must fire once: %+v", overdue)
 	}
 	before := historyLen(t, mgr, runID)
-	if _, overdue, err = survivor.Reconcile(context.Background(), overdueTestGrace); err != nil || overdue != (OverdueTimerResult{}) {
+	if _, overdue, err = survivor.Reconcile(context.Background(), overdueTestGrace, 0); err != nil || overdue != (OverdueTimerResult{}) {
 		t.Fatalf("repeat reconcile: overdue=%+v err=%v", overdue, err)
 	}
 	if got := historyLen(t, mgr, runID); got != before {
