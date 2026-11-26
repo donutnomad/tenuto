@@ -10,6 +10,7 @@ import (
 	"github.com/donutnomad/gsql"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
+	infradb "github.com/donutnomad/tenuto/server/infra/db"
 	"gorm.io/gorm"
 )
 
@@ -96,8 +97,8 @@ func executionStateRowToState(row *WorkflowExecutionStatePO) (*execution.Workflo
 // 状态行不存在时返回 ErrRunNotFound。
 // 本方法走非事务连接，RunInTx 闭包内读取状态使用事务句柄。
 func (s *Repository) GetWorkflowExecutionState(runID string) (*execution.WorkflowExecutionState, error) {
-	rows, err := gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
-		Where(WorkflowExecutionStateSchema.RunID.Eq(runID)).Find(s.db)
+	rows, err := infradb.Find(s.db, gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
+		Where(WorkflowExecutionStateSchema.RunID.Eq(runID)))
 	if err != nil {
 		return nil, err
 	}
@@ -112,8 +113,8 @@ func (s *Repository) ListWorkflowExecutionStates(runIDs []string) (map[string]*e
 	if len(runIDs) == 0 {
 		return map[string]*execution.WorkflowExecutionState{}, nil
 	}
-	rows, err := gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
-		Where(WorkflowExecutionStateSchema.RunID.In(runIDs...)).Find(s.db)
+	rows, err := infradb.Find(s.db, gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
+		Where(WorkflowExecutionStateSchema.RunID.In(runIDs...)))
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ func (s *Repository) ListExpiredStickyExecutions(now time.Time, limit int) ([]*e
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
-	rows, err := query.Find(s.db)
+	rows, err := infradb.Find(s.db, query)
 	if err != nil {
 		return nil, err
 	}
@@ -255,9 +256,9 @@ func (t *gormExecutionTx) lockedState(runID string) (*execution.WorkflowExecutio
 	if state, ok := t.states[runID]; ok {
 		return state, nil
 	}
-	rows, err := gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
+	rows, err := infradb.Find(t.db, gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
 		Where(WorkflowExecutionStateSchema.RunID.Eq(runID)).
-		ForUpdate().Find(t.db)
+		ForUpdate())
 	if err != nil {
 		return nil, err
 	}

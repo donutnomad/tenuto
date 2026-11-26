@@ -30,8 +30,27 @@ var errActivityCancelRequested = errors.New("activity cancellation requested")
 // Activity context 的取消原因。
 var errActivityAbandoned = errors.New("activity result abandoned")
 
-// reportTimeout 是 Activity 结束后上报结果的上限。
-const reportTimeout = 5 * time.Second
+const (
+	// reportWindow 是 Activity 结束后上报结果的期限上限：Server 滚动重启期间结果仍能送达。
+	reportWindow = time.Minute
+	// reportMinimum 是上报期限的下限：attempt 截止时间已到或将到时仍发出上报，并容纳本地与 Server 的时钟偏差。
+	reportMinimum = 5 * time.Second
+)
+
+// reportTimeout 是 Activity 在 now 结束后上报结果的期限：min(attempt 剩余时间, reportWindow)，不短于 reportMinimum。
+// attempt 截止之后 Server 不再接受这次 attempt 的结果。deadline 为零表示 attempt 没有截止时间。
+func reportTimeout(deadline, now time.Time) time.Duration {
+	timeout := reportWindow
+	if !deadline.IsZero() {
+		timeout = min(timeout, deadline.Sub(now))
+	}
+	return max(timeout, reportMinimum)
+}
+
+// reportContext 是上报结果用的 context：Worker 停止取消 ctx 之后，已结束的 Activity 仍要把结果送到 Server。
+func reportContext(ctx context.Context, deadline time.Time) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), reportTimeout(deadline, time.Now()))
+}
 
 // RunActivityTask executes one leased Activity and reports the result to the
 // Run runtime. The caller owns queue ack/nack and task telemetry.
@@ -49,6 +68,10 @@ const reportTimeout = 5 * time.Second
 // (Temporal RespondActivityTaskCanceled) as a failure of type CanceledError with
 // the error's details; a result or another error is reported as usual. An
 // Activity whose heartbeat said nobody awaits its result reports nothing.
+//
+// Heartbeats are throttled (see heartbeater). Results are reported within
+// min(the attempt's remaining time, 60s), at least 5s, so a Server restart
+// during that window does not drop them.
 func RunActivityTask(ctx context.Context, task protocol.Task, runtime ActivityRuntime, activities *activity.Registry, started func()) (outcome string, executionErr, reportErr error) {
 	begin, err := runtime.BeginActivityTask(ctx, task)
 	if err != nil {
@@ -60,46 +83,47 @@ func RunActivityTask(ctx context.Context, task protocol.Task, runtime ActivityRu
 	if started != nil {
 		started()
 	}
-	// 结果用独立的 context 上报：Worker 停止取消 ctx 之后，已结束的 Activity 仍要把结果送到 Server。
-	reportCtx, cancelReport := context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
-	defer cancelReport()
+	info := activityInfo(task, begin.StartedTime)
 
 	fn, err := activities.Get(task.ActivityType)
 	if err != nil {
+		reportCtx, cancelReport := reportContext(ctx, info.Deadline)
+		defer cancelReport()
 		return "failed", err, runtime.FailActivityTask(reportCtx, task, activityFailure(err))
 	}
 
 	activityCtx, cancel := activityExecutionContext(ctx, task)
 	defer cancel(nil)
-	activityCtx = runtimectx.WithHeartbeat(activityCtx, func(details map[string]any) {
-		result, heartbeatErr := runtime.RecordActivityHeartbeat(activityCtx, task, details)
-		if heartbeatErr != nil || !result.CancelRequested {
-			return
-		}
-		if result.Reason == protocol.ActivityCancelRequestedReason {
-			cancel(errActivityCancelRequested)
-			return
-		}
-		cancel(errActivityAbandoned)
-	})
+	heartbeats := newHeartbeater(activityCtx, cancel, runtime, task)
+	activityCtx = runtimectx.WithHeartbeat(activityCtx, heartbeats.record)
 	if task.LastHeartbeatDetails != nil {
 		activityCtx = runtimectx.WithLastHeartbeat(activityCtx, task.LastHeartbeatDetails)
 	}
-	activityCtx = runtimectx.WithActivityInfo(activityCtx, activityInfo(task, begin.StartedTime))
+	activityCtx = runtimectx.WithActivityInfo(activityCtx, info)
 
 	output, err, panicked := invokeActivity(activityCtx, fn, task)
+	reportCtx, cancelReport := reportContext(ctx, info.Deadline)
+	defer cancelReport()
+	if err == nil && panicked == nil {
+		// 完成结果取代心跳 details，窗口内未发出的心跳不再发出。
+		heartbeats.stop()
+		return "success", nil, runtime.CompleteActivityTask(reportCtx, task, output, nil)
+	}
+	cause := context.Cause(activityCtx)
+	if errors.Is(cause, errActivityAbandoned) {
+		heartbeats.stop()
+	} else {
+		// 下一次 attempt 从最后的心跳 details 恢复进度：窗口内未发出的心跳先发出。
+		heartbeats.flush(reportCtx)
+	}
 	if panicked != nil {
 		// panic 与返回 error 走同一条失败上报，重试策略照常生效。
 		return "failed", errors.New(panicked.Message), runtime.FailActivityTask(reportCtx, task, *panicked)
 	}
-	if err == nil {
-		return "success", nil, runtime.CompleteActivityTask(reportCtx, task, output, nil)
-	}
 	if errors.Is(err, activity.ErrPending) {
 		return "pending", nil, nil
 	}
-	if cause := context.Cause(activityCtx); errors.Is(cause, errActivityCancelRequested) &&
-		(errors.Is(err, context.Canceled) || apperror.IsCanceled(err)) {
+	if errors.Is(cause, errActivityCancelRequested) && (errors.Is(err, context.Canceled) || apperror.IsCanceled(err)) {
 		return "cancelled", err, runtime.FailActivityTask(reportCtx, task, canceledFailure(err))
 	} else if errors.Is(cause, errActivityAbandoned) {
 		// Run 已关闭，或这次 attempt 已超时、被重置：结果不再有接收方。

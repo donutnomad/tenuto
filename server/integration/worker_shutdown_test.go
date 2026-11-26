@@ -208,7 +208,8 @@ func TestStoppedWorkerReleasesActivityToAnotherWorker(t *testing.T) {
 }
 
 func TestHeartbeatingActivityEndsAsCancelledWithoutFailure(t *testing.T) {
-	h, runID := newShutdownHarness(t, "StartToCloseTimeout: time.Minute, HeartbeatTimeout: 10 * time.Second")
+	// 心跳节流间隔是 HeartbeatTimeout 的 80%：取消在 800ms 内经下一次心跳请求送达。
+	h, runID := newShutdownHarness(t, "StartToCloseTimeout: time.Minute, HeartbeatTimeout: time.Second")
 	heartbeating := make(chan struct{})
 	returned := make(chan struct{})
 	var once sync.Once

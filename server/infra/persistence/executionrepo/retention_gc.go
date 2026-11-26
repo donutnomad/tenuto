@@ -9,6 +9,7 @@ import (
 	"github.com/donutnomad/gsql"
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
+	infradb "github.com/donutnomad/tenuto/server/infra/db"
 	"github.com/donutnomad/tenuto/server/infra/persistence/dispatchrepo"
 	"gorm.io/gorm"
 )
@@ -23,10 +24,10 @@ func (s *Repository) ListDueDeletionTasks(now time.Time, limit int) ([]execution
 	if limit <= 0 {
 		return nil, fmt.Errorf("deletion task scan limit must be positive")
 	}
-	rows, err := gsql.From[DeletionTaskPO](DeletionTaskSchema).
+	rows, err := infradb.Find(s.db, gsql.From[DeletionTaskPO](DeletionTaskSchema).
 		Where(DeletionTaskSchema.FireAt.Lte(now)).
 		Order(DeletionTaskSchema.FireAt).
-		Limit(limit).Find(s.db)
+		Limit(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +79,8 @@ func (s *Repository) TreeWorkflowKeys(treeID string) ([]execution.WorkflowKey, e
 	if len(runIDs) == 0 {
 		return nil, nil
 	}
-	rows, err := gsql.From[RunPO](RunSchema).
-		Where(RunSchema.ID.In(runIDs...)).Find(s.db)
+	rows, err := infradb.Find(s.db, gsql.From[RunPO](RunSchema).
+		Where(RunSchema.ID.In(runIDs...)))
 	if err != nil {
 		return nil, err
 	}
@@ -153,10 +154,10 @@ func (s *Repository) DeletionTaskAttempts(treeID string) (int, bool, error) {
 // LONGBLOB，无法索引查询）和事件行上，而事件行有现成的 tree_id 列。任何在这棵树上
 // 写过事件的 run 都会被找到，这正是「整树全部 run」需要的集合。
 func treeRunIDs(db gsql.IDB, treeID string) ([]string, error) {
-	rows, err := gsql.PluckG[string](EventSchema.RunID).
+	rows, err := infradb.Find(db, gsql.PluckG[string](EventSchema.RunID).
 		From(EventSchema).
 		Where(EventSchema.TreeID.Eq(treeID)).
-		Distinct().Find(db)
+		Distinct())
 	if err != nil {
 		return nil, err
 	}
@@ -169,9 +170,9 @@ func treeRunIDs(db gsql.IDB, treeID string) ([]string, error) {
 
 // treeBranchIDs 返回该 tree 在 history_tree 里登记的所有 branch。
 func treeBranchIDs(db gsql.IDB, treeID string) ([]string, error) {
-	rows, err := gsql.PluckG[string](HistoryTreeSchema.BranchID).
+	rows, err := infradb.Find(db, gsql.PluckG[string](HistoryTreeSchema.BranchID).
 		From(HistoryTreeSchema).
-		Where(HistoryTreeSchema.TreeID.Eq(treeID)).Find(db)
+		Where(HistoryTreeSchema.TreeID.Eq(treeID)))
 	if err != nil {
 		return nil, err
 	}

@@ -57,9 +57,9 @@ func (s *Repository) upsertChildWorkflowState(db infradb.DB, state *execution.Ch
 }
 
 func (s *Repository) ListChildWorkflowStates(runID string) ([]*execution.ChildWorkflowState, error) {
-	rows, err := gsql.From[ChildWorkflowStatePO](ChildWorkflowStateSchema).
+	rows, err := infradb.Find(s.db, gsql.From[ChildWorkflowStatePO](ChildWorkflowStateSchema).
 		Where(ChildWorkflowStateSchema.RunID.Eq(runID)).
-		Order(ChildWorkflowStateSchema.ScheduledEventID).Find(s.db)
+		Order(ChildWorkflowStateSchema.ScheduledEventID))
 	if err != nil {
 		return nil, err
 	}

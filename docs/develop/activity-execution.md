@@ -61,6 +61,7 @@ paid, err := CallChargePayment(ctx, in, workflow.ActivityOptions{
 Server 记录 Attempt started 之后，Worker 立即确认队列租约，然后才运行 Activity 函数。从这一刻起 Attempt 的存活只由 Start-To-Close、Schedule-To-Close 与 Heartbeat 超时判定：
 
 - Attempt 正常运行时不会因为队列租约的可见性超时被重投；已开始的 Attempt 在队列里多出的副本被 Worker 领到时，Server 答复不执行，Worker 确认丢弃。
+- Activity 结束后 Worker 在 min(Attempt 剩余时间, 60s)（至少 5s）内重试上报结果，Server 滚动重启期间结果仍能送达。
 - Worker 在 Attempt 开始后崩溃、或结果没能上报，Attempt 停在 started，到期的 Start-To-Close（或 Heartbeat）超时按 Retry Policy 产生下一次 Attempt。
 - Worker 优雅停止时交还因停止而结束的 Attempt：Server 不记失败，以同一个 Attempt 序号立即重新派发，不消耗重试次数。见[运行 Worker](/develop/workers#优雅退出)。
 - Server 重启不会把仍在持久队列（TaskQ）里的任务再入队一次；内存队列随进程丢失，内存后端的启动恢复重新投递。
@@ -120,6 +121,13 @@ previous := activity.GetLastHeartbeatDetails(ctx)
 
 `RecordHeartbeat` 把进度提交给 Server，响应里带有取消时 Worker 取消 Activity 的 `ctx`。重试 Attempt 与 Worker 停止后重新派发的 Attempt 通过 `GetLastHeartbeatDetails` 读取最后记录的进度；首次 Attempt 返回 `nil`。
 
+Worker 对心跳做节流，`RecordHeartbeat` 可以在循环里频繁调用：
+
+- 两次心跳请求的最小间隔是 `HeartbeatTimeout` 的 80%，没有 `HeartbeatTimeout` 时 30s，上限 60s。
+- 间隔外的一次调用立即发出（在调用方 goroutine 里同步等待，最多一个间隔）并开启间隔；间隔内的调用只保留最新的 details，间隔结束时发出。
+- Activity 返回成功时完成结果取代未发出的 details；以失败、取消或 Worker 停止交还结束时，先发出未发出的最新 details，下一次 Attempt 用 `GetLastHeartbeatDetails` 读到它们。
+- 设置了 `HeartbeatTimeout` 时，心跳请求连续失败超过 `HeartbeatTimeout`（Server 已按 Heartbeat 超时结束这次 Attempt）后 Worker 取消 `ctx`，结果不再上报。
+
 Heartbeat 不写 History：Server 只更新 Activity 状态里的最后一次详情与时间（MySQL 上是一条 UPDATE），并从这个时间重新计算 Heartbeat 超时。运行中的详情在 Console 的 Pending 页签与 `activity-states` 里查看；Attempt 超时时，`ActivityTimedOut` 的 `lastHeartbeatDetails` 保存当时最后一次心跳的详情。
 
 ## 取消
@@ -129,7 +137,7 @@ Activity 的取消由 Workflow 代码发起：Activity 所在的 Context 被取�
 取消的约定与 Temporal 相同：
 
 - 尚未开始的 Activity（排队中或重试退避中）立即以 `ActivityCancelled` 结束，不再派发。
-- **已开始的 Activity 要可取消就必须 Heartbeat。** 取消只经 `RecordHeartbeat` 的响应送达，没有单独的轮询通道；每次 `RecordHeartbeat` 都同步请求 Server，Heartbeat 间隔决定取消的延迟。不 Heartbeat 的 Activity 收不到取消，只在自己返回或超时时结束。
+- **已开始的 Activity 要可取消就必须 Heartbeat。** 取消只经心跳请求的响应送达，没有单独的轮询通道；心跳按上面的节流间隔发出，取消的延迟不超过一个节流间隔加上 Activity 两次 `RecordHeartbeat` 的间隔。不 Heartbeat 的 Activity 收不到取消，只在自己返回或超时时结束。
 - 收到取消后返回 `ctx.Err()` 或取消错误：Worker 上报取消确认，记 `ActivityCancelled`（带取消错误的 details）。返回成功：记 `ActivityCompleted`。返回其他错误或 Attempt 超时：不再重试，`retryState` 为 `CancelRequested`。Worker 停止时交还的 Attempt 以 `ActivityCancelled` 结束。
 - Workflow 何时拿到结果由 `ActivityOptions.WaitForCancellation` 决定：`false`（缺省）在取消请求发出时返回取消错误，`true` 等上面的结局。
 - Run 进入任一终态后，或这次 Attempt 已超时、被 Reset Activity 取代后，仍在执行的 Activity 同样在下一次 Heartbeat 时被取消 `ctx`，它的结果不再上报。

@@ -79,9 +79,9 @@ func updateTimerState(db infradb.DB, state *execution.TimerState) error {
 }
 
 func (s *Repository) ListTimerStates(runID string) ([]*execution.TimerState, error) {
-	rows, err := gsql.From[TimerStatePO](TimerStateSchema).
+	rows, err := infradb.Find(s.db, gsql.From[TimerStatePO](TimerStateSchema).
 		Where(TimerStateSchema.RunID.Eq(runID)).
-		Order(TimerStateSchema.ScheduledEventID).Find(s.db)
+		Order(TimerStateSchema.ScheduledEventID))
 	if err != nil {
 		return nil, err
 	}

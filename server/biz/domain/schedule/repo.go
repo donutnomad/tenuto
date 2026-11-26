@@ -41,8 +41,10 @@ type Repository interface {
 
 // Firer 是触发 Schedule 时用到的执行域能力。消费方是 usecase/schedules。
 type Firer interface {
-	// StartWorkflowForCron 按 Workflow Type 启动一个 Initiator=Cron、带 searchAttributes 的 Run，返回 runID。workflowID 的
-	// current Run 仍在运行时不启动，返回满足 errors.Is(err, execution.ErrCurrentRunConflict) 的错误；current Run 已结束时新 Run 接替它。
+	// StartWorkflowForCron 按 Workflow Type 启动一个 Initiator=Cron、带 searchAttributes 的 Run，返回 runID。启动按 workflowID
+	// 去重：workflowID 的 current Run（运行中或已结束）由同一个 workflowID 的 Cron 启动创建时返回这个 Run，不启动新 Run。
+	// current Run 是其他启动创建、仍在运行时不启动，返回满足 errors.Is(err, execution.ErrCurrentRunConflict) 的错误；
+	// 已结束时新 Run 接替它。
 	StartWorkflowForCron(ctx context.Context, namespace, workflowType, workflowID string, input map[string]any, searchAttributes map[string]string) (string, error)
 	// CurrentRunStatus 返回 runID 所在 Workflow ID 的 current Run 的状态：runID 经 continue-as-new、重试或 reset 接续时
 	// 是接续的那一代。runID 不存在时返回满足 errors.Is(err, execution.ErrRunNotFound) 的错误。

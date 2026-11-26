@@ -113,6 +113,7 @@ func (u *UseCase) List(filter ListFilter) (ListResult, error) {
 }
 
 // Trigger 立即触发一次，同样遵守 Overlap Policy：SKIP 下上一次触发的 Run 仍在运行时返回 schedule.ErrOverlapSkipped。
+// Workflow ID 取触发时刻（秒级），同一秒内重复触发返回同一个 Run。
 // 先用 CAS 推进 NextRunAt 占位，再启动 Run 并记录结果；启动失败时 NextRunAt 恢复为触发前的值。
 func (u *UseCase) Trigger(ctx context.Context, namespace, scheduleID string) (string, error) {
 	namespace = protocol.NormalizeNamespace(namespace)
@@ -136,6 +137,10 @@ func (u *UseCase) Trigger(ctx context.Context, namespace, scheduleID string) (st
 	if err != nil {
 		u.restoreNextRunAt(entity, oldNextRunAt)
 		return "", err
+	}
+	// 同一秒内重复触发落在同一个 Workflow ID 上，返回已启动的 Run，不重复记录。
+	if runID == entity.LastRunID {
+		return runID, nil
 	}
 	entity.RecordRun(runID, now)
 	if err := u.repo.UpdateSchedule(entity); err != nil {
@@ -163,9 +168,10 @@ func (u *UseCase) FireDue(ctx context.Context) {
 }
 
 // fire 处理单个到期 Schedule。
-// 流程：catchup 检查 → CAS 推进 NextRunAt → OverlapPolicy 检查 → 触发 → 更新 LastRun 信息。
-// 启动 Run 失败时恢复 NextRunAt，这次到期点由下一轮扫描重新触发，直到超出 catchup window。这次到期点的 Workflow ID
-// 已有运行中的 Run（上一轮启动已提交、应答丢失）时这次触发已经完成，不恢复。
+// 流程：catchup 检查 → OverlapPolicy 检查 → 以到期点的 Workflow ID 启动 Run → CAS 推进 NextRunAt → 更新 LastRun 信息。
+// 先启动再推进：两步之间进程退出时 NextRunAt 仍是这次到期点，下一轮扫描以同一个 Workflow ID 重新启动。Cron 启动按
+// Workflow ID 去重（见 Firer.StartWorkflowForCron），重新启动返回已启动的 Run，不会重复执行；多个实例同时触发同一个
+// 到期点时同样只启动一个 Run，CAS 胜出的实例记录它。启动失败时 NextRunAt 不动，下一轮扫描重试，直到超出 catchup window。
 func (u *UseCase) fire(ctx context.Context, entity *schedule.Schedule) {
 	now := u.clock.Now()
 
@@ -175,30 +181,30 @@ func (u *UseCase) fire(ctx context.Context, entity *schedule.Schedule) {
 		return
 	}
 
-	// 先 CAS 推进 NextRunAt（占位），CAS 失败说明已被其他实例处理
-	oldNextRunAt, advanced := u.advanceNextRunAt(entity, now)
-	if !advanced {
-		return
-	}
-
 	if !u.overlapAllowsStart(entity) {
 		u.logger.Info("schedule driver: last run is still running or its status is unknown, skipping", "namespace", entity.Namespace, "schedule_id", entity.ID, "last_run_id", entity.LastRunID, "overlap_policy", entity.OverlapPolicy)
+		u.advanceNextRunAt(entity, now)
 		return
 	}
 
 	// 触发 workflow（标记 Initiator=Cron），Workflow ID 取这次的到期点
-	runID, err := u.firer.StartWorkflowForCron(ctx, entity.Namespace, entity.WorkflowType, entity.RunWorkflowID(*oldNextRunAt), entity.Input, entity.RunSearchAttributes(*oldNextRunAt))
+	fireTime := *entity.NextRunAt
+	runID, err := u.firer.StartWorkflowForCron(ctx, entity.Namespace, entity.WorkflowType, entity.RunWorkflowID(fireTime), entity.Input, entity.RunSearchAttributes(fireTime))
 	if errors.Is(err, execution.ErrCurrentRunConflict) {
-		u.logger.Info("schedule driver: run for this fire time is already running", "namespace", entity.Namespace, "schedule_id", entity.ID, "fire_time", oldNextRunAt.UTC().Format(time.RFC3339))
+		u.logger.Info("schedule driver: run for this fire time is already running", "namespace", entity.Namespace, "schedule_id", entity.ID, "fire_time", fireTime.UTC().Format(time.RFC3339))
+		u.advanceNextRunAt(entity, now)
 		return
 	}
 	if err != nil {
 		u.logger.Error("schedule driver: start workflow failed", "namespace", entity.Namespace, "schedule_id", entity.ID, "err", err)
-		u.restoreNextRunAt(entity, oldNextRunAt)
 		return
 	}
 
-	// 触发成功后更新 LastRunAt/LastRunID/RunCount（失败无害，NextRunAt 已通过 CAS 推进）
+	// CAS 失败说明另一个实例已推进这次到期点，由它记录 Run
+	if _, advanced := u.advanceNextRunAt(entity, now); !advanced {
+		return
+	}
+	// 记录 LastRunAt/LastRunID/RunCount（失败无害，NextRunAt 已通过 CAS 推进）
 	entity.RecordRun(runID, now)
 	entity.Touch(now)
 	if err := u.repo.UpdateSchedule(entity); err != nil {

@@ -110,9 +110,9 @@ func onDuplicateKeyNoop(column string) clause.OnConflict {
 }
 
 func (s *Repository) ListActivityStates(runID string) ([]*execution.ActivityState, error) {
-	rows, err := gsql.From[ActivityStatePO](ActivityStateSchema).
+	rows, err := infradb.Find(s.db, gsql.From[ActivityStatePO](ActivityStateSchema).
 		Where(ActivityStateSchema.RunID.Eq(runID)).
-		Order(ActivityStateSchema.ScheduledEventID).Find(s.db)
+		Order(ActivityStateSchema.ScheduledEventID))
 	if err != nil {
 		return nil, err
 	}

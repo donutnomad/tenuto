@@ -234,9 +234,9 @@ func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreList
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}
-	rows, err := query.Order(RunSchema.CreatedAt, !filter.OrderDesc).
+	rows, err := infradb.Find(s.db, query.Order(RunSchema.CreatedAt, !filter.OrderDesc).
 		Order(RunSchema.ID, !filter.OrderDesc).
-		Offset(filter.Offset).Limit(limit).Find(s.db)
+		Offset(filter.Offset).Limit(limit))
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}
@@ -312,7 +312,7 @@ func (s *Repository) listByAttributeScan(runConds, stateConds []gsql.Expression,
 	if len(page) == 0 {
 		return result, nil
 	}
-	rows, err := gsql.From[RunPO](RunSchema).Where(RunSchema.ID.In(page...)).Find(s.db)
+	rows, err := infradb.Find(s.db, gsql.From[RunPO](RunSchema).Where(RunSchema.ID.In(page...)))
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}
@@ -517,9 +517,9 @@ func (t *gormExecutionTx) UpdateActivityState(state *execution.ActivityState) er
 // 事务内"读+校验+写"串行化，
 // 杜绝并发 Handle* 的读-改-写 TOCTOU（🔴-3 方案 b）。
 func (t *gormExecutionTx) GetActivityStateForUpdate(runID string, scheduledEventID int64) (*execution.ActivityState, bool, error) {
-	rows, err := gsql.From[ActivityStatePO](ActivityStateSchema).
+	rows, err := infradb.Find(t.db, gsql.From[ActivityStatePO](ActivityStateSchema).
 		Where(ActivityStateSchema.RunID.Eq(runID), ActivityStateSchema.ScheduledEventID.Eq(scheduledEventID)).
-		ForUpdate().Find(t.db)
+		ForUpdate())
 	if err != nil {
 		return nil, false, err
 	}
@@ -544,9 +544,9 @@ func (t *gormExecutionTx) UpdateTimerState(state *execution.TimerState) error {
 // GetTimerStateForUpdate 在事务内带行级锁读 timer state（SELECT ... FOR UPDATE），
 // TimerFired 在 RunInTx 内先读再校验非终态再写，杜绝重复 fire 竞态（照 activity 模式）。
 func (t *gormExecutionTx) GetTimerStateForUpdate(runID string, scheduledEventID int64) (*execution.TimerState, bool, error) {
-	rows, err := gsql.From[TimerStatePO](TimerStateSchema).
+	rows, err := infradb.Find(t.db, gsql.From[TimerStatePO](TimerStateSchema).
 		Where(TimerStateSchema.RunID.Eq(runID), TimerStateSchema.ScheduledEventID.Eq(scheduledEventID)).
-		ForUpdate().Find(t.db)
+		ForUpdate())
 	if err != nil {
 		return nil, false, err
 	}
@@ -578,9 +578,9 @@ func (t *gormExecutionTx) UpsertChildWorkflowState(state *execution.ChildWorkflo
 // 照 GetActivityStateForUpdate 范式。子→父传播 close 在 RunInTx 内"读+校验非终态+写"串行化，
 // 杜绝并发/重复 close 的读-改-写竞态。
 func (t *gormExecutionTx) GetChildWorkflowStateForUpdate(runID string, scheduledEventID int64) (*execution.ChildWorkflowState, bool, error) {
-	rows, err := gsql.From[ChildWorkflowStatePO](ChildWorkflowStateSchema).
+	rows, err := infradb.Find(t.db, gsql.From[ChildWorkflowStatePO](ChildWorkflowStateSchema).
 		Where(ChildWorkflowStateSchema.RunID.Eq(runID), ChildWorkflowStateSchema.ScheduledEventID.Eq(scheduledEventID)).
-		ForUpdate().Find(t.db)
+		ForUpdate())
 	if err != nil {
 		return nil, false, err
 	}
@@ -874,7 +874,7 @@ func (s *Repository) getEventsRangeWithDB(db infradb.DB, run *execution.Run, aft
 	if throughInclusive > 0 {
 		query = query.Where(EventSchema.NodeID.Lte(throughInclusive))
 	}
-	rows, err := query.Order(EventSchema.NodeID).Find(db)
+	rows, err := infradb.Find(db, query.Order(EventSchema.NodeID))
 	if err != nil {
 		return nil, err
 	}
@@ -952,9 +952,9 @@ func (s *Repository) ForkBranch(req execution.ForkBranchRequest) (*execution.For
 		}
 		// INSERT 排在 DeleteTree 的 tree 锁之后时，源 run 已被它删除。写入之后用当前读（FOR UPDATE）
 		// 确认源 run 仍在，不在则整个 fork 回滚，这棵正被回收的树上不留下新 branch。
-		sourceRows, err := gsql.From[RunPO](RunSchema).
+		sourceRows, err := infradb.Find(tx, gsql.From[RunPO](RunSchema).
 			Where(RunSchema.ID.Eq(req.SourceRunID)).
-			ForUpdate().Find(tx)
+			ForUpdate())
 		if err != nil {
 			return fmt.Errorf("fork branch: recheck source run: %w", err)
 		}
@@ -1133,9 +1133,9 @@ func (s *Repository) DeleteEventsBatched(conds ...gsql.Expression) error {
 // DeleteBranch 与 DeleteTree 先取这把锁；ForkBranch 往同一范围 INSERT tree 行，与持锁方互相等待。
 // 树上还没有任何 tree 行时 InnoDB 给出间隙锁，它同样挡住 ForkBranch 的 INSERT。
 func LockHistoryTree(tx *gorm.DB, treeID string) ([]*HistoryTreePO, error) {
-	return gsql.From[HistoryTreePO](HistoryTreeSchema).
+	return infradb.Find(tx, gsql.From[HistoryTreePO](HistoryTreeSchema).
 		Where(HistoryTreeSchema.TreeID.Eq(treeID)).
-		ForUpdate().Find(tx)
+		ForUpdate())
 }
 
 // ── Internal helpers ──

@@ -155,9 +155,9 @@ func (s *Repository) DeleteSchedule(namespace, id string) error {
 }
 
 func (s *Repository) ListSchedules(namespace string) ([]*schedule.Schedule, error) {
-	rows, err := gsql.From[SchedulePO](ScheduleSchema).
+	rows, err := infradb.Find(s.db, gsql.From[SchedulePO](ScheduleSchema).
 		Where(ScheduleSchema.Namespace.Eq(protocol.NormalizeNamespace(namespace))).
-		Order(ScheduleSchema.CreatedAt).Order(ScheduleSchema.ID).Find(s.db)
+		Order(ScheduleSchema.CreatedAt).Order(ScheduleSchema.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +174,12 @@ func (s *Repository) ListSchedules(namespace string) ([]*schedule.Schedule, erro
 
 // ListDueSchedules 返回 next_run_at <= now 且 paused=false 的 schedule。
 func (s *Repository) ListDueSchedules(now time.Time) ([]*schedule.Schedule, error) {
-	rows, err := gsql.From[SchedulePO](ScheduleSchema).
+	rows, err := infradb.Find(s.db, gsql.From[SchedulePO](ScheduleSchema).
 		Where(
 			ScheduleSchema.NextRunAt.Lte(&now),
 			ScheduleSchema.Paused.Eq(false),
 		).
-		Order(ScheduleSchema.NextRunAt).Order(ScheduleSchema.ID).Find(s.db)
+		Order(ScheduleSchema.NextRunAt).Order(ScheduleSchema.ID))
 	if err != nil {
 		return nil, err
 	}

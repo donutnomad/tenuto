@@ -266,9 +266,8 @@ func TestScheduleDriverTask_CatchupWindowExceeded(t *testing.T) {
 }
 
 // TestScheduleDriverTask_CASFailDoesNotTrigger tests CAS失败不触发（幂等）
-func TestScheduleDriverTask_CASFailDoesNotTrigger(t *testing.T) {
-	// Error Case: CAS 失败（模拟另一实例已推进 NextRunAt）→ 不触发
-	// 使用 casFailStore 模拟 CAS 失败
+func TestScheduleDriverTask_CASFailDoesNotRecordRun(t *testing.T) {
+	// CAS 失败（另一实例已推进 NextRunAt）：启动请求按 Workflow ID 去重到同一个 Run，这个实例不记录它
 	store := memory.NewScheduleRepository()
 	firer := newFakeFirer(newCASFailStore(store))
 
@@ -284,8 +283,12 @@ func TestScheduleDriverTask_CASFailDoesNotTrigger(t *testing.T) {
 
 	uc.FireDue(ctx)
 
-	if firer.startCallCount() != 0 {
-		t.Fatalf("expected 0 start calls when CAS fails, got %d", firer.startCallCount())
+	got, err := store.GetSchedule("default", "sch-cas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RunCount != 0 || got.LastRunID != "" {
+		t.Fatalf("expected the CAS loser not to record the run, got run_count=%d last_run_id=%q", got.RunCount, got.LastRunID)
 	}
 }
 

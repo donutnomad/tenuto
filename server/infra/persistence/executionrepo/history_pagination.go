@@ -8,6 +8,7 @@ import (
 	"github.com/donutnomad/gsql"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
+	infradb "github.com/donutnomad/tenuto/server/infra/db"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -179,9 +180,9 @@ func readHistoryPageRows(db gsql.IDB, ranges []visibleHistoryRange, upperBounds 
 				query = query.Where(EventSchema.NodeID.Lt(cursorNodeID))
 			}
 		}
-		rows, err := query.
+		rows, err := infradb.Find(db, query.
 			Order(EventSchema.NodeID, direction == execution.HistoryDirectionAscending).
-			Limit(limit - len(result)).Find(db)
+			Limit(limit-len(result)))
 		if err != nil {
 			return nil, err
 		}

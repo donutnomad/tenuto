@@ -186,15 +186,17 @@ func Export(ctx context.Context, in ExportInput) (ExportOutput, error) {
 | API | 说明 |
 | --- | --- |
 | `activity.GetInfo(ctx) activity.Info` | 本次 Attempt 的信息，字段含义同 Temporal：`Namespace`、`WorkflowID`、`WorkflowType`、`RunID`、`ActivityID`（同一个 Activity 的各次重试相同）、`ActivityType`、`TaskQueue`、`Attempt`（从 1 起）、`ScheduledTime`（首次调度）、`StartedTime`（本次开始）、`Deadline`（StartToClose 与 ScheduleToClose 中先到的）、`HeartbeatTimeout`、`TaskToken`；ctx 不来自 Worker 时为零值 |
-| `activity.RecordHeartbeat(ctx, details map[string]any)` | 上报进度；Workflow 请求取消这个 Activity 后，响应让 Worker 取消 `ctx` |
+| `activity.RecordHeartbeat(ctx, details map[string]any)` | 上报进度（Worker 节流，见下）；Workflow 请求取消这个 Activity 后，响应让 Worker 取消 `ctx` |
 | `activity.GetLastHeartbeatDetails(ctx) map[string]any` | 最后记录的进度：重试的 Attempt 读上一次 Attempt 的，Worker 停止后重新派发的 Attempt 读交还前的 |
 | `activity.GetWorkerStopChannel(ctx) <-chan struct{}` | Worker 开始停止时关闭；ctx 不来自 Worker 时为 nil |
 | `activity.ErrPending` | 返回它表示结果由外部异步提交 |
 | `activity.ErrWorkerStopping` | 察觉 Worker 停止后返回它：Attempt 交还 Server 重新派发，不算失败 |
 
+Worker 对心跳节流：两次心跳请求最小间隔为 `HeartbeatTimeout` 的 80%（未设置时 30s，上限 60s）；间隔外的调用立即同步发出，间隔内只保留最新 details、间隔结束时发出。Activity 成功时完成结果取代未发出的 details；失败、取消或 Worker 停止交还时先发出它们，供下一次 Attempt 恢复。设置了 `HeartbeatTimeout` 时，心跳请求连续失败超过它后 Worker 取消 `ctx`、不再上报结果。Activity 结束后结果上报在 min(Attempt 剩余时间, 60s)（至少 5s）内重试。
+
 Heartbeat 不写 History（与 Temporal 相同）：Server 只更新 Activity 状态的 `lastHeartbeat` / `lastHeartbeatAt`，Heartbeat 超时从 `lastHeartbeatAt` 起算。运行中的进度在 `activity-states`（Console Pending 页签）查看；Attempt 超时时最后一次详情写进 `ActivityTimedOut.lastHeartbeatDetails`。
 
-Workflow 取消 Activity 所在的 Context（Run 被取消时的根 Context，或 `workflow.WithCancel` 的作用域）后，正在执行的 Activity 在下一次 Heartbeat 时得到取消信号；Run 进入任一终态、这次 Attempt 已超时或被 Reset 取代时同样如此。**Activity 要可取消就必须 Heartbeat**：取消只经 `RecordHeartbeat` 的响应送达，没有其他通道；不 Heartbeat（或没有 `HeartbeatTimeout`）的 Activity 只在自己返回或超时时结束。收到 Workflow 的取消后返回 `ctx.Err()` 或 `apperror.NewCanceled(details...)` 确认取消（`ActivityCancelled`）；返回成功仍记为完成；返回其他错误记为失败且不再重试。长任务定期 Heartbeat（间隔小于 `HeartbeatTimeout`，间隔也决定取消延迟），在 `ctx.Done()` 后释放资源。规则表见 `cancellation-timeouts.md`。
+Workflow 取消 Activity 所在的 Context（Run 被取消时的根 Context，或 `workflow.WithCancel` 的作用域）后，正在执行的 Activity 在下一次 Heartbeat 时得到取消信号；Run 进入任一终态、这次 Attempt 已超时或被 Reset 取代时同样如此。**Activity 要可取消就必须 Heartbeat**：取消只经 `RecordHeartbeat` 的响应送达，没有其他通道；不 Heartbeat（或没有 `HeartbeatTimeout`）的 Activity 只在自己返回或超时时结束。收到 Workflow 的取消后返回 `ctx.Err()` 或 `apperror.NewCanceled(details...)` 确认取消（`ActivityCancelled`）；返回成功仍记为完成；返回其他错误记为失败且不再重试。长任务定期 Heartbeat（间隔小于 `HeartbeatTimeout`；取消延迟不超过一个节流间隔加上两次调用的间隔），在 `ctx.Done()` 后释放资源。规则表见 `cancellation-timeouts.md`。
 
 Worker 停止（`Stop`）时先关闭停止 channel，宽限期（`worker.Options.GracefulStopTimeout`，缺省 10s）内 `ctx` 不取消。长任务监听它，记一次 Heartbeat 保存进度后返回 `activity.ErrWorkerStopping`：
 
