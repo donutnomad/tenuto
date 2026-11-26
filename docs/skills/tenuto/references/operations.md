@@ -16,7 +16,7 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 | `config_error` 以 `workflow task cannot be prepared: ` 开头 | 暂停：准备 Workflow Task 时遇到每次都会重现的失败，Server 不再重投这个任务 | 修复原因后「恢复暂停的 Run」 |
 | `upgrade_error` 非空，`auto upgrade to ... failed ...; retrying with backoff` | 不阻塞：留在旧内容，按退避重试升级 | 发布兼容内容，或 `SetRunPolicy(..., "pinned")` |
 | `blocked.cause` 为 `non_deterministic_error`，reason 含 `nondeterministic workflow: ...` | Workflow Task 反复失败 | 修复代码（恢复命令序列或补 `GetVersion`）后重新发布，下一次重试自动继续 |
-| `blocked.cause` 为 `workflow_panic`，reason 含 `[E_RUNTIME]`、`[E_NIL_RECEIVER]`、`[E_PANIC]`、`[E_SYMBOL]`、`[E_TYPE] type.assert cannot pass` 或 `workflow executor panic` | Workflow 代码或 Update handler panic（Temporal 缺省的 BlockWorkflow），Run 保持 Running | 修复代码后重新发布，下一次重试从 History 恢复并继续 |
+| `blocked.cause` 为 `workflow_panic`，reason 含 `[E_RUNTIME]`、`[E_NIL_RECEIVER]`、`[E_PANIC]`、`[E_SYMBOL]`、`[E_TYPE] type.assert cannot pass`、`[E_BUDGET]` 或 `workflow executor panic` | Workflow 代码或 Update handler panic、超出执行预算（Temporal 缺省的 BlockWorkflow），Run 保持 Running | 修复代码后重新发布，下一次重试从 History 恢复并继续 |
 | `blocked.cause` 为 `payload_size_limit_exceeded` | Workflow Task 的命令带的载荷（Activity / 子 Workflow / Continue-As-New 输入、Marker、Workflow 结果、Update 结果）超过 `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES`，或一次 Workflow Task 的命令合计超过 3.5 MiB | 缩小载荷（大数据放外部存储、传引用）后重新发布 |
 | `blocked.cause` 为 `activity_route_unavailable` | 没声明队列，路由目录里没有可用的 Activity Worker 或路由歧义 | 启动注册了该 `type` 的 Worker 或声明队列，自动继续 |
 
@@ -36,8 +36,8 @@ Blocked 期间到达的 Signal、Update、Activity 结果、Timer 触发与取�
 | `auto upgrade to V refused: payloads recorded in history cannot be read by the candidate program: <位置>: <旧类型> -> <新类型>: <字段路径>: <原因>` | 换版前的载荷检查：History 里该位置的载荷在 latest 的类型下读不回（字段删除、改名、改类型） |
 | `auto upgrade to V refused: the payload check cannot prove that payloads recorded in history stay readable: <current\|candidate> program: <载荷> decoded into <类型> at <WLang 路径> (<原因>); <种类> types differ between the two versions` | 换版前的载荷检查：该解码处的名字或类型无法静态确定，而这种载荷的类型在两个版本间变了 |
 | `nondeterministic workflow: history event is A, replay command is B` | 同一位置的命令种类、ActivityID 或 ActivityType 不同 |
-| `nondeterministic workflow: missing replay command for A` | History 里有的命令，代码没有产生（删除或跳过了步骤） |
-| `nondeterministic workflow: extra replay command B` | 代码多产生了 History 里没有的命令（在已走过的位置之前加了步骤） |
+| `nondeterministic workflow: missing replay command for A` | History 里该 Workflow Task 有的命令，代码在这个 Workflow Task 里没有产生（删除、跳过了步骤，或挪到了之后的 Workflow Task） |
+| `nondeterministic workflow: extra replay command B` | 代码在这个 Workflow Task 里多产生了 History 里没有的命令（在已走过的位置之前加了步骤，或从之后的 Workflow Task 挪了过来） |
 | `workflow task cannot be prepared: workflow config not found: ...` | Run 采用的 Program 版本在 Server 上读不到（被删除或从未登记）；重新登记同一份内容或 set-policy `auto_upgrade` 换到 latest |
 | `workflow task cannot be prepared: ... invalid branch token ...` | Run 保存的 History branch 数据损坏 |
 | `activity route unavailable: activity S type T is not registered in activity route catalog` | 这个 Namespace 没有 Worker 上报过该 type |

@@ -82,6 +82,17 @@ func TestLowerRejectsNonDeterministicConstructs(t *testing.T) {
 		{"non-host package call", `return Out{Text: uuid.New().String()}, nil`, []string{"uuid.New", "workflow.RandomUUID"}},
 		{"assertion field in condition", `var a any = Out{}; if a.(Out).Sum > 0 { return Out{}, nil }; return Out{}, nil`, []string{"a.(Out).Sum", "先把类型断言赋值给变量"}},
 		{"sized make as argument", `n := 2; x := len(make([]int, n)); return Out{Sum: x}, nil`, []string{"make([]int, n)", "独立的赋值语句"}},
+		{"for without init and condition", "for {\n\t}\n\treturn Out{}, nil", []string{"w.go:41", "for requires an init statement and a condition"}},
+		{"make with capacity as argument", `x := len(make([]int, 0, 4)); return Out{Sum: x}, nil`, []string{"make([]int, 0, 4)", "独立的赋值语句"}},
+		{"pointer alias", `a := Out{Sum: 1}; p := &a; p.Sum = 5; return a, nil`, []string{"w.go:41", "&a 只能直接作为调用实参", "直接使用值 a"}},
+		{"pointer to field returned", `a := Out{}; q := &a.Sum; _ = q; return a, nil`, []string{"&a.Sum 只能直接作为调用实参"}},
+		{"labeled switch on any with init", `var k any = 1
+L:
+	switch n := 2; k {
+	case n:
+		break L
+	}
+	return Out{}, nil`, []string{"w.go:43", "带标签的 switch", "n := 2"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -200,5 +211,149 @@ func TestGenerateAcceptsMapLiteralWithMapTypedUpdateHandler(t *testing.T) {
 	})
 	return Out{}, err`); err != nil {
 		t.Fatalf("map handler result with map literal must generate: %v", err)
+	}
+}
+
+// 操作数含 any 的比较、any 上的 switch、slice/map 与 nil 的比较改写成 workflow.Equal / workflow.IsNil；
+// 元素是 struct 的 map 读取改写成立即调用的闭包；带容量的 make 改写成 make 加 workflow.SetCap。
+func TestLowerTypedRewritesGoSemantics(t *testing.T) {
+	result, err := generateLowered(`
+	var xs []int
+	m := map[string]Out{}
+	v := m["x"]
+	w, ok := m["y"]
+	buf := make([]int, 0, 8)
+	switch input["kind"] {
+	case "a", "b":
+		v.Text = "ab"
+	}
+	if input["status"] == "ok" || xs == nil || m != nil || ok {
+		return Out{Sum: v.Sum + w.Sum + len(buf)}, nil
+	}
+	return v, nil`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	for _, want := range []string{`"Equal"`, `"IsNil"`, `"SetCap"`, `"zzTag1"`, `"zzZero1"`, `"zzZero2"`} {
+		if !strings.Contains(program, want) {
+			t.Fatalf("program misses %s:\n%s", want, program)
+		}
+	}
+}
+
+// 元素是指针或接口的 map 读取、指针与 nil 的比较、不含 any 的比较保持 WLang 运算。
+func TestLowerTypedKeepsComparableForms(t *testing.T) {
+	result, err := generateLowered(`
+	m := map[string]*Out{}
+	var p *Out
+	s := "x"
+	return Out{Text: s}, func() error { if p == nil && m["a"] == nil && s == "x" { return nil }; return nil }()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	if strings.Contains(program, `"Equal"`) || strings.Contains(program, `"IsNil"`) || strings.Contains(program, "zzZero") {
+		t.Fatalf("program should keep plain comparisons and map reads:\n%s", program)
+	}
+}
+
+// 没有导入 workflow 包的文件被改写成 workflow.Equal / workflow.SetCap 时补一条 import，写在 package 子句同一行，
+// 之后的诊断行号不变。
+func TestLowerTypedInjectsWorkflowImportOnSameLine(t *testing.T) {
+	src := "package flows\n\nfunc W(input map[string]any) int {\n\ta := make([]int, 0, 4)\n\tif input[\"k\"] == \"v\" {\n\t\treturn cap(a)\n\t}\n\treturn 0\n}\n"
+	result, err := GenerateFromSource([]byte(src), Options{WorkflowType: "inject", FuncName: "W", Filename: "inject.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if program := string(result.ProgramJSON); !strings.Contains(program, `"Equal"`) || !strings.Contains(program, `"SetCap"`) {
+		t.Fatalf("program misses workflow calls:\n%s", program)
+	}
+	bad := strings.Replace(src, "return 0", "return len(\"ab\"[0:1])", 1)
+	_, err = GenerateFromSource([]byte(bad), Options{WorkflowType: "inject", FuncName: "W", Filename: "inject.go"})
+	if err == nil || !strings.Contains(err.Error(), "inject.go:8") {
+		t.Fatalf("err = %v, want a diagnostic at inject.go:8", err)
+	}
+}
+
+// 每个循环体开头插入一条计数语句，每轮执行都计入 Workflow Task 的步数；循环体在 Go 里非空、翻译后为空
+// （`_ = i` 整句省略）的循环同样计数。多轮改写只插入一次。
+func TestLowerLoopBodyGetsCountedStatement(t *testing.T) {
+	result, err := generateLowered(`
+	for range 3 {
+	}
+	for i := 0; i < 1; {
+		_ = i
+	}
+	for i := 0; i < 2; i++ {
+		n := make([]int, i)
+		_ = n
+	}
+	return Out{}, nil`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	// 三个循环，加上 make([]int, i) 展开出的追加零值循环。
+	for _, name := range []string{`"zzLoopStep1"`, `"zzLoopStep2"`, `"zzLoopStep3"`, `"zzLoopStep4"`} {
+		if strings.Count(program, name) != 1 {
+			t.Fatalf("program should declare %s once:\n%s", name, program)
+		}
+	}
+	if strings.Contains(program, "zzLoopStep5") {
+		t.Fatalf("program should count steps once per loop:\n%s", program)
+	}
+}
+
+// 类型检查没有得到参与比较、switch 或 map 读取的表达式的类型时（这里导入无法解析），生成失败，不静默按缺省翻译。
+func TestLowerTypedFailsWithoutTypeInformation(t *testing.T) {
+	src := `package flows
+
+import (
+	"example.com/missing/dto"
+
+	workflow "github.com/donutnomad/tenuto/sdk/workflow"
+)
+
+type Out struct {
+	Flag bool
+}
+
+func W(ctx workflow.Context, input map[string]any) (Out, error) {
+	var v dto.Thing
+	return Out{Flag: v.Kind == "refund"}, nil
+}
+`
+	_, err := GenerateFromSource([]byte(src), Options{WorkflowType: "missing", FuncName: "W", Filename: "w.go"})
+	if err == nil || !strings.Contains(err.Error(), "w.go:15") || !strings.Contains(err.Error(), "类型检查没有得到 v.Kind 的类型") {
+		t.Fatalf("err = %v, want a type information error at w.go:15", err)
+	}
+}
+
+// 目标是 []any、map[string]any 的类型断言（含 comma-ok 与 type switch 的 case）改写成 workflow 包的宿主函数；
+// 其他目标保持 WLang 的断言。
+func TestFoldRewritesAnyContainerAssertions(t *testing.T) {
+	result, err := generateLowered(`
+	a := input["a"].([]any)
+	b, ok := input["b"].(map[string]any)
+	switch v := input["c"].(type) {
+	case []any:
+		return Out{Sum: len(v)}, nil
+	case string:
+		return Out{Text: v}, nil
+	}
+	s, _ := input["s"].(string)
+	return Out{Sum: len(a) + len(b), Text: s}, func() error { if ok { return nil }; return nil }()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	for _, want := range []string{`"TypeAssert"`, `"TypeAssertOK"`, `"TypeIs"`, `"type.assert.ok"`, `"type.is"`} {
+		if !strings.Contains(program, want) {
+			t.Fatalf("program misses %s:\n%s", want, program)
+		}
+	}
+	if strings.Contains(program, `"type.assert": [`+"\n") && strings.Contains(program, `"value": "array<any>"`) {
+		t.Fatalf("program still asserts array<any> with WLang type.assert:\n%s", program)
 	}
 }

@@ -15,9 +15,11 @@ import (
 	"github.com/donutnomad/tenuto/server/infra/memory"
 )
 
-// Workflow Program 构造超大字符串时，解释器在分配之前以 E_BUDGET 拒绝：Run 以这个错误失败，
-// 内嵌 Worker 所在的进程照常处理之后的 Run。此前 strings.Repeat("x", 1<<34) 或反复自我拼接会让进程 OOM。
-func TestOversizedStringFailsRunAndEngineKeepsRunning(t *testing.T) {
+// Workflow 代码超出 WLang 预算时（构造超大字符串、一个 Workflow Task 里执行的语句超过上限），解释器以 E_BUDGET
+// 让 Workflow Task 以 workflow_panic 失败：Run 保持 Running（Blocked），按退避重试，修复代码后继续。
+// 内嵌 Worker 所在的进程照常处理之后的 Run。此前 strings.Repeat("x", 1<<34) 或反复自我拼接会让进程 OOM，
+// 空循环体的死循环会让 Worker 永远执行同一个 Workflow Task。
+func TestWLangBudgetBlocksRunAndEngineKeepsRunning(t *testing.T) {
 	eng := assembly.NewEngine(assembly.Options{
 		Stores:         assembly.Stores{Executions: memory.NewExecutionManager()},
 		WorkflowQueue:  memory.NewTaskQueue(16),
@@ -30,6 +32,7 @@ func TestOversizedStringFailsRunAndEngineKeepsRunning(t *testing.T) {
 	cases := []struct {
 		id   string
 		body string
+		want string
 	}{
 		{"budget-doubling", `
 	s := "x"
@@ -39,19 +42,28 @@ func TestOversizedStringFailsRunAndEngineKeepsRunning(t *testing.T) {
 	if len(s) == 0 {
 		return fmt.Errorf("empty")
 	}
-	return nil`},
+	return nil`, "MaxStringBytes exceeded"},
 		{"budget-repeat", `
 	s := strings.Repeat("x", 17179869184)
 	if len(s) == 0 {
 		return fmt.Errorf("empty")
 	}
-	return nil`},
+	return nil`, "MaxStringBytes exceeded"},
 		{"budget-sprintf", `
 	s := fmt.Sprintf("%9999999d%9999999d", 1, 2)
 	if len(s) == 0 {
 		return fmt.Errorf("empty")
 	}
-	return nil`},
+	return nil`, "MaxStringBytes exceeded"},
+		// for {} 在生成期报错；下面两种死循环能通过生成，循环体为空，生成器插入的语句让每轮计入步数。
+		{"budget-spin", `
+	for i := 0; i < 1; {
+	}
+	return nil`, "MaxSteps exceeded"},
+		{"budget-range-spin", `
+	for range 1 << 62 {
+	}
+	return nil`, "MaxSteps exceeded"},
 	}
 	for _, tc := range cases {
 		wf := sizeLimitWorkflow(t, tc.id, tc.body)
@@ -62,26 +74,27 @@ func TestOversizedStringFailsRunAndEngineKeepsRunning(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		waitForRunStatus(t, eng, ctx, runID, historypkg.StatusFailed, 5*time.Second)
+		waitForEventCount(t, eng, ctx, runID, historypkg.EventWorkflowTaskFailed, 1, 10*time.Second)
 		events, err := eng.GetEvents(ctx, runID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var failure string
-		taskStarts := 0
 		for _, event := range events {
 			if event.WorkflowFailed != nil {
-				failure = event.WorkflowFailed.Error
+				t.Fatalf("%s: Run failed with %q, want Blocked", tc.id, event.WorkflowFailed.Error)
 			}
-			if event.WorkflowTaskStarted != nil {
-				taskStarts++
+			if failed := event.WorkflowTaskFailed; failed != nil {
+				if failed.Cause != historypkg.WorkflowTaskFailedCauseWorkflowPanic || !strings.Contains(failed.Reason, "[E_BUDGET]") || !strings.Contains(failed.Reason, tc.want) {
+					t.Fatalf("%s: WorkflowTaskFailed cause=%q reason=%q, want workflow_panic with E_BUDGET %s", tc.id, failed.Cause, failed.Reason, tc.want)
+				}
 			}
 		}
-		if !strings.HasPrefix(failure, "[E_BUDGET]") || !strings.Contains(failure, "MaxStringBytes exceeded") {
-			t.Fatalf("%s: WorkflowFailed error = %q, want the E_BUDGET MaxStringBytes error", tc.id, failure)
+		run, err := eng.GetRun(ctx, runID)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if taskStarts != 1 {
-			t.Fatalf("%s: %d Workflow Tasks started, want 1 (the failure is deterministic, not retried)", tc.id, taskStarts)
+		if run.Status != historypkg.StatusRunning {
+			t.Fatalf("%s: Run status = %s, want running (Blocked)", tc.id, run.Status)
 		}
 	}
 
@@ -99,7 +112,7 @@ func TestOversizedStringFailsRunAndEngineKeepsRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForRunStatus(t, eng, ctx, runID, historypkg.StatusCompleted, 5*time.Second)
+	waitForRunStatus(t, eng, ctx, runID, historypkg.StatusCompleted, 10*time.Second)
 }
 
 // sizeLimitWorkflow 生成以 body 为函数体的 Workflow，body 可以使用 fmt 与 strings。

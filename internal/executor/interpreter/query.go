@@ -44,8 +44,9 @@ func (QueryEvaluator) EvaluateQuery(ctx context.Context, wf *program.WorkflowCon
 		return nil, true, "unknown queryType: " + name
 	}
 	interpreter.queryHandler = true
+	interpreter.batchSteps = 0
 	ctxValue := wltypes.NewValue("workflow.Context", workflowContext{lanePath: "query:" + name, scope: interpreter.rootScope})
-	inputValue := wltypes.NewValue("map<string,any>", input)
+	inputValue := wltypes.NewValue("map<string,any>", executor.GoJSONNumbers(input))
 	output, err := wlExec.InvokeClosure(handler, []wltypes.Value{ctxValue, inputValue})
 	if err != nil {
 		return nil, true, err.Error()

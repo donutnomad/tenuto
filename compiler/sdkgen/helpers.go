@@ -32,7 +32,7 @@ type helperFunc struct {
 //
 // dir 为空时只检查 filename 这一个文件（GenerateFromSource）。
 func workflowHelpers(src []byte, filename, dir, funcName string, activityImpls map[string]bool) ([]helperFunc, error) {
-	fset, files, info, pkgPath, err := loadForHelpers(src, filename, dir)
+	fset, files, info, pkgPath, err := loadPackage(map[string][]byte{filename: src}, filename, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -134,25 +134,30 @@ func rejectFixedArrays(fset *token.FileSet, info *gotypes.Info, fn *ast.FuncDecl
 		fset.Position(found.Pos()), gotypes.ExprString(found), info.Types[found].Type)
 }
 
-// loadForHelpers 加载 helper 分析需要的语法树与类型信息。包里其他地方的类型错误不影响
-// 调用关系的解析，因此忽略。
-func loadForHelpers(src []byte, filename, dir string) (*token.FileSet, []*ast.File, *gotypes.Info, string, error) {
+// loadPackage 加载 filename 所在包的语法树与类型信息，files（路径 → 内容）覆盖磁盘上的同名文件。
+// 包里其他地方的类型错误不影响调用关系与表达式类型的解析，因此忽略。dir 为空时只检查 filename 这一个文件。
+func loadPackage(files map[string][]byte, filename, dir string) (*token.FileSet, []*ast.File, *gotypes.Info, string, error) {
 	fset := token.NewFileSet()
 	if dir != "" {
-		absolute, err := filepath.Abs(filename)
-		if err != nil {
-			return nil, nil, nil, "", err
+		overlay := make(map[string][]byte, len(files))
+		for name, content := range files {
+			absolute, err := filepath.Abs(name)
+			if err != nil {
+				return nil, nil, nil, "", err
+			}
+			overlay[absolute] = content
 		}
 		loaded, err := packages.Load(&packages.Config{
 			Dir:     dir,
 			Fset:    fset,
-			Overlay: map[string][]byte{absolute: src},
+			Overlay: overlay,
 			Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
 		}, ".")
 		if err == nil && len(loaded) == 1 && loaded[0].TypesInfo != nil {
 			return fset, loaded[0].Syntax, loaded[0].TypesInfo, loaded[0].PkgPath, nil
 		}
 	}
+	src := files[filename]
 	file, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
 	if err != nil {
 		return nil, nil, nil, "", err

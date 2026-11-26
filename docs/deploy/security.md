@@ -97,9 +97,9 @@ WORKFLOW_HEALTH_ADDR=:7401   # 明文健康检查端口，供探针使用
 | Run List 一页 / 一次 `run_ids` | 1000 |
 | History 分页一页 | 1000 个事件 |
 | 长轮询（`poll`、`wait-closed`） | 60s |
-| WLang 执行 | 一次执行（从 History 开头重放到当前）100 万步、100 万次循环迭代、1024 个协程；调用深度 128、数组 10 万元素、对象 10 万键、单个字符串 16 MiB；每个 Workflow Task 受 `WORKFLOW_WORKER_TASK_TIMEOUT` 限时 |
+| WLang 执行 | 每个 Workflow Task 100 万条语句（每个 Workflow Task 重新计数）、1024 个协程；调用深度 128、数组 10 万元素、对象 10 万键、单个字符串 16 MiB；每个 Workflow Task 受 `WORKFLOW_WORKER_TASK_TIMEOUT` 限时 |
 
-超出 WLang 预算的 Run 以 `E_BUDGET` 失败，副本照常运行。字符串拼接、`strings.Repeat`、`fmt.Sprintf` 等可以放大数据的操作在分配之前按参数算出结果大小，超出 16 MiB 时直接失败（见 [执行预算](/develop/go-subset#执行预算)）。这些上限针对单个值：Program 仍可以在步数预算内创建许多接近上限的值，合计内存由副本的内存限制兜底。只登记来自受信构建流水线的 Program，并把 `register`、`artifacts` 端点限定给发布流程与 Worker。
+超出 WLang 预算时 Workflow Task 以 `workflow_panic` 失败（原因以 `[E_BUDGET]` 开头），Run 进入 Blocked 并按退避重试，副本照常运行。字符串拼接、`strings.Repeat`、`fmt.Sprintf` 等可以放大数据的操作在分配之前按参数算出结果大小，超出 16 MiB 时立即报错（见 [执行预算](/develop/go-subset#执行预算)）。这些上限针对单个值：Program 仍可以在步数预算内创建许多接近上限的值，合计内存由副本的内存限制兜底。只登记来自受信构建流水线的 Program，并把 `register`、`artifacts` 端点限定给发布流程与 Worker。
 
 ## 凭证
 

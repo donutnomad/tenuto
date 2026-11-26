@@ -29,14 +29,14 @@ func counterHandlerProgram(name string) *program.WorkflowConfig {
 			"do": []any{
 				map[string]any{"set": map[string]any{"counter": map[string]any{"+": []any{
 					map[string]any{"var": "counter"},
-					// in["n"] 是 any 类型，需 type.assert 成 int64 才能与 counter(int64) 相加，
-					// 对标 go2wlang 翻译 input["n"].(int64) 的产物。
+					// in["n"] 是 any 类型，与 Go 解码进 map[string]any 相同是 float64，需 type.assert 成 float64
+					// 才能与 counter(float64) 相加，对标 go2wlang 翻译 input["n"].(float64) 的产物。
 					map[string]any{"type.assert": []any{
 						map[string]any{"map.value": []any{
 							map[string]any{"var": "in"},
 							map[string]any{"literal": map[string]any{"type": "string", "value": "n"}},
 						}},
-						map[string]any{"literal": map[string]any{"type": "string", "value": "int64"}},
+						map[string]any{"literal": map[string]any{"type": "string", "value": "float64"}},
 					}},
 				}}}},
 				handlerReturn(map[string]any{"map": map[string]any{
@@ -54,7 +54,7 @@ func counterHandlerProgram(name string) *program.WorkflowConfig {
 	return &program.WorkflowConfig{
 		Type: "counter-wf",
 		Program: program.NewWLangProgram([]any{
-			map[string]any{"let": map[string]any{"counter": map[string]any{"literal": map[string]any{"type": "int64", "value": "0"}}}},
+			map[string]any{"let": map[string]any{"counter": map[string]any{"literal": map[string]any{"type": "float64", "value": "0"}}}},
 			map[string]any{"expr": map[string]any{"SetUpdateHandler": []any{
 				map[string]any{"pkg": "workflow"},
 				map[string]any{"var": "ctx"},

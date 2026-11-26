@@ -843,7 +843,7 @@ Server 不判断是不是同一份代码，契约一致就视为可以互相替�
 | 红色横幅 `Configuration paused`（Run 的 `config_error`） | 确定性的配置冲突，例如 `auto_upgrade` 换版前发现 History 里的载荷在新类型下读不回 | 不会 | 横幅上的 `Resume with latest (AutoUpgrade)` 或 `Pin current content` 调用 set-policy 恢复（问题 4） |
 | `AutoUpgrade retrying`（Run 的 `upgrade_error`） | `auto_upgrade` 的 Run 用最新定义重放旧 History 失败，仍留在上一份成功的内容上 | 会 | 发布兼容的定义（补 `GetVersion` 分支），或 set-policy `pinned` 留在旧内容（问题 7） |
 | 无提示，Activity 长时间 Scheduled | 任务在队列里：没有 Worker 拉这个队列，或在线 Worker 的契约与声明不兼容、领取被拒（Server 日志 `activity claim refused`） | Worker 就绪后会 | Workers 页核对 Activity Routing 与 Build；契约不符时让契约一致的 build 上线，或把 Run 改成 `auto_upgrade`（问题 4） |
-| Run 已 `failed` | Workflow 返回错误、执行预算超限等 | 不会 | 看 Failure 卡片，必要时 Reset（[Reset](/operations/reset)） |
+| Run 已 `failed` | Workflow 返回错误等 | 不会 | 看 Failure 卡片，必要时 Reset（[Reset](/operations/reset)） |
 
 Blocked 常见的 cause：
 

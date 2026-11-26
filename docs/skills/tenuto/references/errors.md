@@ -79,7 +79,7 @@ Child Workflow 失败时父 Workflow 的 `Get` 返回同样的结构化错误，
 
 ## Workflow 失败
 
-Workflow 函数返回非 nil `error` 时 Run 进入 `failed`，错误编码成终态 Failure。Workflow 代码 panic（越界、nil 解引用、非 comma-ok 类型断言 `v.(T)` 失败、`panic(...)`，`_ = items[i]`、`_ = p.Field` 同样算；载荷解码等其余 `[E_TYPE]` 不算）不让 Run 失败：与 Temporal 缺省的 BlockWorkflow 相同，Workflow Task 以 `workflow_panic` 失败，Run 保持 `running` 并显示 Blocked，按退避重试，修复代码发布后从失败处继续。调用端经 `WorkflowRun.Get` 读取失败：
+Workflow 函数返回非 nil `error` 时 Run 进入 `failed`，错误编码成终态 Failure。Workflow 代码 panic（越界、nil 解引用、非 comma-ok 类型断言 `v.(T)` 失败、`panic(...)`，`_ = items[i]`、`_ = p.Field`、超出执行预算的 `[E_BUDGET]` 同样算；载荷解码等其余 `[E_TYPE]` 不算）不让 Run 失败：与 Temporal 缺省的 BlockWorkflow 相同，Workflow Task 以 `workflow_panic` 失败，Run 保持 `running` 并显示 Blocked，按退避重试，修复代码发布后从失败处继续。调用端经 `WorkflowRun.Get` 读取失败：
 
 ```go
 err := c.GetWorkflow(ctx, workflowID, runID).Get(ctx, &out) // c 是 sdk/client 的 Client

@@ -12,12 +12,12 @@
 
 ## 重放比较什么
 
-重放时 Worker 把代码产生的命令逐条与 History 对照，比较三项：命令种类、ID（Activity 为 ActivityID）、ActivityType（`internal/executor/replay_match.go`）。Activity 的输入值、超时、重试参数不参与比较。失配时 Workflow Task 以 `non_deterministic_error` 失败，消息是下面之一：
+重放时 Worker 按 Workflow Task 逐批对照：每个已完成的 Workflow Task 里代码产生的命令与 History 里该 Workflow Task 的命令事件逐条比较三项：命令种类、ID（Activity 为 ActivityID）、ActivityType（`internal/executor/replay_match.go`）。Activity 的输入值、超时、重试参数不参与比较。失配时 Workflow Task 以 `non_deterministic_error` 失败，消息是下面之一：
 
 ```text
-nondeterministic workflow: history event is <...>, replay command is <...>
-nondeterministic workflow: missing replay command for <...>
-nondeterministic workflow: extra replay command <...>
+nondeterministic workflow: history event is <...>, replay command is <...> in Workflow Task <n> (completed at event <id>)
+nondeterministic workflow: missing replay command for <...> in Workflow Task <n> (completed at event <id>)
+nondeterministic workflow: extra replay command <...> in Workflow Task <n> (completed at event <id>)
 ```
 
 改变命令序列的改动（需要保护）：
@@ -25,6 +25,7 @@ nondeterministic workflow: extra replay command <...>
 | 改动 | 原因 |
 | --- | --- |
 | 新增、删除、重排 Activity / Child / Timer | 命令种类或缺省 ID 的序号改变 |
+| 把命令挪到另一个 Workflow Task（并行的两个 Activity 改成先后执行，或反过来） | 总顺序不变，但所属的 Workflow Task 改变 |
 | 换 Activity `type` | ActivityType 改变 |
 | 新增、删除 `SideEffect` / `RandomUUID` / `RandomInt` | Marker 对应关系改变 |
 | 改协程启动顺序、把步骤移进或移出协程 | 协程路径改变，缺省 ID 改变 |

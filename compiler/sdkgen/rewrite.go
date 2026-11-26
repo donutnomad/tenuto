@@ -734,32 +734,35 @@ func (w *rewriter) workflowAlias() (string, error) {
 // injectWorkflowImport 给没有导入 workflow 包的文件补一条别名 import。
 func (w *rewriter) injectWorkflowImport() (sourceEdit, error) {
 	w.wfAlias = "workflow"
+	return workflowImportEdit(w.fset, w.file, w.src, w.filename)
+}
+
+// workflowImportEdit 返回给 file 补 `import workflow "<sdk/workflow>"` 的改写。import 写在已有 import
+// 或 package 子句的同一行，后续诊断的行号不变。
+func workflowImportEdit(fset *token.FileSet, file *ast.File, src []byte, filename string) (sourceEdit, error) {
 	spec := "workflow " + strconv.Quote(workflowSDKPath)
-	for _, declaration := range w.file.Decls {
+	for _, declaration := range file.Decls {
 		gen, ok := declaration.(*ast.GenDecl)
 		if !ok || gen.Tok != token.IMPORT {
 			continue
 		}
-		file := w.fset.File(gen.Pos())
-		if file == nil {
-			return sourceEdit{}, fmt.Errorf("%s: 无法定位 import 块", w.filename)
+		tokenFile := fset.File(gen.Pos())
+		if tokenFile == nil {
+			return sourceEdit{}, fmt.Errorf("%s: 无法定位 import 块", filename)
 		}
 		if gen.Lparen.IsValid() {
-			offset := file.Offset(gen.Lparen) + 1
-			return sourceEdit{start: offset, end: offset, text: "\n\t" + spec}, nil
+			offset := tokenFile.Offset(gen.Lparen) + 1
+			return sourceEdit{start: offset, end: offset, text: spec + ";"}, nil
 		}
-		offset := file.Offset(gen.End())
-		return sourceEdit{start: offset, end: offset, text: "\nimport " + spec}, nil
+		offset := tokenFile.Offset(gen.End())
+		return sourceEdit{start: offset, end: offset, text: "; import " + spec}, nil
 	}
-	packageFile := w.fset.File(w.file.Name.End())
-	if packageFile == nil {
-		return sourceEdit{}, fmt.Errorf("%s: 无法定位 package 子句", w.filename)
+	tokenFile := fset.File(file.Name.End())
+	if tokenFile == nil {
+		return sourceEdit{}, fmt.Errorf("%s: 无法定位 package 子句", filename)
 	}
-	offset := packageFile.Offset(w.file.Name.End())
-	for offset < len(w.src) && w.src[offset] != '\n' {
-		offset++
-	}
-	return sourceEdit{start: offset, end: offset, text: "\n\nimport " + spec + "\n"}, nil
+	offset := tokenFile.Offset(file.Name.End())
+	return sourceEdit{start: offset, end: offset, text: "; import " + spec}, nil
 }
 
 // collectNames 收集函数定义里出现的所有标识符，供临时变量避让。

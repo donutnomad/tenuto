@@ -8,7 +8,7 @@ status: Stable
 
 <FeatureStatus status="Stable" />
 
-同一份 Workflow Program 和 Event History 必须产生相同的命令序列。这条规则保证 Worker 重启、缓存逐出和故障恢复后的执行结果一致。Worker 在重放时把代码产生的命令与 History 逐条比对，不一致时报告非确定性错误并把 Run 标记为 Blocked。
+同一份 Workflow Program 和 Event History 必须产生相同的命令序列。这条规则保证 Worker 重启、缓存逐出和故障恢复后的执行结果一致。Worker 在重放时按 Workflow Task 逐批比对：每个已完成的 Workflow Task 里代码产生的命令与该 Workflow Task 写入 History 的命令事件逐条一致，命令挪到另一个 Workflow Task（例如把并行的两个 Activity 改成先后执行）时即使总顺序不变也不一致。不一致时报告非确定性错误并把 Run 标记为 Blocked。
 
 ## 确定性值的来源
 
@@ -53,7 +53,7 @@ Activity（没有指定 `ActivityOptions.ActivityID` 时）、Timer、Child Work
 
 对已经有运行中 Run 的 Workflow，下列修改改变命令序列，需要 `workflow.GetVersion` 保护或使用 `pinned` 策略：
 
-- 新增、删除或重排 Activity、Timer、Child Workflow。
+- 新增、删除或重排 Activity、Timer、Child Workflow，或把它们挪到另一个 Workflow Task（并行改成先后执行、在调用前加等待，或反过来）。
 - 修改协程启动顺序或数量。
 - 修改 Selector case 的添加顺序。
 - 新增、删除或重排 `SideEffect`、`RandomUUID`、`RandomInt` 调用。
@@ -104,7 +104,7 @@ Workflow 并发只使用 `workflow.Go`、`WaitGroup`、`Channel`、`Selector`。
 - [可调用的标准库函数](/develop/go-subset#标准库函数)以外的计算，例如排序、时间解析、正则表达式、编码解码。
 - 依赖进程本地状态的业务判断。
 
-Workflow 代码保留确定性的编排状态、分支和等待逻辑。构造大字符串、大数组的计算也放进 Activity：解释器对单个字符串（16 MiB）、数组与 map 的大小设有上限，超出时 Run 以 `E_BUDGET` 失败，见[执行预算](/develop/go-subset#执行预算)。
+Workflow 代码保留确定性的编排状态、分支和等待逻辑。构造大字符串、大数组的计算也放进 Activity：解释器对单个字符串（16 MiB）、数组与 map 的大小设有上限，超出时 Workflow Task 以 `E_BUDGET` 失败、Run 进入 Blocked，见[执行预算](/develop/go-subset#执行预算)。
 
 ## 非确定性错误的表现
 
