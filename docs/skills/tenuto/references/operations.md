@@ -16,7 +16,7 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 | `config_error` 以 `workflow task cannot be prepared: ` 开头 | 暂停：准备 Workflow Task 时遇到每次都会重现的失败，Server 不再重投这个任务 | 修复原因后「恢复暂停的 Run」 |
 | `upgrade_error` 非空，`auto upgrade to ... failed ...; retrying with backoff` | 不阻塞：留在旧内容，按退避重试升级 | 发布兼容内容，或 `SetRunPolicy(..., "pinned")` |
 | `blocked.cause` 为 `non_deterministic_error`，reason 含 `nondeterministic workflow: ...` | Workflow Task 反复失败 | 修复代码（恢复命令序列或补 `GetVersion`）后重新发布，下一次重试自动继续 |
-| `blocked.cause` 为 `workflow_panic`，reason 含 `[E_RUNTIME]`、`[E_NIL_RECEIVER]`、`[E_PANIC]`、`[E_SYMBOL]` 或 `workflow executor panic` | Workflow 代码或 Update handler panic（Temporal 缺省的 BlockWorkflow），Run 保持 Running | 修复代码后重新发布，下一次重试从 History 恢复并继续 |
+| `blocked.cause` 为 `workflow_panic`，reason 含 `[E_RUNTIME]`、`[E_NIL_RECEIVER]`、`[E_PANIC]`、`[E_SYMBOL]`、`[E_TYPE] type.assert cannot pass` 或 `workflow executor panic` | Workflow 代码或 Update handler panic（Temporal 缺省的 BlockWorkflow），Run 保持 Running | 修复代码后重新发布，下一次重试从 History 恢复并继续 |
 | `blocked.cause` 为 `payload_size_limit_exceeded` | Workflow Task 的命令带的载荷（Activity / 子 Workflow / Continue-As-New 输入、Marker、Workflow 结果、Update 结果）超过 `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES`，或一次 Workflow Task 的命令合计超过 3.5 MiB | 缩小载荷（大数据放外部存储、传引用）后重新发布 |
 | `blocked.cause` 为 `activity_route_unavailable` | 没声明队列，路由目录里没有可用的 Activity Worker 或路由歧义 | 启动注册了该 `type` 的 Worker 或声明队列，自动继续 |
 | `status` 是 `running`、无错误、History 末尾是 `ActivityScheduled` | Activity 没被领取或正在执行；Server 日志反复 `activity claim refused` 时在线 Worker 的契约与声明不兼容 | 核对队列与 Worker（`workers.md`）；看 Activity 状态；契约不兼容时让契约兼容的 build 上线，或 `SetRunPolicy(..., "auto_upgrade")` |

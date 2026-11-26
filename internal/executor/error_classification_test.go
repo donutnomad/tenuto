@@ -27,7 +27,9 @@ func TestWorkflowTaskBlockedCause(t *testing.T) {
 		{name: "nil receiver", err: wlerrors.New(wlerrors.CodeNilReceiver, "nil"), want: history.WorkflowTaskFailedCauseWorkflowPanic},
 		{name: "nil pointer field", err: wlerrors.New(wlerrors.CodeSymbol, `variable path "p.N" not found and no default`), want: history.WorkflowTaskFailedCauseWorkflowPanic},
 		{name: "budget", err: wlerrors.New(wlerrors.CodeBudget, "MaxStringBytes exceeded"), want: ""},
-		{name: "type error", err: wlerrors.New(wlerrors.CodeType, "mismatch"), want: ""},
+		{name: "failed type assertion", err: wlerrors.Newf(wlerrors.CodeType, "type.assert cannot pass %s as %s", "boolean", "string"), want: history.WorkflowTaskFailedCauseWorkflowPanic},
+		{name: "payload decode type error", err: wlerrors.New(wlerrors.CodeType, "expected int64, got string"), want: ""},
+		{name: "operator type mismatch", err: wlerrors.New(wlerrors.CodeType, `operator "+" requires matching types, got int64 and string`), want: ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

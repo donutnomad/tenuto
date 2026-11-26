@@ -17,7 +17,7 @@ status: Stable
 | 永久错误 | 参数非法、资源状态冲突 | NonRetryable Error 或业务分支 |
 | 确定性错误 | 新代码与旧 History 漂移 | Blocked State、回滚或版本分支 |
 | Activity panic | nil map 写入、越界 | Worker 上报 `PanicError` 并按 Retry Policy 重试；修复代码后重新部署 |
-| Workflow panic | 越界、nil 解引用、`panic(...)` | Workflow Task 以 `workflow_panic` 失败，Run 保持 Running、显示 Blocked 并退避重试；修复代码后重新部署，从失败处继续 |
+| Workflow panic | 越界、nil 解引用、类型断言 `v.(T)` 失败、`panic(...)` | Workflow Task 以 `workflow_panic` 失败，Run 保持 Running、显示 Blocked 并退避重试；修复代码后重新部署，从失败处继续 |
 | Workflow 返回错误 | `return err` | Run 以 Failed 结束（配置了 Workflow RetryPolicy 时按它重试） |
 | 操作错误 | 错误 Reset、错误路由 | 审计、恢复 Runbook |
 

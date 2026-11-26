@@ -47,3 +47,32 @@ func PanicWorkflow(ctx workflow.Context, input map[string]any) error {
 		})
 	}
 }
+
+// comma-ok 类型断言失败不报错（Go 里也不 panic）：Workflow 照常完成，不归为 workflow_panic。
+func TestCommaOkTypeAssertionDoesNotPanic(t *testing.T) {
+	source := []byte(`package flows
+
+import workflow "github.com/donutnomad/tenuto/sdk/workflow"
+
+func AssertWorkflow(ctx workflow.Context, input map[string]any) (string, error) {
+	var v any = int64(1)
+	text, ok := v.(string)
+	if !ok {
+		return "not a string", nil
+	}
+	return text, nil
+}
+`)
+	generated, err := sdkgen.GenerateFromSource(source, sdkgen.Options{WorkflowType: "assert-workflow", FuncName: "AssertWorkflow", Filename: "assert.go"})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	commands, err := interpreter.NewWorkflowExecutor(&program.WorkflowConfig{Type: "assert", Program: generated.Workflow.Program},
+		[]history.Event{history.NewWorkflowStartedEvent(nil, "", "", "assert-1", "AssertWorkflow", 0)}).Execute()
+	if err != nil {
+		t.Fatalf("comma-ok assertion failed the execution: %v (cause %q)", err, executor.WorkflowTaskBlockedCause(err))
+	}
+	if len(commands) == 0 || commands[len(commands)-1].Type != history.CmdCompleteWorkflow {
+		t.Fatalf("commands = %+v, want the workflow to complete", commands)
+	}
+}

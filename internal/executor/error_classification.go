@@ -3,6 +3,7 @@ package executor
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/donutnomad/tenuto/protocol/history"
 	wlerrors "github.com/donutnomad/wlang/errors"
@@ -28,9 +29,16 @@ var workflowPanicCodes = map[string]bool{
 	wlerrors.CodeSymbol:      true,
 }
 
+// failedTypeAssertionMessage 是 wlang 非 comma-ok 类型断言（Go 的 `v.(T)`）失败时 E_TYPE 的消息前缀，Go 在这里 panic。
+// E_TYPE 的其他来源不归为 panic：类型系统不一致（运算、赋值、参数的类型不符）是通过类型检查的 Go 代码不会产生的
+// 翻译缺陷，载荷解码失败（registry 的 JSON codec）是数据转换错误，在 Go 里都不对应 panic。comma-ok 形式
+// （type.assert.ok）与 type switch（type.is）不报错。
+const failedTypeAssertionMessage = "type.assert cannot pass "
+
 // WorkflowTaskBlockedCause 返回让 Workflow Task 失败、Run 保持 Running 的错误的 cause，其余错误返回空串：
 //   - 非确定性错误：non_deterministic_error。
-//   - panic（WorkflowPanicError、E_RUNTIME、E_PANIC、E_NIL_RECEIVER、E_SYMBOL）：workflow_panic，对标 Temporal Go SDK
+//   - panic（WorkflowPanicError、E_RUNTIME、E_PANIC、E_NIL_RECEIVER、E_SYMBOL，以及非 comma-ok 类型断言失败的
+//     E_TYPE）：workflow_panic，对标 Temporal Go SDK
 //     缺省的 BlockWorkflow 策略。修复代码后新的 Workflow Task 从失败处继续。
 //
 // 用户代码显式返回的 error 不经过这里：解释器把它变成 CmdFailWorkflow，Workflow 照常失败。
@@ -47,7 +55,8 @@ func WorkflowTaskBlockedCause(err error) string {
 		return history.WorkflowTaskFailedCauseWorkflowPanic
 	}
 	var langErr *wlerrors.LangError
-	if errors.As(err, &langErr) && workflowPanicCodes[langErr.Code] {
+	if errors.As(err, &langErr) && (workflowPanicCodes[langErr.Code] ||
+		langErr.Code == wlerrors.CodeType && strings.HasPrefix(langErr.Message, failedTypeAssertionMessage)) {
 		return history.WorkflowTaskFailedCauseWorkflowPanic
 	}
 	return ""
