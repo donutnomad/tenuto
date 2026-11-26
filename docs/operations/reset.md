@@ -41,10 +41,25 @@ Reset 可以重新应用锚点后的 Signal 和 Update。`ReapplyExcludeTypes` �
 Activity Reset 以 Run ID 和 Scheduled Event ID 定位 Call：
 
 - Attempt 重新从 1 开始，Schedule-To-Start 从 reset 时刻起算。
+- Schedule-To-Close 的起点不变，仍是这次调用最初的调度时间（`ActivityScheduled` 的时间），所以 Reset 不会延长整个调用的期限，期限快到时应改用 Workflow Reset。Temporal 的 `ResetActivity` 同样只把 Attempt 置 1、不改首次调度时间。
 - Stamp 与 Execution Generation 提升。
 - 旧 in-flight Task 和异步完成 Token 失效。
 - Sticky assignment 被清理。
 - 可选择重置 Heartbeat details。
+
+## 分叉点上未结束的 Activity 与 Timer
+
+Tenuto 的 Workflow Reset 拒绝这样的重置点：保留下来的 History 里有已调度、尚未结束的 Activity 或已启动、尚未触发的 Timer（错误见上文的校验）。需要从这里重跑时，选更早的边界，或等它们结束后选更晚的边界。
+
+Temporal 允许这样的重置点。它按保留下来的 History 重建新 Run 的状态，再逐个处理未结束的项（源码：`service/history/ndc/workflow_resetter.go` 的 `prepareResetWorkflow` 与 `failInflightActivity`，核对版本 `temporalio/temporal@67959df`）：
+
+| 分叉点上的状态 | Temporal 的处理 | 计时起点 |
+| --- | --- | --- |
+| Activity 已调度、未开始 | 保留，在新 Run 里重新派发 | `ScheduledTime` 与 `FirstScheduledTime` 都改成 reset 时刻（新 Run 的 StartTime），Schedule-To-Start 与 Schedule-To-Close 都从 reset 时刻重新起算 |
+| Activity 已开始 | 直接写入 `ActivityTaskFailed`，failure 类型 `ResetWorkflowFailure`（带上最后一次 Heartbeat details），重试状态为不可重试；Workflow 代码在这次调用上收到失败 | 不再计时 |
+| Timer 已启动、未触发 | 保留，按原 deadline 触发：deadline = `TimerStarted` 事件时间 + `StartToFireTimeout`，reset 时已过期的立即触发 | 原起点不变 |
+
+Temporal 正常执行时，Schedule-To-Close 从首次调度（`ActivityTaskScheduled` 事件时间，即 `FirstScheduledTime`）起算，重试不改变起点（`service/history/workflow/timer_sequence.go` 的 `getActivityScheduleToCloseTimeout`）；Tenuto 相同，起点是 `ActivityScheduled` 的时间。
 
 ## 操作 Runbook
 

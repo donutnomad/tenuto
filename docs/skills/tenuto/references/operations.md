@@ -104,6 +104,10 @@ HTTP `reset`：`{"run_id":"...","reason":"...","reset_type":"last_workflow_task"
 | `reset_event_id N is not a valid reset point: must be a workflow task boundary event (WorkflowTaskStarted/Completed/Failed/TimedOut)` | 事件 ID 不是 Workflow Task 边界 |
 | 重置点之前有待处理的 Activity / Timer | 选更早或更晚的边界，或等它们完成 |
 
+Temporal 允许这种重置点：未开始的 Activity 保留并从 reset 时刻重新计算 Schedule-To-Start / Schedule-To-Close，已开始的 Activity 以不可重试的 `ResetWorkflowFailure` 失败，Timer 按原 deadline 触发；Tenuto 拒绝它（对照与源码出处见文档 `operations/reset.md#分叉点上未结束的-activity-与-timer`）。
+
+Activity Reset（单个调用）：Attempt 置 1，Schedule-To-Start 从 reset 时刻起算，Schedule-To-Close 仍从最初调度时间起算，Reset 不延长整个调用的期限（与 Temporal `ResetActivity` 相同）。
+
 Reset 之后：
 
 - 重置点之后的 Activity 重新执行。新 Run 的 `RunID` 变化，Workflow ID 与重新执行的 Activity 的 `ActivityID` 不变：用业务 ID 或 `WorkflowID`+`ActivityID` 构造的幂等键与 Reset 前相同，下游返回第一次的结果；用 Workflow 里 `RandomUUID` 生成、且生成位置在重置点之后的键是新值，下游会真正再执行一次（见 `activities.md#幂等`）。
