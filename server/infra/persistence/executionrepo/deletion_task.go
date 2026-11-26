@@ -1,6 +1,8 @@
 package executionrepo
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"time"
@@ -121,4 +123,33 @@ func terminalEventTypes() []string {
 		string(history.EventWorkflowTerminated),
 		string(history.EventWorkflowContinuedAsNew),
 	}
+}
+
+// errAffectedRowsProbeRollback 让 CheckDuplicateKeyAffectedRows 的事务回滚，探测行不留在表里。
+var errAffectedRowsProbeRollback = errors.New("affected rows probe rollback")
+
+// CheckDuplicateKeyAffectedRows 确认连接对「撞键、不改列」的 upsert 报告 affected rows = 0。仓储用这个值区分
+// 新写入与去重命中（事件 dedupe、state 的 insertOrPatch），连接带 CLIENT_FOUND_ROWS（DSN 的 clientFoundRows=true）
+// 时 MySQL 报告 1，这些判定全部失效。探测在一个回滚的事务里对 tenuto_deletion_tasks 插入同一行两次。
+func (s *Repository) CheckDuplicateKeyAffectedRows(ctx context.Context) error {
+	now := s.clock.Now()
+	row := &DeletionTaskPO{TreeID: "tenuto:affected-rows-probe", Namespace: protocol.DefaultNamespace, FireAt: now, CreatedAt: now, UpdatedAt: now}
+	var affected int64
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for range 2 {
+			created := tx.Clauses(onDuplicateKeyNoop("tree_id")).Create(row)
+			if created.Error != nil {
+				return created.Error
+			}
+			affected = created.RowsAffected
+		}
+		return errAffectedRowsProbeRollback
+	})
+	if !errors.Is(err, errAffectedRowsProbeRollback) {
+		return fmt.Errorf("probe duplicate-key affected rows: %w", err)
+	}
+	if affected != 0 {
+		return fmt.Errorf("MySQL connection reports %d affected rows for a no-op duplicate-key upsert; open it without clientFoundRows=true", affected)
+	}
+	return nil
 }

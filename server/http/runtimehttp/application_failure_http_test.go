@@ -49,7 +49,7 @@ func TestFailRequestCarriesStructuredFailure(t *testing.T) {
 		Cause:        &protocol.Failure{Message: "inner", Type: "InnerType"},
 	}
 	if err := wirePost(context.Background(), server.URL, runtimeapi.ActivityRuntimeFailPath, runtimeapi.ActivityRuntimeFailRequest{
-		TaskToken: task.TaskToken, Task: task, Failure: &failure,
+		ActivityRuntimeTaskRequest: runtimeapi.ActivityRuntimeTaskRequest{TaskToken: task.TaskToken}, Failure: &failure,
 	}, nil); err != nil {
 		t.Fatalf("FailActivityTask: %v", err)
 	}

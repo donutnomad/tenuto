@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 )
@@ -31,6 +32,18 @@ func (s *ActivityStateStore) GetActivityState(runID string, scheduledEventID int
 		return nil, false, nil
 	}
 	return cloneActivityState(st), true, nil
+}
+
+// closeOpen 把 runID 仍为 Scheduled 或 Started 的 Activity 置为 RunClosed。
+func (s *ActivityStateStore) closeOpen(runID string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, st := range s.states[runID] {
+		if !st.IsTerminal() {
+			st.Status = execution.ActivityStatusEnums.RunClosed
+			st.UpdatedAt = now
+		}
+	}
 }
 
 // UpsertActivityState 在 state 不存在时整份保存；已存在时只应用经 setter 改过的字段，与 gorm 后端一致。

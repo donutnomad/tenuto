@@ -5,14 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 )
-
-const defaultStickyScheduleToStartTimeout = 5 * time.Second
 
 type workflowCompletionCaptureContextKey struct{}
 
@@ -162,7 +159,6 @@ func (s *Server) captureWorkflowTaskCompletion(
 			capture.activation.Task.StickyGeneration,
 			capture.activation.Task.WorkerIdentity,
 			capture.activation.Task.WorkerBuildID,
-			s.clock.Now().Add(defaultStickyScheduleToStartTimeout),
 		)
 		// sticky 只是路由优化：分配失败或被 fence 拒绝时回执不带新的 sticky 会话，
 		// 下一个 Workflow Task 走普通队列。

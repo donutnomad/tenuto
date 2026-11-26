@@ -79,11 +79,14 @@ var unsafeInterpolationCharsets = map[string]bool{
 //     插值后 []byte 参数以 _binary'...' 发出，MySQL 不接受 binary 字符集的字符串作为 JSON 列的值，所以写进 JSON 列的
 //     参数一律绑定成字符串（见 executionrepo 的 trace_context_json）。时间参数按 loc 格式化，与服务端预处理时相同；
 //     NO_BACKSLASH_ESCAPES 由驱动按连接状态处理。
+//   - clientFoundRows=false：仓储按 affected rows 区分 upsert 的新写入与撞键（事件去重、state 的 insertOrPatch），
+//     CLIENT_FOUND_ROWS 让撞键也报告 1。
 //
 // 时区由调用方决定：Server 固定 loc=UTC。连接字符集或 collation 不能安全插值（GBK、Big5、SJIS 等）时返回错误。
 func ConfigureMySQL(cfg *mysqldriver.Config) error {
 	cfg.ParseTime = true
 	cfg.InterpolateParams = true
+	cfg.ClientFoundRows = false
 	formatted := cfg.FormatDSN()
 	if _, query, ok := strings.Cut(formatted, "?"); ok {
 		params, err := url.ParseQuery(query)

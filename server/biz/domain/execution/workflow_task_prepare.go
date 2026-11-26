@@ -69,6 +69,37 @@ var ErrScheduleActivityDuplicateID = errors.New("schedule activity duplicate id"
 // WorkflowTaskFailedCauseScheduleActivityDuplicateID 是 ActivityID 重复时 WorkflowTaskFailed 的 cause。
 const WorkflowTaskFailedCauseScheduleActivityDuplicateID = "schedule_activity_duplicate_id"
 
+// CheckCommandPayloadSize 校验命令携带的载荷（Activity、子 Workflow 与 Continue-As-New 的输入，Marker 数据，
+// Workflow 结果，Update 结果）不超过 limit 字节；limit <= 0 表示不检查。超限时返回包装 protocol.ErrPayloadTooLarge
+// 的错误。
+func CheckCommandPayloadSize(command history.Command, limit int) error {
+	what, payload := "", any(nil)
+	switch command.Type {
+	case history.CmdScheduleActivity:
+		what, payload = fmt.Sprintf("input of activity %q (type %s)", command.ActivityID, command.ActivityType), command.Input
+	case history.CmdStartChildWorkflow:
+		what, payload = fmt.Sprintf("input of child workflow %q (type %s)", command.ChildID, command.WorkflowType), command.Input
+	case history.CmdContinueAsNew:
+		what, payload = "continue-as-new input", command.Input
+	case history.CmdRecordMarker:
+		what, payload = fmt.Sprintf("data of marker %q", command.MarkerName), command.Input
+	case history.CmdCompleteWorkflow:
+		what, payload = "workflow result", command.Output
+	case history.CmdCompleteWorkflowUpdate:
+		if command.UpdateOutcome == nil {
+			return nil
+		}
+		what = fmt.Sprintf("outcome of update %q", command.UpdateID)
+		if success := command.UpdateOutcome.Success; success != nil {
+			return protocol.CheckPayloadBytes(what, len(success.Data), limit)
+		}
+		payload = command.UpdateOutcome.Failure
+	default:
+		return nil
+	}
+	return protocol.CheckPayloadSize(what, payload, limit)
+}
+
 // ValidateWorkflowCommand 校验 runID 的 Workflow Task 提交的一条命令。标识不超过 protocol 的长度上限（子 Workflow 的
 // Workflow ID 是 <runID>/<ChildID>，整体受 MaxWorkflowIDLength 限制）；调度 Activity 命令另见 ValidateScheduleActivityCommand。
 func ValidateWorkflowCommand(runID string, command history.Command) error {
@@ -128,7 +159,10 @@ type PreparedWorkflowTask struct {
 }
 
 // PrepareWorkflowTask resolves all external references before RunInTx begins.
-func PrepareWorkflowTask(runID string, commands []history.Command, traceContext map[string]string, resolver WorkflowCommandResolver) (PreparedWorkflowTask, error) {
+//
+// 单个命令的载荷超过 payloadLimit 字节，或全部命令超过 protocol.MaxWorkflowTaskCommandsSize 时返回包装
+// protocol.ErrPayloadTooLarge 的错误。
+func PrepareWorkflowTask(runID string, commands []history.Command, traceContext map[string]string, payloadLimit int, resolver WorkflowCommandResolver) (PreparedWorkflowTask, error) {
 	prepared := PreparedWorkflowTask{
 		Commands:        make([]history.Command, len(commands)),
 		CommandEvents:   make([]history.Event, 0, len(commands)),
@@ -137,7 +171,13 @@ func PrepareWorkflowTask(runID string, commands []history.Command, traceContext 
 		ContinuedRunIDs: make(map[int]string),
 		ContinuedRefs:   make(map[int]WorkflowTargetRef),
 	}
+	if err := protocol.CheckWorkflowTaskCommandsSize(commands); err != nil {
+		return PreparedWorkflowTask{}, err
+	}
 	for i, command := range commands {
+		if err := CheckCommandPayloadSize(command, payloadLimit); err != nil {
+			return PreparedWorkflowTask{}, err
+		}
 		if err := ValidateWorkflowCommand(runID, command); err != nil {
 			return PreparedWorkflowTask{}, err
 		}

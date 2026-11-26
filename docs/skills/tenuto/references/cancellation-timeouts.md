@@ -83,7 +83,7 @@ cancel() // 只取消 cctx 里的 Activity / timer / 子 Workflow
 - 取消中的 Activity 仍可能完成一次外部调用，用幂等键保护写入。
 - 不等子 Workflow（`WaitForCancellation: false`）的父 Run 关闭后，仍在运行的子 Run 按父关闭策略处理：默认终止，`ParentClosePolicyRequestCancel` 不重复请求，`ParentClosePolicyAbandon` 继续运行（见 `child-and-continue-as-new.md`）。
 - 已接受未完成的 Update 在 Run 以 `cancelled` 关闭时以 `AcceptedUpdateCompletedWorkflow` 失败结束。
-- Run 以任何方式结束（完成、失败、取消、终止、超时、continue-as-new）时，仍未触发的 timer（例如 Signal 先到、被放弃的等待超时 timer）在同一事务里置为 `run_closed`：不写 `TimerCancelled`（同 Temporal），到期也不再触发。
+- Run 以任何方式结束（完成、失败、取消、终止、超时、continue-as-new）时，仍未触发的 timer（例如 Signal 先到、被放弃的等待超时 timer）在同一事务里置为 `run_closed`：不写 `TimerCancelled`（同 Temporal），到期也不再触发。仍未结束的 Activity 同样置为 `run_closed`，不写事件，不再超时或重试；Worker 之后的心跳收到 Run 已结束。
 
 ## 终止
 

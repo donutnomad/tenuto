@@ -16,8 +16,8 @@ status: Stable
 | `WORKFLOW_BACKEND` | `mysql-taskq` | `mysql-taskq` 或 `memory` |
 | `WORKFLOW_NODE_ID` | hostname | Server 节点唯一标识 |
 | `WORKFLOW_STARTUP_TIMEOUT` | `30s` | 数据库、membership、路由与内嵌 Workflow Worker 的启动期限；启动恢复在后台运行，不计入 |
-| `WORKFLOW_RECONCILE_INTERVAL` | `30s` | 周期补偿的间隔：按到期索引只处理有到期或待处理事项的 Running Run（截止时间、timer、Activity 超时在两个周期内到期，或有 Scheduled Activity、open / 待调度的 Workflow Task、blocked），补投任务、接管到期定时器；MySQL 部署只有选为 leader 的副本执行 |
-| `WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL` | `10m` | 全量补偿的间隔：按游标逐页检查全部 Running Run，补齐没有到期索引的崩溃窗口（子 Run 补建、子 Run 终态传播、终态写回 Run、父关闭策略、子 Run 取消请求补发），并删除到期超过一天、没有 Running Run 指定（Target Worker）的 Activity Worker 登记；与周期补偿同一 leader 执行 |
+| `WORKFLOW_RECONCILE_INTERVAL` | `30s` | 周期补偿的间隔：按到期索引只处理有到期或待处理事项的 Running Run（截止时间、timer、Activity 超时在两个周期内到期，或有 Scheduled Activity、open / 待调度的 Workflow Task、blocked），补投任务、把两个周期内到期的截止时间、timer 与 Activity 超时挂到本进程、接管到期定时器；MySQL 部署只有选为 leader 的副本执行 |
+| `WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL` | `10m` | 全量补偿的间隔：按游标逐页批量检查全部 Running Run（每页 200 个、固定几条查询），补齐没有到期索引的崩溃窗口（子 Run 补建、子 Run 终态传播、终态写回 Run、父关闭策略、子 Run 取消请求补发），并删除到期超过一天、没有 Running Run 指定（Target Worker）的 Activity Worker 登记；与周期补偿同一 leader 执行，各用一个 goroutine，全量补偿运行期间周期补偿照常执行 |
 | `WORKFLOW_TASK_TOKEN_SECRET` | 生产后端必填 | Task Token HMAC Secret，至少 32 字节；所有 Server 副本配置同一值，任一副本签发的 Token 才能被其他副本校验；memory 后端提供开发默认值 |
 | `WORKFLOW_WORKER_ENABLED` | `true` | 在本进程内执行 Workflow Task；`false` 时由独立 workflow worker 消费 |
 | `WORKFLOW_WORKER_CONCURRENCY` | `8` | 内嵌 workflow worker 并发度 |
@@ -28,6 +28,7 @@ status: Stable
 | `WORKFLOW_QUERY_CONCURRENCY` | `8` | 本进程同时重放 History 求值 Query 的上限；超出的 Query 立即应答 503 与 `Retry-After`，Go SDK 退避重发。`__stack_trace` 不占名额 |
 | `WORKFLOW_ARTIFACTS` | 空 | 启动时加载的生成产物目录，逗号分隔，递归查找 `workflow.json`；空表示不加载 |
 | `WORKFLOW_ARTIFACTS_NAMESPACE` | `default` | `WORKFLOW_ARTIFACTS` 中产物登记到的 Namespace |
+| `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES` | `2097152`（2 MiB） | 单个载荷 JSON 编码后的字节上限：Workflow 输入与结果、Signal 输入、Update 参数、Activity 输入、结果与心跳详情、子 Workflow 与 Continue-As-New 输入、Marker 数据。最大 `3145728`（3 MiB，载荷连同请求其余部分要放进 4 MiB 的 Runtime 请求体）。超限时的处理见 [容量上限](/operations/capacity-limits#载荷大小) |
 | `WORKFLOW_PPROF_ADDR` | 空 | 非空时在这个 `host:port` 上另开 `net/http/pprof` 监听（`/debug/pprof/`），并开启 mutex（1/100）与 block（阻塞超过 100µs）采样；空表示关闭。调试用，不鉴权、不走业务 HTTP，只绑定本机或内网地址，不要暴露到公网 |
 | `WORKFLOW_ARTIFACTS_PUBLISH` | `false` | `true` 时启动加载把 latest 指向这些产物；`false` 只登记，旧 Worker 重启不会把 latest 拉回旧版本。取值按 Go `strconv.ParseBool` 解析，非法取值（如 `ture`）使启动失败 |
 

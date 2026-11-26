@@ -50,8 +50,13 @@ func TestActivityRetryBackoffSurvivesReconcileAndRestart(t *testing.T) {
 		name    string
 		recover func(*Server) error
 	}{
-		{"reconcile", func(s *Server) error { _, err := s.DispatchPendingTasks(context.Background()); return err }},
-		{"restart", func(s *Server) error { return s.RecoverRunningWorkflows(context.Background()) }},
+		{"reconcile", func(s *Server) error {
+			_, _, err := s.Reconcile(context.Background(), DefaultOverdueTimerGrace, DefaultReconcileLookahead)
+			return err
+		}},
+		{"restart", func(s *Server) error {
+			return s.RecoverRunningWorkflows(context.Background(), DefaultReconcileLookahead)
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,7 +163,7 @@ var errStickyStoreDown = errors.New("sticky store down")
 
 type stickyAssignFailingManager struct{ execution.ExecutionManager }
 
-func (*stickyAssignFailingManager) AssignStickyExecution(string, int64, int64, string, string, time.Time) (int64, bool, error) {
+func (*stickyAssignFailingManager) AssignStickyExecution(string, int64, int64, string, string) (int64, bool, error) {
 	return 0, false, errStickyStoreDown
 }
 

@@ -18,6 +18,7 @@ type incrementalTestSession struct {
 	closed      bool
 	activations int
 	through     int64
+	commands    []history.Command
 }
 
 func (s *incrementalTestSession) Restore(context.Context, HistoryIterator) (RestoreResult, error) {
@@ -26,7 +27,7 @@ func (s *incrementalTestSession) Restore(context.Context, HistoryIterator) (Rest
 
 func (s *incrementalTestSession) Activate(_ context.Context, activation history.WorkflowActivation) (history.ActivationResult, error) {
 	s.activations++
-	return history.ActivationResult{ActivationID: activation.ActivationID}, s.activateErr
+	return history.ActivationResult{ActivationID: activation.ActivationID, Commands: s.commands}, s.activateErr
 }
 
 func (s *incrementalTestSession) Commit(ack history.WorkflowTaskCompletionAck) error {

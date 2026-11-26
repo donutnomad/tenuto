@@ -343,17 +343,24 @@ func TestFireOverdueTimersSkipsConfigErrorRun(t *testing.T) {
 	}
 }
 
-// Edge Case: 周期补投只重建未来的定时器，过期定时器留给扫描按宽限期接管。
+// Edge Case: 全量补偿不挂未来的定时器，周期补偿在 lookahead 内挂上；过期定时器留给扫描按宽限期接管。
 func TestDispatchPendingTasksLeavesOverdueTimersToScan(t *testing.T) {
 	srv, mgr, clk := newOverdueServer(t)
 	runID, schedID := scheduleDurableTimer(t, srv, mgr, "run-dispatch-overdue", time.Hour)
 	survivor := loseReplica(t, srv, mgr, clk)
+	ref := timerRef{Kind: timerDurable, RunID: runID, ScheduledEventID: schedID}
 
 	if _, err := survivor.DispatchPendingTasks(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !timerArmed(survivor, timerRef{Kind: timerDurable, RunID: runID, ScheduledEventID: schedID}) {
-		t.Fatal("future timer must be armed on the surviving replica")
+	if timerArmed(survivor, ref) {
+		t.Fatal("full reconciliation must leave a future timer to the periodic reconciler")
+	}
+	if _, _, err := survivor.Reconcile(context.Background(), overdueTestGrace, 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if !timerArmed(survivor, ref) {
+		t.Fatal("future timer within lookahead must be armed on the surviving replica")
 	}
 
 	survivor.stopDurableTimer(runID, schedID)

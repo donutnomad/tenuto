@@ -185,9 +185,11 @@ type ActivityState struct {
 	// CancelRequested 表示 Workflow 已请求取消这个 Activity。
 	CancelRequested bool `json:"cancelRequested,omitempty"`
 
-	StartedTime      *time.Time     `json:"startedTime,omitempty"`
-	WorkerIdentity   string         `json:"workerIdentity,omitempty"`
-	WorkerBuildID    string         `json:"workerBuildId,omitempty"`
+	StartedTime    *time.Time `json:"startedTime,omitempty"`
+	WorkerIdentity string     `json:"workerIdentity,omitempty"`
+	WorkerBuildID  string     `json:"workerBuildId,omitempty"`
+	// StartRequestID 是开始当前 attempt 的 Begin 请求标识。
+	StartRequestID   string         `json:"startRequestId,omitempty"`
 	LastHeartbeat    map[string]any `json:"lastHeartbeat,omitempty"`
 	LastHeartbeatAt  *time.Time     `json:"lastHeartbeatAt,omitempty"`
 	RetryLastFailure string         `json:"retryLastFailure,omitempty"`

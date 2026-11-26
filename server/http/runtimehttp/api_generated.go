@@ -121,11 +121,11 @@ func (a *ActivityRuntimeHTTPAPIWrap) Nack(ctx *gin.Context) {
 // @Tags Runtime-Activity
 // @Accept json
 // @Produce json
-// @Param req body runtimeapi.ActivityRuntimeTaskRequest true "req"
+// @Param req body runtimeapi.ActivityRuntimeBeginRequest true "req"
 // @Success 200 {object} protocol.ActivityTaskBeginResult
 // @Router /runtime/activity/begin [post]
 func (a *ActivityRuntimeHTTPAPIWrap) Begin(ctx *gin.Context) {
-	var req runtimeapi.ActivityRuntimeTaskRequest
+	var req runtimeapi.ActivityRuntimeBeginRequest
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}

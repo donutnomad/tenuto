@@ -185,8 +185,8 @@ func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTask
 		}
 	}
 	if history.IsTerminalStatus(run.Status) {
-		// 完成或取消 Workflow 的命令关闭了 Run：它仍未触发的 timer 随之关闭（含本批命令新建的）。
-		if err := tx.CloseScheduledTimers(run.ID); err != nil {
+		// 完成或取消 Workflow 的命令关闭了 Run：它仍未触发的 timer 与未结束的 Activity 随之关闭（含本批命令新建的）。
+		if err := closePendingStates(tx, run.ID); err != nil {
 			return WorkflowTaskCompletionResult{}, err
 		}
 	}

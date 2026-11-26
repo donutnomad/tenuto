@@ -21,6 +21,7 @@ type ServerOption func(*serverOptions)
 type serverOptions struct {
 	telemetry        tenutotel.Providers
 	queryConcurrency int
+	payloadSizeLimit int
 }
 
 // DefaultQueryConcurrency 是一个 Server 进程同时在本地重放 History 求值 Query 的默认上限。
@@ -34,6 +35,13 @@ func WithQueryConcurrency(n int) ServerOption {
 	}
 }
 
+// WithPayloadSizeLimit 设置单个载荷的字节上限（见 protocol.DefaultPayloadSizeLimit）；不设置时使用缺省值。
+func WithPayloadSizeLimit(limit int) ServerOption {
+	return func(options *serverOptions) {
+		options.payloadSizeLimit = limit
+	}
+}
+
 // WithTelemetry injects OpenTelemetry providers into a Server.
 func WithTelemetry(providers tenutotel.Providers) ServerOption {
 	return func(options *serverOptions) {
@@ -42,7 +50,7 @@ func WithTelemetry(providers tenutotel.Providers) ServerOption {
 }
 
 func resolveServerOptions(options []ServerOption) serverOptions {
-	resolved := serverOptions{}
+	resolved := serverOptions{payloadSizeLimit: protocol.DefaultPayloadSizeLimit}
 	for _, option := range options {
 		if option != nil {
 			option(&resolved)

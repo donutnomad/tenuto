@@ -213,6 +213,7 @@ CREATE TABLE `tenuto_activity_states` (
   `cancel_requested`               BOOLEAN      NOT NULL DEFAULT FALSE,
   `worker_identity`                VARCHAR(191) NOT NULL DEFAULT '',
   `worker_build_id`                VARCHAR(191) NOT NULL DEFAULT '',
+  `start_request_id`               VARCHAR(128) NOT NULL DEFAULT '',
   `last_heartbeat_json`            LONGBLOB,
   `last_heartbeat_at`              DATETIME(3),
   `retry_last_failure`             LONGTEXT,

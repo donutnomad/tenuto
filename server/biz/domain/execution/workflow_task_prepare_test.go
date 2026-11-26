@@ -40,7 +40,7 @@ func TestPrepareWorkflowTaskPinsRoutesAndTargetVersions(t *testing.T) {
 		{Type: history.CmdStartChildWorkflow, ChildID: "child-1", WorkflowType: "child"},
 		{Type: history.CmdContinueAsNew, WorkflowType: "next"},
 	}
-	prepared, err := PrepareWorkflowTask("run-1", commands, map[string]string{"trace": "value"}, resolver)
+	prepared, err := PrepareWorkflowTask("run-1", commands, map[string]string{"trace": "value"}, 0, resolver)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestPrepareWorkflowTaskValidatesScheduleActivityAttributes(t *testing.T) {
 		"activity id too long":   {Type: history.CmdScheduleActivity, ActivityID: strings.Repeat("界", protocol.MaxActivityIDLength+1), ActivityType: "charge", StartToCloseTimeout: time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, &commandResolverStub{})
+			_, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, 0, &commandResolverStub{})
 			if !errors.Is(err, ErrBadScheduleActivityAttributes) {
 				t.Fatalf("err = %v, want ErrBadScheduleActivityAttributes", err)
 			}
@@ -86,7 +86,7 @@ func TestPrepareWorkflowTaskValidatesScheduleActivityAttributes(t *testing.T) {
 		"longest activity id": {Type: history.CmdScheduleActivity, ActivityID: strings.Repeat("界", protocol.MaxActivityIDLength), ActivityType: "charge", StartToCloseTimeout: time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, &commandResolverStub{}); err != nil {
+			if _, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, 0, &commandResolverStub{}); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -141,7 +141,7 @@ func TestPrepareWorkflowTaskRecordsEffectiveRetryPolicy(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			command := history.Command{Type: history.CmdScheduleActivity, ActivityID: "#a1", ActivityType: "charge", StartToCloseTimeout: time.Minute, RetryPolicy: tc.policy}
-			prepared, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, &commandResolverStub{})
+			prepared, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, 0, &commandResolverStub{})
 			if err != nil {
 				t.Fatal(err)
 			}

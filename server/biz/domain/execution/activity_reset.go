@@ -15,6 +15,9 @@ type ActivityReset struct {
 // ResetActivity records the reset and advances the Activity stamp atomically.
 // The caller redispatches the returned state after the transaction commits.
 func ResetActivity(tx ExecutionTx, reset ActivityReset) (*ActivityState, error) {
+	if _, err := tx.GetWorkflowExecutionStateForUpdate(reset.RunID); err != nil {
+		return nil, err
+	}
 	state, ok, err := tx.GetActivityStateForUpdate(reset.RunID, reset.ScheduledEventID)
 	if err != nil {
 		return nil, err
@@ -40,6 +43,7 @@ func ResetActivity(tx ExecutionTx, reset ActivityReset) (*ActivityState, error) 
 	state.setAttempt(1)
 	state.setStamp(state.Stamp + 1)
 	state.setStartedEventID(EmptyEventID)
+	state.setStartRequestID("")
 	state.setStartedTime(nil)
 	state.setNextAttemptAt(&reset.Now)
 	state.setActivityReset(true)

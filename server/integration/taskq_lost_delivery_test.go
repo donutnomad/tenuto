@@ -98,7 +98,7 @@ func TestRealTaskQStickyDeliveryStartsOpenWorkflowTaskAfterStickyClear(t *testin
 		t.Fatal(err)
 	}
 	expires := time.Now().Add(time.Hour)
-	generation, assigned, err := f.store.Executions.AssignStickyExecution(f.runID, state.ExecutionGeneration, state.StickyGeneration, "owner-worker", "workflow-v1", expires)
+	generation, assigned, err := f.store.Executions.AssignStickyExecution(f.runID, state.ExecutionGeneration, state.StickyGeneration, "owner-worker", "workflow-v1")
 	if err != nil || !assigned {
 		t.Fatalf("assign sticky: assigned=%v err=%v", assigned, err)
 	}

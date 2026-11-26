@@ -80,7 +80,7 @@ func TestPollWorkflowTaskDrainsStaleStickyTasksWithoutStackGrowth(t *testing.T) 
 
 	// 把 run 绑定到 workerIdentity，使「同一 worker + 正确 generation」的 task 可被接受。
 	currentSticky, assigned, err := mgr.AssignStickyExecution(
-		runID, state.ExecutionGeneration, state.StickyGeneration, workerIdentity, "build-1", timeFarFuture())
+		runID, state.ExecutionGeneration, state.StickyGeneration, workerIdentity, "build-1")
 	if err != nil {
 		t.Fatal(err)
 	}

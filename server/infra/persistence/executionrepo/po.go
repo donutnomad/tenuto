@@ -266,6 +266,7 @@ type ActivityStatePO struct {
 	CancelRequested          bool       `gorm:"column:cancel_requested"`
 	WorkerIdentity           string     `gorm:"column:worker_identity"`
 	WorkerBuildID            string     `gorm:"column:worker_build_id"`
+	StartRequestID           string     `gorm:"column:start_request_id"`
 	LastHeartbeatJSON        []byte     `gorm:"column:last_heartbeat_json"`
 	LastHeartbeatAt          *time.Time `gorm:"column:last_heartbeat_at"`
 	RetryLastFailure         string     `gorm:"column:retry_last_failure"`
@@ -303,6 +304,7 @@ CREATE TABLE IF NOT EXISTS tenuto_activity_states (
   cancel_requested               BOOLEAN      NOT NULL DEFAULT FALSE,
   worker_identity                VARCHAR(191) NOT NULL DEFAULT '',
   worker_build_id                VARCHAR(191) NOT NULL DEFAULT '',
+  start_request_id               VARCHAR(128) NOT NULL DEFAULT '',
   last_heartbeat_json            LONGBLOB,
   last_heartbeat_at              DATETIME(3),
   retry_last_failure             LONGTEXT,

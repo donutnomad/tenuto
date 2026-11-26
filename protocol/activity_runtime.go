@@ -8,6 +8,9 @@ type ActivityTaskBeginResult struct {
 	Execute     bool      `json:"execute"`
 	Reason      string    `json:"reason,omitempty"`
 	StartedTime time.Time `json:"started_time,omitzero"`
+	// PayloadSizeLimit 是 Server 对 Activity 输出与心跳详情的字节上限（0 表示不限）：Worker 据此在发送之前
+	// 把超限的结果改报为 PayloadSizeLimitExceeded 失败。
+	PayloadSizeLimit int `json:"payload_size_limit,omitempty"`
 }
 
 // ActivityCancellationResult 告诉执行中的 attempt 是否应该停下。Reason 为 ActivityCancelRequestedReason 时

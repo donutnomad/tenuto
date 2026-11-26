@@ -571,7 +571,7 @@ func TestLateCallbacksOnCollectedRunReturnRunNotFound(t *testing.T) {
 			return err
 		},
 		"AssignStickyExecution": func() error {
-			_, _, err := store.Executions.AssignStickyExecution("run-gone", 1, 1, "worker", "build", time.Now().Add(time.Minute))
+			_, _, err := store.Executions.AssignStickyExecution("run-gone", 1, 1, "worker", "build")
 			return err
 		},
 		"ClearStickyExecution": func() error {

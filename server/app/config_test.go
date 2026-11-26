@@ -9,6 +9,7 @@ import (
 	"time"
 
 	workerpkg "github.com/donutnomad/tenuto/internal/worker"
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/biz/usecase/retention"
 )
@@ -700,6 +701,27 @@ func TestMigrateRequiresMySQLBackendAndDSN(t *testing.T) {
 				t.Fatalf("err = %v, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadConfigPayloadSizeLimit(t *testing.T) {
+	cfg, err := loadConfig(mapLookup(validEnvironment()), "workflow-node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PayloadSizeLimit != protocol.DefaultPayloadSizeLimit {
+		t.Fatalf("default payload size limit = %d, want %d", cfg.PayloadSizeLimit, protocol.DefaultPayloadSizeLimit)
+	}
+	env := validEnvironment()
+	env["WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES"] = "524288"
+	if cfg, err = loadConfig(mapLookup(env), "workflow-node-a"); err != nil || cfg.PayloadSizeLimit != 524288 {
+		t.Fatalf("payload size limit = %d, err = %v; want 524288", cfg.PayloadSizeLimit, err)
+	}
+	for _, value := range []string{"0", "-1", "3145729"} {
+		env["WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES"] = value
+		if _, err := loadConfig(mapLookup(env), "workflow-node-a"); err == nil || !strings.Contains(err.Error(), "WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES") {
+			t.Fatalf("WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES=%s: err = %v, want it rejected", value, err)
+		}
 	}
 }
 

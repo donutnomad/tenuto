@@ -191,9 +191,9 @@ func TestRuntimeHTTPRoutesAcceptOnlyPost(t *testing.T) {
 
 func TestRuntimeHTTPRejectsOversizedBody(t *testing.T) {
 	handler := newRuntimeHTTPRouteTestHandler(t)
-	body := `{"run_id":"` + strings.Repeat("a", maxRuntimeRequestBody) + `"}`
+	body := `{"run_id":"` + strings.Repeat("a", protocol.MaxRuntimeRequestBody) + `"}`
 	response := serveRuntimeHTTP(handler, http.MethodPost, runtimeapi.WorkflowRuntimeGetRunPath, body)
-	if response.Code != http.StatusBadRequest || response.Body.String() != "decode request: http: request body too large\n" {
+	if response.Code != http.StatusRequestEntityTooLarge || response.Body.String() != "request body exceeds 4194304 bytes\n" {
 		t.Fatalf("oversized body = %d %q", response.Code, response.Body.String())
 	}
 }

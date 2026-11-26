@@ -179,8 +179,9 @@ func (a *workflowTaskRuntimeHTTPAPI) TimedOut(ctx *gin.Context, req runtimeapi.W
 // reset_workflow 等原因由 Server 写入，按「重做」处理（不计连续失败、不退避），Worker 上报它们会绕过失败退避。
 func (a *workflowTaskRuntimeHTTPAPI) Failed(ctx *gin.Context, req runtimeapi.WorkflowTaskRuntimeFailedRequest) (runtimeapi.RuntimeOKResponse, error) {
 	if !history.IsWorkerWorkflowTaskFailureCause(req.Cause) {
-		return runtimeapi.RuntimeOKResponse{}, protocol.InvalidRequestf("workflow task failure cause %q cannot be reported by a worker; accepted causes: %s, %s",
-			req.Cause, history.WorkflowTaskFailedCauseNonDeterministic, history.WorkflowTaskFailedCauseSessionInvalid)
+		return runtimeapi.RuntimeOKResponse{}, protocol.InvalidRequestf("workflow task failure cause %q cannot be reported by a worker; accepted causes: %s, %s, %s, %s",
+			req.Cause, history.WorkflowTaskFailedCauseNonDeterministic, history.WorkflowTaskFailedCauseSessionInvalid, history.WorkflowTaskFailedCauseWorkflowPanic,
+			history.WorkflowTaskFailedCausePayloadSizeLimitExceeded)
 	}
 	runID, scheduledEventID, err := workflowTaskRequestRef(a.codec, req.TaskToken)
 	if err != nil {

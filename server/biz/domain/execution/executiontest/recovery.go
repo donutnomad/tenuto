@@ -88,8 +88,8 @@ func RecoveryRunIDsContract(t *testing.T, newManager func(t *testing.T) executio
 	})); err != nil {
 		t.Fatal(err)
 	}
-	// 已结束的 Run 即使留有到期的 timer、未结束的 Activity、待处理的 Signal 与 open WFT 也不返回：
-	// 结束 Run 不改这些 state 行，候选查询按 Run 状态过滤。
+	// 已结束的 Run 即使留有到期的 timer、待处理的 Signal 与 open WFT 也不返回：候选查询按 Run 状态过滤。
+	// Run 结束的事务把未结束的 Activity 转 run_closed（CloseOpenActivities），Activity 查询不再按 Run 状态过滤。
 	newRun("run-closed", nil, &past)
 	timer("run-closed", 3, past, execution.TimerStatusEnums.Scheduled)
 	startedActivity("run-closed", now.Add(-2*time.Hour), 0)
@@ -116,7 +116,10 @@ func RecoveryRunIDsContract(t *testing.T, newManager func(t *testing.T) executio
 		if err := closed.MarkTerminal(history.StatusCompleted, nil); err != nil {
 			return err
 		}
-		return tx.UpdateRun(closed)
+		if err := tx.UpdateRun(closed); err != nil {
+			return err
+		}
+		return tx.CloseOpenActivities(closed.ID)
 	})
 
 	requireRecoveryRunIDs := func(dueBefore time.Time, want ...string) {

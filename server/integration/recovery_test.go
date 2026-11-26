@@ -202,7 +202,7 @@ func TestScheduleToStartTimeoutRecoversAfterServerRestart(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	recovered := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	if err := recovered.RecoverRunningWorkflows(ctx); err != nil {
+	if err := recovered.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	defer recovered.Stop()
@@ -253,7 +253,7 @@ func TestHeartbeatTimeoutRecoversAfterServerRestart(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	recovered := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	if err := recovered.RecoverRunningWorkflows(ctx); err != nil {
+	if err := recovered.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	defer recovered.Stop()
@@ -300,7 +300,7 @@ func TestStartToCloseTimeoutRecoversAfterServerRestart(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	recovered := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	if err := recovered.RecoverRunningWorkflows(ctx); err != nil {
+	if err := recovered.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	defer recovered.Stop()
@@ -331,7 +331,7 @@ func TestWorkflowExecutionTimeoutRecoversAfterServerRestart(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	recovered := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	if err := recovered.RecoverRunningWorkflows(ctx); err != nil {
+	if err := recovered.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	defer recovered.Stop()

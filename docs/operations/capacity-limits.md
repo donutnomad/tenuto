@@ -34,6 +34,30 @@ if info.GetContinueAsNewSuggested() {
 
 长期循环应把跨段状态压缩为业务 cursor、必要聚合值和幂等窗口。
 
+## 载荷大小
+
+单个载荷 JSON 编码后不超过 `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES`（默认 2 MiB，与 Temporal `limit.blobSize.error` 的缺省值相同，最大 3 MiB）。每个 Runtime HTTP 请求体不超过 4 MiB，超过时应答 413。Task Token 不含载荷，一次 Activity 调用只发送 token、Worker 身份和这次上报的载荷，所以一个不超过上限的载荷总能放进请求体。
+
+| 载荷 | 检查位置 | 超限时 |
+| --- | --- | --- |
+| Workflow 输入（Start、SignalWithStart、UpdateWithStart） | Server 受理请求 | 400，不创建 Run |
+| Signal 输入、Update 参数 | Server 受理请求 | 400，History 不变 |
+| Activity 输入、子 Workflow 输入、Continue-As-New 输入、Marker 数据、Workflow 结果、Update 结果 | Server 提交 Workflow Task 的命令 | 与 `bad_schedule_activity_attributes` 同类的命令错误：Workflow Task 以 `payload_size_limit_exceeded` 失败，命令不落库，Run 保持 Running、显示 Blocked 并退避重试；缩小载荷后发布新代码，Run 继续 |
+| Activity 结果、心跳详情 | Worker 发送之前（上限随 `begin` 的应答下发），Server 再检查一次 | Attempt 以不可重试的 `PayloadSizeLimitExceeded` 失败结束，结果不发送；Workflow 代码从 `Get` 拿到这个 Type 的应用错误 |
+| 异步完成的结果 | Server 受理 `complete` | 记为不可重试的 `PayloadSizeLimitExceeded` 失败 |
+| 一次 Workflow Task 的全部命令（JSON 编码后合计不超过 3.5 MiB，比请求体上限少 512 KiB 余量） | Worker 提交之前；Server 在提交时再检查一次；请求体仍超过 4 MiB 时 Server 应答 413，Worker 同样改报 | 与单条命令超限相同：Workflow Task 以 `payload_size_limit_exceeded` 失败，Run Blocked 并退避重试 |
+
+Worker 收到 Server 不可重试的 4xx（400、404、409、413、422）时不立即退回投递，避免队列无退避地重投：
+
+- `begin` 被拒绝：按连续拒绝次数退避（1s 起翻倍，最长 1 分钟）后退回租约。
+- Activity 结果被拒绝：改报一次不可重试的 `ActivityResultRejected` 失败，Attempt 不必等到 StartToClose 超时再重跑。
+- Workflow Task 的提交被 413 拒绝：改报 `payload_size_limit_exceeded` 失败（见上表）。
+- Workflow Task 的其他上报被拒绝：既不确认也不退回，投递留到队列的可见性超时（TaskQ 默认 60s）；已开始的 Workflow Task 由 Server 的 Workflow Task 超时重新调度。
+
+命令超限的处理与 Temporal 不同：Temporal 对超过 blob 大小上限的命令终止 Run（`WORKFLOW_TASK_FAILED_CAUSE_BAD_*_ATTRIBUTES` 加 terminate），Tenuto 让 Workflow Task 失败、Run 保持 Running 并显示 Blocked，修复代码（缩小载荷）发布后从失败处继续，Run 的进度不丢。Blocked 期间每次退避重试在 History 里多 3 个事件。
+
+大数据放在外部存储，载荷里传引用。一个 Workflow Task 里同时调度多个大输入的 Activity 时，全部命令合计也受上面的总量上限约束；分批调度（先 `Get` 前一批的结果再调度下一批）或缩小输入。
+
 ## 数据库连接池
 
 `WORKFLOW_DB_MAX_OPEN_CONNS` 是每个副本 Workflow 与 TaskQ 两个连接池各自的上限，所有副本合计最多 `副本数 × 2 × WORKFLOW_DB_MAX_OPEN_CONNS` 条，这个数加上 migrate 与运维工具的余量要小于 MySQL 的 `max_connections`（见 [数据库连接数](/deploy/production#数据库连接数)）。`MAX_IDLE_CONNS` 覆盖稳态并发，connection lifetime 与数据库或代理的连接回收策略配合。

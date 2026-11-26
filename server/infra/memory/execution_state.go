@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/clock"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 	"github.com/donutnomad/tenuto/server/infra/systemclock"
@@ -19,14 +20,14 @@ type WorkflowExecutionStateStore struct {
 	clock clock.Clock
 }
 
-func (s *WorkflowExecutionStateStore) AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt time.Time) (int64, bool, error) {
+func (s *WorkflowExecutionStateStore) AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string) (int64, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, ok := s.states[runID]
 	if !ok {
 		return 0, false, fmt.Errorf("workflow execution state %s: %w", runID, execution.ErrRunNotFound)
 	}
-	assigned := state.AssignSticky(executionGeneration, expectedStickyGeneration, workerIdentity, workerBuildID, expiresAt, s.clock.Now())
+	assigned := state.AssignSticky(executionGeneration, expectedStickyGeneration, workerIdentity, workerBuildID, s.clock.Now())
 	state.ClearPatch()
 	return state.StickyGeneration, assigned, nil
 }
@@ -99,14 +100,14 @@ func (s *WorkflowExecutionStateStore) updateFromRun(run *execution.Run) error {
 	return nil
 }
 
-// ListExpiredStickyExecutions 按 runID 顺序返回 sticky 已过期且仍有 open WFT 的 execution state。
+// ListExpiredStickyExecutions 按 runID 顺序返回 sticky schedule-to-start 期限已过、仍有 open WFT 的 execution state。
 func (s *WorkflowExecutionStateStore) ListExpiredStickyExecutions(now time.Time, limit int) ([]*execution.WorkflowExecutionState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var expired []*execution.WorkflowExecutionState
 	for _, runID := range slices.Sorted(maps.Keys(s.states)) {
 		state := s.states[runID]
-		if state.StickyWorkerIdentity == "" || state.StickyValidAt(now) || state.OpenWorkflowTaskEventID == 0 {
+		if state.Status != history.StatusRunning || state.StickyWorkerIdentity == "" || state.StickyExpiresAt == nil || state.StickyValidAt(now) || state.OpenWorkflowTaskEventID == 0 {
 			continue
 		}
 		expired = append(expired, execution.CloneWorkflowExecutionState(state))

@@ -538,3 +538,5 @@ func (*activityStatusAPI) ReleaseActivityAttempt(context.Context, *execution.Run
 func (*activityStatusAPI) RefuseIncompatibleActivityClaim(context.Context, protocol.Task, *execution.Run) (bool, error) {
 	return false, nil
 }
+
+func (a *activityStatusAPI) PayloadSizeLimit() int { return 0 }

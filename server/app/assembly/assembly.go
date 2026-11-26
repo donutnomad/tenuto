@@ -3,6 +3,8 @@
 package assembly
 
 import (
+	"time"
+
 	"github.com/donutnomad/tenuto/internal/executor/interpreter"
 	"github.com/donutnomad/tenuto/internal/worker"
 	"github.com/donutnomad/tenuto/sdk/activity"
@@ -52,6 +54,10 @@ type Options struct {
 	TaskTokens *dispatch.TaskTokenCodec
 	// Clock 是 Server 的时间来源，留空时使用系统时钟；测试传入 clocktest.Fake 手动推进时间。
 	Clock clock.Clock
+	// ReconcileInterval 与 ReconcileFullScanInterval 是 Engine 周期补偿与全量补偿的间隔，留空时取
+	// engine.DefaultReconcileInterval 与 engine.DefaultReconcileFullScanInterval。NewServer 不使用它们。
+	ReconcileInterval         time.Duration
+	ReconcileFullScanInterval time.Duration
 }
 
 // NewServer 按 opts 选定各依赖的具体实现并构造 Server；未给出的仓储使用内存实现。
@@ -103,5 +109,5 @@ func NewServer(opts Options, options ...engine.ServerOption) *engine.Server {
 
 // NewEngine 构造一个 Server 与同进程 Worker 的组合。
 func NewEngine(opts Options, registry *activity.Registry, workerOpts worker.WorkerOptions) *Engine {
-	return newEngine(NewServer(opts), opts.Stores.Executions, registry, workerOpts)
+	return newEngine(NewServer(opts), opts.Stores.Executions, registry, workerOpts, opts)
 }

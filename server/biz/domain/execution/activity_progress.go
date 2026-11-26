@@ -9,7 +9,7 @@ import (
 // policy allows another attempt, the start stays transient until the attempt
 // closes, when it is backfilled into History together with the outcome; an
 // Activity limited to one attempt writes ActivityStarted immediately.
-func StartActivity(tx ExecutionTx, start ActivityTransition, workerIdentity, workerBuildID string) (bool, error) {
+func StartActivity(tx ExecutionTx, start ActivityTransition, workerIdentity, workerBuildID, requestID string) (bool, error) {
 	state, ok, err := currentActivityAttempt(tx, start)
 	if err != nil || !ok || state.StartedEventID != EmptyEventID {
 		return false, err
@@ -37,6 +37,7 @@ func StartActivity(tx ExecutionTx, start ActivityTransition, workerIdentity, wor
 	state.setNextAttemptAt(nil)
 	state.setWorkerIdentity(workerIdentity)
 	state.setWorkerBuildID(workerBuildID)
+	state.setStartRequestID(requestID)
 	state.setStatus(ActivityStatusEnums.Started)
 	state.setUpdatedAt(start.Now)
 	if err := tx.UpdateActivityState(state); err != nil {
@@ -50,7 +51,7 @@ func StartActivity(tx ExecutionTx, start ActivityTransition, workerIdentity, wor
 // LastHeartbeat 读到详情；attempt 超时时详情随 ActivityTimedOut 写入 History。返回更新后的 state；
 // 过期的 attempt 返回 nil，事务不变。
 func RecordActivityHeartbeat(tx ExecutionTx, heartbeat ActivityTransition, details map[string]any) (*ActivityState, error) {
-	state, ok, err := currentActivityAttempt(tx, heartbeat)
+	state, ok, err := lockActivityAttempt(tx, heartbeat)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -90,6 +91,7 @@ func ReleaseActivity(tx ExecutionTx, release ActivityTransition) (ActivityReleas
 	}
 	state.setStamp(state.Stamp + 1)
 	state.setStartedEventID(EmptyEventID)
+	state.setStartRequestID("")
 	state.setStartedTime(nil)
 	state.setWorkerIdentity("")
 	state.setWorkerBuildID("")

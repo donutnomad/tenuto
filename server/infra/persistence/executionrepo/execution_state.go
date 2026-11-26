@@ -140,8 +140,9 @@ func (s *Repository) ListWorkflowExecutionStates(runIDs []string) (map[string]*e
 //
 //	StickyWorkerIdentity != ""   →  sticky_worker_identity <> ''
 //	OpenWorkflowTaskEventID != 0 →  open_workflow_task_event_id > 0
-//	!StickyValidAt(now)          →  sticky_expires_at IS NULL OR sticky_expires_at <= ?
-//	                                （StickyValidAt = StickyExpiresAt != nil && After(now)）
+//	StickyExpiresAt != nil && !StickyValidAt(now)
+//	                             →  sticky_expires_at <= ?（NULL 不满足比较）
+//	                                （StickyExpiresAt 是 open WFT 的 sticky schedule-to-start 期限，started 后清空）
 //
 // 索引 idx_wf_exec_states_sticky_fallback (sticky_worker_identity, sticky_expires_at)：
 // 前缀列绝大多数行是 ”（无 sticky），选择性良好。
@@ -149,11 +150,9 @@ func (s *Repository) ListExpiredStickyExecutions(now time.Time, limit int) ([]*e
 	query := gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
 		Where(
 			WorkflowExecutionStateSchema.StickyWorkerIdentity.Not(""),
+			WorkflowExecutionStateSchema.Status.Eq(string(history.StatusRunning)),
 			WorkflowExecutionStateSchema.OpenWorkflowTaskEventID.Gt(0),
-			gsql.Or(
-				WorkflowExecutionStateSchema.StickyExpiresAt.IsNull(),
-				WorkflowExecutionStateSchema.StickyExpiresAt.Lte(&now),
-			),
+			WorkflowExecutionStateSchema.StickyExpiresAt.Lte(&now),
 		).
 		// 稳定顺序：避免多轮扫描在 LIMIT 截断处反复取到同一批之外的随机子集。
 		Order(WorkflowExecutionStateSchema.RunID)
@@ -175,13 +174,13 @@ func (s *Repository) ListExpiredStickyExecutions(now time.Time, limit int) ([]*e
 	return states, nil
 }
 
-func (s *Repository) AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt time.Time) (generation int64, assigned bool, err error) {
+func (s *Repository) AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string) (generation int64, assigned bool, err error) {
 	err = s.inTx(func(tx *gormExecutionTx) error {
 		state, stateErr := tx.lockedState(runID)
 		if stateErr != nil {
 			return stateErr
 		}
-		assigned = state.AssignSticky(executionGeneration, expectedStickyGeneration, workerIdentity, workerBuildID, expiresAt, s.clock.Now())
+		assigned = state.AssignSticky(executionGeneration, expectedStickyGeneration, workerIdentity, workerBuildID, s.clock.Now())
 		generation = state.StickyGeneration
 		return nil
 	})

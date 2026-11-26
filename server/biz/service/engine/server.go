@@ -38,6 +38,8 @@ type Server struct {
 	dispatcher *dispatch.Service
 	// tokens 签发与校验 task token；HTTP 边界与引擎使用同一个 codec。
 	tokens *dispatch.TaskTokenCodec
+	// payloadSizeLimit 是单个载荷的字节上限，见 WithPayloadSizeLimit。
+	payloadSizeLimit int
 
 	wfQueue         dispatch.TaskQueue
 	actQueue        dispatch.ActivityTaskQueueRouter
@@ -142,6 +144,7 @@ func NewServer(deps ServerDeps, options ...ServerOption) *Server {
 		querySlots:        make(chan struct{}, resolved.queryConcurrency),
 		tokens:            deps.TaskTokens,
 		updateSoftTimeout: updateSoftTimeout,
+		payloadSizeLimit:  resolved.payloadSizeLimit,
 		keyedMu:           NewKeyedLock(),
 		workflowWorkers:   make(map[string]executionview.WorkflowWorkerStatus),
 		updateValidators:  make(map[string]InputValidator),

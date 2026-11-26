@@ -53,7 +53,7 @@ func newCompletionHTTPClient(t *testing.T, runtime activitytasks.API) (completio
 
 func (c completionHTTP) CompleteActivityTask(ctx context.Context, task protocol.Task, output map[string]any, failure *protocol.Failure) error {
 	return wirePost(ctx, c.url, runtimeapi.ActivityRuntimeCompletePath, runtimeapi.ActivityRuntimeCompleteRequest{
-		TaskToken: task.TaskToken, Task: task, Output: output, Failure: failure,
+		ActivityRuntimeTaskRequest: runtimeapi.ActivityRuntimeTaskRequest{TaskToken: task.TaskToken}, Output: output, Failure: failure,
 	}, nil)
 }
 

@@ -168,9 +168,10 @@ func TestStickyFallbackLeavesStartedWorkflowTaskAlone(t *testing.T) {
 	}
 }
 
-// sticky 会话在过期时刻之前不回落；假时钟推进到过期时刻后，回落扫描清除 sticky 并把未领取的 WFT 重投普通队列。
+// sticky 绑定之后调度的 WFT 投给 sticky Worker，从调度时刻起计 sticky schedule-to-start：期限之前不回落；假时钟
+// 推进到期限后，回落扫描清除 sticky 并把未领取的 WFT 重投普通队列。
 func TestStickyFallbackRedispatchesAfterStickyExpires(t *testing.T) {
-	const stickyTTL = 5 * time.Second
+	const stickyTTL = execution.StickyScheduleToStartTimeout
 	mgr := memory.NewExecutionManager()
 	queue := &nonDeadlineStickyQueue{}
 	clk := clocktest.NewFake(testClockStart)
@@ -183,13 +184,28 @@ func TestStickyFallbackRedispatchesAfterStickyExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enqueuedAtStart := queue.normalEnqueues
 	state, err := mgr.GetWorkflowExecutionState(runID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "owner-worker", "workflow-v1", clk.Now().Add(stickyTTL)); err != nil || !assigned {
+	if _, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "owner-worker", "workflow-v1"); err != nil || !assigned {
 		t.Fatalf("assign sticky: assigned=%v err=%v", assigned, err)
+	}
+	// 首个 WFT 在绑定之前调度，走普通队列；完成它之后，下一个 WFT 在一段长于 sticky 期限的间隔后才调度，
+	// 仍投给 sticky Worker（绑定不随时间失效）。
+	if _, _, err := mgr.AppendWorkflowTaskClosed(runID, runID, runID, history.NewWorkflowTaskCompletedEvent(state.OpenWorkflowTaskEventID, "owner-worker")); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(time.Minute)
+	if err := server.scheduleWorkflowTask(context.Background(), runID); err != nil {
+		t.Fatal(err)
+	}
+	if queue.stickyEnqueues != 1 {
+		t.Fatalf("sticky enqueues = %d, want the workflow task scheduled a minute after completion routed sticky", queue.stickyEnqueues)
+	}
+	enqueuedAtStart := queue.normalEnqueues
+	if state, _ := mgr.GetWorkflowExecutionState(runID); state.StickyExpiresAt == nil || !state.StickyExpiresAt.Equal(clk.Now().Add(stickyTTL)) {
+		t.Fatalf("sticky schedule-to-start deadline = %v, want %v", state.StickyExpiresAt, clk.Now().Add(stickyTTL))
 	}
 
 	clk.Advance(stickyTTL - time.Millisecond)
@@ -207,7 +223,7 @@ func TestStickyFallbackRedispatchesAfterStickyExpires(t *testing.T) {
 	if state, _ := mgr.GetWorkflowExecutionState(runID); state.StickyWorkerIdentity != "" {
 		t.Fatalf("sticky not cleared after it expired: %q", state.StickyWorkerIdentity)
 	}
-	if queue.normalEnqueues != enqueuedAtStart+1 || queue.stickyEnqueues != 0 {
-		t.Fatalf("enqueues after fallback: normal=%d sticky=%d, want %d/0", queue.normalEnqueues, queue.stickyEnqueues, enqueuedAtStart+1)
+	if queue.normalEnqueues != enqueuedAtStart+1 || queue.stickyEnqueues != 1 {
+		t.Fatalf("enqueues after fallback: normal=%d sticky=%d, want %d/1", queue.normalEnqueues, queue.stickyEnqueues, enqueuedAtStart+1)
 	}
 }

@@ -134,7 +134,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	runID, workflowTaskScheduledID := open.ref.ID, open.scheduledEventID
 	traceContext := s.telemetry.inject(ctx)
 	programVersion := open.programVersion()
-	prepared, err := execution.PrepareWorkflowTask(runID, commands, traceContext, workflowCommandResolver{server: s, programVersion: programVersion})
+	prepared, err := execution.PrepareWorkflowTask(runID, commands, traceContext, s.payloadSizeLimit, workflowCommandResolver{server: s, programVersion: programVersion})
 	if errors.Is(err, dispatch.ErrActivityRouteUnavailable) {
 		// Activity Worker 尚未上线：关闭本次 WFT 并退避重试，Run 显示为 Blocked。
 		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, WorkflowTaskFailedCauseActivityRouteUnavailable, err.Error())
@@ -142,6 +142,11 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	if cause, ok := execution.BadCommandAttributesCause(err); ok {
 		// Workflow 代码的确定性错误：关闭本次 WFT 并退避重试，Run 显示为 Blocked，修复代码后恢复。
 		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, cause, err.Error())
+	}
+	if errors.Is(err, protocol.ErrPayloadTooLarge) {
+		// 与 ErrBadScheduleActivityAttributes 同类：同样的命令重放只会再次超限。关闭本次 WFT 并退避重试，
+		// Run 显示为 Blocked，修复代码后恢复。
+		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, history.WorkflowTaskFailedCausePayloadSizeLimitExceeded, err.Error())
 	}
 	if err != nil {
 		return err
@@ -197,6 +202,8 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		workflowFailedInserted bool
 	)
 	if txErr := s.telemetry.runInTx(ctx, "complete_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+		// 死锁重放时上一次尝试的结果作废。
+		run, promoted, result, continuedInserted, workflowFailedInserted = nil, false, execution.WorkflowTaskCompletionResult{}, false, false
 		// 锁下读取 Run：提交用它把 current 提升到本次采用的 Program 版本，终态命令在它上面关闭 Run。
 		var err error
 		if run, err = tx.GetRunForUpdate(runID); err != nil {

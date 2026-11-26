@@ -15,6 +15,7 @@ import (
 	"github.com/donutnomad/tenuto/server/infra/persistence/executionrepo"
 
 	"github.com/donutnomad/tenuto/internal/worker"
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/runtimeapi"
 	"github.com/donutnomad/tenuto/server/biz/domain/dispatch"
 	"github.com/donutnomad/tenuto/server/biz/service/engine"
@@ -107,6 +108,10 @@ type Config struct {
 	WorkflowWorker WorkflowWorkerConfig
 	// QueryConcurrency 是同时在本进程重放 History 求值 Query 的上限（WORKFLOW_QUERY_CONCURRENCY）；<=0 取引擎默认值。
 	QueryConcurrency int
+	// PayloadSizeLimit 是单个载荷（Workflow 输入与结果、Activity 输入、输出与心跳详情等）JSON 编码后的字节上限
+	// （WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES）。<=0 取 protocol.DefaultPayloadSizeLimit，上限
+	// protocol.MaxPayloadSizeLimit。
+	PayloadSizeLimit int
 	// PprofAddr 非空时在这个地址上提供 net/http/pprof（WORKFLOW_PPROF_ADDR），缺省关闭。调试用，不鉴权，
 	// 只绑定本机或内网地址。
 	PprofAddr string
@@ -370,6 +375,7 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 		NodeID:                    envOrDefault(lookup, "WORKFLOW_NODE_ID", hostname),
 		PprofAddr:                 envOrDefault(lookup, "WORKFLOW_PPROF_ADDR", ""),
 		StartupTimeout:            defaultStartupTimeout,
+		PayloadSizeLimit:          protocol.DefaultPayloadSizeLimit,
 		ReconcileInterval:         defaultReconcileInterval,
 		ReconcileFullScanInterval: defaultReconcileFullScanInterval,
 		QueryConcurrency:          engine.DefaultQueryConcurrency,
@@ -476,6 +482,7 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 		{"WORKFLOW_WORKER_CACHE_MAX_ENTRIES", &cfg.WorkflowWorker.CacheMaxEntries},
 		{"WORKFLOW_WORKER_CACHE_MAX_BYTES", &cfg.WorkflowWorker.CacheMaxBytes},
 		{"WORKFLOW_QUERY_CONCURRENCY", &cfg.QueryConcurrency},
+		{"WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES", &cfg.PayloadSizeLimit},
 	}
 	for _, value := range integers {
 		if err := applyPositiveInt(lookup, value.name, value.target); err != nil {
@@ -500,6 +507,14 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 }
 
 // Validate 按「所有数据库均由本包依 DSN 自行拨号」校验配置。
+// payloadSizeLimit 是生效的载荷上限：<=0 取缺省值。
+func (c Config) payloadSizeLimit() int {
+	if c.PayloadSizeLimit <= 0 {
+		return protocol.DefaultPayloadSizeLimit
+	}
+	return c.PayloadSizeLimit
+}
+
 func (c Config) Validate() error {
 	return c.validate(false, false)
 }
@@ -509,6 +524,9 @@ func (c Config) Validate() error {
 func (c Config) validate(workflowDBInjected, taskQDBInjected bool) error {
 	if c.Backend != BackendMySQLTaskQ && c.Backend != BackendMemory {
 		return fmt.Errorf("WORKFLOW_BACKEND must be %q or %q", BackendMySQLTaskQ, BackendMemory)
+	}
+	if c.PayloadSizeLimit > protocol.MaxPayloadSizeLimit {
+		return fmt.Errorf("WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES must not exceed %d (a payload plus its request must fit the 4MB runtime request body)", protocol.MaxPayloadSizeLimit)
 	}
 	if strings.TrimSpace(c.HTTP.Address) == "" {
 		return fmt.Errorf("WORKFLOW_HTTP_ADDR is empty")

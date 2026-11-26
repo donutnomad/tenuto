@@ -19,6 +19,8 @@ function mapActivityStateStatus(s: ActivityState['status']): Step['status'] {
     case 'failed': return 'failed'
     case 'timed_out': return 'timed_out'
     case 'cancelled': return 'cancelled'
+    // Run 结束时仍未完成的 Activity 随 Run 关闭（没有事件），按 Run 被终止显示，不再出现在 Pending 里。
+    case 'run_closed': return 'terminated'
     default: return 'scheduled'
   }
 }

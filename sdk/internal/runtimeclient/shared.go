@@ -72,6 +72,23 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("%s %s: %s", e.API, e.Status, e.Body)
 }
 
+// Is 让由请求本身引起、重发也不会成功的应答（400、404、409、413、422）满足 errors.Is(err, protocol.ErrInvalidRequest)，
+// 与进程内调用的错误一致：Worker 据此不立即退回这份投递。413 另外满足 protocol.ErrPayloadTooLarge：Workflow Task
+// 的提交因此记为 payload_size_limit_exceeded 失败。
+func (e *StatusError) Is(target error) bool {
+	if target == protocol.ErrPayloadTooLarge {
+		return e.Code == http.StatusRequestEntityTooLarge
+	}
+	if target != protocol.ErrInvalidRequest {
+		return false
+	}
+	switch e.Code {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return true
+	}
+	return false
+}
+
 // workerInfoHeaders 把 ctx 携带的 Worker 信息写进请求头；ctx 没有 Worker 信息时返回 nil。
 func workerInfoHeaders(ctx context.Context) func(*http.Request) {
 	info, ok := protocol.WorkerInfoFrom(ctx)

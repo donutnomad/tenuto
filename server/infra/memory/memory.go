@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
@@ -540,6 +541,16 @@ func cloneStringMap(in map[string]string) map[string]string {
 	return out
 }
 
+// taskLeaseTimeout 是内存队列保存已出队任务的期限，与 TaskQ 默认的 visibility timeout（60s）一致。到期的副本
+// 直接丢弃、不重投：Worker 崩溃、应答丢失或派发出错留下的任务由 reconciler 补投新的投递。
+const taskLeaseTimeout = 60 * time.Second
+
+// leasedTask 是一个租约出队时的任务及其到期时间。
+type leasedTask struct {
+	task    protocol.Task
+	expires time.Time
+}
+
 // TaskQueue 是内存 Workflow 任务队列：一份按入队顺序排列的待领任务，各个出队入口按任务自带的路由字段挑选。
 //
 //   - Dequeue 取没有定向的任务。
@@ -547,6 +558,12 @@ func cloneStringMap(in map[string]string) map[string]string {
 type TaskQueue struct {
 	mu      sync.Mutex
 	pending []protocol.TaskLease
+	// leased 按租约 token 保存已出队、尚未确认或退回的任务。Nack 重投这里的副本，不采用调用方交回的
+	// lease.Task：Worker 交回的载荷没有签名，不能改写下一次投递（与 TaskQ 重投数据库里的行相同）。
+	// 副本在 taskLeaseTimeout 后到期，下一次出队时清理；到期后的 Ack 与 Nack 什么也不做。
+	leased    map[string]leasedTask
+	nextLease uint64
+	now       func() time.Time
 	// changed 在 pending 变化时关闭并换新，唤醒等待中的入队与出队。
 	changed chan struct{}
 	size    int
@@ -556,7 +573,7 @@ func NewTaskQueue(size int) *TaskQueue {
 	if size <= 0 {
 		size = 100
 	}
-	return &TaskQueue{changed: make(chan struct{}), size: size}
+	return &TaskQueue{changed: make(chan struct{}), size: size, leased: make(map[string]leasedTask), now: time.Now}
 }
 
 func (q *TaskQueue) Enqueue(ctx context.Context, task protocol.Task) error {
@@ -586,6 +603,8 @@ func (q *TaskQueue) take(ctx context.Context, prefer, accept func(protocol.Task)
 			return protocol.TaskLease{}, err
 		}
 		q.mu.Lock()
+		now := q.now()
+		q.dropExpiredLeasesLocked(now)
 		index := -1
 		if prefer != nil {
 			index = slices.IndexFunc(q.pending, func(lease protocol.TaskLease) bool { return prefer(lease.Task) })
@@ -596,6 +615,9 @@ func (q *TaskQueue) take(ctx context.Context, prefer, accept func(protocol.Task)
 		if index >= 0 {
 			lease := q.pending[index]
 			q.pending = slices.Delete(q.pending, index, index+1)
+			q.nextLease++
+			lease.Token = fmt.Sprintf("memory-lease-%d", q.nextLease)
+			q.leased[lease.Token] = leasedTask{task: lease.Task, expires: now.Add(taskLeaseTimeout)}
 			q.notifyLocked()
 			q.mu.Unlock()
 			return lease, nil
@@ -606,6 +628,14 @@ func (q *TaskQueue) take(ctx context.Context, prefer, accept func(protocol.Task)
 		case <-changed:
 		case <-ctx.Done():
 			return protocol.TaskLease{}, ctx.Err()
+		}
+	}
+}
+
+func (q *TaskQueue) dropExpiredLeasesLocked(now time.Time) {
+	for token, leased := range q.leased {
+		if !now.Before(leased.expires) {
+			delete(q.leased, token)
 		}
 	}
 }
@@ -649,12 +679,24 @@ func (q *TaskQueue) HandlesStickyRoutingDeadline() bool { return false }
 func (q *TaskQueue) Durable() bool { return false }
 
 func (q *TaskQueue) Ack(ctx context.Context, lease protocol.TaskLease) error {
+	q.mu.Lock()
+	delete(q.leased, lease.Token)
+	q.mu.Unlock()
 	return nil
 }
 
-// Nack 把任务放回队尾；路由字段在任务上，重新投递沿用原来的路由。
+// Nack 把这个租约出队时的任务放回队尾；路由字段在任务上，重新投递沿用原来的路由。已确认、已退回或未知的
+// 租约与已到期的租约什么也不做。
 func (q *TaskQueue) Nack(ctx context.Context, lease protocol.TaskLease) error {
-	return q.Enqueue(ctx, lease.Task)
+	q.mu.Lock()
+	leased, ok := q.leased[lease.Token]
+	delete(q.leased, lease.Token)
+	expired := ok && !q.now().Before(leased.expires)
+	q.mu.Unlock()
+	if !ok || expired {
+		return nil
+	}
+	return q.Enqueue(ctx, leased.task)
 }
 
 func engineKey(namespace, id string) string {

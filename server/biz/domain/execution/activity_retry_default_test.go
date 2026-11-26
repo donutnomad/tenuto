@@ -57,7 +57,7 @@ func failUntil(t *testing.T, store *memory.ExecutionManager, now time.Time, atte
 			_, err := execution.StartActivity(tx, execution.ActivityTransition{
 				RunID: "run-1", TreeID: "run-1", BranchID: "run-1", ScheduledEventID: 7,
 				Attempt: result.RetryState.Attempt, Stamp: result.RetryState.Stamp, Now: now,
-			}, "worker-1", "")
+			}, "worker-1", "", "")
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -146,7 +146,7 @@ func TestStartActivityWritesStartedEventOnlyForSingleAttempt(t *testing.T) {
 			if err := store.RunInTx(func(tx execution.ExecutionTx) error {
 				_, err := execution.StartActivity(tx, execution.ActivityTransition{
 					RunID: "run-1", TreeID: "run-1", BranchID: "run-1", ScheduledEventID: 7, Attempt: 1, Stamp: 1, Now: time.Now(),
-				}, "worker-1", "")
+				}, "worker-1", "", "")
 				return err
 			}); err != nil {
 				t.Fatal(err)

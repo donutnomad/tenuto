@@ -245,7 +245,7 @@ func newApplication(ctx context.Context, cfg Config, options ...RunOption) (_ *a
 			ActivityRouter: memory.NewActivityQueueRouter(1024),
 			TaskTokens:     taskTokenCodec,
 			Clock:          app.clock,
-		}, engine.WithTelemetry(app.telemetry), engine.WithQueryConcurrency(cfg.QueryConcurrency))
+		}, engine.WithTelemetry(app.telemetry), engine.WithPayloadSizeLimit(cfg.payloadSizeLimit()), engine.WithQueryConcurrency(cfg.QueryConcurrency))
 	} else if err := app.configureMySQLTaskQ(ctx, taskTokenCodec); err != nil {
 		return nil, err
 	}
@@ -399,7 +399,7 @@ func (a *application) configureMySQLTaskQ(ctx context.Context, taskTokens *dispa
 		ActivityRouter: a.activityRouter,
 		TaskTokens:     taskTokens,
 		Clock:          a.clock,
-	}, engine.WithTelemetry(a.telemetry), engine.WithQueryConcurrency(a.cfg.QueryConcurrency))
+	}, engine.WithTelemetry(a.telemetry), engine.WithPayloadSizeLimit(a.cfg.payloadSizeLimit()), engine.WithQueryConcurrency(a.cfg.QueryConcurrency))
 
 	resolver, err := a.monitor.GetResolver(a.cfg.TaskQ.ServiceName)
 	if err != nil {
@@ -685,7 +685,7 @@ func (a *application) startRecovery(ctx context.Context) {
 // 已逐个汇总，未完成的部分由周期 reconciler 继续补偿。
 func (a *application) recoverRunningWorkflows(ctx context.Context) {
 	started := a.clock.Now()
-	if err := a.server.RecoverRunningWorkflows(ctx); err != nil {
+	if err := a.server.RecoverRunningWorkflows(ctx, a.reconcileLoop().Lookahead()); err != nil {
 		a.telemetry.Logger.Error("recover running workflows incomplete; reconciler will retry", "err", err)
 	}
 	if err := a.server.FallbackExpiredStickyWorkflowTasks(ctx); err != nil {
@@ -694,10 +694,15 @@ func (a *application) recoverRunningWorkflows(ctx context.Context) {
 	a.telemetry.Logger.Info("startup recovery finished", "duration", a.clock.Now().Sub(started))
 }
 
+// reconcileLoop 是本应用的周期补偿循环（见 engine.Reconciler）。
+func (a *application) reconcileLoop() engine.Reconciler {
+	return engine.Reconciler{Server: a.server, Interval: a.cfg.ReconcileInterval, FullScanInterval: a.cfg.ReconcileFullScanInterval}
+}
+
 // startReconciler 启动周期补偿。单副本（内存后端）在本进程里运行；MySQL 后端经 dbleader 选主，只有 leader
 // 副本扫描，副本数不放大扫描量。补偿的每一步都幂等，租约切换瞬间的两个 leader 不会造成重复副作用。
 func (a *application) startReconciler(ctx context.Context) error {
-	task := reconcilerTask{app: a}
+	task := a.reconcileLoop()
 	if a.cfg.Backend != BackendMemory {
 		reconciler, err := leaderinfra.StartReconciler(task, a.workflowHandle, a.cfg.NodeID)
 		if err != nil {
@@ -714,69 +719,6 @@ func (a *application) startReconciler(ctx context.Context) error {
 		_ = task.Start(reconcileCtx)
 	}()
 	return nil
-}
-
-// reconcilerTask 每隔 ReconcileInterval 做一次按到期索引的周期补偿，每隔 ReconcileFullScanInterval 做一次全量补偿，
-// ctx 取消时返回。
-type reconcilerTask struct{ app *application }
-
-func (reconcilerTask) Name() string { return "workflow-reconciler" }
-
-func (t reconcilerTask) Start(ctx context.Context) error {
-	ticker := time.NewTicker(t.app.cfg.ReconcileInterval)
-	defer ticker.Stop()
-	fullScan := time.NewTicker(t.app.cfg.ReconcileFullScanInterval)
-	defer fullScan.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			t.app.reconcile(ctx)
-		case <-fullScan.C:
-			t.app.reconcileAll(ctx)
-		}
-	}
-}
-
-// reconcile 处理有到期或待处理事项的 Running Run：补投任务、把两个周期内到期的定时器挂到本进程，
-// 再接管持久化状态已过期的定时器。单个 Run 的失败不影响其余 Run。
-func (a *application) reconcile(ctx context.Context) {
-	result, overdue, err := a.server.Reconcile(ctx, engine.DefaultOverdueTimerGrace, 2*a.cfg.ReconcileInterval)
-	if err != nil {
-		a.telemetry.Logger.Error("workflow reconciliation incomplete", "err", err)
-	}
-	if result.WorkflowTasks > 0 || result.ActivityTasks > 0 {
-		a.telemetry.Logger.Info("workflow dispatch reconciliation completed", "workflow_tasks", result.WorkflowTasks, "activity_tasks", result.ActivityTasks)
-	}
-	if overdue != (engine.OverdueTimerResult{}) {
-		a.telemetry.Logger.Warn("workflow overdue timers taken over",
-			"run_timeouts", overdue.RunTimeouts,
-			"durable_timers", overdue.DurableTimers,
-			"activity_timeouts", overdue.ActivityTimeouts,
-			"workflow_task_timeouts", overdue.WorkflowTaskTimeouts,
-			"workflow_tasks", overdue.WorkflowTasks,
-			"activity_tasks", overdue.ActivityTasks)
-	}
-}
-
-// reconcileAll 逐个补偿全部 Running Run，兜底没有到期索引的崩溃窗口（子 Run 补建、
-// 终态写回、父关闭策略、子 Run 取消请求补发），再删除到期超过一天的 Activity Worker 路由。
-func (a *application) reconcileAll(ctx context.Context) {
-	started := a.clock.Now()
-	result, err := a.server.DispatchPendingTasks(ctx)
-	if err != nil {
-		a.telemetry.Logger.Error("workflow full reconciliation incomplete", "err", err)
-	}
-	if purged, err := a.server.PurgeExpiredActivityWorkerVersions(); err != nil {
-		a.telemetry.Logger.Error("purge expired activity worker versions failed", "err", err)
-	} else if purged > 0 {
-		a.telemetry.Logger.Info("expired activity worker versions purged", "rows", purged)
-	}
-	a.telemetry.Logger.Info("workflow full reconciliation finished",
-		"duration", a.clock.Now().Sub(started),
-		"workflow_tasks", result.WorkflowTasks,
-		"activity_tasks", result.ActivityTasks)
 }
 
 func (a *application) close() {
@@ -876,7 +818,7 @@ func (a *application) checkSchema(ctx context.Context, database db.DB, migration
 	return nil
 }
 
-// mysqlConfig 解析 DSN 并加上 Server 固定的参数：parseTime、interpolateParams 与 loc 由 Server 设置，DSN 里写成
+// mysqlConfig 解析 DSN 并加上 Server 固定的参数：parseTime、interpolateParams、clientFoundRows 与 loc 由 Server 设置，DSN 里写成
 // 别的值也不生效；DSN 没有给出 I/O 超时时用 pool 的缺省值（迁移不设，ALTER TABLE 可以运行很久）。
 func mysqlConfig(dsn string, pool DatabaseConfig) (*mysqldriver.Config, error) {
 	parsed, err := mysqldriver.ParseDSN(dsn)

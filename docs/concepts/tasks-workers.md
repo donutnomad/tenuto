@@ -36,7 +36,7 @@ Sticky Execution 会把后续 Workflow Task 优先路由到持有 execution sess
 
 队列投递属于可恢复副作用。Server 启动时读取 open mutable state 和 dispatch 状态，重新投递仍需处理的 Task。Worker 依靠 Event ID、Attempt 和 Stamp 安全处理重复投递。
 
-- 派发记录已是「已投递」、任务却超过等待时长仍没有被领取（open 且未 started 的 Workflow Task、Scheduled 的 Activity attempt）时，leader 副本的 reconciler 再投递一份：投递在队列里丢失时任务不会永久停住。等待时长从 30 秒宽限期起按这条记录的派发次数翻倍，最长 8 分钟；任务只是在等空闲 Worker 时，多出的份数随时间对数增长。
+- 派发记录已是「已投递」、任务却超过等待时长仍没有被领取（open 且未 started 的 Workflow Task、Scheduled 的 Activity attempt）时，leader 副本的 reconciler 再投递一份：投递在队列里丢失时任务不会永久停住。等待时长从 30 秒宽限期起按这条记录的派发次数翻倍，最长 1 小时（约 7 次翻倍后到达）；任务只是在等空闲 Worker 时，多出的份数随等待时长对数增长：Worker 全部下线 8 小时，一个待领取任务约多出 13 份投递，之后每小时最多再多一份。
 - 一个 Workflow Task 只开始一次。不再属于它的投递（WFT 已关闭、Run 已终态，或另一份投递正在执行）由 Server 在领取时确认丢弃，不交给 Worker、不重投。
 - sticky 投递在交到目标 Worker 之后、开始之前 sticky 会话被清除（schedule-to-start 期限到期、Worker 更替），这份投递按普通投递开始仍 open 的 Workflow Task。
 

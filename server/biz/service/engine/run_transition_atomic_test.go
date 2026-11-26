@@ -234,7 +234,7 @@ func TestChildRunCommitsWithParentStartedState(t *testing.T) {
 	}
 
 	mgr.setFault(nil)
-	if _, err := server.reconcileRun(ctx, parentRunID, false); err != nil {
+	if _, err := server.reconcileRun(ctx, parentRunID, false, testRecoveryHorizon); err != nil {
 		t.Fatal(err)
 	}
 	state, found, err := mgr.GetChildWorkflowState(parentRunID, states[0].ScheduledEventID)

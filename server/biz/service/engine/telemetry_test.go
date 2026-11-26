@@ -102,7 +102,7 @@ func TestWorkerTelemetryPreservesParentAndEmitsAllSignals(t *testing.T) {
 	}
 }
 
-func TestTraceContextSurvivesHistoryAndTaskTokenSerialization(t *testing.T) {
+func TestTraceContextSurvivesHistoryAndStaysOutOfTaskToken(t *testing.T) {
 	carrier := map[string]string{
 		"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
 		"baggage":     "tenant=acme",
@@ -139,8 +139,9 @@ func TestTraceContextSurvivesHistoryAndTaskTokenSerialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decodedTask.TraceContext["traceparent"] != carrier["traceparent"] || decodedTask.TraceContext["baggage"] != carrier["baggage"] {
-		t.Fatalf("task token trace context = %#v", decodedTask.TraceContext)
+	// TraceContext 随投递的任务送达 Worker，不进 task token：token 只签寻址与 fence 字段。
+	if decodedTask.TraceContext != nil {
+		t.Fatalf("task token carries trace context %#v, want it excluded", decodedTask.TraceContext)
 	}
 }
 

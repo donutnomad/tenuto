@@ -260,7 +260,7 @@ func TestWorkflowTaskCompletion_ScheduleFailureAfterUnseenFactsCommitStillSuccee
 	}
 
 	mgr.failOn("")
-	if _, err := srv.reconcileRun(ctx, runID, true); err != nil {
+	if _, err := srv.reconcileRun(ctx, runID, true, testRecoveryHorizon); err != nil {
 		t.Fatal(err)
 	}
 	if next := openWorkflowTaskForTest(t, mgr, runID); next == wftID {

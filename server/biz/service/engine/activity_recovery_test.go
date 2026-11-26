@@ -22,7 +22,7 @@ func TestRecoveryRebuildsFromState(t *testing.T) {
 	// "重启"：同一持久化 mgr，新 Server（内存全空）。
 	srv2 := assembleServer(mgr, newTestTaskQueue(), newTestTaskQueue())
 	t.Cleanup(srv2.Stop)
-	count, err := srv2.recoverActivityRetries(context.Background(), runID, true)
+	count, err := srv2.recoverActivityRetries(context.Background(), runID, true, testRecoveryHorizon)
 	if err != nil {
 		t.Fatal(err)
 	}

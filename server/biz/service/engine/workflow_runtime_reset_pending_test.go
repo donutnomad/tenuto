@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -49,15 +48,21 @@ func requireOldAttemptRejected(t *testing.T, server *Server, mgr execution.Execu
 	t.Helper()
 	before := len(mustEvents(t, mgr, oldRunID))
 	_ = server.HandleActivityCompleted(context.Background(), oldRunID, task.ScheduledEventID, task.Attempt, task.Stamp, map[string]any{"late": true})
+	// 被替换的 Run 关闭时，它未结束的 Activity 随之转 run_closed：迟到的完成按过期的 attempt 丢弃，不写事件。
+	if state, ok, err := mgr.GetActivityState(oldRunID, task.ScheduledEventID); err != nil || !ok || state.Status != execution.ActivityStatusEnums.RunClosed {
+		t.Fatalf("activity of the replaced run = %+v (found %v, err %v), want run_closed", state, ok, err)
+	}
+	var completed bool
 	err := mgr.RunInTx(func(tx execution.ExecutionTx) error {
-		_, err := execution.CompleteActivity(tx, execution.ActivityTransition{
+		var err error
+		completed, err = execution.CompleteActivity(tx, execution.ActivityTransition{
 			RunID: oldRunID, TreeID: oldRunID, BranchID: oldRunID,
 			ScheduledEventID: task.ScheduledEventID, Attempt: task.Attempt, Stamp: task.Stamp, Now: server.clock.Now(),
 		}, map[string]any{"late": true})
 		return err
 	})
-	if !errors.Is(err, execution.ErrRunClosed) {
-		t.Fatalf("late completion on the replaced run: err = %v, want ErrRunClosed", err)
+	if err != nil || completed {
+		t.Fatalf("late completion on the replaced run: completed = %v, err = %v; want a stale attempt", completed, err)
 	}
 	if after := mustEvents(t, mgr, oldRunID); len(after) != before || countEngineEvents(after, history.EventActivityCompleted) != 0 {
 		t.Fatalf("replaced run history changed by a late completion: %+v", after)

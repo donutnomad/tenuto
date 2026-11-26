@@ -2,7 +2,6 @@ package interpreter
 
 import (
 	"context"
-	"fmt"
 	"runtime"
 	"slices"
 	"time"
@@ -338,7 +337,7 @@ func (e *WorkflowExecutor) startScheduler() {
 				if nd, ok := r.(executor.NonDeterministicError); ok {
 					e.execErr = nd
 				} else {
-					e.execErr = fmt.Errorf("workflow executor panic: %v", r)
+					e.execErr = executor.WorkflowPanicError{Value: r}
 				}
 			}
 		}()
@@ -489,7 +488,7 @@ func (e *WorkflowExecutor) recordCoroutinePanic(r any) {
 	if nd, ok := r.(executor.NonDeterministicError); ok {
 		e.evalErr = nd
 	} else {
-		e.evalErr = fmt.Errorf("workflow coroutine panic: %v", r)
+		e.evalErr = executor.WorkflowPanicError{Value: r}
 	}
 }
 

@@ -13,19 +13,22 @@ const (
 
 type ActivityStatus string
 
-// 字符串枚举 + var 结构体形式（项目规范）。
+// 字符串枚举 + var 结构体形式（项目规范）。Completed、Failed、Cancelled 与 RunClosed 是终态；RunClosed 表示
+// Run 结束时 Activity 仍未完成，随 Run 关闭，不写事件（Temporal 关闭 Run 时随 mutable state 删除 pending activity）。
 var ActivityStatusEnums = struct {
 	Scheduled ActivityStatus
 	Started   ActivityStatus
 	Completed ActivityStatus
 	Failed    ActivityStatus
 	Cancelled ActivityStatus
+	RunClosed ActivityStatus
 }{
 	Scheduled: "scheduled",
 	Started:   "started",
 	Completed: "completed",
 	Failed:    "failed",
 	Cancelled: "cancelled",
+	RunClosed: "run_closed",
 }
 
 // ActivityState 是一个 activity（以 ScheduledEventID 为生命周期 key）的"当前状态"
@@ -49,9 +52,12 @@ type ActivityState struct {
 	// 已开始的 attempt 经心跳得知取消。
 	CancelRequested bool `json:"cancelRequested,omitempty"`
 
-	StartedTime      *time.Time     `json:"startedTime,omitempty"`
-	WorkerIdentity   string         `json:"workerIdentity,omitempty"` // started 时 worker 上报
-	WorkerBuildID    string         `json:"workerBuildId,omitempty"`  // started 时 worker 上报；只用于观测，不参与路由
+	StartedTime    *time.Time `json:"startedTime,omitempty"`
+	WorkerIdentity string     `json:"workerIdentity,omitempty"` // started 时 worker 上报
+	WorkerBuildID  string     `json:"workerBuildId,omitempty"`  // started 时 worker 上报；只用于观测，不参与路由
+	// StartRequestID 是开始当前 attempt 的 Begin 请求标识（Worker 每个 lease 生成一次，对标 Temporal
+	// ActivityInfo.RequestId）：同一标识的重发得到原来的开始结果，其他投递得到 attempt_already_started。
+	StartRequestID   string         `json:"startRequestId,omitempty"`
 	LastHeartbeat    map[string]any `json:"lastHeartbeat,omitempty"`
 	LastHeartbeatAt  *time.Time     `json:"lastHeartbeatAt,omitempty"`
 	RetryLastFailure string         `json:"retryLastFailure,omitempty"` // 上次 attempt 失败原因
@@ -96,7 +102,7 @@ func (s *ActivityState) RetryBackoffPending(now time.Time) bool {
 
 func (s *ActivityState) IsTerminal() bool {
 	return s.Status == ActivityStatusEnums.Completed || s.Status == ActivityStatusEnums.Failed ||
-		s.Status == ActivityStatusEnums.Cancelled
+		s.Status == ActivityStatusEnums.Cancelled || s.Status == ActivityStatusEnums.RunClosed
 }
 
 // ActivityStateStore 是 activity_states 表的 CRUD。返回的 *ActivityState 必须是深拷贝
