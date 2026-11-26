@@ -586,6 +586,7 @@ func (a *workflowRuntimeHTTPAPI) Reset(ctx *gin.Context, req runtimeapi.Workflow
 		ResetType:           execution.ResetType(req.ResetType),
 		ResetEventID:        req.ResetEventID,
 		ReapplyExcludeTypes: req.ReapplyExcludeTypes,
+		RequestID:           req.RequestID,
 	}
 	if err := reset.Validate(); err != nil {
 		return runtimeapi.WorkflowRuntimeResetResponse{}, err

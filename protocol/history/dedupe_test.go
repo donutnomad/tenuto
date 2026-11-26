@@ -19,6 +19,7 @@ func TestLongestUserIdentifiersFitDedupeKey(t *testing.T) {
 			MarkerID:   strings.Repeat("界", protocol.MaxMarkerIDLength),
 		}},
 		"signal":           {WorkflowSignaled: &WorkflowSignaledEvent{Name: "pay", RequestID: strings.Repeat("r", protocol.MaxRequestIDLength)}},
+		"reset request":    {WorkflowTaskFailed: &WorkflowTaskFailedEvent{Cause: "reset_workflow", RequestID: strings.Repeat("r", protocol.MaxRequestIDLength)}},
 		"update accepted":  {WorkflowUpdateAccepted: &WorkflowUpdateAcceptedEvent{UpdateID: strings.Repeat("界", protocol.MaxUpdateIDLength)}},
 		"update completed": {WorkflowUpdateCompleted: &WorkflowUpdateCompletedEvent{UpdateID: strings.Repeat("界", protocol.MaxUpdateIDLength)}},
 		"timer":            {TimerScheduled: &TimerScheduledEvent{TimerID: strings.Repeat("界", protocol.MaxTimerIDLength)}},

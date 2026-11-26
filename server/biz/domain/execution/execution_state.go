@@ -320,6 +320,18 @@ func (s *WorkflowExecutionState) WorkflowTaskFailureBackoff(base, cap time.Durat
 	return WorkflowTaskFailureBackoff(s.Blocked.ConsecutiveFailures, base, cap)
 }
 
+// BlockedRetryAt 返回 blocked 的 Run 重试 Workflow Task 的时刻：最近一次 WorkflowTaskFailed 加当前档位的退避。
+// Run 不在 blocked 时 blocked 为 false。退避到期之前到达的事实只写入 History，由这次重试一并处理。
+func (s *WorkflowExecutionState) BlockedRetryAt(base, cap time.Duration) (retryAt time.Time, blocked bool) {
+	if !s.Blocked.Blocked {
+		return time.Time{}, false
+	}
+	if s.WorkflowTask.LastFailedAt != nil {
+		retryAt = *s.WorkflowTask.LastFailedAt
+	}
+	return retryAt.Add(s.WorkflowTaskFailureBackoff(base, cap)), true
+}
+
 func ApplyEventToExecutionState(state *WorkflowExecutionState, event history.Event, eventSize int64) {
 	if state.OpenWaits == nil {
 		state.OpenWaits = make(map[int64]WaitingState)
@@ -494,6 +506,10 @@ func applyWorkflowTaskEvent(state *WorkflowExecutionState, event history.Event) 
 		// 完成的 WFT 看到 SeenThroughEventID 为止的事实；进行期间到达的事实仍待处理，由下一个 WFT 看到。
 		seen := event.WorkflowTaskCompleted.SeenThroughEventID
 		task.ActivationPending = seen > 0 && task.LastActivationEventID > seen
+	case typ == history.EventWorkflowTaskTimedOut:
+		// 超时的 WFT 没有提交任何决策，Run 仍需要一个 WFT：超时提交之后、下一个 WFT 调度之前的崩溃或写库失败
+		// 由 NeedsWorkflowTask 的恢复补上调度。
+		task.ActivationPending = true
 	case isWorkflowTaskLifecycleEvent(typ):
 		task.ActivationPending = false
 	default:

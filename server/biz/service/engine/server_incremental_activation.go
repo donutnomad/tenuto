@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
@@ -90,6 +91,27 @@ func (s *Server) CompleteWorkflowActivation(ctx context.Context, request history
 	return capture.ack, nil
 }
 
+// assignsSticky 报告这次增量完成能否在回执里把 sticky 分配给完成它的 Worker：ABI v1 且带 Worker 标识。
+func (c *workflowCompletionCapture) assignsSticky() bool {
+	return c.activation.Task.ExecutorABIVersion == history.ExecutorABIVersionV1 && c.activation.Task.WorkerIdentity != ""
+}
+
+// completionAssignsSticky 报告 ctx 里的这次完成是否走增量路径并在回执里分配 sticky；全量路径返回 false。
+func completionAssignsSticky(ctx context.Context) bool {
+	capture, ok := ctx.Value(workflowCompletionCaptureContextKey{}).(*workflowCompletionCapture)
+	return ok && capture != nil && capture.assignsSticky()
+}
+
+func hasTerminalCommand(commands []history.Command) bool {
+	return slices.ContainsFunc(commands, func(command history.Command) bool {
+		switch command.Type {
+		case history.CmdCompleteWorkflow, history.CmdFailWorkflow, history.CmdCancelWorkflow, history.CmdContinueAsNew:
+			return true
+		}
+		return false
+	})
+}
+
 // activatedThroughEventID 返回增量激活路径上 Worker 已看到的最后一个事件 ID；全量路径返回 0。
 func activatedThroughEventID(ctx context.Context) int64 {
 	capture, ok := ctx.Value(workflowCompletionCaptureContextKey{}).(*workflowCompletionCapture)
@@ -133,13 +155,7 @@ func (s *Server) captureWorkflowTaskCompletion(
 	if err := history.ValidateEventSequence(committed[0].ID-1, committed); err != nil {
 		return fmt.Errorf("workflow completion store returned non-contiguous authoritative tail: %w", err)
 	}
-	terminal := false
-	for _, command := range commands {
-		switch command.Type {
-		case history.CmdCompleteWorkflow, history.CmdFailWorkflow, history.CmdCancelWorkflow, history.CmdContinueAsNew:
-			terminal = true
-		}
-	}
+	terminal := hasTerminalCommand(commands)
 	capture.ack = history.WorkflowTaskCompletionAck{
 		Accepted:                true,
 		CommittedThroughEventID: committed[len(committed)-1].ID,
@@ -150,9 +166,7 @@ func (s *Server) captureWorkflowTaskCompletion(
 		StickyGeneration:        capture.activation.Task.StickyGeneration,
 		Terminal:                terminal,
 	}
-	if !terminal &&
-		capture.activation.Task.ExecutorABIVersion == history.ExecutorABIVersionV1 &&
-		capture.activation.Task.WorkerIdentity != "" {
+	if !terminal && capture.assignsSticky() {
 		generation, assigned, err := s.mgr.AssignStickyExecution(
 			capture.activation.Task.RunID,
 			capture.activation.Activation.ExecutionGeneration,

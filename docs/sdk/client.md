@@ -87,7 +87,7 @@ c, err := client.Dial(client.Options{
 | `TerminateWorkflow`、Schedule 的 `Delete` | 可以重发 | 效果相同；第一次的应答丢失时，重发报告 Run 已结束（`ErrInvalidArgument`）或 Schedule 不存在（`ErrNotFound`） |
 | `UpsertSearchAttributes`、`UpdateWorkflowExecutionOptions`、Schedule 的 `Update` / `Pause` / `Unpause`、`StopBatchOperation` | 可以重发 | 写入相同的值 |
 | `QueryWorkflow`、`DescribeWorkflowExecution`、`GetWorkflowHistory`、`ListWorkflow`、`WorkflowRun.Get`、Schedule 与批量操作的读取 | 可以重发 | 只读；`Get` 的长轮询断开后重发，继续等待 |
-| `ResetWorkflowExecution` | 再执行一次 | 每次 Reset 分叉出一个新 Run |
+| `ResetWorkflowExecution` | 不带 `RequestID` 时再执行一次；带 `RequestID` 时可以重发 | 不带时每次 Reset 分叉出一个新 Run；带 `RequestID` 时重发返回第一次 Reset 出的 Run ID |
 | Schedule 的 `Create` | 再执行一次 | Schedule ID 由 Server 生成，重发会建第二个 Schedule |
 | Schedule 的 `Trigger` | 再执行一次 | 每次触发启动一个 Run |
 | `StartBatchOperation` | 再执行一次 | 每次受理一个新的批量操作 |
@@ -236,7 +236,7 @@ err = c.UpdateWorkflowExecutionOptions(ctx, client.UpdateWorkflowExecutionOption
 })
 ```
 
-Reset 从所选 Workflow Task 处分叉出新 Run，旧 Run 被终止，分叉点之后的 Signal 与 Update 缺省重新应用到新 Run；规则见 [Reset](/operations/reset)。`UpdateWorkflowExecutionOptions` 覆盖单个 Run 的版本策略（[版本管理](/develop/versioning)）。
+Reset 从所选 Workflow Task 处分叉出新 Run，旧 Run 被终止，分叉点之后的 Signal 与 Update 缺省重新应用到新 Run；`RequestID` 可选，同一个 Run 上相同 `RequestID` 的 Reset 只生效一次；规则见 [Reset](/operations/reset)。`UpdateWorkflowExecutionOptions` 覆盖单个 Run 的版本策略（[版本管理](/develop/versioning)）。
 
 ## Schedule
 

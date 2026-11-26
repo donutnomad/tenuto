@@ -223,7 +223,7 @@ func (s *Server) handleWorkflowTaskRetryFired(ctx context.Context, runID string)
 	if state, err := s.mgr.GetWorkflowExecutionState(runID); err == nil && state != nil {
 		ctx = s.telemetry.extract(ctx, state.WorkflowTask.LastFailureTraceContext)
 	}
-	if err := s.scheduleWorkflowTaskIfRunning(ctx, runID); err != nil {
+	if err := s.resumeWorkflowTask(ctx, runID); err != nil {
 		s.logger.Error("reschedule workflow task after workflow task failure failed", "run_id", runID, "err", err)
 	}
 }

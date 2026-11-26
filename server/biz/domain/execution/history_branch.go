@@ -126,10 +126,16 @@ type ResetWorkflowRequest struct {
 	ResetType           ResetType
 	ResetEventID        int64
 	ReapplyExcludeTypes []string
+	// RequestID 是可选的幂等键：同一个 base Run 上带同一个 RequestID 的 Reset 只生效一次，重复的请求返回第一次
+	// reset 出的 Run（对标 Temporal ResetWorkflowExecution 的 request_id）。为空时不去重。
+	RequestID string
 }
 
 // Validate requires exactly one reset point: a reset type or a reset event ID.
 func (r ResetWorkflowRequest) Validate() error {
+	if err := ValidateRequestID(r.RequestID); err != nil {
+		return err
+	}
 	switch {
 	case r.ResetType == "" && r.ResetEventID <= 0:
 		return protocol.InvalidRequestf("reset requires reset_type (first_workflow_task or last_workflow_task) or reset_event_id")

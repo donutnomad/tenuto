@@ -382,7 +382,37 @@ func (s *Server) DispatchPendingTasks(ctx context.Context) (dispatch.WorkflowDis
 	return result, err
 }
 
+// scheduleWorkflowTask 在新事实写入之后调度 Workflow Task：Run 不在 Running 时不调度；Run 处于 WFT 失败退避期内
+// （blocked）时也不调度，事实留在 History 里（ActivationPending），由退避到期时的重试一并处理，与 Temporal 在
+// WFT 失败后保留 transient WFT、新事件并入下一次尝试一致。退避到期与显式恢复走 resumeWorkflowTask。
 func (s *Server) scheduleWorkflowTask(ctx context.Context, runID string) error {
+	state, err := s.mgr.GetWorkflowExecutionState(runID)
+	if err != nil {
+		return err
+	}
+	if state.Status != history.StatusRunning {
+		return nil
+	}
+	if retryAt, blocked := state.BlockedRetryAt(s.wftBackoffBase, s.wftBackoffCap); blocked && retryAt.After(s.clock.Now()) {
+		return nil
+	}
+	return s.appendWorkflowTask(ctx, runID)
+}
+
+// resumeWorkflowTask 在 WFT 失败退避到期或显式恢复（set-policy）时调度 Workflow Task，不看 blocked 退避。
+func (s *Server) resumeWorkflowTask(ctx context.Context, runID string) error {
+	status, err := s.GetRunStatus(runID)
+	if err != nil {
+		return err
+	}
+	if status != history.StatusRunning {
+		return nil
+	}
+	return s.appendWorkflowTask(ctx, runID)
+}
+
+// appendWorkflowTask 写入 WorkflowTaskScheduled（已有 open WFT 时复用它）并派发。
+func (s *Server) appendWorkflowTask(ctx context.Context, runID string) error {
 	// ConfigError 暂停推进：等待人工修复后显式 set-policy 恢复。期间到达的
 	// signal/activity 完成只留在 history，恢复后由新的 WFT 统一 replay。
 	// UpgradeError 不阻塞调度，失败重试由 WFT 退避机制负责重调度。
@@ -445,7 +475,7 @@ func (s *Server) scheduleWorkflowTaskAfterSignal(ctx context.Context, runID stri
 	if pending, err := s.pendingOnWorkflowTaskBackoff(state); err != nil || pending {
 		return err
 	}
-	return s.scheduleWorkflowTaskIfRunning(ctx, runID)
+	return s.scheduleWorkflowTask(ctx, runID)
 }
 
 // pendingOnWorkflowTaskBackoff 见 execution.WorkflowExecutionState.PendingOnWorkflowTaskBackoff；调度过
@@ -459,17 +489,6 @@ func (s *Server) pendingOnWorkflowTaskBackoff(state *execution.WorkflowExecution
 		return false, err
 	}
 	return state.PendingOnWorkflowTaskBackoff(timers), nil
-}
-
-func (s *Server) scheduleWorkflowTaskIfRunning(ctx context.Context, runID string) error {
-	status, err := s.GetRunStatus(runID)
-	if err != nil {
-		return err
-	}
-	if status != history.StatusRunning {
-		return nil
-	}
-	return s.scheduleWorkflowTask(ctx, runID)
 }
 
 func (s *Server) dispatchWorkflowTask(ctx context.Context, task protocol.Task) (dispatched bool, err error) {

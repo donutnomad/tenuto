@@ -34,7 +34,11 @@ new branch:      1 ─ 2 ─ 3 ─ R ─ ...
 
 ## Reapply
 
-Reset 可以重新应用锚点后的 Signal 和 Update。`ReapplyExcludeTypes` 支持排除 `signal` 或 `update`。执行前应逐项检查外部消息是否仍具业务效力。
+Reset 可以重新应用锚点后的 Signal 和 Update。`ReapplyExcludeTypes` 支持排除 `signal` 或 `update`。执行前应逐项检查外部消息是否仍具业务效力。重新应用的 Update 与带 request ID 的 Signal 在新 Run 上保留去重：同一个 Update ID 发到新 Run 时返回已接受的记录，不会再接受一次。
+
+### request_id 去重
+
+Reset 请求可以带 `request_id`（Go Client 的 `ResetWorkflowExecutionOptions.RequestID`，最长 128 字节）。同一个 Run 最近一次 Reset 来自同一个 `request_id` 时，请求不再 fork，直接返回那次 Reset 出的 Run ID；不带 `request_id` 时每次请求都 Reset 一次。`request_id` 记在新 Run 的 reset 标记上，对应 Temporal `ResetWorkflowExecution` 的 `request_id`。多个副本同时处理同一个请求时，提交在原 Run 的行锁下比较它的最新 Reset，后到的一方重新查找并返回先提交的结果。批量 Reset 为每个 Run 生成确定性的 `request_id`，见 [Batch Operation](/operations/batch-operations#执行与恢复)。
 
 ## Activity Reset
 

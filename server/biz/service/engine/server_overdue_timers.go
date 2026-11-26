@@ -206,17 +206,10 @@ func (s *Server) redeliverUnclaimedTask(ctx context.Context, task protocol.Task,
 // fireOverdueWorkflowTask 重调度退避已到期的失败 WFT。这类 Run 没有 open WFT，DispatchPendingTasks
 // 不会补投，延迟 timer 丢失时由这里接管。是否 blocked、失败时间与退避档位都读 execution state。
 func (s *Server) fireOverdueWorkflowTask(ctx context.Context, runID string, state *execution.WorkflowExecutionState, cutoff time.Time, result *OverdueTimerResult) error {
-	if !state.Blocked.Blocked {
-		return nil
-	}
-	var failedAt time.Time
-	if state.WorkflowTask.LastFailedAt != nil {
-		failedAt = *state.WorkflowTask.LastFailedAt
-	}
-	if !failedAt.Add(state.WorkflowTaskFailureBackoff(s.wftBackoffBase, s.wftBackoffCap)).Before(cutoff) {
+	if retryAt, blocked := state.BlockedRetryAt(s.wftBackoffBase, s.wftBackoffCap); !blocked || !retryAt.Before(cutoff) {
 		return nil
 	}
 	result.WorkflowTasks++
 	ctx = s.telemetry.extract(context.WithoutCancel(ctx), state.WorkflowTask.LastFailureTraceContext)
-	return s.scheduleWorkflowTaskIfRunning(ctx, runID)
+	return s.resumeWorkflowTask(ctx, runID)
 }

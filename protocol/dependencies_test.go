@@ -119,7 +119,7 @@ func TestEngineWritePathsReadRunInTransaction(t *testing.T) {
 		"runExists": true, "runNamespace": true, "continuedWorkflowType": true,
 		"resolveActivityCommand": true, "GetWorkflowConfig": true, "activityTaskFromState": true,
 		// 事务外的预检与查询：结果只决定是否继续，写入的事务按锁下读到的 Run 或 execution state 重新判定。
-		"validateInteraction": true, "lookupUpdate": true, "scheduleWorkflowTask": true,
+		"validateInteraction": true, "lookupUpdate": true, "appendWorkflowTask": true,
 		// 读路径：等待 Run 结束的应答；重发的启动请求应答它开启的 Run 链的 current Run；重发的 SignalWithStart
 		// 应答第一次记下 Signal 的 Run 与事件 ID。
 		"closedRun": true, "runStartedByRequest": true, "signalWithStartByRequest": true,

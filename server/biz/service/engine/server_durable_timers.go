@@ -45,7 +45,7 @@ func (s *Server) handleUserTimerFired(ctx context.Context, runID string, schedul
 	var spanErr error
 	defer func() { tenutotel.FinishSpan(span, spanErr) }()
 	// timer goroutine 写 TimerFired 事件并调度 WFT，须与并发 WFT/signal 同 workflowID 串行。
-	// 下游 scheduleWorkflowTaskIfRunning 仅异步入队 WFT，不同步回调拿锁函数，同 workflowID 不重入。
+	// 下游 scheduleWorkflowTask 仅异步入队 WFT，不同步回调拿锁函数，同 workflowID 不重入。
 	ref, release, err := s.lockRunWorkflow(ctx, runID)
 	if err != nil {
 		spanErr = err
@@ -81,7 +81,7 @@ func (s *Server) handleUserTimerFired(ctx context.Context, runID string, schedul
 		return // 已终态，无新进展
 	}
 	s.stopDurableTimer(runID, scheduledEventID)
-	spanErr = s.scheduleWorkflowTaskIfRunning(ctx, runID)
+	spanErr = s.scheduleWorkflowTask(ctx, runID)
 }
 
 // handleRetryBackoffFired 处理 workflow retry 的 backoff 延迟 timer 到期。
@@ -89,7 +89,7 @@ func (s *Server) handleUserTimerFired(ctx context.Context, runID string, schedul
 // 不落 TimerFired 事件（RetryBackoff 是引擎内部 timer，不暴露给 workflow history）。
 func (s *Server) handleRetryBackoffFired(ctx context.Context, runID string, scheduledEventID int64) {
 	// timer goroutine 推进 RetryBackoff timer 到 Fired 并调度新 run 首个 WFT，须拿 per-(namespace, workflowID)
-	// keyed lock 与并发 WFT/signal 串行（retry 新 run 继承同 namespace 同 workflowID）。下游 scheduleWorkflowTaskIfRunning
+	// keyed lock 与并发 WFT/signal 串行（retry 新 run 继承同 namespace 同 workflowID）。下游 scheduleWorkflowTask
 	// 仅异步入队，不同步回调拿锁函数，不重入。
 	_, release, err := s.lockRunWorkflow(ctx, runID)
 	if err != nil {
@@ -125,7 +125,7 @@ func (s *Server) handleRetryBackoffFired(ctx context.Context, runID string, sche
 		return
 	}
 	// 调度新 run 的首个 WFT（幂等：若 run 已非 Running 则跳过）
-	if err := s.scheduleWorkflowTaskIfRunning(ctx, runID); err != nil {
+	if err := s.scheduleWorkflowTask(ctx, runID); err != nil {
 		s.logger.Error("schedule first workflow task after retry backoff failed", "run_id", runID, "err", err)
 	}
 }
