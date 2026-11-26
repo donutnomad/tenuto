@@ -34,7 +34,7 @@ Policy 只接受以上大写值，空值保存为 `SKIP`；其他值在 Create/U
 
 ## Leader 与 CAS
 
-MySQL 模式使用 `tenuto_leader_lock` 选举 Schedule Driver leader，lease TTL 为 15 秒，Heartbeat 为 5 秒。每秒扫描 due Schedule：先以到期点的 Workflow ID 启动 Run（已在运行则不再启动），再 CAS 推进 `next_run_at`，CAS 成功的节点记录这次触发。
+MySQL 模式使用 `tenuto_leader_lock` 选举 Schedule Driver leader，lease TTL 为 15 秒，Heartbeat 为 5 秒。leader 副本正常停机时先停下驱动再释放锁，其他副本在 5 秒内接任；崩溃或卡顿的 leader 要等租约过期。每秒扫描 due Schedule：先以到期点的 Workflow ID 启动 Run（已在运行则不再启动），再 CAS 推进 `next_run_at`，CAS 成功的节点记录这次触发。
 
 ## 排障矩阵
 

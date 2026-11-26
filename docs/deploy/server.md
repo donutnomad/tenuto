@@ -160,6 +160,6 @@ Tenuto Server 在完成 Run 恢复、pending task 补投递和 sticky assignment
 
 ## 优雅退出
 
-收到 `SIGTERM` 后，Server 会撤销 readiness、结束进行中的长轮询（`poll` 应答 204，`wait-closed` 应答 204，`update` 返回当前阶段，客户端照常重来）、取消内嵌 workflow worker 的 poll 与在途 Workflow Task、停止 reconciliation、Schedule 与 Batch Operation 驱动的 leadership（处理到一半的 Batch 页不保存，由下一任驱动从游标重做）、排空 HTTP 请求、等待内嵌 workflow worker 退出（在途 lease 完成 ack/nack）、关闭 Timer、TaskQ Frontend、内嵌 matching（释放 7235）、membership 观察与数据库连接。被取消的 Workflow Task 经 nack 或超时重新投递，由其他副本执行。
+收到 `SIGTERM` 后，Server 会撤销 readiness、结束进行中的长轮询（`poll` 应答 204，`wait-closed` 应答 204，`update` 返回当前阶段，客户端照常重来）、取消内嵌 workflow worker 的 poll 与在途 Workflow Task、停止 reconciliation、Schedule 与 Batch Operation 驱动与 retention GC（处理到一半的 Batch 页不保存，由下一任驱动从游标重做），等各自的任务退出后释放 `tenuto_leader_lock` 里持有的锁，其他副本在下一次选主轮询（Schedule 与 Batch 驱动 5s，reconciliation 与 GC 10s）时接任，不等租约到期、排空 HTTP 请求、等待内嵌 workflow worker 退出（在途 lease 完成 ack/nack）、关闭 Timer、TaskQ Frontend、内嵌 matching（释放 7235）、membership 观察与数据库连接。被取消的 Workflow Task 经 nack 或超时重新投递，由其他副本执行。
 
 其余在途请求（Signal、Cancel、Activity 完成等写请求）不随停机取消，在 `WORKFLOW_HTTP_SHUTDOWN_TIMEOUT` 内照常做完并应答结果。请求在生效之前被取消（例如客户端断开时仍在等同一个 Workflow 的锁）时应答 `503` 与 `Retry-After`，没有写入任何内容；进入事务的请求要么提交并应答成功，要么不提交。Go SDK 把 2xx 空应答体当作传输错误重试，不当作成功。

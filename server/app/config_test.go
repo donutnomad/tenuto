@@ -298,6 +298,14 @@ func TestLoadConfigRejectsInvalidProductionContracts(t *testing.T) {
 			message: "TASKQ_TLS_ENABLED must be true",
 		},
 		{
+			// 内嵌 matching 的 gRPC 监听是明文，按 TLS 拨号的 TaskQ 客户端全部握手失败，启动校验直接拒绝。
+			name: "TaskQ TLS with embedded matching",
+			mutate: func(env map[string]string) {
+				env["TASKQ_TLS_ENABLED"] = "true"
+			},
+			message: "requires an external matching service",
+		},
+		{
 			name: "invalid activity queue JSON",
 			mutate: func(env map[string]string) {
 				env["TASKQ_ACTIVITY_QUEUES_JSON"] = `{"default/default":{"physical":"activity-default"}} trailing`
@@ -736,5 +744,19 @@ func TestLoadConfigMaxInFlight(t *testing.T) {
 	env["WORKFLOW_HTTP_MAX_IN_FLIGHT"] = "0"
 	if _, err := loadConfig(mapLookup(env), "node"); err == nil || !strings.Contains(err.Error(), "WORKFLOW_HTTP_MAX_IN_FLIGHT") {
 		t.Fatalf("zero limit error = %v", err)
+	}
+}
+
+// TaskQ TLS 与外置 matching 一起配置时通过校验，客户端按 TLS 拨号。
+func TestLoadConfigAcceptsTaskQTLSWithExternalMatching(t *testing.T) {
+	env := validEnvironment()
+	env["TASKQ_TLS_ENABLED"] = "true"
+	env["TASKQ_MATCHING_ENABLED"] = "false"
+	cfg, err := loadConfig(mapLookup(env), "workflow-node-a")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.TaskQ.TLS.Enabled || cfg.TaskQ.MatchingEnabled() {
+		t.Fatalf("TaskQ TLS = %v, embedded matching = %v", cfg.TaskQ.TLS.Enabled, cfg.TaskQ.MatchingEnabled())
 	}
 }
