@@ -215,7 +215,7 @@ func ActivityRetryState(state *ActivityState, failure protocol.Failure) string {
 	}
 	policy := EffectiveActivityRetryPolicy(state.RetryPolicy)
 	if NonRetryableFailure(failure, policy.NonRetryableErrorTypes, policy.NonRetryableErrors) {
-		return "NonRetryableFailure"
+		return activityRetryStateNonRetryable
 	}
 	if policy.MaxAttempts > 0 && state.Attempt >= policy.MaxAttempts {
 		return "MaximumAttemptsReached"

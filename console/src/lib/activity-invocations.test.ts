@@ -175,6 +175,23 @@ describe("buildActivityInvocationIndex", () => {
     }))
   })
 
+  it("keeps the last heartbeat details on an attempt failed by a workflow reset", () => {
+    const events = [
+      { id: 10, timestamp: "2026-07-13T00:00:00Z", activityScheduled: { activityId: "#charge", activityType: "Charge", taskQueue: "q", input: {} } },
+      { id: 11, timestamp: "2026-07-13T00:00:01Z", activityStarted: { activityId: "#charge", scheduledEventId: 10, attempt: 1, activityType: "Charge", taskQueue: "q", workerIdentity: "worker-a", workerBuildId: "v1" } },
+      { id: 13, timestamp: "2026-07-13T00:00:05Z", activityFailed: { activityId: "#charge", scheduledEventId: 10, startedEventId: 11, attempt: 1, activityType: "Charge", error: "bad deploy", retryState: "NonRetryableFailure", failure: { message: "bad deploy", type: "ResetWorkflowError", nonRetryable: true }, lastHeartbeatDetails: { offset: 42 } } },
+    ] as Event[]
+    const index = buildActivityInvocationIndex(events)
+
+    expect(index.get(10)).toEqual(expect.objectContaining({ status: "failed", error: "bad deploy" }))
+    expect(index.get(10)?.attempts[0]).toEqual(expect.objectContaining({
+      status: "failed",
+      errorEventID: 13,
+      retryState: "NonRetryableFailure",
+      lastHeartbeatDetails: { offset: 42 },
+    }))
+  })
+
   it("keeps loop invocations on the same source line independently selectable", () => {
     const events = [
       { id: 20, timestamp: "2026-07-13T00:00:00Z", activityScheduled: { activityId: "/0#a1", activityType: "CheckBalance", taskQueue: "wallet" } },

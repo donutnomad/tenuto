@@ -27,7 +27,7 @@ Reset 面板只列出 Workflow Task 边界。选择边界后预览：
 
 ## Activity Reset
 
-在 Activity Call 上选择 Reset，查看全部 Attempts、最后 Heartbeat（运行中取自 Activity 状态，超时的 Attempt 取自 `ActivityTimedOut`）和外部幂等键。Reset 后 Attempt 从 1 开始，旧 Token 和旧 Worker 回报由 Stamp 隔离。
+在 Activity Call 上选择 Reset，查看全部 Attempts、最后 Heartbeat（运行中取自 Activity 状态，超时的 Attempt 取自 `ActivityTimedOut`，被 Workflow Reset 打断的 Attempt 取自新 Run 的 `ActivityFailed`）和外部幂等键。Reset 后 Attempt 从 1 开始，旧 Token 和旧 Worker 回报由 Stamp 隔离。
 
 ## Schedule
 

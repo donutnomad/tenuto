@@ -158,7 +158,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - 一个包目录一条 `@Workflow`；`@Workflow` / `@Activity` 写在包级函数的 `//` 行注释里：方法、块注释、未知 key 都被拒绝。
 - 每个 Activity 调用设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout`：attempt 开始后 Worker 立即确认队列租约，attempt 的存活只由这两个超时与 `HeartbeatTimeout` 判定，Worker 消失后靠 StartToClose（或 heartbeat）超时重试。缺少时生成器报出调用点；选项来自变量时由 Server 拒绝调度命令，Workflow Task 以 `bad_schedule_activity_attributes` 失败。
 - Activity 至少执行一次（at-least-once），不保证只执行一次：已开始的 attempt 不会因队列重投再执行，但超时重试、Worker 在上报结果前崩溃、Worker 停止时交还 attempt 都会让同一业务操作再执行。每个 Activity 都必须幂等。
-- Activity 要可取消就必须 Heartbeat：取消只经 `activity.RecordHeartbeat` 的响应送达，不 Heartbeat 的 Activity 只在返回或超时时结束。Worker 对心跳节流（最小间隔为 `HeartbeatTimeout` 的 80%，未设置时 30s，上限 60s；间隔内只发最新 details，失败/取消/交还结束时补发），可以频繁调用。Heartbeat 不写 History，只更新 Activity 状态（`activity-states` 的 `lastHeartbeat`）；超时的 Attempt 的最后一次详情在 `ActivityTimedOut.lastHeartbeatDetails`。收到 Workflow 的取消后返回 `ctx.Err()` 或取消错误即确认取消（`ActivityCancelled`）。
+- Activity 要可取消就必须 Heartbeat：取消只经 `activity.RecordHeartbeat` 的响应送达，不 Heartbeat 的 Activity 只在返回或超时时结束。Worker 对心跳节流（最小间隔为 `HeartbeatTimeout` 的 80%，未设置时 30s，上限 60s；间隔内只发最新 details，失败/取消/交还结束时补发），可以频繁调用。Heartbeat 不写 History，只更新 Activity 状态（`activity-states` 的 `lastHeartbeat`）；超时的 Attempt 的最后一次详情在 `ActivityTimedOut.lastHeartbeatDetails`，被 Workflow Reset 打断的在新 Run 的 `ActivityFailed.lastHeartbeatDetails`（Console 的 Attempt 详情显示为 Last Heartbeat）。收到 Workflow 的取消后返回 `ctx.Err()` 或取消错误即确认取消（`ActivityCancelled`）。
 - `Worker.Stop` 是优雅停止：停 poll，关闭 `activity.GetWorkerStopChannel(ctx)`，等在途任务最多 `GracefulStopTimeout`（缺省 10s），到期才取消 `ctx`。与 Stop 同时到达的任务不会等超时：应答已到达的照常处理，没送到的由 Server 立即交还。长 Activity 监听停止 channel，Heartbeat 保存进度后返回 `activity.ErrWorkerStopping`：attempt 交还 Server，以同一序号重新派发，不消耗重试次数。
 - Activity 默认重试，缺省策略与 Temporal 相同、由 Server 补齐：不限次数，`InitialInterval` 1s、`BackoffCoefficient` 2.0、`MaxInterval` 100 × InitialInterval；部分设置的 `workflow.RetryPolicy` 其余字段取缺省值；只执行一次写 `MaxAttempts: 1`。重试在成功、不可重试错误、`MaxAttempts`、`ScheduleToCloseTimeout` 到期（或下一次 Attempt 会落在它之后）时停止；`ScheduleToStartTimeout` 约束每个 Attempt（从首次调度、退避到期或 reset 时起算），到期后直接失败，不重试。所有超时与间隔字段都是 `time.Duration`。
 - 调用点的 `ActivityOptions`（`TaskQueue`、超时、重试）只作用于这一次调用，不改变同一 Activity 其他调用点的路由。`ActivityOptions` 没有 `BuildID`。
@@ -198,7 +198,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | 从调用端启动、等待结果、查询、Signal、Update、管理 Run | `client.Dial`、`client.Client`、`WorkflowRun.Get`、`/runtime/workflow/*` | `references/client-api.md` |
 | 周期启动、列出一个 Schedule 的全部 Run | `CreateSchedule` 等、`TemporalScheduledById` | `references/schedules.md` |
 | 按业务字段检索 Run | `UpsertSearchAttributes`、`ListRuns`、保留键 | `references/search-attributes.md` |
-| Reset、批量操作（异步、可取消）、恢复暂停的 Run | `ResetWorkflow`、`StartBatchOperation`、`CancelBatchOperation`、`SetRunPolicy` | `references/operations.md` |
+| Reset（含重置点上未结束的 Activity / Timer 怎样带进新 Run、`ResetWorkflowError`）、批量操作（异步、可取消）、恢复暂停的 Run | `ResetWorkflow`、`StartBatchOperation`、`CancelBatchOperation`、`SetRunPolicy` | `references/operations.md` |
 | 上线前确认保证、生产必需配置、已测场景与实测数字、已知限制 | — | `references/operations.md#生产就绪` |
 | 多副本故障注入（kill -9 / SIGSTOP、数据库断连与卡死、副本间分区后核对结果与 History）、长时间浸泡、滚动升级演练、压测与 CPU profile；matching 广播地址与监听地址不同 | `cmd/tenuto-cluster failover` / `soak` / `upgrade` / `bench`、`BenchmarkHarness`、`WORKFLOW_PPROF_ADDR`、`TASKQ_MATCHING_ADVERTISE_ADDR` | `references/operations.md#多副本故障注入与压测` |
 
