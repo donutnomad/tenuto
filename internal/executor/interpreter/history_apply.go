@@ -1,10 +1,12 @@
 package interpreter
 
 import (
+	"cmp"
 	"fmt"
 	"time"
 
 	"github.com/donutnomad/tenuto/internal/executor"
+	"github.com/donutnomad/tenuto/program"
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/sdk/apperror"
@@ -59,7 +61,11 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 		} else if ev := event.ChildWorkflowStarted; ev != nil {
 			e.childStarted[ev.ChildID] = event
 		} else if ev := event.ChildWorkflowCompleted; ev != nil {
-			e.childCompleted[ev.ChildID] = ev.Output
+			childType := ""
+			if started := e.childStarted[ev.ChildID].ChildWorkflowStarted; started != nil {
+				childType = started.Name
+			}
+			e.childCompleted[ev.ChildID] = e.normalizeResult(program.PayloadChildResult, childType, ev.Output)
 			delete(e.childStarted, ev.ChildID)
 			delete(e.childFailures, ev.ChildID)
 		} else if ev := event.ChildWorkflowFailed; ev != nil {
@@ -82,8 +88,9 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 			delete(e.childStarted, ev.ChildID)
 		} else if ev := event.ActivityScheduled; ev != nil {
 			e.bindActivityScheduled(ev.ActivityID, event.ID)
+			e.activityTypes[event.ID] = ev.ActivityType
 		} else if ev := event.ActivityCompleted; ev != nil {
-			e.completed[ev.ScheduledEventID] = ev.Output
+			e.completed[ev.ScheduledEventID] = e.normalizeResult(program.PayloadActivityResult, cmp.Or(ev.ActivityType, e.activityTypes[ev.ScheduledEventID]), ev.Output)
 			delete(e.failed, ev.ScheduledEventID)
 		} else if ev := event.ActivityCancelled; ev != nil {
 			// 取消确认是 Activity 的终态结果，与失败走同一张事实表：Future 返回取消错误。

@@ -15,7 +15,7 @@ import (
 //     动态类型与值；
 //   - slice、map 与 nil 的 == / !=：改成 workflow.IsNil(x)，判断是否为 nil 值（空 slice 与空 map 不是 nil）；
 //   - tag 或 case 表达式是 any 的 switch：tag 先求值一次存入临时变量，每个 case 用 workflow.Equal 比较；
-//   - 元素类型是 struct 的 map 读取 m[k] 与 v, ok := m[k]：改成立即调用的闭包，key 不存在时得到元素类型的零值。
+//   - 元素类型是 struct 或基础类型的 map 读取 m[k] 与 v, ok := m[k]：改成立即调用的闭包，key 不存在时得到元素类型的零值。
 //
 // 改写是 Go 到 Go 的等价变换，写在原来的行上，后续诊断的行号不变。一次类型检查算出全部改写；
 // 嵌套的改写（外层改写的操作数里还有改写）在拼外层文本时先应用内层。
@@ -189,14 +189,22 @@ func (r *typedRewriter) rewriteSwitch(s *ast.SwitchStmt, parent ast.Node) {
 	r.needsWorkflowImport = true
 }
 
-// rewriteMapRead 把元素类型是 struct 的 map 读取改成立即调用的闭包：WLang 的 map 读取在 key 不存在时得到
-// nil，Go 得到元素类型的零值。赋值左侧（m[k] = v、m[k] += v）不改。
+// rewriteMapRead 把元素类型是 struct 或基础类型的 map 读取改成立即调用的闭包，key 不存在时得到元素类型的零值。
+// WLang 的 map 读取在 key 不存在时取 map 载体的元素零值：元素是 struct 时是 nil；结构体字段与具名 map 类型的
+// nil map 载体是 map[string]any，元素零值也是 nil。元素是指针、slice、map、接口时 nil 就是 Go 的零值，不改。
+// 赋值左侧（m[k] = v、m[k] += v）不改。
 func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, parent ast.Node) {
 	mapType, ok := r.typeOf(x.X).Underlying().(*gotypes.Map)
 	if !ok {
 		return
 	}
-	if _, isStruct := mapType.Elem().Underlying().(*gotypes.Struct); !isStruct {
+	switch elem := mapType.Elem().Underlying().(type) {
+	case *gotypes.Struct:
+	case *gotypes.Basic:
+		if elem.Kind() == gotypes.UntypedNil || elem.Kind() == gotypes.Invalid {
+			return
+		}
+	default:
 		return
 	}
 	commaOK := false

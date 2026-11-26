@@ -1,6 +1,10 @@
 package interpreter
 
-import workflow "github.com/donutnomad/tenuto/sdk/workflow"
+import (
+	"time"
+
+	workflow "github.com/donutnomad/tenuto/sdk/workflow"
+)
 
 // 差分测试的 Workflow 函数（TestGoSemanticsDifferential）：同一份源码在原生 Go 里直接调用，也经生成器翻译后
 // 由解释器执行，两边的结果必须相同。函数只用原生 Go 语法，不调用 workflow 包的函数。
@@ -194,4 +198,65 @@ func DiffAnyUncomparable(ctx workflow.Context, input map[string]any) (DiffOut, e
 	var a any = []int{1}
 	var b any = []int{1}
 	return DiffOut{Flag: a == b}, nil
+}
+
+// DiffResult 是 Activity 与子 Workflow 的结果：Go 的 encoding/json 把 nil slice、nil map 字段编码成 null。
+type DiffResult struct {
+	Tags  []string
+	Attrs map[string]string
+	Items []DiffItem
+	Inner *DiffResult
+}
+
+// summarizeResult 在原生 Go 与解释器里对同一个结果做 nil 判断、len、range 与 map 读取。
+func summarizeResult(r DiffResult) DiffOut {
+	text := ""
+	if r.Tags == nil {
+		text += "tags-nil "
+	}
+	if r.Attrs == nil {
+		text += "attrs-nil "
+	}
+	count := len(r.Tags) + len(r.Attrs) + len(r.Items)
+	for _, tag := range r.Tags {
+		text += tag + " "
+	}
+	for _, item := range r.Items {
+		count += item.Qty
+	}
+	text += r.Attrs["k"]
+	if r.Inner != nil {
+		count += len(r.Inner.Tags) + len(r.Inner.Attrs)
+	}
+	return DiffOut{Text: text, Count: count}
+}
+
+func DiffActivityResult(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var r DiffResult
+	if err := workflow.ExecuteActivity(ctx, "load-result", input, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}).Get(ctx, &r); err != nil {
+		return DiffOut{}, err
+	}
+	return summarizeResult(r), nil
+}
+
+func DiffChildResult(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var r DiffResult
+	if err := workflow.ExecuteChildWorkflow(ctx, "child-result", input).Get(ctx, &r); err != nil {
+		return DiffOut{}, err
+	}
+	return summarizeResult(r), nil
+}
+
+// 结果解进 map[string]any 时，null 的键在 Go 里存在，不能去掉。
+func DiffActivityRawResult(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var d map[string]any
+	if err := workflow.ExecuteActivity(ctx, "load-raw", input, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}).Get(ctx, &d); err != nil {
+		return DiffOut{}, err
+	}
+	return summarizeRawResult(d), nil
+}
+
+func summarizeRawResult(d map[string]any) DiffOut {
+	_, ok := d["Tags"]
+	return DiffOut{Flag: ok && d["Tags"] == nil, Count: len(d)}
 }

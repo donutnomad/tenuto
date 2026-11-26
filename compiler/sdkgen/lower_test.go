@@ -242,13 +242,13 @@ func TestLowerTypedRewritesGoSemantics(t *testing.T) {
 	}
 }
 
-// 元素不是 struct 的 map 读取、指针与 nil 的比较、不含 any 的比较保持 WLang 运算。
+// 元素是指针或接口的 map 读取、指针与 nil 的比较、不含 any 的比较保持 WLang 运算。
 func TestLowerTypedKeepsComparableForms(t *testing.T) {
 	result, err := generateLowered(`
-	m := map[string]int{}
+	m := map[string]*Out{}
 	var p *Out
 	s := "x"
-	return Out{Sum: m["a"], Text: s}, func() error { if p == nil && s == "x" { return nil }; return nil }()`)
+	return Out{Text: s}, func() error { if p == nil && m["a"] == nil && s == "x" { return nil }; return nil }()`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -164,7 +164,7 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 
 - 一侧是 `any` 的 `==` / `!=` → `workflow.Equal`：动态类型与值都相等才为 `true`；`switch` 的 tag 或 case 是 `any` 时每个 case 同样比较。
 - slice / map 与 `nil` 比较 → `workflow.IsNil`：`var xs []T`、载荷省略或 `null` 的字段是 nil，`[]T{}`、`make([]T, 0)`、载荷的 `[]` 不是。只关心有无元素写 `len(xs) == 0`。
-- Workflow 输入、Update 参数里 `null` 的 slice / map 字段与 Go 相同（nil，`len` 为 0）。`Get(ctx, &out)` 解进结构体的 Activity / 子 Workflow 结果里 `null` 的 slice / map 字段（Go 把 nil slice 编码成 `null`），`len`、`range`、读写前先判 `out.Tags != nil`。
+- 载荷里 `null` 的 slice / map 字段（Go 把 nil slice、nil map 编码成 `null`）与 Go 相同：nil，`len` 为 0，读 map 得零值。覆盖 Workflow 输入、Update 参数，以及按 `Get` 目标类型解码的 Activity / 子 Workflow 结果；同一 Activity type 或子 Workflow Type 有一处 `Get` 进 `map[string]any` 或目标类型无法静态确定时原样解码，结构体里的 `null` 集合字段先判 `out.Tags != nil`。
 - 载荷里 `map[string]any` 的数字按 `float64` 比较（与 `encoding/json` 相同）：`d["n"] == 3` 为 `false`，`d["n"] == 3.0` 为 `true`；按数字分支用 struct DTO 或 `d["n"].(float64)`。
 - 差异：`any` 里的具名基础类型值（`type Status string`）按底层类型比较，`var x any = Status("a"); x == "a"` 为 `true`（Go 为 `false`）；先断言成具名类型再比较。
 - Side Effect 与 Marker 的值经过 JSON 持久化，超过 2^53 的整数用字符串表示。

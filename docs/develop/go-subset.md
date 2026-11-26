@@ -130,7 +130,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 - 字面量：字符串、整数、浮点、布尔、`nil`。
 - 运算：`+ - * / %`、比较、`&&`、`||`、`!`、一元 `-`。整数按位宽溢出回绕，整数除法与 `%` 向零截断，与 Go 相同。
 - `==`、`!=` 与 `switch` 的比较结果与 Go 相同，见下文「比较」。
-- 字段访问 `user.Name`、slice 索引 `xs[i]`、切片 `xs[a:b]`（按容量判断越界，与 Go 相同）、map 读取 `m[k]` 与 `v, ok := m[k]`。key 不存在时得到元素类型的零值，元素是结构体时得到各字段为零值的结构体。
+- 字段访问 `user.Name`、slice 索引 `xs[i]`、切片 `xs[a:b]`（按容量判断越界，与 Go 相同）、map 读取 `m[k]` 与 `v, ok := m[k]`。key 不存在（含 nil map）时得到元素类型的零值，元素是结构体时得到各字段为零值的结构体。
 - 复合字面量：`[]T{...}`、`map[string]T{...}`、`pkg.Type{Field: v}`、当前包 `Type{Field: v}`、具名 slice/map 类型 `Tags{"a"}`（`type Tags []string`），以及省略元素类型的 `[]Point{ {X: 1} }`、`map[string]Amounts{"x": {1, 2}}`。
 - 内建函数：`len`、`cap`、`copy`、`delete`、`append`（语句 `xs = append(xs, v...)`，包括 `xs = append(xs, ys...)`）。
 - `make`：`make(map[K]V)`、`make([]T, 0)` 得到空容器；`xs := make([]T, n)` 与带容量的 `xs := make([]T, n, c)` 写成独立语句，得到 n 个零值、容量 c（`xs[:k]` 在 k 不超过 c 时有效）。
@@ -247,7 +247,7 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 - 常量按 Go 的默认类型参与比较：`d["n"] == 3` 比较的是 `int`。
 - 输入、Signal、Activity 结果等载荷里 `map[string]any` 的数字与 Go 的 `encoding/json` 一样按 `float64` 比较：`{"n": 3}` 里 `d["n"] == 3` 是 `false`，`d["n"] == 3.0` 是 `true`。按数字分支时声明结构体 DTO，或先断言 `n, ok := d["n"].(float64)`。
 - nil slice 与空 slice 可以区分：`var xs []T`、载荷里省略或为 `null` 的字段是 nil；`[]T{}`、`make([]T, 0)`、载荷里的 `[]` 不是 nil。map 同理。只关心有没有元素时写 `len(xs) == 0`。
-- Workflow 输入与 Update 参数里为 `null` 的 slice、map 字段与 Go 一样是 nil，`len` 为 0、`range` 不执行。Activity 结果、子 Workflow 结果等经 `Get(ctx, &out)` 解进结构体时，为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice 编码成 `null`）在 `len`、`range`、读写之前先判断：`if out.Tags != nil { ... }`；`out.Tags == nil` 的结果正确。
+- 载荷里为 `null` 的 slice、map 字段（Go 的 `encoding/json` 把 nil slice、nil map 编码成 `null`）与 Go 一样是 nil：`len` 为 0、`range` 不执行、读 map 得到元素零值。Workflow 输入、Update 参数按声明类型解码；Activity 结果与子 Workflow 结果按 Program 里 `Get` 的目标类型解码。同一个 Activity type 或子 Workflow Type 的结果有一处 `Get` 进 `map[string]any`（或目标类型无法静态确定）时，这个结果原样解码：`map[string]any` 里 `null` 的键与 Go 一样存在，解进结构体的 `null` 集合字段在 `len`、`range` 之前先判断 `out.Tags != nil`。
 - `any` 里的具名基础类型值（`type Status string`）按底层类型比较：`var x any = Status("a")` 时 `x == "a"` 为 `true`，Go 里动态类型不同为 `false`。与具名类型比较时先断言 `s, ok := x.(Status)`。
 
 ## 执行预算

@@ -35,6 +35,10 @@ type WorkflowExecutor struct {
 	// 事实表：由 applyBatch 从事件灌入，协程只读。Activity 的结果以调度事件 ID 为键。
 	completed map[int64]map[string]any
 	failed    map[int64]*protocol.Failure
+	// activityTypes 是调度事件 ID → Activity type，用于按 Program 的解码类型规范化结果（见 resultNormalizer）。
+	activityTypes map[int64]string
+	// resultNormalizer 在第一次灌入 Activity 或子 Workflow 结果时构造。
+	resultNormalizer *resultNormalizer
 	// unclaimedActivities 是历史里还没有对应调用的 ActivityScheduled（ActivityID → 调度事件 ID，按历史顺序）；
 	// awaitingActivities 是已发出调度命令、调度事件尚未到达的调用。二者把调度事件绑定到 ExecuteActivity
 	// 调用（见 activityCall）。
@@ -223,6 +227,7 @@ func NewWorkflowExecutorWithContext(ctx context.Context, workflow *program.Workf
 		completed:           make(map[int64]map[string]any),
 		failed:              make(map[int64]*protocol.Failure),
 		unclaimedActivities: make(map[string][]int64),
+		activityTypes:       make(map[int64]string),
 		awaitingActivities:  make(map[string]*activityCall),
 		signals:             make(map[string][]map[string]any),
 		signalsConsumed:     make(map[string]int),

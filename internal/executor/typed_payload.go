@@ -17,16 +17,17 @@ func DecodeTypedJSON(reg *wlregistry.Registry, typeName string, raw json.RawMess
 	decoder.UseNumber()
 	var payload any
 	if err := decoder.Decode(&payload); err == nil {
-		if normalized, err := json.Marshal(dropNullCollectionFields(reg, typeName, payload)); err == nil {
+		if normalized, err := json.Marshal(DropNullCollectionFields(reg, typeName, payload)); err == nil {
 			raw = normalized
 		}
 	}
 	return reg.DecodeJSONValue(typeName, raw)
 }
 
-// dropNullCollectionFields 按类型描述符遍历 value，返回去掉结构体里 null 的 slice、map 字段之后的副本。
-// map 的元素与 slice 的元素保留 null：Go 里它们是存在的条目。
-func dropNullCollectionFields(reg *wlregistry.Registry, typeID string, value any) any {
+// DropNullCollectionFields 按类型描述符遍历 value，返回去掉结构体里 null 的 slice、map 字段之后的副本。
+// map 的元素与 slice 的元素保留 null：Go 里它们是存在的条目。只能用于解码成 typeID 的载荷：解码目标是
+// map[string]any 时 null 的键在 Go 里存在，不能去掉。
+func DropNullCollectionFields(reg *wlregistry.Registry, typeID string, value any) any {
 	if value == nil {
 		return nil
 	}
@@ -39,9 +40,9 @@ func dropNullCollectionFields(reg *wlregistry.Registry, typeID string, value any
 	}
 	switch descriptor.Kind {
 	case wltypes.TypeKindAlias:
-		return dropNullCollectionFields(reg, descriptor.Underlying, value)
+		return DropNullCollectionFields(reg, descriptor.Underlying, value)
 	case wltypes.TypeKindPointer:
-		return dropNullCollectionFields(reg, descriptor.Elem, value)
+		return DropNullCollectionFields(reg, descriptor.Elem, value)
 	case wltypes.TypeKindSlice, wltypes.TypeKindArray, wltypes.TypeKindMap:
 		return mapCollection(reg, descriptor.Elem, value)
 	case wltypes.TypeKindRecord:
@@ -66,7 +67,7 @@ func dropNullCollectionFields(reg *wlregistry.Registry, typeID string, value any
 			if item == nil && isCollectionType(reg, field.TypeID) {
 				continue
 			}
-			out[key] = dropNullCollectionFields(reg, field.TypeID, item)
+			out[key] = DropNullCollectionFields(reg, field.TypeID, item)
 		}
 		return out
 	}
@@ -78,13 +79,13 @@ func mapCollection(reg *wlregistry.Registry, elem string, value any) any {
 	case []any:
 		out := make([]any, len(collection))
 		for i, item := range collection {
-			out[i] = dropNullCollectionFields(reg, elem, item)
+			out[i] = DropNullCollectionFields(reg, elem, item)
 		}
 		return out
 	case map[string]any:
 		out := make(map[string]any, len(collection))
 		for key, item := range collection {
-			out[key] = dropNullCollectionFields(reg, elem, item)
+			out[key] = DropNullCollectionFields(reg, elem, item)
 		}
 		return out
 	}
