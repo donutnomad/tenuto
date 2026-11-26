@@ -52,6 +52,9 @@ func TestGoSemanticsProbes(t *testing.T) {
 		{SemMapOfStructUpdate, "SemMapOfStructUpdate", `{"Items": [{"Name": "a", "Qty": 1}, {"Name": "b", "Qty": 2}, {"Name": "a", "Qty": 3}]}`},
 		{SemMapPointerValues, "SemMapPointerValues", `{"Ptrs": {"a": {"Qty": 1}, "b": null}}`},
 		{SemPointerEquality, "SemPointerEquality", `{"Ptrs": {"a": {"Qty": 1}, "b": {"Qty": 1}}}`},
+		// 指向基础类型、slice 与 map 的指针内容不同时，按内容比较的结果与 Go 相同，不 panic。
+		{SemDifferenceScalarPointers, "SemDifferenceScalarPointers", `{"A":1,"B":2,"S":"x","T":"y","L":[1],"M":[2],"N":{"k":1},"O":{"k":2},"P":{"x":1,"y":2}}`},
+		{SemDifferenceScalarPointers, "SemDifferenceScalarPointers", `{}`},
 		{SemPointerIdentity, "SemPointerIdentity", `{"Ptrs": {"a": {"Qty": 1}, "b": {"Qty": 1}}}`},
 		{SemAnyFieldFromInput, "SemAnyFieldFromInput", `{}`},
 		{SemAnyFieldFromInput, "SemAnyFieldFromInput", `{"V": "x"}`},
@@ -154,6 +157,8 @@ func TestGoSemanticsDocumentedDifferences(t *testing.T) {
 		// 指针放进 any 后比较（1）、含指针字段的结构体比较（10）按内容。
 		{SemDifferencePointerContent, "SemDifferencePointerContent", `{"Plain": {"a": {"Qty": 1}, "b": {"Qty": 1}}}`, `{"Count":11,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
 		{SemDifferencePointerInAnyPanics, "SemDifferencePointerInAnyPanics", `{"Ptrs": {"a": {"Qty": 1}, "b": {"Qty": 1}}}`, "panic"},
+		// 指向基础类型、具名基础类型、slice、map 的指针按内容比较：内容相同的两个对象相等（1、100、1000、10000、100000）。
+		{SemDifferenceScalarPointers, "SemDifferenceScalarPointers", `{"A":1,"B":1,"S":"x","T":"x","L":[1],"M":[1],"N":{"k":1},"O":{"k":1},"P":{"x":1,"y":1}}`, `{"Count":111111,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
 	} {
 		native := runNativeDiff(t, tc.fn, tc.input)
 		if native == tc.want {

@@ -14,8 +14,9 @@ import (
 //   - 一侧静态类型是 any、另一侧不是 nil 的 == / !=：改成 workflow.Equal(a, b)，按 Go 的接口比较规则比较
 //     动态类型与值；
 //   - slice、map 与 nil 的 == / !=：改成 workflow.IsNil(x)，判断是否为 nil 值（空 slice 与空 map 不是 nil）；
-//   - 两侧都是指针（都不是 nil 字面量）的 == / !=：改成 workflow.SamePointer(a, b)，按地址比较；WLang 的 == 比较
-//     指向的内容；
+//   - 两侧都是指向 struct 的指针（都不是 nil 字面量）的 == / !=：改成 workflow.SamePointer(a, b)，按地址比较；
+//     WLang 的 == 比较指向的内容。其余指针（*[]T、*map、*基础类型）的载体是指向的值本身，没有地址可比，保持按
+//     内容比较（go-subset 列为差异）；
 //   - tag 或 case 表达式是 any 的 switch：tag 先求值一次存入临时变量，每个 case 用 workflow.Equal 比较；
 //   - 元素类型是 struct、基础类型、slice 或 map 的 map 读取 m[k] 与 v, ok := m[k]：改成立即调用的闭包，key 不存在时
 //     得到元素类型的零值；
@@ -152,7 +153,7 @@ func (r *typedRewriter) rewriteComparison(x *ast.BinaryExpr) {
 	case isEmptyInterface(r.typeOf(x.X)) || isEmptyInterface(r.typeOf(x.Y)):
 		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.Equal(%s, %s)", negate,
 			r.text(x.X.Pos(), x.X.End()), r.text(x.Y.Pos(), x.Y.End())))
-	case isPointer(r.typeOf(x.X)) && isPointer(r.typeOf(x.Y)):
+	case isStructPointer(r.typeOf(x.X)) && isStructPointer(r.typeOf(x.Y)):
 		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.SamePointer(%s, %s)", negate,
 			r.text(x.X.Pos(), x.X.End()), r.text(x.Y.Pos(), x.Y.End())))
 	default:
@@ -486,9 +487,14 @@ func isEmptyInterface(t gotypes.Type) bool {
 	return ok && iface.Empty()
 }
 
-func isPointer(t gotypes.Type) bool {
-	_, ok := t.Underlying().(*gotypes.Pointer)
-	return ok
+// isStructPointer 报告 t 是否是指向 struct 的指针：解释器里它的载体是共享的 *types.Record，可以按地址比较。
+func isStructPointer(t gotypes.Type) bool {
+	pointer, ok := t.Underlying().(*gotypes.Pointer)
+	if !ok {
+		return false
+	}
+	_, isStruct := pointer.Elem().Underlying().(*gotypes.Struct)
+	return isStruct
 }
 
 func isSliceOrMap(t gotypes.Type) bool {

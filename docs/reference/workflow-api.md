@@ -77,7 +77,7 @@ func(workflow.Context, ...Args) (Result, error)
 | --- | --- |
 | `Equal(a, b any) bool` | Go 的 `a == b`：动态类型与值都相等时为 `true`，动态类型不可比较时 panic |
 | `IsNil(v any) bool` | 是否为 nil 值：nil 接口，或 nil 的 slice、map、指针、函数；空 slice 与空 map 不是 nil |
-| `SamePointer(a, b any) bool` | Go 的指针 `a == b`：指向同一个对象时为 `true` |
+| `SamePointer(a, b any) bool` | Go 的指针 `a == b`（`a`、`b` 指向 struct）：指向同一个对象时为 `true` |
 
 ## 并发
 

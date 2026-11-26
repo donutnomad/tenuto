@@ -361,7 +361,8 @@ func TestFoldRewritesAnyContainerAssertions(t *testing.T) {
 	}
 }
 
-// 类型是 slice、map 的 nil 改写成该类型的零值；指针之间的比较改写成 workflow.SamePointer；与 nil 的比较不改。
+// 类型是 slice、map 的 nil 改写成该类型的零值；指向 struct 的指针之间的比较改写成 workflow.SamePointer，其他指针
+// 与和 nil 的比较不改。
 func TestLowerTypedNilAndPointerComparison(t *testing.T) {
 	result, err := generateLowered(`
 	xs := []string{"a"}
@@ -369,7 +370,9 @@ func TestLowerTypedNilAndPointerComparison(t *testing.T) {
 	var m map[string]int
 	m = nil
 	var p, q *Out
-	same := p == q
+	var i, j *int
+	var xs1, xs2 *[]int
+	same := p == q && i != j && xs1 == xs2
 	if p == nil || xs == nil {
 		return Out{Sum: len(m)}, nil
 	}
@@ -382,6 +385,9 @@ func TestLowerTypedNilAndPointerComparison(t *testing.T) {
 		if !strings.Contains(program, want) {
 			t.Fatalf("program misses %s:\n%s", want, program)
 		}
+	}
+	if n := strings.Count(program, `"SamePointer"`); n != 1 {
+		t.Fatalf("only the struct pointer comparison is rewritten, got %d SamePointer calls:\n%s", n, program)
 	}
 	if strings.Contains(program, `"zzNil3"`) {
 		t.Fatalf("nil compared with a pointer or returned as error must stay nil:\n%s", program)

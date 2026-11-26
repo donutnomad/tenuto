@@ -470,7 +470,7 @@ func Equal(a, b any) bool {
 }
 
 // SamePointer 报告指针 a 与 b 是否指向同一个对象，即 Go 的 a == b。
-// 生成器把两侧都是指针的 == / != 改写成这个调用，Workflow 代码直接写运算符即可。
+// 生成器把两侧都是指向 struct 的指针的 == / != 改写成这个调用，Workflow 代码直接写运算符即可。
 func SamePointer(a, b any) bool {
 	return a == b
 }

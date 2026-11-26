@@ -245,7 +245,7 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 | 一侧是 `any`（`d["action"] == "cancel"`、`input["n"] != 3`、`a == b`） | `workflow.Equal(a, b)` | 动态类型与值都相等时为 `true`；动态类型相同但不可比较（slice、map、含它们的结构体）时与 Go 一样 panic |
 | `switch` 的 tag 或某个 `case` 是 `any` | tag 求值一次，每个 `case` 用 `workflow.Equal` 比较 | 命中的 `case` 与 Go 相同，`case nil` 匹配 nil 接口 |
 | slice 或 map 与 `nil` 比较（`xs == nil`、`m != nil`） | `workflow.IsNil(x)` | 判断是否为 nil 值 |
-| 两侧都是指针（`p == q`，都不是 `nil` 字面量） | `workflow.SamePointer(p, q)` | 指向同一个对象时为 `true`；内容相同的两个对象不相等 |
+| 两侧都是指向 struct 的指针（`p == q`，都不是 `nil` 字面量） | `workflow.SamePointer(p, q)` | 指向同一个对象时为 `true`；内容相同的两个对象不相等。其他指针按内容比较，见「与 Go 的差异」 |
 
 - 常量按 Go 的默认类型参与比较：`d["n"] == 3` 比较的是 `int`。
 - 载荷解进结构体时，`any` 字段、`map[string]any` 字段、`[]any` 字段里的 JSON 数字与 Go 的 `encoding/json` 一样是 `float64`：`{"V": 1}` 里 `in.V == 1` 是 `false`，`in.V == 1.0` 是 `true`，`in.V.(float64)` 成立，再编码成 JSON 仍是 `1`。
@@ -266,7 +266,8 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 | `var x any = int64(3)`、来自 `int64` 字段的 `any`，与 `3` 或装着 `int` 的 `any` 比较 | `false`（动态类型不同） | `true`（`int` 与 `int64` 是同一个类型） | 先断言 `n, ok := x.(int64)` 再比较 |
 | 具名基础类型放进 `any`：`var x any = Status("a")` | `x == "a"` 为 `false`，`x.(string)` 不成立 | `x == "a"` 为 `true`，`x.(string)` 与 `x.(Status)` 都成立 | 先断言成具名类型再比较 |
 | 装着 nil 指针的 `any`：`var p *T; var x any = p; x == nil` | `false` | `true` | 比较指针本身 `p == nil` |
-| 指针放进 `any` 后比较，或比较含指针字段的结构体 | 按地址 | 按指向的内容；`any` 里的指针指向含 slice、map 字段的结构体时 panic（`workflow_panic`，Run Blocked） | 直接比较指针 `p == q` |
+| 指向基础类型、具名基础类型、slice、map 的指针相互比较（`*int`、`*Status`、`*[]T`，以及从 `map[string]*int` 取出的值） | 按地址 | 按指向的内容：内容相同的两个对象相等 | 比较指向的值 `*p == *q`，或改用指向 struct 的指针 |
+| 指针放进 `any` 后比较，或比较含指针字段的结构体 | 按地址 | 按指向的内容；`any` 里的指针指向含 slice、map 字段的结构体时 panic（`workflow_panic`，Run Blocked） | 直接比较指向 struct 的指针 `p == q` |
 
 ## 执行预算
 

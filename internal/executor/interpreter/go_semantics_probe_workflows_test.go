@@ -1240,3 +1240,36 @@ func SemDifferencePointerInAnyPanics(ctx workflow.Context, in SemInput) (SemOut,
 	var b any = in.Ptrs["b"]
 	return SemOut{Flag: a == b}, nil
 }
+
+type SemScalarPointers struct {
+	A, B *int
+	S, T *SemStatus
+	L, M *[]int
+	N, O *map[string]int
+	P    map[string]*int
+}
+
+// 指向基础类型、具名基础类型、slice、map 的指针与 map 里取出的这类指针：Go 按地址比较，解释器按指向的内容比较。
+func SemDifferenceScalarPointers(ctx workflow.Context, in SemScalarPointers) (SemOut, error) {
+	c := 0
+	if in.A == in.B {
+		c += 1
+	}
+	a := in.A
+	if a == in.A {
+		c += 10
+	}
+	if in.S == in.T {
+		c += 100
+	}
+	if in.L == in.M {
+		c += 1000
+	}
+	if in.P["x"] == in.P["y"] {
+		c += 10000
+	}
+	if in.N == in.O {
+		c += 100000
+	}
+	return SemOut{Count: c}, nil
+}

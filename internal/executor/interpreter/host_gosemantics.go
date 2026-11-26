@@ -24,8 +24,9 @@ func (api *runtimeWorkflowAPI) Equal(a, b any) bool {
 	return equal
 }
 
-// SamePointer 是 Go 的指针 a == b：指向同一个对象时为 true。解释器里指向结构体的指针的载体是共享的
-// *types.Record，`p := &v`、经 map、slice、字段传递的指针都是同一个载体，载体相同即地址相同。
+// SamePointer 是 Go 的指针 a == b，a、b 指向 struct：指向同一个对象时为 true。解释器里指向结构体的指针的载体是
+// 共享的 *types.Record，`p := q`、经 map、slice、字段传递的指针都是同一个载体，载体相同即地址相同。生成器只对
+// 指向 struct 的指针改写成这个调用；其他指针的载体是指向的值本身（slice、map 不可比较）。
 func (api *runtimeWorkflowAPI) SamePointer(a, b any) bool {
 	return a == b
 }
