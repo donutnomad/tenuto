@@ -54,6 +54,23 @@ runs, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 
 升级前启动的 Run 的 `WorkflowStarted` 没有这份记录，重试和 Reset 继承它的当前属性。其中 `TemporalChangeVersion` 在重试时不继承，在 Reset 时只保留重置点之前的决策。
 
+过滤语义：普通键按值全等，值为空串时只匹配显式写成空串的键，缺失的键不匹配（同 Temporal SQL visibility 的 `= ''`）；`TemporalChangeVersion` 按成员匹配；多个键是「与」。MySQL 后端为每个 (Run, 键值) 维护一行索引（`tenuto_run_search_attributes`，与搜索属性同事务写入），按搜索属性过滤的列表以按键名排序的第一个属性走索引、在数据库侧按 (created_at, run_id) 游标分页，一页只读本页的行；其余属性逐行核对，代价与第一个属性的匹配数成正比，多属性过滤时让选择性最高的属性的键名排在最前（键名按字节序比较）。
+
+```go
+opts := client.ListWorkflowOptions{SearchAttributes: map[string]string{"region": "ap-southeast-1"}, Limit: 100}
+for {
+    page, err := c.ListWorkflow(ctx, opts)
+    if err != nil {
+        return err
+    }
+    // page.Executions ...
+    if page.NextPageToken == "" {
+        break
+    }
+    opts.NextPageToken = page.NextPageToken
+}
+```
+
 字段命名应保持业务稳定性。高基数字段适合精确定位，状态和区域适合列表筛选。敏感数据应使用脱敏标识。
 
 ## Blocked State

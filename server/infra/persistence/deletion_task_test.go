@@ -71,6 +71,14 @@ func TestRetentionDeletesTerminalTreeWithAllArtifacts(t *testing.T) {
 		history.NewMarkerRecordedEvent("m", "a", nil)); err != nil {
 		t.Fatal(err)
 	}
+	// 搜索属性写入 tenuto_run_search_attributes。
+	if _, err := store.Executions.Append("run-1", "tree-1", "br-1",
+		history.NewSearchAttributesUpsertedEvent(map[string]any{"tenant": "a"})); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRows(t, store, &executionrepo.RunSearchAttributePO{}, "run_id = ?", "run-1"); n != 1 {
+		t.Fatalf("run search attribute rows = %d, want 1", n)
+	}
 	// 附属状态：dispatch + activity state + timer state。
 	if err := store.db.Create(&dispatchrepo.TaskDispatchPO{
 		Namespace: "default", TaskType: "activity", RunID: "run-1",
@@ -109,6 +117,7 @@ func TestRetentionDeletesTerminalTreeWithAllArtifacts(t *testing.T) {
 		{"events", &executionrepo.EventPO{}, "tree_id = ?", []any{"tree-1"}},
 		{"runs", &executionrepo.RunPO{}, "id = ?", []any{"run-1"}},
 		{"execution states", &executionrepo.WorkflowExecutionStatePO{}, "run_id = ?", []any{"run-1"}},
+		{"run search attributes", &executionrepo.RunSearchAttributePO{}, "run_id = ?", []any{"run-1"}},
 		{"task dispatches", &dispatchrepo.TaskDispatchPO{}, "run_id = ?", []any{"run-1"}},
 		{"timer states", &executionrepo.TimerStatePO{}, "run_id = ?", []any{"run-1"}},
 		{"history tree", &executionrepo.HistoryTreePO{}, "tree_id = ?", []any{"tree-1"}},

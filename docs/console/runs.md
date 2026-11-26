@@ -16,7 +16,7 @@ Start Run 页面分开填写两项：Workflow Type 从已登记的定义里选�
 
 ## 状态与等待点
 
-从 Schedules 页面进入时（`?schedule_id=`），列表只含这个 Schedule 启动的 Run，筛选栏显示 Schedule 标签，点击它去掉这个筛选。列表标题是符合筛选的 Run 数（`1 Run`、`38 Runs`）。改筛选、改排序（点 Start 列头切换先新后旧）或改每页条数时回到第一页。列表同时展示 Run Status、开始时间（Start）、结束时间（End，Run 未结束时为 —）和当前等待点。`running` Run 可能正在等待 Activity、Timer、Signal、Update、Child Workflow 或 Workflow Task。
+从 Schedules 页面进入时（`?schedule_id=`），列表只含这个 Schedule 启动的 Run，筛选栏显示 Schedule 标签，点击它去掉这个筛选。列表标题是符合筛选的 Run 数（`1 Run`、`38 Runs`）。翻页按 Server 返回的 page token 前进与后退，深页与第一页一样快；改筛选、改排序（点 Start 列头切换先新后旧）或改每页条数时回到第一页。列表同时展示 Run Status、开始时间（Start）、结束时间（End，Run 未结束时为 —）和当前等待点。`running` Run 可能正在等待 Activity、Timer、Signal、Update、Child Workflow 或 Workflow Task。
 
 Blocked 标记表示运行中的 Run 的 Workflow Task 连续失败（如 `non_deterministic_error`、`activity_route_unavailable`、`schedule_activity_duplicate_id`），status 仍为 `running`。详情页的 Workflow Blocked 卡片给出 cause、reason、连续失败次数和持续时间。Run 结束（完成、失败、取消、终止、Continue-As-New）后不再是 Blocked，Blocked 筛选也不再返回它。
 

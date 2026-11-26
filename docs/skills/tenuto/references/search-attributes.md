@@ -41,10 +41,13 @@ for _, execution := range result.Executions {
 | --- | --- |
 | `WorkflowID` | 按 Workflow ID（含同一 ID 的全部 Run） |
 | `Statuses` | `WorkflowExecutionStatusRunning` / `Completed` / `Failed` / `Canceled` / `Terminated` / `ContinuedAsNew`；为空时不按状态过滤 |
-| `SearchAttributes` | 每个键值都要匹配 |
-| `Offset`、`Limit`、`NewestFirst` | 分页与排序 |
+| `SearchAttributes` | 每个键值都要匹配；空串只匹配显式写成空串的键，缺失的键不匹配；`TemporalChangeVersion` 按成员匹配 |
+| `Limit`、`NewestFirst` | 页大小与排序 |
+| `NextPageToken` | 上一页结果的 `NextPageToken`，为空时取第一页；过滤条件变了再用返回 `client.ErrInvalidArgument` |
 
-HTTP 的过滤器另有 `run_ids`（指定 Run ID 集合）、`blocked_only`（只看 Blocked 的 Run）、`include_terminal`（不给 `statuses` 时是否包含已结束的 Run，缺省 false；Go Client 总是包含）。HTTP：`POST /runtime/workflow/list`，body `{"filter":{"namespace":"orders","search_attributes":{"region":"ap-southeast-1"},"limit":100}}`（字段名是上表的 snake_case：`run_ids`、`workflow_id`、`statuses`、`search_attributes`、`include_terminal`、`blocked_only`、`offset`、`limit`、`order_desc`）。
+HTTP 的过滤器另有 `run_ids`（指定 Run ID 集合）、`blocked_only`（只看 Blocked 的 Run）、`include_terminal`（不给 `statuses` 时是否包含已结束的 Run，缺省 false；Go Client 总是包含）。HTTP：`POST /runtime/workflow/list`，body `{"filter":{"namespace":"orders","search_attributes":{"region":"ap-southeast-1"},"limit":100}}`（字段名是上表的 snake_case：`run_ids`、`workflow_id`、`statuses`、`search_attributes`、`include_terminal`、`blocked_only`、`page_token`、`limit`、`order_desc`；应答带 `next_page_token`）。
+
+MySQL 后端为每个 (Run, 键值) 维护一行索引（`tenuto_run_search_attributes`，与搜索属性同事务写入），按搜索属性过滤的列表以按键名排序的第一个属性走索引、在数据库侧按 (created_at, run_id) 游标分页，一页只读本页的行；其余属性逐行核对，代价与第一个属性的匹配数成正比，多属性过滤时让选择性最高的属性的键名排在最前（键名按字节序比较）。
 
 同一个过滤器也是批量取消、终止、Reset 的目标选择器（见 `operations.md`）。
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -91,5 +92,24 @@ func TestMySQLConfigAppliesDefaultIOTimeouts(t *testing.T) {
 	}
 	if parsed.ReadTimeout != 0 || parsed.WriteTimeout != 0 {
 		t.Fatalf("migration timeouts = %s/%s", parsed.ReadTimeout, parsed.WriteTimeout)
+	}
+}
+
+// 探针长期占用一条连接：连接上限为 1 的池在启动时报错，否则业务查询在池上无限等待而 readiness 照常通过。
+func TestDBProbeRejectsSingleConnectionPool(t *testing.T) {
+	database, err := sql.Open("tenuto-probe", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	database.SetMaxOpenConns(1)
+	if _, err := newDBProbe("workflow", database); err == nil || !strings.Contains(err.Error(), "WORKFLOW_DB_MAX_OPEN_CONNS") {
+		t.Fatalf("newDBProbe on a 1-connection pool = %v, want an error naming WORKFLOW_DB_MAX_OPEN_CONNS", err)
+	}
+	for _, limit := range []int{0, 2} {
+		database.SetMaxOpenConns(limit)
+		if _, err := newDBProbe("workflow", database); err != nil {
+			t.Fatalf("newDBProbe with max open conns %d = %v", limit, err)
+		}
 	}
 }

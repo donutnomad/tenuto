@@ -637,6 +637,10 @@ func (c Config) validate(workflowDBInjected, taskQDBInjected bool) error {
 	if (c.TaskQ.TLS.CertFile == "") != (c.TaskQ.TLS.KeyFile == "") {
 		return fmt.Errorf("TASKQ_TLS_CERT_FILE and TASKQ_TLS_KEY_FILE must be configured together")
 	}
+	// 内嵌 matching 的 gRPC 监听是明文，按 TLS 拨号的 TaskQ 客户端（本进程与其他副本）握手全部失败。
+	if c.TaskQ.TLS.Enabled && c.TaskQ.MatchingEnabled() {
+		return fmt.Errorf("TASKQ_TLS_ENABLED=true requires an external matching service (TASKQ_MATCHING_ENABLED=false): the embedded matching server listens without TLS")
+	}
 	if !c.TaskQ.TLS.Enabled && (c.TaskQ.TLS.CAFile != "" || c.TaskQ.TLS.ServerName != "" || c.TaskQ.TLS.CertFile != "") {
 		return fmt.Errorf("TASKQ_TLS_ENABLED must be true when TaskQ TLS files or server name are configured")
 	}

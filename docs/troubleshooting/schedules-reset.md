@@ -10,7 +10,7 @@ status: Preview
 
 ## Schedule 错过触发
 
-检查 paused、next_run_at、时区、Cron、Schedule Driver leader 和 Server 日志。落后超过一小时的 tick 会进入 catch-up 跳过路径，并把 next_run_at 推进到未来。
+检查 paused、next_run_at、时区、Cron、Schedule Driver leader 和 Server 日志。落后超过 `catchup_window`（缺省 365 天）的到期点不触发，计入 `missed_catchup_window`；待补的到期点超过 1000 个时较早的计入 `buffer_dropped`。
 
 ## Schedule 重复触发
 

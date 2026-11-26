@@ -504,15 +504,20 @@ func TestScheduleClient(t *testing.T) {
 	must(t, err)
 	description, err := handle.Describe(ctx)
 	must(t, err)
-	if description.ID != handle.GetID() || !description.Paused || description.WorkflowType != "greeting" || description.Input["name"] != "cron" {
+	if description.ID != handle.GetID() || !description.Paused || description.WorkflowType != "greeting" || description.Input["name"] != "cron" ||
+		description.CatchupWindow != 365*24*time.Hour {
 		t.Fatalf("description = %+v", description)
 	}
-	text := "edited"
-	must(t, handle.Update(ctx, client.ScheduleUpdateOptions{Description: &text}))
+	tooSmall := time.Second
+	if err := handle.Update(ctx, client.ScheduleUpdateOptions{CatchupWindow: &tooSmall}); !errors.Is(err, client.ErrInvalidArgument) {
+		t.Fatalf("catchup window below 10s: err = %v", err)
+	}
+	text, window := "edited", 2*time.Hour
+	must(t, handle.Update(ctx, client.ScheduleUpdateOptions{Description: &text, CatchupWindow: &window}))
 	must(t, handle.Unpause(ctx))
 	description, err = handle.Describe(ctx)
 	must(t, err)
-	if description.Description != "edited" || description.Paused || description.NextRunAt == nil {
+	if description.Description != "edited" || description.Paused || description.NextRunAt == nil || description.CatchupWindow != window {
 		t.Fatalf("after update and unpause = %+v", description)
 	}
 	must(t, handle.Pause(ctx))

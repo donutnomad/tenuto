@@ -46,13 +46,12 @@ func setupPaginationRuns(t *testing.T, count int) (*Server, []*execution.Run) {
 }
 
 func TestListRunsPagination_FirstPage(t *testing.T) {
-	// Happy Path: offset=0, limit=2 应返回前 2 条（按 CreatedAt 升序），total=5
+	// Happy Path: limit=2 的第一页返回前 2 条（按 CreatedAt 升序），total=5
 	runtime, created := setupPaginationRuns(t, 5)
 
 	result, err := runtime.View().ListRuns(execution.RunListFilter{
 		WorkflowID: "wf-page",
 		Statuses:   []history.Status{history.StatusRunning},
-		Offset:     0,
 		Limit:      2,
 	})
 	if err != nil {
@@ -70,15 +69,23 @@ func TestListRunsPagination_FirstPage(t *testing.T) {
 }
 
 func TestListRunsPagination_SecondPage(t *testing.T) {
-	// Happy Path: offset=2, limit=2 应返回第 3、4 条
+	// Happy Path: 用第一页的 next_page_token 取第 3、4 条
 	runtime, created := setupPaginationRuns(t, 5)
 
-	result, err := runtime.View().ListRuns(execution.RunListFilter{
+	filter := execution.RunListFilter{
 		WorkflowID: "wf-page",
 		Statuses:   []history.Status{history.StatusRunning},
-		Offset:     2,
 		Limit:      2,
-	})
+	}
+	first, err := runtime.View().ListRuns(filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.HasMore || first.NextPageToken == "" {
+		t.Fatalf("first page has_more=%v next_page_token=%q", first.HasMore, first.NextPageToken)
+	}
+	filter.PageToken = first.NextPageToken
+	result, err := runtime.View().ListRuns(filter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +107,6 @@ func TestListRunsPagination_DefaultLimit(t *testing.T) {
 	result, err := runtime.View().ListRuns(execution.RunListFilter{
 		WorkflowID: "wf-page",
 		Statuses:   []history.Status{history.StatusRunning},
-		Offset:     0,
 		Limit:      0,
 	})
 	if err != nil {
@@ -121,7 +127,6 @@ func TestListRunsPagination_OrderDesc(t *testing.T) {
 	result, err := runtime.View().ListRuns(execution.RunListFilter{
 		WorkflowID: "wf-page",
 		Statuses:   []history.Status{history.StatusRunning},
-		Offset:     0,
 		Limit:      3,
 		OrderDesc:  true,
 	})
@@ -145,23 +150,19 @@ func TestListRunsPagination_OrderDesc(t *testing.T) {
 	}
 }
 
-func TestListRunsPagination_OffsetBeyondTotal(t *testing.T) {
-	// Edge Case: offset 超出 total 时返回空切片，total 仍为实际过滤后的数量
+func TestListRunsPagination_LastPageHasNoToken(t *testing.T) {
+	// Edge Case: 最后一页没有 next_page_token，total 仍为过滤后的数量
 	runtime, _ := setupPaginationRuns(t, 5)
 
 	result, err := runtime.View().ListRuns(execution.RunListFilter{
 		WorkflowID: "wf-page",
 		Statuses:   []history.Status{history.StatusRunning},
-		Offset:     100,
-		Limit:      2,
+		Limit:      5,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 5 {
-		t.Fatalf("expected total=5, got %d", result.Total)
-	}
-	if len(result.Items) != 0 {
-		t.Fatalf("expected 0 items for out-of-range offset, got %d", len(result.Items))
+	if result.Total != 5 || len(result.Items) != 5 || result.HasMore || result.NextPageToken != "" {
+		t.Fatalf("total=%d items=%d has_more=%v next_page_token=%q", result.Total, len(result.Items), result.HasMore, result.NextPageToken)
 	}
 }

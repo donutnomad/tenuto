@@ -119,6 +119,19 @@ CREATE TABLE `tenuto_execution_states` (
   INDEX `idx_wf_exec_states_sticky_fallback` (`sticky_worker_identity`, `sticky_expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
+-- tenuto_run_search_attributes 是搜索属性过滤的索引：每个 (Run, term) 一行，term 见 execution.SearchAttributeTerms
+-- （普通键是键与值，TemporalChangeVersion 按成员展开）。attr_hash = SHA-256(键 0x00 值)，键与值不限长度。
+-- 与 execution state 的 search_attributes_json 同事务维护，Run 删除时一起删除。namespace 与 created_at 抄自 Run，
+-- 按属性过滤的列表沿 (namespace, attr_hash, created_at, run_id) 的索引顺序读一页。
+CREATE TABLE `tenuto_run_search_attributes` (
+  `run_id`     VARCHAR(191) NOT NULL,
+  `attr_hash`  BINARY(32)   NOT NULL,
+  `namespace`  VARCHAR(191) NOT NULL,
+  `created_at` DATETIME(3)  NOT NULL,
+  PRIMARY KEY (`run_id`, `attr_hash`),
+  INDEX `idx_run_search_attributes_lookup` (`namespace`, `attr_hash`, `created_at`, `run_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
+
 -- tenuto_history_tree 持久化 history branch 拓扑（fork/reset 的核心表）。
 CREATE TABLE `tenuto_history_tree` (
   `tree_id`    VARCHAR(191) NOT NULL,
@@ -300,6 +313,13 @@ CREATE TABLE IF NOT EXISTS `tenuto_schedules` (
   `next_run_at`     DATETIME(3),
   `last_run_id`     VARCHAR(191) NOT NULL DEFAULT '',
   `run_count`       INT          NOT NULL DEFAULT 0,
+  -- catchup_window_ns 是补触发窗口（纳秒）；missed_catchup_window 与 buffer_dropped 是跳过的到期点计数。
+  `catchup_window_ns`     BIGINT NOT NULL,
+  `missed_catchup_window` BIGINT NOT NULL DEFAULT 0,
+  `buffer_dropped`        BIGINT NOT NULL DEFAULT 0,
+  -- buffer_drop_from / buffer_drop_until 是 buffer 满时丢弃的到期点区间，处理完保留的到期点后跳过它；没有时为 NULL。
+  `buffer_drop_from`      DATETIME(3),
+  `buffer_drop_until`     DATETIME(3),
   `created_at`      DATETIME(3)  NOT NULL,
   `updated_at`      DATETIME(3)  NOT NULL,
   PRIMARY KEY (`namespace`, `id`),

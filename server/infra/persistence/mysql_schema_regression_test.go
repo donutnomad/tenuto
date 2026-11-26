@@ -212,6 +212,8 @@ var requiredJSONColumns = []string{
 	"tenuto_configs.config_json",
 	"tenuto_history_tree.data_json",
 	"tenuto_events.event_json",
+	// attr_hash 每次写入都是 32 字节的 SHA-256。
+	"tenuto_run_search_attributes.attr_hash",
 }
 
 // TestSchemaSQLDatabaseAcceptsLongErrorsAndReleasedLeases 在按 schema.sql 建出的库上执行两类写入：

@@ -375,12 +375,6 @@ func (s *RunStore) list(filter execution.StoreListFilter, projection func(run *e
 		if filter.CreatedBefore != nil && !run.CreatedAt.Before(*filter.CreatedBefore) {
 			continue
 		}
-		if filter.After != nil {
-			order := cmp.Or(run.CreatedAt.Compare(filter.After.CreatedAt), strings.Compare(run.ID, filter.After.RunID))
-			if filter.OrderDesc && order >= 0 || !filter.OrderDesc && order <= 0 {
-				continue
-			}
-		}
 		if len(filter.SearchAttributes) > 0 || filter.BlockedOnly {
 			attrs, blocked, ok := projection(run)
 			if !ok || filter.BlockedOnly && !blocked || !execution.MatchSearchAttributes(attrs, filter.SearchAttributes) {
@@ -399,24 +393,29 @@ func (s *RunStore) list(filter execution.StoreListFilter, projection func(run *e
 		return order
 	})
 
+	// Total 不受游标影响；页从游标之后开始。
 	total := len(filtered)
+	start := 0
+	if after := filter.After; after != nil {
+		start = len(filtered)
+		for i, run := range filtered {
+			order := cmp.Or(run.CreatedAt.Compare(after.CreatedAt), strings.Compare(run.ID, after.RunID))
+			if filter.OrderDesc && order < 0 || !filter.OrderDesc && order > 0 {
+				start = i
+				break
+			}
+		}
+	}
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	offset := filter.Offset
-	if offset > total {
-		offset = total
-	}
-	end := offset + limit
-	if end > total {
-		end = total
-	}
-	hasMore := end < total
+	end := min(start+limit, len(filtered))
+	hasMore := end < len(filtered)
 	if filter.SkipTotal {
 		total = 0
 	}
-	return execution.StoreListResult{Runs: filtered[offset:end], Total: total, HasMore: hasMore}, nil
+	return execution.StoreListResult{Runs: filtered[start:end], Total: total, HasMore: hasMore}, nil
 }
 
 func (s *RunStore) CountRuns(namespace string) ([]execution.RunCount, error) {

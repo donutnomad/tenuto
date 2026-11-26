@@ -68,7 +68,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 | POST | `/runtime/workflow/start-version` | 按 Config Version 启动 Workflow |
 | POST | `/runtime/workflow/get-run` | 获取 Run |
 | POST | `/runtime/workflow/wait-closed` | 长轮询等待 Run 结束；请求体见「等待 Run 结束」 |
-| POST | `/runtime/workflow/list` | 查询 Run List；给出 `run_ids` 时已结束的 Run 也返回，结束的 Run 带 `closed_at`。`limit` 缺省 50、最大 1000，`offset` 不能为负，`run_ids` 最多 1000 个，越界返回 400。应答 `{items, total, has_more}`：`total` 是满足条件的 Run 总数，`has_more` 表示这一页之后还有 Run；`filter.skip_total: true` 时不计算总数（`total` 为 0），Run 很多时这一页更快，翻页看 `has_more` |
+| POST | `/runtime/workflow/list` | 查询 Run List；给出 `run_ids` 时已结束的 Run 也返回，结束的 Run 带 `closed_at`。`limit` 缺省 50、最大 1000，`run_ids` 最多 1000 个，越界返回 400。应答 `{items, total, has_more, next_page_token}`：`total` 是满足条件的 Run 总数（与翻页无关），`has_more` 表示这一页之后还有 Run；`filter.skip_total: true` 时不计算总数（`total` 为 0），Run 很多时这一页更快。翻页用 `page_token`：应答的 `next_page_token`（有下一页时非空）原样放进下一次请求，Server 从上一页最后一行之后读，深页与第一页代价相同（同 Temporal `ListWorkflowExecutions` 的 next_page_token）。token 绑定签发时的过滤条件（namespace、`run_ids`、`workflow_id`、`statuses`、`search_attributes`、`include_terminal`、`blocked_only`、`order_desc`），条件变了再用返回 400；`limit` 与 `skip_total` 可以每页不同。 过滤语义：普通键按值全等，值为空串时只匹配显式写成空串的键，缺失的键不匹配（同 Temporal SQL visibility 的 `= ''`）；`TemporalChangeVersion` 按成员匹配；多个键是「与」。 MySQL 后端为每个 (Run, 键值) 维护一行索引（`tenuto_run_search_attributes`，与搜索属性同事务写入），按搜索属性过滤的列表以按键名排序的第一个属性走索引、在数据库侧按 (created_at, run_id) 游标分页，一页只读本页的行；其余属性逐行核对，代价与第一个属性的匹配数成正比，多属性过滤时让选择性最高的属性的键名排在最前（键名按字节序比较）。 |
 | POST | `/runtime/workflow/history` | 读取完整 Event History |
 | POST | `/runtime/workflow/history-page` | 分页读取 Event History |
 | POST | `/runtime/workflow/signal` | 发送 Signal |
@@ -148,7 +148,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 /runtime/workflow/trigger-schedule
 ```
 
-`create-schedule` 的请求体用 `workflow_type` 指定要启动的 Workflow Type；`list-schedules` 的 `filter.workflow_type` 按它过滤。每次触发启动的 Run 的 Workflow ID 是 `schedule-<Schedule ID>-<名义触发时间>`，搜索属性带 `TemporalScheduledById`（Schedule ID）与 `TemporalScheduledStartTime`（名义触发时间，UTC RFC 3339 秒级）；`list` 与 `start-batch` 的 `filter.search_attributes` 写 `{"TemporalScheduledById": "<Schedule ID>"}` 选出这个 Schedule 的全部 Run。这两个键与 `TemporalChangeVersion` 由 Server 维护，`search-attributes` 写入它们返回 400。
+`create-schedule` 的请求体用 `workflow_type` 指定要启动的 Workflow Type，`catchup_window`（纳秒，可省略）是补触发窗口：省略或 0 取 365 天，小于 10 秒返回 400，`update-schedule` 的 `update.catchup_window` 同样校验；Schedule 的应答带 `catchup_window`、`missed_catchup_window` 与 `buffer_dropped`（见 [错过触发](/develop/scheduling#触发流程与错过触发)）。`list-schedules` 的 `filter.workflow_type` 按它过滤。每次触发启动的 Run 的 Workflow ID 是 `schedule-<Schedule ID>-<名义触发时间>`，搜索属性带 `TemporalScheduledById`（Schedule ID）与 `TemporalScheduledStartTime`（名义触发时间，UTC RFC 3339 秒级）；`list` 与 `start-batch` 的 `filter.search_attributes` 写 `{"TemporalScheduledById": "<Schedule ID>"}` 选出这个 Schedule 的全部 Run。这两个键与 `TemporalChangeVersion` 由 Server 维护，`search-attributes` 写入它们返回 400。
 
 ## 启动请求体
 
