@@ -71,13 +71,13 @@ func(workflow.Context, ...Args) (Result, error)
 
 ## Go 语义
 
-生成器把 WLang 运算结果与 Go 不同的写法改写成下面的调用，Workflow 代码直接写 Go 运算符与 `make`，见 [Go 子集：比较](/develop/go-subset#比较)。
+生成器把 WLang 运算结果与 Go 不同的写法改写成下面的调用，Workflow 代码直接写 Go 运算符，见 [Go 子集：比较](/develop/go-subset#比较)。
 
 | API | 说明 |
 | --- | --- |
 | `Equal(a, b any) bool` | Go 的 `a == b`：动态类型与值都相等时为 `true`，动态类型不可比较时 panic |
 | `IsNil(v any) bool` | 是否为 nil 值：nil 接口，或 nil 的 slice、map、指针、函数；空 slice 与空 map 不是 nil |
-| `SetCap(&xs, capacity)` | 把 `xs` 换成元素相同、容量为 `capacity` 的 slice，对应 `make([]T, n, capacity)`；`capacity` 小于长度时 panic |
+| `SamePointer(a, b any) bool` | Go 的指针 `a == b`：指向同一个对象时为 `true` |
 
 ## 并发
 

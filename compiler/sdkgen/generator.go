@@ -129,6 +129,10 @@ func generateWithExtraTypes(sources workflowSources, opts Options, extraTypes ma
 	if err != nil {
 		return Result{}, err
 	}
+	extraTypes, err = normalizeProgramTypes(translated, extraTypes)
+	if err != nil {
+		return Result{}, err
+	}
 
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, opts.Filename, src, 0)

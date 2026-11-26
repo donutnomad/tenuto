@@ -215,7 +215,7 @@ func TestGenerateAcceptsMapLiteralWithMapTypedUpdateHandler(t *testing.T) {
 }
 
 // 操作数含 any 的比较、any 上的 switch、slice/map 与 nil 的比较改写成 workflow.Equal / workflow.IsNil；
-// 元素是 struct 的 map 读取改写成立即调用的闭包；带容量的 make 改写成 make 加 workflow.SetCap。
+// 元素是 struct 的 map 读取改写成立即调用的闭包；带容量的 make 不再调用宿主（容量只是提示）。
 func TestLowerTypedRewritesGoSemantics(t *testing.T) {
 	result, err := generateLowered(`
 	var xs []int
@@ -235,10 +235,13 @@ func TestLowerTypedRewritesGoSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	program := string(result.ProgramJSON)
-	for _, want := range []string{`"Equal"`, `"IsNil"`, `"SetCap"`, `"zzTag1"`, `"zzZero1"`, `"zzZero2"`} {
+	for _, want := range []string{`"Equal"`, `"IsNil"`, `"zzTag1"`, `"zzZero1"`, `"zzZero2"`, `"zzMakeCap1"`} {
 		if !strings.Contains(program, want) {
 			t.Fatalf("program misses %s:\n%s", want, program)
 		}
+	}
+	if strings.Contains(program, `"SetCap"`) {
+		t.Fatalf("make with capacity must not call the host:\n%s", program)
 	}
 }
 
@@ -258,7 +261,7 @@ func TestLowerTypedKeepsComparableForms(t *testing.T) {
 	}
 }
 
-// 没有导入 workflow 包的文件被改写成 workflow.Equal / workflow.SetCap 时补一条 import，写在 package 子句同一行，
+// 没有导入 workflow 包的文件被改写成 workflow.Equal 时补一条 import，写在 package 子句同一行，
 // 之后的诊断行号不变。
 func TestLowerTypedInjectsWorkflowImportOnSameLine(t *testing.T) {
 	src := "package flows\n\nfunc W(input map[string]any) int {\n\ta := make([]int, 0, 4)\n\tif input[\"k\"] == \"v\" {\n\t\treturn cap(a)\n\t}\n\treturn 0\n}\n"
@@ -266,7 +269,7 @@ func TestLowerTypedInjectsWorkflowImportOnSameLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if program := string(result.ProgramJSON); !strings.Contains(program, `"Equal"`) || !strings.Contains(program, `"SetCap"`) {
+	if program := string(result.ProgramJSON); !strings.Contains(program, `"Equal"`) {
 		t.Fatalf("program misses workflow calls:\n%s", program)
 	}
 	bad := strings.Replace(src, "return 0", "return len(\"ab\"[0:1])", 1)
@@ -355,5 +358,73 @@ func TestFoldRewritesAnyContainerAssertions(t *testing.T) {
 	}
 	if strings.Contains(program, `"type.assert": [`+"\n") && strings.Contains(program, `"value": "array<any>"`) {
 		t.Fatalf("program still asserts array<any> with WLang type.assert:\n%s", program)
+	}
+}
+
+// 类型是 slice、map 的 nil 改写成该类型的零值；指针之间的比较改写成 workflow.SamePointer；与 nil 的比较不改。
+func TestLowerTypedNilAndPointerComparison(t *testing.T) {
+	result, err := generateLowered(`
+	xs := []string{"a"}
+	xs = nil
+	var m map[string]int
+	m = nil
+	var p, q *Out
+	same := p == q
+	if p == nil || xs == nil {
+		return Out{Sum: len(m)}, nil
+	}
+	return Out{Text: strings.Join(xs, ","), Sum: len(m)}, func() error { if same { return nil }; return nil }()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	for _, want := range []string{`"zzNil1"`, `"zzNil2"`, `"SamePointer"`, `"IsNil"`} {
+		if !strings.Contains(program, want) {
+			t.Fatalf("program misses %s:\n%s", want, program)
+		}
+	}
+	if strings.Contains(program, `"zzNil3"`) {
+		t.Fatalf("nil compared with a pointer or returned as error must stay nil:\n%s", program)
+	}
+}
+
+// 表示不变的转换（具名基础类型与底层类型互转）可以写；改变表示的转换在生成期报错，外层转换先报。
+func TestLowerTypedConversions(t *testing.T) {
+	src := lowerHeader + `type Status string
+type Amount float64
+
+func W(ctx workflow.Context, input map[string]any) (Out, error) {
+	s := Status("paid")
+	a := Amount(1.5)
+	return Out{Text: string(s) + strings.ToUpper(string(s)), Sum: int(len(string(s)))}, func() error { _ = float64(a); return nil }()
+}
+`
+	if _, err := GenerateFromSource([]byte(src), Options{WorkflowType: "conv", FuncName: "W", Filename: "w.go"}); err != nil {
+		t.Fatalf("representation-preserving conversions must generate: %v", err)
+	}
+	bad := lowerHeader + `func W(ctx workflow.Context, input map[string]any) (Out, error) {
+	n := 65
+	return Out{Text: string(rune(n))}, nil
+}
+`
+	_, err := GenerateFromSource([]byte(bad), Options{WorkflowType: "conv", FuncName: "W", Filename: "w.go"})
+	if err == nil || !strings.Contains(err.Error(), "类型转换 string(...)") {
+		t.Fatalf("err = %v, want the outer string conversion rejected", err)
+	}
+}
+
+// 带容量的 make 按 make([]T, n) 生成：容量照常求值，小于长度时与 Go 一样 panic，不调用宿主。
+func TestLowerMakeWithCapacityIsHint(t *testing.T) {
+	result, err := generateLowered(`
+	n := 2
+	xs := make([]int, n, n+3)
+	xs = append(xs, 1)
+	return Out{Sum: len(xs)}, nil`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	if strings.Contains(program, `"SetCap"`) || !strings.Contains(program, "makeslice: cap out of range") {
+		t.Fatalf("make with capacity must check the capacity without a host call:\n%s", program)
 	}
 }

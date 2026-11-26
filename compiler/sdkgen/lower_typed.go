@@ -14,8 +14,12 @@ import (
 //   - 一侧静态类型是 any、另一侧不是 nil 的 == / !=：改成 workflow.Equal(a, b)，按 Go 的接口比较规则比较
 //     动态类型与值；
 //   - slice、map 与 nil 的 == / !=：改成 workflow.IsNil(x)，判断是否为 nil 值（空 slice 与空 map 不是 nil）；
+//   - 两侧都是指针（都不是 nil 字面量）的 == / !=：改成 workflow.SamePointer(a, b)，按地址比较；WLang 的 == 比较
+//     指向的内容；
 //   - tag 或 case 表达式是 any 的 switch：tag 先求值一次存入临时变量，每个 case 用 workflow.Equal 比较；
-//   - 元素类型是 struct 或基础类型的 map 读取 m[k] 与 v, ok := m[k]：改成立即调用的闭包，key 不存在时得到元素类型的零值。
+//   - 元素类型是 struct、基础类型、slice 或 map 的 map 读取 m[k] 与 v, ok := m[k]：改成立即调用的闭包，key 不存在时
+//     得到元素类型的零值；
+//   - 类型是 slice 或 map 的 nil（赋值、return、实参、复合字面量的元素与字段）：改成该类型的零值，之后能 append、range。
 //
 // 改写是 Go 到 Go 的等价变换，写在原来的行上，后续诊断的行号不变。一次类型检查算出全部改写；
 // 嵌套的改写（外层改写的操作数里还有改写）在拼外层文本时先应用内层。
@@ -40,6 +44,7 @@ func lowerTyped(sources workflowSources, workflowFile, dir string) error {
 			continue
 		}
 		rewriter.names = collectNames(decl)
+		rewriter.decl = decl
 		rewriter.rewrite(decl.Body)
 		if rewriter.err != nil {
 			return rewriter.err
@@ -81,6 +86,8 @@ type typedRewriter struct {
 	imports map[string]string
 	// names 是当前函数里已出现的标识符，用于给临时变量取名。
 	names map[string]bool
+	// decl 是正在改写的函数，return nil 按它的结果类型改写。
+	decl *ast.FuncDecl
 	// edits 互不重叠：登记外层改写时，落在它范围内的内层改写已并入它的文本。
 	edits               []sourceEdit
 	needsWorkflowImport bool
@@ -95,6 +102,10 @@ func (r *typedRewriter) rewrite(body *ast.BlockStmt) {
 			return false
 		}
 		if node != nil {
+			// 转换检查按先序：外层转换先报（string(rune(x)) 报 string）。
+			if call, ok := node.(*ast.CallExpr); ok {
+				r.checkConversion(call)
+			}
 			stack = append(stack, node)
 			return true
 		}
@@ -108,9 +119,11 @@ func (r *typedRewriter) rewrite(body *ast.BlockStmt) {
 		case *ast.BinaryExpr:
 			r.rewriteComparison(x)
 		case *ast.IndexExpr:
-			r.rewriteMapRead(x, parent)
+			r.rewriteMapRead(x, stack)
 		case *ast.SwitchStmt:
 			r.rewriteSwitch(x, parent)
+		case *ast.Ident:
+			r.rewriteTypedNil(x, stack)
 		}
 		return true
 	})
@@ -138,6 +151,9 @@ func (r *typedRewriter) rewriteComparison(x *ast.BinaryExpr) {
 		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.IsNil(%s)", negate, r.text(operand.Pos(), operand.End())))
 	case isEmptyInterface(r.typeOf(x.X)) || isEmptyInterface(r.typeOf(x.Y)):
 		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.Equal(%s, %s)", negate,
+			r.text(x.X.Pos(), x.X.End()), r.text(x.Y.Pos(), x.Y.End())))
+	case isPointer(r.typeOf(x.X)) && isPointer(r.typeOf(x.Y)):
+		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.SamePointer(%s, %s)", negate,
 			r.text(x.X.Pos(), x.X.End()), r.text(x.Y.Pos(), x.Y.End())))
 	default:
 		return
@@ -191,17 +207,22 @@ func (r *typedRewriter) rewriteSwitch(s *ast.SwitchStmt, parent ast.Node) {
 	r.needsWorkflowImport = true
 }
 
-// rewriteMapRead 把元素类型是 struct 或基础类型的 map 读取改成立即调用的闭包，key 不存在时得到元素类型的零值。
-// WLang 的 map 读取在 key 不存在时取 map 载体的元素零值：元素是 struct 时是 nil；结构体字段与具名 map 类型的
-// nil map 载体是 map[string]any，元素零值也是 nil。元素是指针、slice、map、接口时 nil 就是 Go 的零值，不改。
-// 赋值左侧（m[k] = v、m[k] += v）不改。
-func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, parent ast.Node) {
+// rewriteMapRead 把元素类型是 struct、基础类型、slice 或 map 的 map 读取改成立即调用的闭包，key 不存在时得到
+// 元素类型的零值。WLang 的 map 读取在 key 不存在时取 map 载体的元素零值：元素是 struct 时是 nil；结构体字段与
+// 具名 map 类型的 nil map 载体是 map[string]any，元素零值也是 nil；元素是 slice、map 时得到带元素类型名、没有
+// 载体的值，append、range 与读取都报 E_TYPE。闭包里的 `var zz T` 是规范的零值。元素是指针、接口时 nil 就是
+// Go 的零值，不改。赋值左侧（m[k] = v、m[k] += v、m[k][j] = v）与 delete 的目标不改。
+func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, stack []ast.Node) {
+	var parent ast.Node
+	if len(stack) > 0 {
+		parent = stack[len(stack)-1]
+	}
 	mapType, ok := r.typeOf(x.X).Underlying().(*gotypes.Map)
 	if !ok {
 		return
 	}
 	switch elem := mapType.Elem().Underlying().(type) {
-	case *gotypes.Struct:
+	case *gotypes.Struct, *gotypes.Slice, *gotypes.Map:
 	case *gotypes.Basic:
 		if elem.Kind() == gotypes.UntypedNil {
 			return
@@ -211,6 +232,14 @@ func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, parent ast.Node) {
 	}
 	commaOK := false
 	switch p := parent.(type) {
+	case *ast.IndexExpr:
+		if p.X == x && len(stack) > 1 && assignTarget(p, stack[len(stack)-2]) {
+			return
+		}
+	case *ast.CallExpr:
+		if fn, ok := p.Fun.(*ast.Ident); ok && fn.Name == "delete" && len(p.Args) > 0 && p.Args[0] == x {
+			return
+		}
 	case *ast.AssignStmt:
 		for _, lhs := range p.Lhs {
 			if lhs == x {
@@ -237,6 +266,189 @@ func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, parent ast.Node) {
 	}
 	r.replace(x.Pos(), x.End(), fmt.Sprintf("func() %s { if %s, %s := %s; %s { return %s }; var %s %s; return %s }()",
 		elem, value, present, read, present, value, zero, elem, zero))
+}
+
+// checkConversion 拒绝改变值表示、转换目标不是 int 与 int64 的基础类型转换（float64(n)、string(65)、int32(x)）：
+// WLang 的数值运算要求两侧类型一致，没有对应的转换。表示不变的转换照常翻译成原值：具名基础类型与其底层类型
+// 互转（string(status)、Status("paid")、float64(amount)）。目标是 int、int64 的转换由 go2wlang 判断。
+func (r *typedRewriter) checkConversion(call *ast.CallExpr) {
+	tv, ok := r.info.Types[call.Fun]
+	if !ok || !tv.IsType() || len(call.Args) != 1 {
+		return
+	}
+	target, ok := tv.Type.Underlying().(*gotypes.Basic)
+	if !ok || target.Kind() == gotypes.Int || target.Kind() == gotypes.Int64 {
+		return
+	}
+	argType := r.info.TypeOf(call.Args[0])
+	if argType == nil {
+		return
+	}
+	source, ok := argType.Underlying().(*gotypes.Basic)
+	if !ok {
+		return
+	}
+	if source.Info()&gotypes.IsUntyped != 0 {
+		source = gotypes.Default(source).(*gotypes.Basic)
+	}
+	if sameBasicRepresentation(source.Kind(), target.Kind()) {
+		return
+	}
+	r.fail(call, "workflow 里不支持类型转换 %s(...)；WLang 的数值运算要求两侧类型一致，int 与 int64、具名基础类型与其底层类型可以互转，其余转换放进 Activity", r.text(call.Fun.Pos(), call.Fun.End()))
+}
+
+func sameBasicRepresentation(a, b gotypes.BasicKind) bool {
+	integer := func(kind gotypes.BasicKind) bool { return kind == gotypes.Int || kind == gotypes.Int64 }
+	return a == b || integer(a) && integer(b)
+}
+
+// rewriteTypedNil 把类型是 slice 或 map 的 nil 改成该类型的零值 `func() T { var zz T; return zz }()`。WLang 把
+// nil 译成类型为 null 的值：赋给变量后变量的类型就成了 null，append 与 range 报 E_TYPE。零值带元素类型名与规范的
+// nil 载体，与 `var xs []T` 相同，len 为 0，workflow.IsNil 为 true。和 nil 的比较由 rewriteComparison 处理，不改。
+func (r *typedRewriter) rewriteTypedNil(x *ast.Ident, stack []ast.Node) {
+	if !r.isNil(x) || len(stack) == 0 {
+		return
+	}
+	target := r.nilContextType(x, stack)
+	if target == nil || !isSliceOrMap(target) {
+		return
+	}
+	text, ok := r.typeText(target)
+	if !ok {
+		r.fail(x, "这里的 nil 需要写出类型 %s，但本文件没有导入它所在的包；先导入该包", target)
+		return
+	}
+	zero := r.freeName("zzNil")
+	r.replace(x.Pos(), x.End(), fmt.Sprintf("func() %s { var %s %s; return %s }()", text, zero, text, zero))
+}
+
+// nilContextType 返回 nil 在所处位置被赋予的类型：赋值与变量声明的左侧、return 对应的结果、实参对应的形参、
+// 复合字面量的元素、字段或 map 值。其他位置返回 nil。
+func (r *typedRewriter) nilContextType(x ast.Expr, stack []ast.Node) gotypes.Type {
+	switch p := stack[len(stack)-1].(type) {
+	case *ast.AssignStmt:
+		if len(p.Lhs) == len(p.Rhs) {
+			for i, rhs := range p.Rhs {
+				if rhs == x {
+					return r.info.TypeOf(p.Lhs[i])
+				}
+			}
+		}
+	case *ast.ValueSpec:
+		if len(p.Names) == len(p.Values) {
+			for i, value := range p.Values {
+				if value == x {
+					return r.info.TypeOf(p.Names[i])
+				}
+			}
+		}
+	case *ast.ReturnStmt:
+		results := r.enclosingResults(stack)
+		if results != nil && results.Len() == len(p.Results) {
+			for i, result := range p.Results {
+				if result == x {
+					return results.At(i).Type()
+				}
+			}
+		}
+	case *ast.CallExpr:
+		signature, ok := r.info.TypeOf(p.Fun).(*gotypes.Signature)
+		if !ok {
+			return nil
+		}
+		params := signature.Params()
+		for i, arg := range p.Args {
+			if arg != x {
+				continue
+			}
+			if signature.Variadic() && i >= params.Len()-1 {
+				last := params.At(params.Len() - 1).Type()
+				if p.Ellipsis.IsValid() {
+					return last
+				}
+				if slice, ok := last.Underlying().(*gotypes.Slice); ok {
+					return slice.Elem()
+				}
+				return nil
+			}
+			if i < params.Len() {
+				return params.At(i).Type()
+			}
+		}
+	case *ast.CompositeLit:
+		return compositeElem(r.info.TypeOf(p), "")
+	case *ast.KeyValueExpr:
+		if p.Value != x || len(stack) < 2 {
+			return nil
+		}
+		lit, ok := stack[len(stack)-2].(*ast.CompositeLit)
+		if !ok {
+			return nil
+		}
+		field := ""
+		if key, ok := p.Key.(*ast.Ident); ok {
+			field = key.Name
+		}
+		return compositeElem(r.info.TypeOf(lit), field)
+	}
+	return nil
+}
+
+// enclosingResults 返回 return 所在函数（最内层的函数字面量，否则是正在改写的函数）的结果列表。
+func (r *typedRewriter) enclosingResults(stack []ast.Node) *gotypes.Tuple {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if lit, ok := stack[i].(*ast.FuncLit); ok {
+			if signature, ok := r.info.TypeOf(lit).(*gotypes.Signature); ok {
+				return signature.Results()
+			}
+			return nil
+		}
+	}
+	if object := r.info.Defs[r.decl.Name]; object != nil {
+		if signature, ok := object.Type().(*gotypes.Signature); ok {
+			return signature.Results()
+		}
+	}
+	return nil
+}
+
+// compositeElem 返回复合字面量 t 里元素的类型：slice、数组与 map 是元素类型，struct 是名为 field 的字段类型。
+func compositeElem(t gotypes.Type, field string) gotypes.Type {
+	if t == nil {
+		return nil
+	}
+	switch current := t.Underlying().(type) {
+	case *gotypes.Slice:
+		return current.Elem()
+	case *gotypes.Array:
+		return current.Elem()
+	case *gotypes.Map:
+		return current.Elem()
+	case *gotypes.Struct:
+		for i := 0; i < current.NumFields(); i++ {
+			if current.Field(i).Name() == field {
+				return current.Field(i).Type()
+			}
+		}
+	case *gotypes.Pointer:
+		return compositeElem(current.Elem(), field)
+	}
+	return nil
+}
+
+// assignTarget 报告 expr 是否是 parent 这条赋值或自增语句的左侧。
+func assignTarget(expr ast.Expr, parent ast.Node) bool {
+	switch p := parent.(type) {
+	case *ast.AssignStmt:
+		for _, lhs := range p.Lhs {
+			if lhs == expr {
+				return true
+			}
+		}
+	case *ast.IncDecStmt:
+		return p.X == expr
+	}
+	return false
 }
 
 // typeOf 返回 expr 的类型。类型检查没有得到它的类型时（包有类型错误、导入解析失败，或包加载失败后只检查了
@@ -272,6 +484,11 @@ func (r *typedRewriter) isNil(expr ast.Expr) bool {
 func isEmptyInterface(t gotypes.Type) bool {
 	iface, ok := t.Underlying().(*gotypes.Interface)
 	return ok && iface.Empty()
+}
+
+func isPointer(t gotypes.Type) bool {
+	_, ok := t.Underlying().(*gotypes.Pointer)
+	return ok
 }
 
 func isSliceOrMap(t gotypes.Type) bool {
