@@ -189,7 +189,7 @@ sel.Select(ctx)
 | 方法 | case 就绪条件 | 回调签名 |
 | --- | --- | --- |
 | `AddFuture(ctx, f, cb)` | Activity 完成或失败 | `func(f workflow.ActivityFuture)` |
-| `AddSignalFuture(ctx, f, cb)` | 有未消费的同名 Signal（`f` 已消费过时恒就绪）；选中时 `f` 取走这条 Signal | `func(f workflow.SignalFuture)` |
+| `AddSignalFuture(ctx, f, cb)` | 此刻有未消费的同名 Signal（`f` 已消费过时恒就绪），每次 `Select` 重新判定；选中时 `f` 取走这条 Signal，同名 Signal 已被别的 Future 取走时继续等待 | `func(f workflow.SignalFuture)` |
 | `AddChildFuture(ctx, f, cb)` | Child Workflow 完成或失败 | `func(f workflow.ChildWorkflowFuture)` |
 | `AddReceive(ctx, ch, cb)` | Channel 有值可收或已关闭 | `func(ch workflow.Channel, more bool)` |
 | `AddSend(ctx, ch, v, cb)` | Channel 接受了值 | `func()` |

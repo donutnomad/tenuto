@@ -6,6 +6,7 @@ package interpreter
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,21 +130,40 @@ func TestSignalFutureConsumesInGetOrder(t *testing.T) {
 
 // 同一份 History 在 sticky 会话里逐个 Activation 执行，与每次冷重放得到相同的结果。
 func TestSignalSelectorLoopInExecutionSession(t *testing.T) {
-	session := NewExecutionSession(context.Background(), compileSource(t, signalSelectorLoopSrc), 1)
+	activate := sessionActivator(t, signalSelectorLoopSrc)
+	activate()
+	activate("tick")
+	for _, command := range activate("approve") {
+		if command.Type == history.CmdCompleteWorkflow {
+			if command.Output["Approved"] != true || fmt.Sprint(command.Output["Ticks"]) != "1" {
+				t.Fatalf("output = %v, want Approved=true Ticks=1", command.Output)
+			}
+			return
+		}
+	}
+	t.Fatal("approve is in History but the session is still waiting")
+}
+
+// sessionActivator 在 sticky 会话里执行 src：每次调用把给定的 Signal 与一个 Workflow Task 作为一次 Activation
+// 交给会话并提交，返回这次的命令。第一次调用带上 WorkflowStarted。
+func sessionActivator(t *testing.T, src string) func(signals ...string) []history.Command {
+	t.Helper()
+	session := NewExecutionSession(context.Background(), compileSource(t, src), 1)
 	t.Cleanup(func() { _ = session.Close() })
 	if _, err := session.Restore(context.Background(), NewSliceHistoryIterator(nil)); err != nil {
 		t.Fatal(err)
 	}
 	next := int64(1)
-	activate := func(signal string) []history.Command {
+	return func(signals ...string) []history.Command {
 		t.Helper()
 		var events []history.Event
 		if next == 1 {
 			events = append(events, executionSessionEvent(next, history.NewWorkflowStartedEvent(nil, "", "", "", "", 0)))
 			next++
 		}
-		if signal != "" {
-			events = append(events, executionSessionEvent(next, history.NewWorkflowSignaledEvent(signal, map[string]any{})))
+		for _, signal := range signals {
+			name, value, _ := strings.Cut(signal, "=")
+			events = append(events, executionSessionEvent(next, history.NewWorkflowSignaledEvent(name, map[string]any{"v": value})))
 			next++
 		}
 		events = append(events,
@@ -168,15 +188,128 @@ func TestSignalSelectorLoopInExecutionSession(t *testing.T) {
 		next++
 		return result.Commands
 	}
-	activate("")
-	activate("tick")
-	for _, command := range activate("approve") {
+}
+
+// coldActivator 与 sessionActivator 相同，但每个 Workflow Task 都从头重放整份 History。
+func coldActivator(t *testing.T, src string) func(signals ...string) []history.Command {
+	t.Helper()
+	add, wft := signalHistory(t, src)
+	started := false
+	return func(signals ...string) []history.Command {
+		t.Helper()
+		if !started {
+			add(history.NewWorkflowStartedEvent(nil, "", "", "", "", 0))
+			started = true
+		}
+		for _, signal := range signals {
+			name, value, _ := strings.Cut(signal, "=")
+			add(history.NewWorkflowSignaledEvent(name, map[string]any{"v": value}))
+		}
+		return wft()
+	}
+}
+
+func completedOutput(commands []history.Command) (map[string]any, bool) {
+	for _, command := range commands {
 		if command.Type == history.CmdCompleteWorkflow {
-			if command.Output["Approved"] != true || fmt.Sprint(command.Output["Ticks"]) != "1" {
-				t.Fatalf("output = %v, want Approved=true Ticks=1", command.Output)
-			}
-			return
+			return command.Output, true
 		}
 	}
-	t.Fatal("approve is in History but the session is still waiting")
+	return nil, false
+}
+
+// 同一个 Selector 里两个同名 SignalFuture、只到了一条 Signal：第一次 Select 选中一个并取走它；第二次 Select
+// 阻塞，直到第二条 Signal 到达才选中另一个。ready 不锁存：另一个 Future 不会在没有 Signal 时被选中。
+const sameSelectorTwoFuturesSrc = `package flows
+
+import (
+	workflow "github.com/donutnomad/tenuto/sdk/workflow"
+)
+
+type Out struct {
+	Order string
+}
+
+func W(ctx workflow.Context, input map[string]any) (Out, error) {
+	f1 := workflow.WaitSignal(ctx, "x")
+	f2 := workflow.WaitSignal(ctx, "x")
+	order := ""
+	sel := workflow.NewSelector(ctx)
+	sel.AddSignalFuture(ctx, f1, func(f workflow.SignalFuture) { order = order + "1" })
+	sel.AddSignalFuture(ctx, f2, func(f workflow.SignalFuture) { order = order + "2" })
+	sel.Select(ctx)
+	sel.Select(ctx)
+	return Out{Order: order}, nil
+}
+`
+
+// 两个兄弟协程各自用一个 Selector 等同名 Signal：一条 Signal 只让其中一个协程的 Select 返回。回调不取值，
+// Select 返回后再 Get，Workflow 的完成只取决于两个 Select 是否都返回。
+const siblingSelectorsSrc = `package flows
+
+import (
+	workflow "github.com/donutnomad/tenuto/sdk/workflow"
+)
+
+type Out struct {
+	Values string
+}
+
+func W(ctx workflow.Context, input map[string]any) (Out, error) {
+	done := 0
+	values := map[string]string{}
+	for _, lane := range []string{"a", "b"} {
+		name := lane
+		workflow.Go(ctx, func(ctx workflow.Context) {
+			sel := workflow.NewSelector(ctx)
+			f := workflow.WaitSignal(ctx, "x")
+			sel.AddSignalFuture(ctx, f, func(f workflow.SignalFuture) {})
+			sel.Select(ctx)
+			done++
+			var v map[string]any
+			_ = f.Get(ctx, &v)
+			values[name] = v["v"].(string)
+		})
+	}
+	_ = workflow.Await(ctx, func() bool { return done == 2 })
+	return Out{Values: values["a"] + "," + values["b"]}, nil
+}
+`
+
+func TestSignalSelectorDoesNotLatchReadyAcrossFutures(t *testing.T) {
+	for _, mode := range []struct {
+		name      string
+		activator func(*testing.T, string) func(...string) []history.Command
+	}{{"cold replay", coldActivator}, {"sticky session", sessionActivator}} {
+		t.Run(mode.name+"/same selector", func(t *testing.T) {
+			activate := mode.activator(t, sameSelectorTwoFuturesSrc)
+			activate()
+			if out, done := completedOutput(activate("x=one")); done {
+				t.Fatalf("second Select returned with only one Signal: output = %v", out)
+			}
+			out, done := completedOutput(activate("x=two"))
+			if !done || out["Order"] != "12" {
+				t.Fatalf("output = %v (completed=%v), want Order=12", out, done)
+			}
+		})
+		t.Run(mode.name+"/sibling selectors", func(t *testing.T) {
+			activate := mode.activator(t, siblingSelectorsSrc)
+			activate()
+			if out, done := completedOutput(activate("x=one")); done {
+				t.Fatalf("both lanes' Select returned with only one Signal: output = %v", out)
+			}
+			out, done := completedOutput(activate("x=two"))
+			if !done || out["Values"] != "one,two" {
+				t.Fatalf("output = %v (completed=%v), want Values=one,two", out, done)
+			}
+		})
+		t.Run(mode.name+"/both signals in one batch", func(t *testing.T) {
+			activate := mode.activator(t, siblingSelectorsSrc)
+			activate()
+			out, done := completedOutput(activate("x=one", "x=two"))
+			if !done || out["Values"] != "one,two" {
+				t.Fatalf("output = %v (completed=%v), want Values=one,two", out, done)
+			}
+		})
+	}
 }

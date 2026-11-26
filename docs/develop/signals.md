@@ -25,6 +25,7 @@ if err := workflow.WaitSignal(ctx, "approval-result").Get(ctx, &decision); err !
 - Signal 可以先于等待点到达：它保存在 History 里，Workflow 走到 `WaitSignal` 时立即取得。
 - 同名 Signal 是一个队列，语义与 Temporal 的 Signal Channel 相同：`SignalFuture` 第一次被消费（`Get` 返回，或 Selector 选中它并执行回调）时取走该名称下一条未消费的 Signal，之后对它 `Get` 一直返回这一条。调用 `WaitSignal` 本身不占 Signal；没被消费的 Future（例如 Selector 循环里没被选中、随后丢弃的那个）也不占。
 - 多个同名 Future 按消费的先后分配 Signal：先 `Get` 的取到较早的一条，与调用 `WaitSignal` 的先后无关。消费顺序由 History 决定，重放时相同。
+- Selector 只在 `SignalFuture` 此刻能取走一条 Signal 时选中它，选中与取走是同一步。两个同名 Future（同一个 Selector 的两个 case，或兄弟协程各自的 Selector）只到了一条 Signal 时，只有一个被选中；另一个的 `Select` 继续等待，直到下一条同名 Signal 到达。
 
 把 Signal 内容交给 Activity 处理：
 

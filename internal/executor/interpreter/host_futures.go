@@ -159,6 +159,8 @@ func (f SignalFuture) poll() (out map[string]any, failure error, ready bool) {
 }
 
 // consume 让 Future 取走该名称下一条未消费的 Signal；已消费或暂时没有 Signal 时不变。返回 Future 是否已消费。
+// Query handler 是只读求值，取走 Signal 会改变消费序号，以 errQueryHandlerConsumesSignal 拒绝；已消费的
+// Future 只读返回原值，不受限制。
 func (f SignalFuture) consume() bool {
 	if f.claim.claimed {
 		return true
@@ -166,6 +168,9 @@ func (f SignalFuture) consume() bool {
 	next := f.executor.signalsConsumed[f.name]
 	if next >= len(f.executor.signals[f.name]) {
 		return false
+	}
+	if f.executor.queryHandler {
+		panic(errQueryHandlerConsumesSignal)
 	}
 	f.claim.claimed, f.claim.index = true, next
 	f.executor.signalsConsumed[f.name] = next + 1

@@ -23,7 +23,7 @@ if err := workflow.WaitSignal(ctx, "approval-result").Get(ctx, &decision); err !
 
 - `Get` 的目标是 `*map[string]any`，内容是调用端发送的 JSON object。
 - Signal 可以先于等待点到达：它保存在 History 里，Workflow 走到 `WaitSignal` 时立即取得。
-- 同名 Signal 是队列（同 Temporal Signal Channel）：`SignalFuture` 第一次被消费（`Get` 返回或 Selector 回调执行）时取走下一条未消费的同名 Signal，之后 `Get` 返回同一条；`WaitSignal` 调用本身与没被选中的 Future 都不占 Signal。多个同名 Future 按消费先后分配。Selector 循环里每轮内联 `WaitSignal` 不会漏 Signal。
+- 同名 Signal 是队列（同 Temporal Signal Channel）：`SignalFuture` 第一次被消费（`Get` 返回或 Selector 回调执行）时取走下一条未消费的同名 Signal，之后 `Get` 返回同一条；`WaitSignal` 调用本身与没被选中的 Future 都不占 Signal。多个同名 Future 按消费先后分配。Selector 只在 Future 此刻能取走一条 Signal 时选中它：两个同名 Future 只到一条 Signal 时只选中一个，另一个的 `Select` 等下一条。Selector 循环里每轮内联 `WaitSignal` 不会漏 Signal。Query handler 里让还没取到 Signal 的 `SignalFuture` 取 Signal（`Get` 或 `Select`）被拒：`query handler must not consume a Signal`。
 - `map[string]any` 的元素是 `any`，在 Workflow 里直接与字面量比较恒为 `false`；需要按 Signal 内容分支时把 map 交给 Activity 处理并返回 struct。
 
 循环接收（长期接收的 Workflow 用 Continue-As-New 控制 History 长度）：

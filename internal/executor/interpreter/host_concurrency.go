@@ -404,42 +404,72 @@ func (h selectorHandle) AddDefault(ctx workflowContext, f any) selectorHandle {
 //
 // ⚠️ blocked 语义：无 case ready 且无 default → 设 e.blocked=true 并 park（调试回放据此显示阻塞状态）；
 // 命中/default 放行清 blocked + progressed。
+//
+// SignalFuture case 的 ready 不锁存：coroutine.Future 一旦 Set 恒 ready，而同名的 Signal 可能已被别的 Future
+// 取走（同一个 Selector 的另一个 case、兄弟协程的 Selector、或 Get）。选中时 claimCase 原子地取走一条 Signal；
+// 取不到时把这个 case 换回未就绪的 Future 并重新试探（同 Temporal AddReceive：只在此刻能取走消息时选中）。
 func (h selectorHandle) Select(ctx workflowContext) {
 	e := h.executor
 	st := e.selectors[h.id]
+	for {
+		hit, done := st.selectOnce(e, ctx)
+		if done {
+			if hit >= 0 {
+				st.invokeCase(e, hit)
+			}
+			e.blocked = false
+			e.progressed()
+			return
+		}
+	}
+}
+
+// selectOnce 是一次「试探 + 检查-yield」：返回 (命中的 case, true)，或 (-1, true) 表示走了 default；
+// 命中的 SignalFuture case 认领失败时返回 (-1, false)，由 Select 重新试探。
+func (st *selectorState) selectOnce(e *WorkflowExecutor, ctx workflowContext) (int, bool) {
 	st.sel.Reset()                             // 「每次 Select 的 readyBranch 是新局部变量」——重复 Select 从干净护栏起步
 	readyIndex, cleanups := st.sel.TrySelect() // 只调一次（试探 + 注册 callback）
-	defer func() {                             // Select 返回前跑 cleanups，移除 blocked 队列里残留的 callback
+	defer func() {                             // 返回前跑 cleanups，移除 blocked 队列里残留的 callback
 		for _, c := range cleanups {
 			c()
 		}
 	}()
 
 	if readyIndex >= 0 { // 当场命中（某 case 试探即 ready）
-		st.invokeCase(e, readyIndex)
-		e.blocked = false
-		e.progressed()
-		return
+		return readyIndex, st.claimCase(e, readyIndex)
 	}
 	if st.sel.HasDefault() { // 无 case 当场 ready 且有 default → 立即走 default
 		if st.defaultCb != nil {
 			e.invokeSelectorClosure(st.defaultCb, ctx)
 		}
-		e.blocked = false
-		e.progressed()
-		return
+		return -1, true
 	}
 	for { // 检查-yield 循环
 		ri := st.sel.ReadyIndex() // 重查 readyIndex（不重 TrySelect）
 		if ri >= 0 {              // 某 callback 已被触发设 readyIndex → 命中
-			st.invokeCase(e, ri)
-			e.blocked = false
-			e.progressed()
-			return
+			return ri, st.claimCase(e, ri)
 		}
 		e.blocked = true // 无 case ready 无 default → blocked + yield
 		e.park()
 	}
+}
+
+// claimCase 在执行第 index 个 case 之前认领它。SignalFuture case 取走同名下一条未消费的 Signal；没有可取的
+// Signal 时把 case 换成新的未就绪 Future（下一批 Signal 到达时由 flushFutureBridges Set），返回 false。
+// 其余 case 恒返回 true。
+func (st *selectorState) claimCase(e *WorkflowExecutor, index int) bool {
+	fc := st.caseFuts[index]
+	if fc == nil {
+		return true
+	}
+	signal, ok := fc.value.(SignalFuture)
+	if !ok || signal.consume() {
+		return true
+	}
+	cofut := coroutine2.NewFuture()
+	e.pendingFutureBridges = append(e.pendingFutureBridges, futureBridge{cofut: cofut, poll: signal.poll})
+	st.sel.ReplaceFuture(index, cofut)
+	return false
 }
 
 // invokeCase 执行第 index 个 case 的 WLang 回调（coroutine 层选 case，host 执行回调）。
@@ -451,11 +481,8 @@ func (st *selectorState) invokeCase(e *WorkflowExecutor, index int) {
 	if fc := st.caseFuts[index]; fc != nil { // future case：1 参回调 func(f ActivityFuture)
 		// `p.futureFunc = nil`：future 一旦 ready 恒 ready，命中即标记 consumed，
 		// 重复 Select 时 TrySelect 跳过本 case（第 k 次 Select 命中第 k 个 ready future）。
+		// SignalFuture 已在 claimCase 里取走 Signal。
 		st.sel.MarkConsumed(index)
-		// SignalFuture 在被选中时消费：取走该名称下一条未消费的 Signal（见 SignalFuture）。
-		if signal, ok := fc.value.(SignalFuture); ok {
-			signal.consume()
-		}
 		cl := st.caseCbs[index]
 		if cl == nil {
 			return

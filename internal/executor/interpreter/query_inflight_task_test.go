@@ -174,3 +174,52 @@ func W(ctx workflow.Context, input map[string]any) error {
 		})
 	}
 }
+
+// Error Case: query handler 让还没取走 Signal 的 SignalFuture 取走一条 Signal（Get 或 Selector）时 query 被拒：
+// query 只读，不改变 Signal 的消费序号。已经取走 Signal 的 Future 在 query 里 Get 只读返回原值。
+func TestQueryHandlerConsumingSignalIsRejected(t *testing.T) {
+	const prelude = `package flows
+import (
+	workflow "github.com/donutnomad/tenuto/sdk/workflow"
+)
+func W(ctx workflow.Context, input map[string]any) error {
+	got := workflow.WaitSignal(ctx, "x")
+	_ = got.Get(ctx, nil)
+	pending := workflow.WaitSignal(ctx, "x")
+	workflow.SetQueryHandler(ctx, "q", func(ctx workflow.Context, in map[string]any) map[string]any {
+		`
+	const postlude = `
+	})
+	return workflow.WaitSignal(ctx, "stop").Get(ctx, nil)
+}
+`
+	cases := []struct {
+		name, call string
+		rejected   bool
+	}{
+		{"get", "var v map[string]any\n\t\t_ = pending.Get(ctx, &v)\n\t\treturn map[string]any{\"v\": v[\"n\"]}", true},
+		{"selector", "n := 0\n\t\tworkflow.NewSelector(ctx).AddSignalFuture(ctx, pending, func(f workflow.SignalFuture) { n = 1 }).Select(ctx)\n\t\treturn map[string]any{\"v\": n}", true},
+		{"claimed get", "var v map[string]any\n\t\t_ = got.Get(ctx, &v)\n\t\treturn map[string]any{\"v\": v[\"n\"]}", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nodes := compileWLangSource(t, []byte(prelude+tc.call+postlude), "probe-query-signal", "W", "w.go")
+			started := history.NewWorkflowStartedEvent(map[string]any{}, "", "", "", "", 0)
+			started.ID = 1
+			first := history.NewWorkflowSignaledEvent("x", map[string]any{"n": "one"})
+			first.ID = 2
+			second := history.NewWorkflowSignaledEvent("x", map[string]any{"n": "two"})
+			second.ID = 3
+			result, rejected, message := QueryEvaluator{}.EvaluateQuery(t.Context(), nodes, []history.Event{started, first, second, wftCompletedEvent(4)}, "q", nil)
+			if tc.rejected {
+				if !rejected || !strings.Contains(message, "must not consume a Signal") {
+					t.Fatalf("rejected=%v message=%q result=%v, want a Signal consumption rejection", rejected, message, result)
+				}
+				return
+			}
+			if rejected || result["v"] != "one" {
+				t.Fatalf("rejected=%v message=%q result=%v, want v=one", rejected, message, result)
+			}
+		})
+	}
+}
