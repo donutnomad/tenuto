@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"reflect"
 	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
@@ -460,4 +461,35 @@ func (WaitGroup) Wait(ctx Context) {
 // `wg.Add(1); workflow.Go(ctx, func(ctx){ defer wg.Done(); f(ctx) })`。
 func (WaitGroup) Go(ctx Context, f func(ctx Context)) {
 	panic("workflow.WaitGroup.Go is a definition marker")
+}
+
+// Equal 按 Go 的 == 比较 a 与 b：动态类型与值都相等时为 true，动态类型不可比较时 panic。
+// 生成器把操作数含 any 的 == / != 与 any 上的 switch 改写成这个调用，Workflow 代码直接写运算符即可。
+func Equal(a, b any) bool {
+	return a == b
+}
+
+// IsNil 报告 v 是否为 nil 值：nil 接口，或 nil 的 slice、map、指针、函数。
+// 生成器把 slice、map 与 nil 的比较改写成这个调用；空 slice（[]T{}、make([]T, 0)）与空 map 不是 nil。
+func IsNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch value := reflect.ValueOf(v); value.Kind() {
+	case reflect.Slice, reflect.Map, reflect.Pointer, reflect.Func, reflect.Interface, reflect.Chan:
+		return value.IsNil()
+	}
+	return false
+}
+
+// SetCap 把 *s 换成元素相同、容量为 capacity 的新 slice，对应 make([]T, n, capacity) 的容量；
+// capacity 小于长度时 panic（与 Go 的 make 相同）。生成器把带容量的 make 改写成 make 加这个调用。
+func SetCap(s any, capacity int) {
+	target := reflect.ValueOf(s).Elem()
+	if capacity < target.Len() {
+		panic("makeslice: cap out of range")
+	}
+	grown := reflect.MakeSlice(target.Type(), target.Len(), capacity)
+	reflect.Copy(grown, target)
+	target.Set(grown)
 }

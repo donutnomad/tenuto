@@ -123,10 +123,10 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 - IO、环境变量、数据库、HTTP 放进 Activity。Workflow 里可以调用一组列明的确定性标准库函数（`strings` 的 `ToUpper`/`Split`/`TrimSpace` 等、`strconv.Itoa`/`Atoi`/`ParseInt` 等、`fmt.Sprintf`/`Sprint`/`Errorf`、`math.Max`/`Round`/`Sqrt` 等），结果与 Go 相同；清单之外的标准库函数（`sort.*`、`time.Parse`、`math.Pow`、`strconv.Quote`）与其他包的函数生成期报 `file:line`。清单与 `fmt` 格式串规则见 `references/go-subset.md`。
 - Workflow 可以调用同包普通函数与值接收者方法（含其他文件里的、递归、带 `workflow.Context` 调度 Activity 的）：函数体一起翻译进产物，改它就改变内容版本。泛型、可变参数、指针接收者、包级变量、函数当值在生成期报错。
 - 决定 Activity 调度顺序、协程启动顺序、Selector case 顺序的数据用 slice。Workflow 里的 `range m` 按 key 升序遍历（确定、可重放），但升序通常不是业务顺序。
-- 翻译后的 WLang 与 Go 源码行为一致（结构体是值、slice 共享底层数组、nil slice 输出 `null`、`for` 条件每轮求值）；做不到一致的写法在生成期报错（如定长数组 `[N]T`，改用 slice），清单见 `references/go-subset.md`。
+- 翻译后的 WLang 与 Go 源码行为一致（结构体是值、slice 共享底层数组、nil slice 输出 `null`、`for` 条件每轮求值、`any` 与 nil 的比较、map 缺失 key 得到零值）；做不到一致的写法在生成期报错（如定长数组 `[N]T`，改用 slice），清单见 `references/go-subset.md`。
 - Workflow 接触的数据类型（子 Workflow / Activity / continue-as-new 实参、Signal、Update、Query 载荷，任意嵌套深度，含递归类型与契约包类型）都登记进类型表；channel、函数、嵌入字段等无法编码的类型在生成期按 `file:line` 与类型路径报错，见 `references/go-subset.md` 的「数据类型」。
 - `workflow.Await` 的条件闭包与 Query Handler 只读 Workflow 内存变量：它们在重放时反复求值，Query 产生的命令被丢弃。
-- 对已有运行中 Run 的 Workflow，新增、删除、重排 Activity / Timer / Child / `SideEffect` / `RandomUUID` / `RandomInt` / 协程 / Selector case 需要 `GetVersion` 保护或 `pinned`：这些改动改变命令序列。
+- 对已有运行中 Run 的 Workflow，新增、删除、重排 Activity / Timer / Child / `SideEffect` / `RandomUUID` / `RandomInt` / 协程 / Selector case 需要 `GetVersion` 保护或 `pinned`：这些改动改变命令序列。重放按 Workflow Task 逐批比对，把命令挪到另一个 Workflow Task（并行改成先后执行或反过来）同样需要保护。
 
 生成器拒绝的写法（报错带 `file:line` 和替代写法）：
 
@@ -230,7 +230,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | Run 仍是 `running`，`config_error` 以 `workflow task cannot be prepared: ` 开头（例如 `workflow config not found: ...`、`invalid branch token`） | Server 准备这个 Run 的 Workflow Task 时遇到每次都会重现的失败（Run 采用的 Program 版本或定义读不到、Run 数据损坏），暂停 Run 而不是反复重投 | 修复原因（重新登记那一版 Program，或修复数据）后 set-policy 恢复；`auto_upgrade` 恢复时换到 latest |
 | Run 仍是 `running`，`config_error` 为 `auto upgrade to <version> refused: payloads recorded in history cannot be read by the candidate program: signal "approve": order.Approval -> order2.Approval: order_id: field is missing in the new type (removed or renamed); ...` | `auto_upgrade` 的 Run 换版前发现 History 里已有的载荷在 latest 的类型下读不回（字段删除、改名、改类型），没有换版 | set-policy `pinned` 在当前内容上跑完；或发布保留旧字段的版本后 set-policy `auto_upgrade` |
 | `upgrade_error` 为 `auto upgrade to <version> failed at workflow task N: non_deterministic_error: ...; retrying with backoff`，Console 黄色横幅 | `auto_upgrade` 的 Run 用新 Program 重放旧 History 失配 | 发布兼容内容（补 `GetVersion` 分支），下一次重试自动接手；或 set-policy `pinned` 留在旧内容 |
-| Workflow Task 失败，原因含 `nondeterministic workflow: history event is ..., replay command is ...` / `missing replay command` / `extra replay command` | 代码产生的命令与 History 不同：改了命令序列、用了不确定的数据源、`GetVersion` 返回值落在 `[min, max]` 之外 | 恢复旧命令序列或补 `GetVersion` 分支后重新发布；Run 在下一次 Workflow Task 自动继续。回滚旧代码时 History 里的版本大于旧 `maxSupported` 同样报此错 |
+| Workflow Task 失败，原因含 `nondeterministic workflow: history event is ..., replay command is ...` / `missing replay command` / `extra replay command`（带 `in Workflow Task N`） | 代码产生的命令与 History 不同：改了命令序列、把命令挪到另一个 Workflow Task、用了不确定的数据源、`GetVersion` 返回值落在 `[min, max]` 之外 | 恢复旧命令序列或补 `GetVersion` 分支后重新发布；Run 在下一次 Workflow Task 自动继续。回滚旧代码时 History 里的版本大于旧 `maxSupported` 同样报此错 |
 | Update 的 `handle.Get` 返回 `*apperror.Error`，`Type() == "UnknownUpdate"`，message `no update handler registered for "<name>"` | 名称不一致，或 Handler 在主函数第一次阻塞之后才注册 | 对齐名称；把 `SetUpdateHandler` 移到函数开头 |
 | Update 停在 Accepted | Handler 已开始执行，停在 `Await`、Activity 或 Timer 上 | 用 Query `__stack_trace` 看 Run 当前等待的 Activity 或 Timer（`waiting`、`steps`）；推进它等待的事件 |
 | Update 的 `handle.Get` 返回 `*apperror.Error`，`Type() == "AcceptedUpdateCompletedWorkflow"` | Handler 完成前 Run 已关闭（主函数返回、失败、取消、终止、continue-as-new） | 让主函数在 Handler 完成前保持运行（`Await` Handler 设置的完成标志） |
@@ -246,7 +246,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
 | Query 被拒：`workflow has not completed its first workflow task yet; query handlers are not registered` | Run 刚启动 | 稍后重试 |
 | Activity 一直重试、Run 不结束 | 缺省重试策略不限次数，没有设置 `ScheduleToCloseTimeout` 或 `MaxAttempts` | 给调用设置 `ScheduleToCloseTimeout` 或 `RetryPolicy{MaxAttempts: n}`，永久失败返回 `apperror.NewNonRetryable` |
 | 生成器：`<pkg>.<Func> is not supported: WLang binds no such standard-library function` / `call of <pkg>.<Func> is not supported: the package is not bound by the host` | 调用了清单外的标准库函数或其他包的函数 | 换用清单内的函数，或放进 Activity |
-| Run 失败，错误 `[E_BUDGET] ... MaxStringBytes exceeded` / `MaxArrayLength exceeded` / `MaxObjectKeys exceeded` / `MaxSteps exceeded` | Workflow 代码超出执行预算：单个字符串 16 MiB、数组 10 万元素、map 10 万键、100 万步 | 把构造大数据的计算放进 Activity，长循环用 Continue-As-New；预算表见 `references/go-subset.md` |
+| Run 失败，错误 `[E_BUDGET] ... MaxStringBytes exceeded` / `MaxArrayLength exceeded` / `MaxObjectKeys exceeded` / `MaxSteps exceeded` | Workflow 代码超出执行预算：单个字符串 16 MiB、数组 10 万元素、map 10 万键、每个 Workflow Task 100 万条语句 | 把构造大数据的计算放进 Activity，单个 Workflow Task 里的长循环拆到多个 Workflow Task（循环内等待 Activity、Timer 或 Signal）；预算表见 `references/go-subset.md` |
 | 生成器：`fmt.Sprintf verb %d does not accept string operand` / `format must be a constant string` / `%q is not supported` | `fmt` 格式串与操作数不符合规则 | 按 `references/go-subset.md` 的 fmt 规则改写 |
 | 生成器：`workflow 里不能用 ...；用 ...` | 用了被拒绝的原生语法或包 | 按报错给出的替代写法改 |
 | 生成器：`本包函数 X 不能作为值使用` / `generic function X is not supported` / `methods with pointer receivers are not supported` / `package-level variable X is not supported` | 同包函数的写法超出支持范围 | 写闭包、去掉泛型与可变参数、改成值接收者并返回新值、改成常量或参数 |

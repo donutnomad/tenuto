@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"slices"
 	"time"
@@ -129,8 +130,10 @@ type WorkflowExecutor struct {
 	activeWLExec *wlruntime.Executor
 	// activeAPI 是当前 program 的 runtimeWorkflowAPI（executeWLang 注入）。update handler 协程
 	// 经它读 handler 注册表；协程可能早于 main 首次运行，此时为 nil。
-	activeAPI              *runtimeWorkflowAPI
-	stepHook               wlruntime.StepHook
+	activeAPI *runtimeWorkflowAPI
+	stepHook  wlruntime.StepHook
+	// batchSteps 是当前决策批已执行的 WLang 语句数，runDecisionBatch 开始时清零（见 workflowMaxBatchSteps）。
+	batchSteps             int64
 	debugEffectHook        executor.DebugEffectHook
 	debugWaitingActivities map[uint64]executor.DebugWaitingActivity
 	// debugActivities 按调用顺序记录调试回放里的每次 ExecuteActivity；为 nil 时不记录。
@@ -347,27 +350,42 @@ func (e *WorkflowExecutor) startScheduler() {
 	})
 }
 
-// restore 重放已提交的决策批，并把重放产出的命令序列与这些批里的历史命令事件比对。
-// 每个批对应一个已完成的 Workflow Task：它看到的外部事件加上它产出的命令事件。
-// 调用前必须已 startScheduler。返回错误时 executor 不可继续使用。
+// restore 重放已提交的决策批，逐批把重放产出的命令与该批的历史命令事件比对。
+// 每个批对应一个已完成的 Workflow Task：它看到的外部事件、WorkflowTaskCompleted 与它产出的命令事件。
+// 按批比对对标 Temporal SDK 按 Workflow Task 处理命令事件：命令挪到另一个 Workflow Task 时，即使命令的
+// 总顺序不变也报非确定性。调用前必须已 startScheduler。返回错误时 executor 不可继续使用。
 func (e *WorkflowExecutor) restore(committed [][]history.Event) error {
-	var historyCommands []history.Event
-	for _, batch := range committed {
+	for index, batch := range committed {
 		e.runDecisionBatch(batch, true)
 		if err := e.executionError(); err != nil {
 			return err
 		}
+		// 重放中执行到 ContinueAsNew 的 Run 已经结束，本批及之后的命令不参与比对。
+		if e.canInReplay() {
+			return nil
+		}
+		var historyCommands []history.Event
 		for _, event := range batch {
 			if executor.IsCommandEvent(event) {
 				historyCommands = append(historyCommands, event)
 			}
 		}
+		if err := executor.MatchReplayWithHistory(e.replayCommands[e.replayBatchStart:], historyCommands); err != nil {
+			return executor.NewNonDeterministicError(fmt.Sprintf("%s in Workflow Task %d (completed at event %d)",
+				err.Error(), index+1, batchCompletedEventID(batch)))
+		}
 	}
-	// 重放中执行到 ContinueAsNew 的 Run 已经结束，其后的命令序列不参与比对。
-	if e.canInReplay() {
-		return nil
+	return nil
+}
+
+// batchCompletedEventID 返回已提交批的 WorkflowTaskCompleted 事件 ID。
+func batchCompletedEventID(batch []history.Event) int64 {
+	for _, event := range batch {
+		if event.WorkflowTaskCompleted != nil {
+			return event.ID
+		}
 	}
-	return executor.MatchReplayWithHistory(e.replayCommands, historyCommands)
+	return 0
 }
 
 // activate 执行 live 决策批并在 e.commands 中留下本次 Workflow Task 的命令。
@@ -398,6 +416,7 @@ func (e *WorkflowExecutor) activate(batch []history.Event) error {
 func (e *WorkflowExecutor) runDecisionBatch(batch []history.Event, replay bool) {
 	e.isReplay = replay
 	e.replayBatchStart = len(e.replayCommands)
+	e.batchSteps = 0
 	cut := len(batch)
 	if !e.cancellationRequested {
 		if i := slices.IndexFunc(batch, func(event history.Event) bool { return event.WorkflowCancellationRequested != nil }); i >= 0 {

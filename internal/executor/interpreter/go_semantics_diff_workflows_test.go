@@ -1,0 +1,180 @@
+package interpreter
+
+import workflow "github.com/donutnomad/tenuto/sdk/workflow"
+
+// 差分测试的 Workflow 函数（TestGoSemanticsDifferential）：同一份源码在原生 Go 里直接调用，也经生成器翻译后
+// 由解释器执行，两边的结果必须相同。函数只用原生 Go 语法，不调用 workflow 包的函数。
+
+type DiffOut struct {
+	Sum   int
+	Count int
+	Text  string
+	Flag  bool
+}
+
+type DiffItem struct {
+	Name string
+	Qty  int
+}
+
+type DiffInput struct {
+	Name  string
+	Tags  []string
+	Attrs map[string]string
+}
+
+func DiffAnyEqualsTrue(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	return DiffOut{Flag: input["approved"] == true}, nil
+}
+
+func DiffAnyEqualsString(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	if input["action"] == "cancel" {
+		return DiffOut{Text: "cancel"}, nil
+	}
+	return DiffOut{Text: "other"}, nil
+}
+
+func DiffAnyNotEqualsString(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	if input["status"] != "approved" {
+		return DiffOut{Text: "rejected-branch"}, nil
+	}
+	return DiffOut{Text: "approved-branch"}, nil
+}
+
+func DiffStringEqualsAny(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	return DiffOut{Flag: "approved" == input["status"]}, nil
+}
+
+// JSON 数字在 Go 的 map[string]any 里是 float64：与整数常量比较为 false，与浮点常量比较为 true。
+func DiffAnyNumberFromJSON(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	text := "no"
+	if input["n"] == 3.0 {
+		text = "float"
+	}
+	return DiffOut{Flag: input["n"] == 3, Text: text}, nil
+}
+
+func DiffAnyLocalInt(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	m := map[string]any{"n": 3, "s": "x"}
+	return DiffOut{Flag: m["n"] == 3 && m["s"] != 3 && m["missing"] == nil}, nil
+}
+
+func DiffAnyEqualsAny(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var a any = "x"
+	var b any = "x"
+	var c any = 1
+	return DiffOut{Flag: a == b && a != c && input["a"] == input["b"]}, nil
+}
+
+func DiffAnyStructEquals(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var v any = DiffItem{Name: "a", Qty: 1}
+	return DiffOut{Flag: v == DiffItem{Name: "a", Qty: 1} && v != DiffItem{Name: "a", Qty: 2}}, nil
+}
+
+func DiffSwitchOnAny(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	switch input["kind"] {
+	case "a":
+		return DiffOut{Text: "A"}, nil
+	case "b", "c":
+		return DiffOut{Text: "BC"}, nil
+	case nil:
+		return DiffOut{Text: "nil"}, nil
+	}
+	return DiffOut{Text: "none"}, nil
+}
+
+func DiffSwitchOnAnyWithInit(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	count := 0
+	switch kind := input["kind"]; kind {
+	case true:
+		count = 1
+	case "b":
+		count = 2
+	default:
+		count = 3
+	}
+	return DiffOut{Count: count}, nil
+}
+
+func DiffNilSlice(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var s []int
+	e := []int{}
+	m := make([]int, 0)
+	return DiffOut{Flag: s == nil && e != nil && m != nil && nil != e, Sum: len(s)}, nil
+}
+
+func DiffNilMap(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	m := map[string]int{}
+	var n map[string]int
+	return DiffOut{Flag: m != nil && n == nil}, nil
+}
+
+func DiffInputNilFields(ctx workflow.Context, in DiffInput) (DiffOut, error) {
+	text := ""
+	if in.Tags == nil {
+		text += "tags-nil "
+	}
+	if in.Attrs == nil {
+		text += "attrs-nil"
+	}
+	return DiffOut{Text: text}, nil
+}
+
+func DiffInitNilMap(ctx workflow.Context, in DiffInput) (DiffOut, error) {
+	attrs := in.Attrs
+	if attrs == nil {
+		attrs = map[string]string{}
+	}
+	attrs["k"] = "v"
+	return DiffOut{Count: len(attrs)}, nil
+}
+
+func DiffMissingKeyStruct(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	m := map[string]DiffItem{"a": {Name: "a", Qty: 2}}
+	v := m["x"]
+	w := m["a"]
+	return DiffOut{Sum: v.Qty + 1, Text: v.Name + w.Name, Count: w.Qty}, nil
+}
+
+func DiffMissingKeyStructCommaOK(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	m := map[string]DiffItem{"a": {Name: "a", Qty: 2}}
+	v, ok := m["x"]
+	w, found := m["a"]
+	return DiffOut{Sum: v.Qty + w.Qty, Text: v.Name, Flag: !ok && found}, nil
+}
+
+func DiffMissingKeyStructArgument(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	m := map[string]DiffItem{}
+	items := []DiffItem{}
+	items = append(items, m["x"])
+	first := items[0]
+	return DiffOut{Count: len(items), Sum: first.Qty, Text: first.Name}, nil
+}
+
+func DiffSliceWithinCap(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	a := make([]int, 0, 10)
+	b := a[:3]
+	b[2] = 7
+	return DiffOut{Sum: len(b), Count: cap(a) + b[2]}, nil
+}
+
+func DiffSizedSliceWithCap(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	n := 2
+	a := make([]int, n, n+3)
+	a = append(a, 5)
+	b := a[:5]
+	return DiffOut{Sum: len(a) + b[2], Count: cap(a)}, nil
+}
+
+func DiffSliceBeyondCap(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	a := make([]int, 0, 2)
+	n := 3
+	b := a[:n]
+	return DiffOut{Sum: len(b)}, nil
+}
+
+func DiffAnyUncomparable(ctx workflow.Context, input map[string]any) (DiffOut, error) {
+	var a any = []int{1}
+	var b any = []int{1}
+	return DiffOut{Flag: a == b}, nil
+}

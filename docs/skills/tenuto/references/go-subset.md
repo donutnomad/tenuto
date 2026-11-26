@@ -103,13 +103,14 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 
 - 字面量：字符串、整数、浮点、布尔、`nil`。
 - 运算：`+ - * / %`、比较、`&&`、`||`、`!`、一元 `-`；整数溢出回绕、除法向零截断，与 Go 相同。
-- 字段访问 `user.Name`、索引 `xs[i]`、切片 `xs[a:b]`、map 读取 `m[k]` 与 `v, ok := m[k]`。
+- `==`、`!=`、`switch` 的结果与 Go 相同，含 `any` 与 nil 的比较（见「比较」）。
+- 字段访问 `user.Name`、索引 `xs[i]`、切片 `xs[a:b]`（按容量判断越界）、map 读取 `m[k]` 与 `v, ok := m[k]`；key 不存在时得到元素类型的零值（结构体是零值结构体）。
 - 复合字面量：`[]T{...}`、`map[string]T{...}`、`pkg.Type{Field: v}`、`Type{Field: v}`、具名 slice/map 类型 `Tags{"a"}`。
 - 省略元素类型的复合字面量 `[]Point{ {X: 1} }`、`map[string]Amounts{"x": {1, 2}}`。
 - 内建函数：`len`、`cap`、`copy`、`delete`、`append`（语句 `xs = append(xs, v...)`，含 `ys...`）。
-- `make(map[K]V)`、`make([]T, 0)`、`make([]T, 0, n)`；`xs := make([]T, n)` 写成独立语句。
+- `make(map[K]V)`、`make([]T, 0)`；`xs := make([]T, n)`、`xs := make([]T, n, c)` 写成独立语句（容量与 Go 相同）。
 - 类型转换：`int` / `int64` 互转、`time.Duration(n)`、具名字符串类型与 `string`。
-- 取址输出参数 `&ident`、`&selector`，用于 `Get(ctx, &out)`。
+- 取址输出参数 `&ident`、`&selector`，只能直接作为调用实参，用于 `Get(ctx, &out)`。
 - 类型断言 `x.(T)`、`v, ok := x.(T)`，以及赋值、`return`、表达式语句里的 `x.(T).Field`。
 
 ## 生成期拒绝的语法
@@ -118,6 +119,8 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 - `goto`、`fallthrough`；`range` 遍历 string、channel、函数。
 - 可变参数展开 `fn(xs...)`（桥调用里的 `opts...` 由生成器处理）；可变参数函数字面量。
 - `&xs[i]`、`&T{...}` 等复杂取址：先存入局部变量再传 `&local`；`new(T)`（`T` 为本包结构体）。
+- 调用实参之外的 `&x`（`p := &a`、`return &a`）：没有指针别名，直接用值。
+- 不是独立赋值语句的 `make([]T, n)`、`make([]T, n, c)`；带标签、带初始化语句、tag 是 `any` 的 `switch`。
 - 匿名参数的函数字面量。
 - string 下标 `s[i]`、切片 `s[a:b]`；完整切片表达式 `xs[a:b:c]`。
 - 移位与位运算 `<<` `>>` `&` `|` `^` `&^`（常量运算除外）。
@@ -153,21 +156,29 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 - Workflow 与 Activity 的输入输出用带 `json` tag 的 struct。Go `int` 在 WLang 里归一化为 `int64`。
 - struct 是值（赋值、传参、存入容器时复制）；slice、map 是引用（`ys := xs` 后元素写入互相可见，`append` 容量够时复用底层数组）。
 - `var xs []T`、`var m map[K]V` 是 nil，输出编码为 `null`；写 nil map 让 Workflow Task 失败。
-- `map[string]any` 可以作为输入输出和 `Get` 的目标。它的元素类型是 `any`，与字符串、数字字面量直接 `==` 比较结果是 `false`；需要按字段分支时声明 struct DTO。
+- `map[string]any` 可以作为输入输出和 `Get` 的目标，`d["approved"] == true`、`switch d["action"]` 与 Go 结果相同。
+
+## 比较
+
+生成器按类型信息把与 Go 结果不同的比较改写成 `workflow` 包调用，代码直接写运算符：
+
+- 一侧是 `any` 的 `==` / `!=` → `workflow.Equal`：动态类型与值都相等才为 `true`；`switch` 的 tag 或 case 是 `any` 时每个 case 同样比较。
+- slice / map 与 `nil` 比较 → `workflow.IsNil`：`var xs []T`、载荷省略或 `null` 的字段是 nil，`[]T{}`、`make([]T, 0)`、载荷的 `[]` 不是。只关心有无元素写 `len(xs) == 0`。
+- 载荷里 `map[string]any` 的数字按 `float64` 比较（与 `encoding/json` 相同）：`d["n"] == 3` 为 `false`，`d["n"] == 3.0` 为 `true`；按数字分支用 struct DTO 或 `d["n"].(float64)`。
+- 差异：`any` 里的具名基础类型值（`type Status string`）按底层类型比较，`var x any = Status("a"); x == "a"` 为 `true`（Go 为 `false`）；先断言成具名类型再比较。
 - Side Effect 与 Marker 的值经过 JSON 持久化，超过 2^53 的整数用字符串表示。
 
 ## 执行预算
 
 | 预算 | 上限 |
 | --- | --- |
-| 执行步数 | 1,000,000 |
-| 循环迭代 | 1,000,000 |
+| 执行步数（每个 Workflow Task 执行的语句，循环每轮都计入） | 1,000,000 |
 | 协程数 | 1,024 |
 | 调用深度 | 128 |
 | 数组长度 | 100,000 |
 | map / 对象 key 数 | 100,000 |
 | 单个字符串 | 16 MiB |
 
-预算按一次执行（从 History 开头重放到当前）计。超出时 Run 失败，`WorkflowFailed` 的错误文本以 `[E_BUDGET]` 开头并带超出的预算与位置，Workflow 代码不能捕获。字符串 `+` / `+=`，`strings.Repeat`、`Replace`、`ReplaceAll`、`Join`、`Split`、`Fields`，`fmt.Sprintf`、`Sprint`、`Sprintln`、`Errorf`，`strconv.FormatFloat` 在分配之前按参数算出结果大小，`strings.Repeat("x", 1<<34)` 立即失败；`m[k] = v` 新增 key、`append` 分别检查 key 数与长度；其余函数在返回后检查结果。上限针对单个值，构造大字符串或大数组的计算放进 Activity。
+步数在每个 Workflow Task 开始时清零，重放时每个 Workflow Task 重新计数，长期运行的 Run 不会因累计步数失败；其余上限针对单个值或同时存在的协程。超出时 Run 失败，`WorkflowFailed` 的错误文本以 `[E_BUDGET]` 开头并带超出的预算与位置，Workflow 代码不能捕获。字符串 `+` / `+=`，`strings.Repeat`、`Replace`、`ReplaceAll`、`Join`、`Split`、`Fields`，`fmt.Sprintf`、`Sprint`、`Sprintln`、`Errorf`，`strconv.FormatFloat` 在分配之前按参数算出结果大小，`strings.Repeat("x", 1<<34)` 立即失败；`m[k] = v` 新增 key、`append` 分别检查 key 数与长度；其余函数在返回后检查结果。上限针对单个值，构造大字符串或大数组的计算放进 Activity。
 
-单个 Workflow Task 另有超时，Worker 缺省 10 秒（`worker.DefaultWorkflowTaskTimeout`）。长循环在循环内调度 Activity、Timer 或使用 Continue-As-New，让执行跨越多个 Workflow Task。
+单个 Workflow Task 另有超时，Worker 缺省 10 秒（`worker.DefaultWorkflowTaskTimeout`）。长循环在循环内等待 Activity、Timer 或 Signal，让执行跨越多个 Workflow Task，各自计步；History 接近上限前用 Continue-As-New。

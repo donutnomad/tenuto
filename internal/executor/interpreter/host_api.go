@@ -15,6 +15,7 @@ import (
 	"github.com/donutnomad/tenuto/sdk/apperror"
 	wlast "github.com/donutnomad/wlang/ast"
 	wlcompiler "github.com/donutnomad/wlang/compiler"
+	wlerrors "github.com/donutnomad/wlang/errors"
 	wlregistry "github.com/donutnomad/wlang/registry"
 	wlruntime "github.com/donutnomad/wlang/runtime"
 	"github.com/donutnomad/wlang/types"
@@ -167,13 +168,18 @@ func (e *WorkflowExecutor) executeWLang(wf *programpkg.WorkflowConfig) error {
 		scope.LetReadOnly(entry.InputVar, typedInput)
 	}
 	wlExec := wlruntime.NewExecutor(e.ctx, scope, reg, reg.PackageNames(), workflowWLangBudget())
-	if e.stepHook != nil {
-		wlExec.OnStep = func(info wlruntime.StepInfo) error {
-			if info.RoutineID == 0 && e.sched != nil {
-				info.RoutineID = e.sched.CurrentRoutineID()
-			}
-			return e.stepHook(info)
+	wlExec.OnStep = func(info wlruntime.StepInfo) error {
+		e.batchSteps++
+		if e.batchSteps > workflowMaxBatchSteps {
+			return wlerrors.Newf(wlerrors.CodeBudget, "MaxSteps exceeded (%d statements in one Workflow Task)", workflowMaxBatchSteps).WithPath(info.Node.Path())
 		}
+		if e.stepHook == nil {
+			return nil
+		}
+		if info.RoutineID == 0 && e.sched != nil {
+			info.RoutineID = e.sched.CurrentRoutineID()
+		}
+		return e.stepHook(info)
 	}
 	api.wlExec = wlExec     // handler/回调闭包经同一 executor 执行（闭包捕获的外层变量随之存活）
 	e.activeWLExec = wlExec // 非结构化 lane 起协程（spawnLane / waitGroup.Go）用它 InvokeClosure 执行 lane 闭包
@@ -722,7 +728,14 @@ func checkEntryOutputType(reg *wlregistry.Registry, declared string, actual type
 // workflowMaxStringBytes 是 Workflow Program 里单个字符串的上限（字节）。
 const workflowMaxStringBytes = 16 << 20
 
-// workflowWLangBudget 是一次执行（从 History 开头重放到当前）的 WLang 预算。超出时解释器返回 E_BUDGET，
+// workflowMaxBatchSteps 是一个决策批（一个 Workflow Task）最多执行的语句数，循环每轮执行的语句都计入。
+// 计数在 runDecisionBatch 开始时清零（Query 求值另起一次），对标 Temporal 按 Workflow Task 计时的死锁检测：
+// 长期运行的 Run 只要每个 Workflow Task 的计算有界就不会触顶。重放时每批重新计数，同一批在 live 与重放时
+// 于同一条语句触顶。
+const workflowMaxBatchSteps = 1_000_000
+
+// workflowWLangBudget 是 WLang executor 的预算。步数与循环迭代由 workflowMaxBatchSteps 按决策批计数，
+// executor 自己的 MaxSteps 与 MaxLoopIterations 在整个执行期间累计，这里不设。超出预算时解释器返回 E_BUDGET，
 // Workflow Task 以这个错误让 Run 失败，副本照常运行。
 //
 // 大小上限在分配之前检查：字符串拼接、bigInt 运算，以及 strings.Repeat、Replace、Join、Split、fmt.Sprintf
@@ -730,13 +743,11 @@ const workflowMaxStringBytes = 16 << 20
 // 上限针对单个值；值的个数由步数、数组长度与键数的上限约束。
 func workflowWLangBudget() wlruntime.Budget {
 	return wlruntime.Budget{
-		MaxSteps:          1_000_000,
-		MaxLoopIterations: 1_000_000,
-		MaxRoutines:       1024,
-		MaxCallDepth:      128,
-		MaxArrayLength:    100_000,
-		MaxObjectKeys:     100_000,
-		MaxStringBytes:    workflowMaxStringBytes,
+		MaxRoutines:    1024,
+		MaxCallDepth:   128,
+		MaxArrayLength: 100_000,
+		MaxObjectKeys:  100_000,
+		MaxStringBytes: workflowMaxStringBytes,
 	}
 }
 

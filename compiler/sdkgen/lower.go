@@ -41,6 +41,13 @@ func lowerWorkflowSource(src []byte, filename, funcName string) ([]byte, error) 
 		if pass.err != nil {
 			return nil, pass.err
 		}
+		if pass.needsWorkflowImport && workflowImportAlias(file) == "" {
+			edit, err := workflowImportEdit(fset, file, src, filename)
+			if err != nil {
+				return nil, err
+			}
+			pass.edits = append(pass.edits, edit)
+		}
 		if len(pass.edits) == 0 {
 			return src, nil
 		}
@@ -90,6 +97,8 @@ type lowerPass struct {
 	names map[string]bool
 	edits []sourceEdit
 	err   error
+	// needsWorkflowImport 表示改写引入了 workflow 包的调用，文件没有导入它时补一条 import。
+	needsWorkflowImport bool
 }
 
 // importTable 收集 import 别名 → path；没有显式别名时取路径末段（跳过 v2 这类版本段）。
@@ -206,6 +215,8 @@ var unsupportedConversions = map[string]bool{
 
 // reject 拒绝在 workflow 里没有确定性语义、或运行期必然失败的写法。
 func (p *lowerPass) reject(fn *ast.FuncDecl) {
+	// callArgs 是直接作为调用实参的表达式：&x 只在这里有意义（输出参数）。
+	callArgs := map[ast.Expr]bool{}
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
 		if p.err != nil {
 			return false
@@ -223,13 +234,29 @@ func (p *lowerPass) reject(fn *ast.FuncDecl) {
 			if x.Op == token.ARROW {
 				p.fail(x, "workflow 里不能用 <-ch；用 workflow.Channel 的 Receive(ctx, &v)")
 			}
+			if x.Op == token.AND && !callArgs[x] && isOutOperand(x.X) {
+				p.fail(x, "workflow 里 %s 只能直接作为调用实参（输出参数，如 Get(ctx, &out)）：Workflow 程序没有指针别名，`p := &a` 之后经 p 的读写不会作用到 a；直接使用值 a", p.source(x))
+			}
 		case *ast.SelectorExpr:
 			p.rejectPackageUse(x)
 		case *ast.CallExpr:
 			p.rejectCall(x)
+			for _, arg := range x.Args {
+				callArgs[arg] = true
+			}
 		}
 		return true
 	})
+}
+
+// isOutOperand 报告 &x 的 x 是否为 go2wlang 当作输出参数翻译的形态（标识符或字段选择）；
+// 其他取址表达式由 go2wlang 报诊断。
+func isOutOperand(expr ast.Expr) bool {
+	switch unparen(expr).(type) {
+	case *ast.Ident, *ast.SelectorExpr:
+		return true
+	}
+	return false
 }
 
 func (p *lowerPass) rejectPackageUse(sel *ast.SelectorExpr) {
@@ -361,7 +388,8 @@ func (p *lowerPass) lowerFuncLits(stmt ast.Stmt) {
 }
 
 // lowerMakeAssign 把 `x := make([]T, n)` 展开成空切片加循环追加零值。n 在清空 x 之前求值一次，
-// `x = make([]T, len(x))` 因此得到与原切片等长的结果。
+// `x = make([]T, len(x))` 因此得到与原切片等长的结果。带容量的 `x := make([]T, n, c)` 在此之后调用
+// workflow.SetCap(&x, c)，容量与 Go 相同，`x[:k]`（k 不超过 c）按容量判断越界。
 func (p *lowerPass) lowerMakeAssign(stmt *ast.AssignStmt) bool {
 	if len(stmt.Lhs) != 1 || len(stmt.Rhs) != 1 || (stmt.Tok != token.DEFINE && stmt.Tok != token.ASSIGN) {
 		return false
@@ -370,16 +398,36 @@ func (p *lowerPass) lowerMakeAssign(stmt *ast.AssignStmt) bool {
 	if !ok || target.Name == "_" {
 		return false
 	}
-	call, array, ok := sizedSliceMake(stmt.Rhs[0])
+	call, array, ok := sliceMake(stmt.Rhs[0])
 	if !ok {
 		return false
 	}
+	sized, withCap := sizedSliceMake(call), len(call.Args) == 3
+	if !sized && !withCap {
+		return false
+	}
 	typeText := p.source(array)
-	size := p.freeName("zzMakeLen")
-	index := p.freeName("zzMake")
-	p.replace(stmt, fmt.Sprintf("%s := (%s); %s %s %s{}; for %s := 0; %s < %s; %s++ { %s = append(%s, %s) }",
-		size, p.source(call.Args[1]), target.Name, stmt.Tok, typeText, index, index, size, index,
-		target.Name, target.Name, p.zeroLiteral(array.Elt)))
+	var parts []string
+	var size, capacity string
+	if sized {
+		size = p.freeName("zzMakeLen")
+		parts = append(parts, fmt.Sprintf("%s := (%s)", size, p.source(call.Args[1])))
+	}
+	if withCap {
+		capacity = p.freeName("zzMakeCap")
+		parts = append(parts, fmt.Sprintf("%s := (%s)", capacity, p.source(call.Args[2])))
+	}
+	parts = append(parts, fmt.Sprintf("%s %s %s{}", target.Name, stmt.Tok, typeText))
+	if sized {
+		index := p.freeName("zzMake")
+		parts = append(parts, fmt.Sprintf("for %s := 0; %s < %s; %s++ { %s = append(%s, %s) }",
+			index, index, size, index, target.Name, target.Name, p.zeroLiteral(array.Elt)))
+	}
+	if withCap {
+		parts = append(parts, fmt.Sprintf("workflow.SetCap(&%s, %s)", target.Name, capacity))
+		p.needsWorkflowImport = true
+	}
+	p.replace(stmt, strings.Join(parts, "; "))
 	return true
 }
 
@@ -417,8 +465,8 @@ func (p *lowerPass) lowerBlankAssign(stmt *ast.AssignStmt) bool {
 	return true
 }
 
-// sizedSliceMake 识别 `make([]T, n)`（n 不是字面量 0）。
-func sizedSliceMake(expr ast.Expr) (*ast.CallExpr, *ast.ArrayType, bool) {
+// sliceMake 识别 `make([]T, ...)`。
+func sliceMake(expr ast.Expr) (*ast.CallExpr, *ast.ArrayType, bool) {
 	call, ok := expr.(*ast.CallExpr)
 	if !ok || len(call.Args) < 2 {
 		return nil, nil, false
@@ -430,10 +478,13 @@ func sizedSliceMake(expr ast.Expr) (*ast.CallExpr, *ast.ArrayType, bool) {
 	if !ok || array.Len != nil {
 		return nil, nil, false
 	}
-	if literal, ok := call.Args[1].(*ast.BasicLit); ok && literal.Value == "0" {
-		return nil, nil, false
-	}
 	return call, array, true
+}
+
+// sizedSliceMake 报告 slice 的 make 是否带非字面量 0 的长度。
+func sizedSliceMake(call *ast.CallExpr) bool {
+	literal, ok := call.Args[1].(*ast.BasicLit)
+	return !ok || literal.Value != "0"
 }
 
 // zeroLiteral 是元素类型零值的 Go 写法：内建标量用 *new(T)，引用类型与 any 用 nil，其余按 struct 写 T{}。
@@ -575,7 +626,8 @@ func (p *lowerPass) hasEditAt(node ast.Node) bool {
 	return false
 }
 
-// lowerMake 把 `make(map[K]V)`、`make([]T, 0[, n])` 改成空字面量；`make([]T, n)` 只接受独立赋值语句。
+// lowerMake 把 `make(map[K]V)`、`make([]T, 0)` 改成空字面量；`make([]T, n)` 与带容量的 `make([]T, n, c)`
+// 只接受独立赋值语句。
 func (p *lowerPass) lowerMake(call *ast.CallExpr, listed map[ast.Stmt]bool) {
 	ident, ok := call.Fun.(*ast.Ident)
 	if !ok || ident.Name != "make" || ident.Obj != nil || len(call.Args) == 0 {
@@ -585,13 +637,14 @@ func (p *lowerPass) lowerMake(call *ast.CallExpr, listed map[ast.Stmt]bool) {
 	case *ast.MapType:
 		p.replace(call, p.source(target)+"{}")
 	case *ast.ArrayType:
-		if _, _, sized := sizedSliceMake(call); !sized {
+		if p.coveredByEdit(call) {
+			return
+		}
+		if len(call.Args) == 2 && !sizedSliceMake(call) {
 			p.replace(call, p.source(target)+"{}")
 			return
 		}
-		if !p.coveredByEdit(call) {
-			p.fail(call, "%s 只能写成独立的赋值语句：`x := %s`（生成器把它展开成循环追加零值）", p.source(call), p.source(call))
-		}
+		p.fail(call, "%s 只能写成独立的赋值语句：`x := %s`（生成器把它展开成追加零值，带容量时再设置容量）", p.source(call), p.source(call))
 	}
 }
 

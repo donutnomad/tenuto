@@ -82,6 +82,16 @@ func TestLowerRejectsNonDeterministicConstructs(t *testing.T) {
 		{"non-host package call", `return Out{Text: uuid.New().String()}, nil`, []string{"uuid.New", "workflow.RandomUUID"}},
 		{"assertion field in condition", `var a any = Out{}; if a.(Out).Sum > 0 { return Out{}, nil }; return Out{}, nil`, []string{"a.(Out).Sum", "先把类型断言赋值给变量"}},
 		{"sized make as argument", `n := 2; x := len(make([]int, n)); return Out{Sum: x}, nil`, []string{"make([]int, n)", "独立的赋值语句"}},
+		{"make with capacity as argument", `x := len(make([]int, 0, 4)); return Out{Sum: x}, nil`, []string{"make([]int, 0, 4)", "独立的赋值语句"}},
+		{"pointer alias", `a := Out{Sum: 1}; p := &a; p.Sum = 5; return a, nil`, []string{"w.go:41", "&a 只能直接作为调用实参", "直接使用值 a"}},
+		{"pointer to field returned", `a := Out{}; q := &a.Sum; _ = q; return a, nil`, []string{"&a.Sum 只能直接作为调用实参"}},
+		{"labeled switch on any with init", `var k any = 1
+L:
+	switch n := 2; k {
+	case n:
+		break L
+	}
+	return Out{}, nil`, []string{"w.go:43", "带标签的 switch", "n := 2"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -200,5 +210,67 @@ func TestGenerateAcceptsMapLiteralWithMapTypedUpdateHandler(t *testing.T) {
 	})
 	return Out{}, err`); err != nil {
 		t.Fatalf("map handler result with map literal must generate: %v", err)
+	}
+}
+
+// 操作数含 any 的比较、any 上的 switch、slice/map 与 nil 的比较改写成 workflow.Equal / workflow.IsNil；
+// 元素是 struct 的 map 读取改写成立即调用的闭包；带容量的 make 改写成 make 加 workflow.SetCap。
+func TestLowerTypedRewritesGoSemantics(t *testing.T) {
+	result, err := generateLowered(`
+	var xs []int
+	m := map[string]Out{}
+	v := m["x"]
+	w, ok := m["y"]
+	buf := make([]int, 0, 8)
+	switch input["kind"] {
+	case "a", "b":
+		v.Text = "ab"
+	}
+	if input["status"] == "ok" || xs == nil || m != nil || ok {
+		return Out{Sum: v.Sum + w.Sum + len(buf)}, nil
+	}
+	return v, nil`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	for _, want := range []string{`"Equal"`, `"IsNil"`, `"SetCap"`, `"zzTag1"`, `"zzZero1"`, `"zzZero2"`} {
+		if !strings.Contains(program, want) {
+			t.Fatalf("program misses %s:\n%s", want, program)
+		}
+	}
+}
+
+// 元素不是 struct 的 map 读取、指针与 nil 的比较、不含 any 的比较保持 WLang 运算。
+func TestLowerTypedKeepsComparableForms(t *testing.T) {
+	result, err := generateLowered(`
+	m := map[string]int{}
+	var p *Out
+	s := "x"
+	return Out{Sum: m["a"], Text: s}, func() error { if p == nil && s == "x" { return nil }; return nil }()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := string(result.ProgramJSON)
+	if strings.Contains(program, `"Equal"`) || strings.Contains(program, `"IsNil"`) || strings.Contains(program, "zzZero") {
+		t.Fatalf("program should keep plain comparisons and map reads:\n%s", program)
+	}
+}
+
+// 没有导入 workflow 包的文件被改写成 workflow.Equal / workflow.SetCap 时补一条 import，写在 package 子句同一行，
+// 之后的诊断行号不变。
+func TestLowerTypedInjectsWorkflowImportOnSameLine(t *testing.T) {
+	src := "package flows\n\nfunc W(input map[string]any) int {\n\ta := make([]int, 0, 4)\n\tif input[\"k\"] == \"v\" {\n\t\treturn cap(a)\n\t}\n\treturn 0\n}\n"
+	result, err := GenerateFromSource([]byte(src), Options{WorkflowType: "inject", FuncName: "W", Filename: "inject.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if program := string(result.ProgramJSON); !strings.Contains(program, `"Equal"`) || !strings.Contains(program, `"SetCap"`) {
+		t.Fatalf("program misses workflow calls:\n%s", program)
+	}
+	bad := strings.Replace(src, "return 0", "return len(\"ab\"[0:1])", 1)
+	_, err = GenerateFromSource([]byte(bad), Options{WorkflowType: "inject", FuncName: "W", Filename: "inject.go"})
+	if err == nil || !strings.Contains(err.Error(), "inject.go:8") {
+		t.Fatalf("err = %v, want a diagnostic at inject.go:8", err)
 	}
 }

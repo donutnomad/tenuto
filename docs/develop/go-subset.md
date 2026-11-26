@@ -129,12 +129,13 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 
 - 字面量：字符串、整数、浮点、布尔、`nil`。
 - 运算：`+ - * / %`、比较、`&&`、`||`、`!`、一元 `-`。整数按位宽溢出回绕，整数除法与 `%` 向零截断，与 Go 相同。
-- 字段访问 `user.Name`、slice 索引 `xs[i]`、切片 `xs[a:b]`、map 读取 `m[k]` 与 `v, ok := m[k]`。
+- `==`、`!=` 与 `switch` 的比较结果与 Go 相同，见下文「比较」。
+- 字段访问 `user.Name`、slice 索引 `xs[i]`、切片 `xs[a:b]`（按容量判断越界，与 Go 相同）、map 读取 `m[k]` 与 `v, ok := m[k]`。key 不存在时得到元素类型的零值，元素是结构体时得到各字段为零值的结构体。
 - 复合字面量：`[]T{...}`、`map[string]T{...}`、`pkg.Type{Field: v}`、当前包 `Type{Field: v}`、具名 slice/map 类型 `Tags{"a"}`（`type Tags []string`），以及省略元素类型的 `[]Point{ {X: 1} }`、`map[string]Amounts{"x": {1, 2}}`。
 - 内建函数：`len`、`cap`、`copy`、`delete`、`append`（语句 `xs = append(xs, v...)`，包括 `xs = append(xs, ys...)`）。
-- `make`：`make(map[K]V)`、`make([]T, 0)`、`make([]T, 0, n)` 得到空容器；`xs := make([]T, n)` 写成独立语句，得到 n 个零值。
+- `make`：`make(map[K]V)`、`make([]T, 0)` 得到空容器；`xs := make([]T, n)` 与带容量的 `xs := make([]T, n, c)` 写成独立语句，得到 n 个零值、容量 c（`xs[:k]` 在 k 不超过 c 时有效）。
 - 类型转换：不改变数值表示的转换，`int` 与 `int64` 互转、`time.Duration(n)`（`n` 为整数）、具名字符串类型与 `string` 互转。
-- 取址输出参数：`&ident`、`&selector`，用于 `Get(ctx, &out)` 等调用。
+- 取址输出参数：`&ident`、`&selector` 直接作为调用实参，用于 `Get(ctx, &out)` 等调用。
 - 类型断言 `x.(T)`、`v, ok := x.(T)`，以及赋值、`return`、表达式语句里的 `x.(T).Field`（生成器先把断言赋给临时变量）。
 
 ## 生成期拒绝的语法
@@ -147,6 +148,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 - `range` 遍历 string、channel 或函数。
 - 可变参数展开 `fn(xs...)`（桥调用里的 `opts...` 由生成器处理）。
 - `&xs[i]`、`&T{...}` 等复杂取址表达式，先存入局部变量再传 `&local`；`new(T)`（`T` 为本包结构体）。
+- 调用实参之外的 `&x`、`&x.F`，例如 `p := &a`、`return &a`、`Out{P: &a}`：Workflow 程序没有指针别名，经 `p` 的读写不会作用到 `a`；直接使用值。
 - 匿名参数的函数字面量、可变参数函数字面量 `func(xs ...int)`。
 - 改变数值表示的类型转换：`float64(v)`、`int(f)`（`f` 为浮点）、`string(v)`、`[]byte(s)`、`int32(v)`。
 - string 的下标 `s[i]` 与切片 `s[a:b]`、完整切片表达式 `xs[a:b:c]`。
@@ -154,7 +156,8 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 - 计算值上的字段访问与赋值：`xs[i].Field`、`f().Field`、`xs[i].Field = v`，先赋给局部变量。
 - 表达式里的 `append`，例如 `ys := append(xs, v)`、`f(append(xs, v))`；只支持语句 `xs = append(xs, ...)`。
 - 内建函数 `recover`、`min`、`max`、`clear`、`print`。
-- 不是独立赋值语句的 `make([]T, n)`。
+- 不是独立赋值语句的 `make([]T, n)` 与 `make([]T, n, c)`。
+- 带标签、带初始化语句、tag 是 `any` 的 `switch`（`L: switch v := f(); x { ... }`）：把初始化语句移到 `switch` 之前。
 - 条件表达式、闭包或带函数调用的操作数里的 `x.(T).Field`：先写 `v := x.(T)`，再用 `v.Field`。
 - 读写包级变量、点导入。
 - 不能跨 Workflow 边界的数据类型，见下一节。
@@ -228,17 +231,31 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 - 结构体是值：赋值、传参、存入 slice / map / 其他结构体时复制，与 Go 相同。slice 与 map 是引用：`ys := xs` 后的元素写入互相可见，`append` 在容量足够时复用底层数组。
 - 定长数组（`[N]T`、`[...]T{...}`、底层是数组的具名类型、数组字段）在生成期报错（`file:line`）：Go 的数组赋值与传参是复制，Workflow 程序里只有引用语义的 slice，翻译后会共享元素；改用 slice `[]T`。
 - `var xs []T`、`var m map[K]V` 是 nil，作为输出编码为 JSON `null`；`[]T{}` 编码为 `[]`。写 nil map 让 Workflow Task 失败（Go 里是 panic）。
-- `map[string]any` 可以作为输入输出和 `Get` 的目标。它的元素类型是 `any`，与字符串、数字字面量直接用 `==` 比较的结果是 `false`；需要按字段分支时声明结构体 DTO。
+- `map[string]any` 可以作为输入输出和 `Get` 的目标，按字段分支直接写 `d["approved"] == true`、`switch d["action"] { ... }`，结果与 Go 相同（见「比较」）。
 - Side Effect 和 Marker 的值经过 JSON 持久化，超过 2^53 的整数用字符串表示。
+
+## 比较
+
+`==`、`!=` 与 `switch` 按 Go 的规则比较。生成器按 Go 类型信息把 WLang 运算结果与 Go 不同的比较改写成 `workflow` 包的调用，Workflow 代码直接写运算符：
+
+| 写法 | 改写成 | 结果 |
+| --- | --- | --- |
+| 一侧是 `any`（`d["action"] == "cancel"`、`input["n"] != 3`、`a == b`） | `workflow.Equal(a, b)` | 动态类型与值都相等时为 `true`；动态类型相同但不可比较（slice、map、含它们的结构体）时与 Go 一样 panic |
+| `switch` 的 tag 或某个 `case` 是 `any` | tag 求值一次，每个 `case` 用 `workflow.Equal` 比较 | 命中的 `case` 与 Go 相同，`case nil` 匹配 nil 接口 |
+| slice 或 map 与 `nil` 比较（`xs == nil`、`m != nil`） | `workflow.IsNil(x)` | 判断是否为 nil 值 |
+
+- 常量按 Go 的默认类型参与比较：`d["n"] == 3` 比较的是 `int`。
+- 输入、Signal、Activity 结果等载荷里 `map[string]any` 的数字与 Go 的 `encoding/json` 一样按 `float64` 比较：`{"n": 3}` 里 `d["n"] == 3` 是 `false`，`d["n"] == 3.0` 是 `true`。按数字分支时声明结构体 DTO，或先断言 `n, ok := d["n"].(float64)`。
+- nil slice 与空 slice 可以区分：`var xs []T`、载荷里省略或为 `null` 的字段是 nil；`[]T{}`、`make([]T, 0)`、载荷里的 `[]` 不是 nil。map 同理。只关心有没有元素时写 `len(xs) == 0`。
+- `any` 里的具名基础类型值（`type Status string`）按底层类型比较：`var x any = Status("a")` 时 `x == "a"` 为 `true`，Go 里动态类型不同为 `false`。与具名类型比较时先断言 `s, ok := x.(Status)`。
 
 ## 执行预算
 
-解释器为每次执行（从 History 开头重放到当前）设置预算：
+执行步数按 Workflow Task 计：每个 Workflow Task 开始时清零，重放时每个已完成的 Workflow Task 重新计数，同一个 Workflow Task 在 live 与重放时于同一条语句触顶。长期运行的 Run 只要每个 Workflow Task 的计算有界，就不会因为累计步数失败。其余上限针对单个值或同时存在的协程：
 
 | 预算 | 上限 |
 | --- | --- |
-| 执行步数 | 1,000,000 |
-| 循环迭代 | 1,000,000 |
+| 执行步数（一个 Workflow Task 执行的语句，循环每轮执行的语句都计入） | 1,000,000 |
 | 协程（`workflow.Go`） | 1024 |
 | 调用深度 | 128 |
 | 数组长度 | 100,000 |
@@ -255,4 +272,4 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 
 上限针对单个值，不限制所有值合计占用的内存；值的个数受执行步数、数组长度与 key 数约束。
 
-Workflow Task 另有超时，Worker 默认 10 秒（`worker.DefaultWorkflowTaskTimeout`）。长循环应在循环内调度 Activity、Timer 或使用 [Continue-As-New](/develop/continue-as-new)，让执行跨越多个 Workflow Task。
+Workflow Task 另有超时，Worker 默认 10 秒（`worker.DefaultWorkflowTaskTimeout`）。长循环在循环内等待 Activity、Timer 或 Signal，让执行跨越多个 Workflow Task，每个 Workflow Task 的步数分别计算；History 增长到上限前使用 [Continue-As-New](/develop/continue-as-new)。

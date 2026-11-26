@@ -107,6 +107,9 @@ func generateWithExtraTypes(sources workflowSources, opts Options, extraTypes ma
 		sources.files[fn.file] = lowered
 	}
 	workflowFile := filepath.Clean(opts.Filename)
+	if err := lowerTyped(sources, workflowFile, opts.Dir); err != nil {
+		return Result{}, err
+	}
 	src := sources.files[workflowFile]
 	overlay := map[string][]byte{}
 	for name, content := range sources.files {

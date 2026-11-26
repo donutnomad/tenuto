@@ -34,8 +34,8 @@ Go 代码用 `sdk/client` 的 Client `c`（`client.Dial`，Namespace 取自它�
 | `auto upgrade to V refused: payloads recorded in history cannot be read by the candidate program: <位置>: <旧类型> -> <新类型>: <字段路径>: <原因>` | 换版前的载荷检查：History 里该位置的载荷在 latest 的类型下读不回（字段删除、改名、改类型） |
 | `auto upgrade to V refused: the payload check cannot prove that payloads recorded in history stay readable: <current\|candidate> program: <载荷> decoded into <类型> at <WLang 路径> (<原因>); <种类> types differ between the two versions` | 换版前的载荷检查：该解码处的名字或类型无法静态确定，而这种载荷的类型在两个版本间变了 |
 | `nondeterministic workflow: history event is A, replay command is B` | 同一位置的命令种类、ActivityID 或 ActivityType 不同 |
-| `nondeterministic workflow: missing replay command for A` | History 里有的命令，代码没有产生（删除或跳过了步骤） |
-| `nondeterministic workflow: extra replay command B` | 代码多产生了 History 里没有的命令（在已走过的位置之前加了步骤） |
+| `nondeterministic workflow: missing replay command for A` | History 里该 Workflow Task 有的命令，代码在这个 Workflow Task 里没有产生（删除、跳过了步骤，或挪到了之后的 Workflow Task） |
+| `nondeterministic workflow: extra replay command B` | 代码在这个 Workflow Task 里多产生了 History 里没有的命令（在已走过的位置之前加了步骤，或从之后的 Workflow Task 挪了过来） |
 | `workflow task cannot be prepared: workflow config not found: ...` | Run 采用的 Program 版本在 Server 上读不到（被删除或从未登记）；重新登记同一份内容或 set-policy `auto_upgrade` 换到 latest |
 | `workflow task cannot be prepared: ... invalid branch token ...` | Run 保存的 History branch 数据损坏 |
 | `activity route unavailable: activity S type T is not registered in activity route catalog` | 这个 Namespace 没有 Worker 上报过该 type |
