@@ -167,9 +167,9 @@ func (e *Env) parallel(runID, a, b string) bool {
 
 // parkedRuns 是升级之前启动、停在 Signal 等待点上的 Run。
 type parkedRuns struct {
-	orderAuto, orderPinned, orderPaused, orderToLatest string
-	returnPinned, returnAuto, returnOldType            string
-	returnBrokenToPin, returnBrokenToPublish           string
+	orderAuto, orderPinned, orderOffline     string
+	returnPinned, returnAuto, returnOldType  string
+	returnBrokenToPin, returnBrokenToPublish string
 }
 
 func (e *Env) park() parkedRuns {
@@ -196,15 +196,14 @@ func (e *Env) park() parkedRuns {
 	// order-flow 的注解是 auto_upgrade，需要固定的 Run 用 set-policy 改成 pinned。
 	p.orderAuto = order("order-auto", policyAutoUpgrade)
 	p.orderPinned = order("order-pinned", policyPinned)
-	p.orderPaused = order("order-paused", policyPinned)
-	p.orderToLatest = order("order-to-latest", policyPinned)
+	p.orderOffline = order("order-v1-offline", policyPinned)
 	// return-flow 的注解是 pinned，需要跟随最新 Program 的 Run 用 set-policy 改成 auto_upgrade。
 	p.returnPinned = ret("return-pinned", policyPinned)
 	p.returnAuto = ret("return-auto", policyAutoUpgrade)
 	p.returnOldType = ret("return-old-type", policyPinned)
 	p.returnBrokenToPin = ret("return-broken-pin", policyAutoUpgrade)
 	p.returnBrokenToPublish = ret("return-broken-publish", policyAutoUpgrade)
-	e.checkpoint("9 个 Run 停在 Signal 等待点，全部在 v1 Program 上")
+	e.checkpoint("8 个 Run 停在 Signal 等待点，全部在 v1 Program 上")
 	return p
 }
 
@@ -223,7 +222,7 @@ func (e *Env) rolloutAppA(p parkedRuns) {
 	e.signal(mid, "confirm")
 	midDone := e.waitCompleted(mid)
 	e.expect("Program", e.program(mid), "order-flow v1 ("+short(midDone.WorkflowConfigVersion)+")")
-	e.expectRoute(mid, "fulfillment.reserve", "app-a-v1", str(midDone.Output, "reserved_by"))
+	e.expectServed(mid, "fulfillment.reserve", str(midDone.Output, "reserved_by"))
 	e.expectServed(mid, "fulfillment.quote", str(midDone.Output, "quoted_by"))
 
 	e.step("场景 5：新启动的 return-flow Run 用 v2 Program，走新步骤 fulfillment.notify")
@@ -285,7 +284,7 @@ func (e *Env) rolloutAppB(p parkedRuns) {
 	e.signal(p.orderPinned, "confirm")
 	pinned := e.waitCompleted(p.orderPinned)
 	e.expect("Program", e.program(p.orderPinned), "order-flow v1 ("+short(pinned.WorkflowConfigVersion)+")")
-	e.expectRoute(p.orderPinned, "fulfillment.reserve", "app-a-v1", str(pinned.Output, "reserved_by"))
+	e.expectServed(p.orderPinned, "fulfillment.reserve", str(pinned.Output, "reserved_by"))
 	e.expect("场景 1：warehouse（旧调用方不传新字段）", str(pinned.Output, "warehouse"), "west")
 	e.expectServed(p.orderPinned, "fulfillment.quote", str(pinned.Output, "quoted_by"))
 	e.expect("场景 2：ship_fee（旧 type：不含税）", num(pinned.Output, "ship_fee"), int64(1000))
@@ -319,57 +318,17 @@ func (e *Env) oldBuildOffline(p parkedRuns) {
 	e.expect("label_fee（旧 type fulfillment.quote：不含税）", num(oldType.Output, "label_fee"), int64(500))
 	e.expectRoute(p.returnOldType, "fulfillment.quote", "app-a-v2", str(oldType.Output, "quoted_by"))
 
-	e.step("order-paused 与 order-to-latest（pinned，order-flow v1）：Signal 之后要调度 fulfillment.reserve")
-	var paused *runtimeapi.Run
-	for _, runID := range []string{p.orderPaused, p.orderToLatest} {
-		e.signal(runID, "confirm")
-		paused = e.waitRun(runID, "config error", func(run *runtimeapi.Run) bool { return run.ConfigError != "" })
-		e.expect("status（暂停，仍是 Running）", paused.Status, history.StatusRunning)
-		e.printf("  %s ConfigError: %s\n", paused.WorkflowID, paused.ConfigError)
-		e.expectContains("ConfigError", paused.ConfigError, `activity "fulfillment.reserve" contract mismatch`, `build "app-a-v2"`, `input expected "wire:`)
-		e.expect("fulfillment.reserve 没有开始执行", e.routed(runID, "fulfillment.reserve"), "")
-	}
-
-	e.checkpoint("order-paused 与 order-to-latest 因契约不一致暂停，Run 详情页顶部是红色横幅")
-
-	e.step("恢复方式一：旧 build 保持离线，把 order-to-latest 改成 auto_upgrade")
-	// set-policy 关闭暂停时打开的那个 Workflow Task 并开启一个新的；选版在新的 Workflow Task 上重新运行，
-	// Run 切到 latest（v2）。v2 Program 声明 reserve 的新入参与 quote-taxed，在线的 app-a-v2 可以承接。
-	e.setPolicy(p.orderToLatest, policyAutoUpgrade)
-	upgraded := e.waitCompleted(p.orderToLatest)
-	e.expect("order-to-latest 的 ConfigError 已清除", upgraded.ConfigError, "")
-	e.expect("Program", e.program(p.orderToLatest), "order-flow v2 ("+short(upgraded.WorkflowConfigVersion)+")")
-	e.expect("启动时的 Program 保留在 original 字段", upgraded.OriginalWorkflowConfigVersion, paused.WorkflowConfigVersion)
-	e.expect("恢复在 History 里留下一条 WorkflowTaskFailed(cause=run_resumed)", e.workflowTaskFailures(p.orderToLatest, "run_resumed"), 1)
-	e.expectRoute(p.orderToLatest, "fulfillment.reserve", "app-a-v2", str(upgraded.Output, "reserved_by"))
-	e.expect("场景 1：warehouse", str(upgraded.Output, "warehouse"), "east")
-	e.expectRoute(p.orderToLatest, "fulfillment.quote-taxed", "app-a-v2", str(upgraded.Output, "quoted_by"))
-	e.expect("场景 2：ship_fee（新 type：含税）", num(upgraded.Output, "ship_fee"), int64(1100))
-	e.expect("场景 3：发货走旧 type（ship 的 GetVersion 位于 v1 History 已经走过的位置，得到 DefaultVersion）", strings.HasPrefix(str(upgraded.Output, "shipped_via"), "fulfillment.ship@"), true)
-
-	e.step("恢复方式二：旧 build 重新上线，对 order-paused 执行 set-policy pinned")
-	e.start("app-a", "v1")
-	e.expect("return-flow 的 latest（旧二进制重启不会把 latest 改回去）", e.latest(returnFlow), "v2")
-	e.expect("set-policy 之前 Run 仍然暂停", e.run(p.orderPaused).ConfigError != "", true)
-
-	e.setPolicy(p.orderPaused, policyPinned)
-	resumed := e.waitCompleted(p.orderPaused)
-	e.expect("order-paused 的 ConfigError 已清除", resumed.ConfigError, "")
-	e.expect("Program", e.program(p.orderPaused), "order-flow v1 ("+short(resumed.WorkflowConfigVersion)+")")
-	e.expectRoute(p.orderPaused, "fulfillment.reserve", "app-a-v1", str(resumed.Output, "reserved_by"))
-	e.expectServed(p.orderPaused, "fulfillment.quote", str(resumed.Output, "quoted_by"))
-	e.expect("场景 2：ship_fee（旧 type：不含税）", num(resumed.Output, "ship_fee"), int64(1000))
-}
-
-// workflowTaskFailures 数 Run 的 History 里某个 cause 的 WorkflowTaskFailed 事件。
-func (e *Env) workflowTaskFailures(runID, cause string) int {
-	count := 0
-	for _, event := range e.events(runID) {
-		if failed := event.WorkflowTaskFailed; failed != nil && failed.Cause == cause {
-			count++
-		}
-	}
-	return count
+	e.step("order-v1-offline（pinned，order-flow v1）：Signal 之后调度 fulfillment.reserve，它的入参在 v2 加了可选字段 warehouse")
+	// v1 声明的入参写出 {sku, qty, ...}，app-a-v2 读的入参多一个 warehouse：指纹不同，按数据流向兼容（旧载荷里取零值），
+	// 领取时直接放行，不需要旧 build、不需要 set-policy。
+	e.signal(p.orderOffline, "confirm")
+	done := e.waitCompleted(p.orderOffline)
+	e.expect("ConfigError", done.ConfigError, "")
+	e.expect("Program", e.program(p.orderOffline), "order-flow v1 ("+short(done.WorkflowConfigVersion)+")")
+	e.expectRoute(p.orderOffline, "fulfillment.reserve", "app-a-v2", str(done.Output, "reserved_by"))
+	e.expect("warehouse（v1 的入参没有这个字段，app-a-v2 按零值处理）", str(done.Output, "warehouse"), "west")
+	e.expectServed(p.orderOffline, "fulfillment.quote", str(done.Output, "quoted_by"))
+	e.expect("场景 2：ship_fee（旧 type：不含税）", num(done.Output, "ship_fee"), int64(1000))
 }
 
 // ---------- 不兼容的 Program ----------

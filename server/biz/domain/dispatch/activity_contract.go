@@ -29,7 +29,15 @@ func (r ActivityContractReport) Compatible() bool { return len(r.Mismatched) == 
 func (r ActivityContractReport) MismatchError() error {
 	fields := make([]string, 0, len(r.Mismatched))
 	for _, report := range r.Mismatched {
-		fields = append(fields, fmt.Sprintf("%s expected %q actual %q", report.Field, report.Expected, report.Actual))
+		field := fmt.Sprintf("%s expected %q actual %q", report.Field, report.Expected, report.Actual)
+		if len(report.Issues) > 0 {
+			issues := make([]string, 0, len(report.Issues))
+			for _, issue := range report.Issues {
+				issues = append(issues, issue.String())
+			}
+			field += " (" + strings.Join(issues, "; ") + ")"
+		}
+		fields = append(fields, field)
 	}
 	return protocol.InvalidRequestf(
 		"activity %q contract mismatch on worker %q (namespace %q queue %q build %q): %s",
@@ -37,10 +45,10 @@ func (r ActivityContractReport) MismatchError() error {
 	)
 }
 
-// CheckActivityContract 把 Workflow 静态声明的契约与 route 上 Worker 的上报逐维度对照。
+// CheckActivityContract 把 Workflow 静态声明的契约与 route 上 Worker 的上报逐维度对照（protocol.CompareActivityContracts）。
 //
-// 只比较 Workflow 声明过的维度；Worker 上报的值不同、或没有上报该维度，都记为 Mismatched
-// 并拒绝派发。Workflow 没有声明任何维度时不对照。
+// 只比较 Workflow 声明过的维度；Worker 上报的结构按数据流向不兼容、或没有上报该维度，都记为 Mismatched。
+// Workflow 没有声明任何维度时不对照。
 func CheckActivityContract(declared protocol.ActivityContract, route ActivityRoute) ActivityContractReport {
 	report := ActivityContractReport{
 		Namespace: protocol.NormalizeNamespace(route.Namespace),
@@ -59,9 +67,9 @@ func CheckActivityContract(declared protocol.ActivityContract, route ActivityRou
 
 // contractCompatibleRoutes 在候选 route 中优先保留与声明契约不冲突的 worker。
 //
-// 同一 activity type/queue 可能同时存在多个活跃 build（滚动发布），只按 build/weight
-// 选路会在有兼容 worker 时选中不兼容的那个并暂停 Run。声明未携带契约时全部候选都兼容；
-// 全部候选都不兼容时返回原候选，由上层报完整 mismatch 并暂停。
+// 同一 activity type 可能同时存在多个活跃 build 或队列（滚动发布），只按 build/weight
+// 选路会在有兼容 worker 时选中不兼容的那个的队列。声明未携带契约时全部候选都兼容；
+// 全部候选都不兼容时返回原候选：任务照常入队，领取时的契约对照拒绝不兼容的 Worker。
 func contractCompatibleRoutes(routes []ActivityRoute, ref ActivityRouteRef) []ActivityRoute {
 	declared := ref.declaredContract()
 	if !declared.HasDeclaration() {
@@ -85,25 +93,53 @@ func DeclaredActivityContracts(wf *program.WorkflowConfig) map[string]protocol.A
 		descriptors = wf.Program.Types
 	}
 	contracts := make(map[string]protocol.ActivityContract, len(refs))
+	wires := declaredWires{descriptors: descriptors}
 	for _, ref := range refs {
 		contract := protocol.ActivityContract{Type: ref.Type, Input: ref.Input, Output: ref.Output}
 		if !contract.HasDeclaration() {
 			continue
 		}
-		// 声明侧存的是 Program.Types 的 descriptor ID；对照必须基于 wire 结构，
-		// 因此先转成与 Go 包名/类型名无关的 wire 指纹。
-		if fingerprint, err := program.WLangWireFingerprint(contract.Input, descriptors); err == nil {
-			contract.Input = fingerprint
-		}
-		if fingerprint, err := program.WLangWireFingerprint(contract.Output, descriptors); err == nil {
-			contract.Output = fingerprint
-		}
+		// 声明侧是 wire 指纹（生成器的产物）或 Program.Types 的 descriptor ID；对照基于与 Go 包名/类型名无关的
+		// wire 结构，因此统一成指纹并带上结构。
+		contract.Input, contract.InputWire = wires.resolve(contract.Input)
+		contract.Output, contract.OutputWire = wires.resolve(contract.Output)
 		if _, ok := contracts[ref.Type]; ok {
 			continue
 		}
 		contracts[ref.Type] = contract
 	}
 	return contracts
+}
+
+// declaredWires 为声明侧的指纹或 descriptor ID 找到 wire 结构。
+//
+// 生成器把 Activity 的入参出参写成 wire 指纹，结构在 Program.Types 里：指纹是规范化 wire 结构的哈希，
+// 指纹相同的 descriptor 结构相同，所以按指纹索引 Program.Types 即可取回声明的结构。找不到时不带结构，
+// 对照退回指纹相等。
+type declaredWires struct {
+	descriptors   map[string]program.WLangTypeDescriptor
+	byFingerprint map[string]protocol.WireType
+}
+
+func (w *declaredWires) resolve(value string) (string, *protocol.WireType) {
+	if value == "" {
+		return "", nil
+	}
+	if schema, err := program.WLangWireType(value, w.descriptors); err == nil {
+		return protocol.WireFingerprint(schema), &schema
+	}
+	if w.byFingerprint == nil {
+		w.byFingerprint = make(map[string]protocol.WireType, len(w.descriptors))
+		for id := range w.descriptors {
+			if schema, err := program.WLangWireType(id, w.descriptors); err == nil {
+				w.byFingerprint[protocol.WireFingerprint(schema)] = schema
+			}
+		}
+	}
+	if schema, ok := w.byFingerprint[value]; ok {
+		return value, &schema
+	}
+	return value, nil
 }
 
 // DeclaredActivityContract 从 Workflow 的静态引用中取出 activityType 的契约声明；没有声明时返回 nil。
@@ -119,8 +155,8 @@ func DeclaredActivityContract(wf *program.WorkflowConfig, activityType string) *
 }
 
 // CheckDeclaredActivityContract 对照 Workflow 对 activityType 的契约声明与 route 上 Worker 的上报。
-// Workflow 没有声明契约时不对照；声明了而上报的值不同或缺失时返回错误。调度时用它确认声明能被在线 Worker 满足，
-// 领取时经 CheckClaimingWorkerContract 用它校验领取的那个 Worker。
+// Workflow 没有声明契约时不对照；声明了而上报的值不同或缺失时返回错误。领取时经 CheckClaimingWorkerContract
+// 用它校验领取的那个 Worker。
 func CheckDeclaredActivityContract(wf *program.WorkflowConfig, route ActivityRoute, activityType string) error {
 	declared := DeclaredActivityContract(wf, activityType)
 	if declared == nil {

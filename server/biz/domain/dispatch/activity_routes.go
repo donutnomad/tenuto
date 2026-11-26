@@ -15,8 +15,8 @@ import (
 	"github.com/donutnomad/tenuto/server/biz/domain/clock"
 )
 
-// ErrActivityRouteUnavailable 表示目录中暂无可用路由。Worker 上线后即可恢复，
-// 发布阶段记 warning，运行阶段由 Workflow Task 退避重试。
+// ErrActivityRouteUnavailable 表示引用没有指定队列、目录也给不出唯一的队列（没有活跃路由或路由歧义）。
+// Worker 上线后即可恢复，发布阶段记 warning，运行阶段由 Workflow Task 退避重试。
 var ErrActivityRouteUnavailable = errors.New("activity route unavailable")
 
 type ActivityRoute struct {
@@ -33,7 +33,7 @@ type ActivityRoute struct {
 }
 
 // ActivityRouteRef 是一次选路请求：Workflow 对某个 Activity 的引用，以及调度时已知的目标 Worker 与契约声明。
-// 选路只确定 Activity 的队列并校验契约能被在线 Worker 满足；不确定由哪个 build 执行。
+// 选路只确定 Activity 的队列；不确定由哪个 build 执行，契约在领取时按领取的 Worker 对照。
 type ActivityRouteRef struct {
 	TargetWorkerIdentity string
 	Namespace            string
@@ -42,20 +42,17 @@ type ActivityRouteRef struct {
 	Type       string
 	TaskQueue  string
 	RoutingKey string
-	// Input/Output 是 Workflow 静态声明的契约，用于调度期与 worker 上报对照。
-	Input  string
-	Output string
+	// Input/Output 是 Workflow 静态声明的契约指纹，InputWire/OutputWire 是对应的 wire 结构：
+	// 目录里有多个候选时优先选上报兼容的那个。
+	Input      string
+	Output     string
+	InputWire  *protocol.WireType
+	OutputWire *protocol.WireType
 }
 
 // declaredContract 是引用声明的契约；没有声明任何维度时 HasDeclaration 为 false。
 func (ref ActivityRouteRef) declaredContract() protocol.ActivityContract {
-	return protocol.ActivityContract{Type: ref.Type, Input: ref.Input, Output: ref.Output}
-}
-
-// unavailableForContract 是「没有在线 Worker 可以对照契约」的错误：Workflow Task 退避重试，Worker 上线后恢复。
-func unavailableForContract(ref ActivityRouteRef, taskQueue string) error {
-	return protocol.InvalidRequestf("%w: activity %s type %s declares a contract and no online worker on task queue %s reported one",
-		ErrActivityRouteUnavailable, ref.ActivityID, ref.Type, taskQueue)
+	return protocol.ActivityContract{Type: ref.Type, Input: ref.Input, Output: ref.Output, InputWire: ref.InputWire, OutputWire: ref.OutputWire}
 }
 
 type ActivityRouteCatalog struct {
@@ -151,14 +148,13 @@ func (c *ActivityRouteCatalog) registerRouteLocked(route ActivityRoute) {
 	c.routes[key] = append(routes, route)
 }
 
-// ResolveActivityRoute 为配置或命令中的引用确定队列，返回的路由带一个契约兼容的在线 Worker 的上报，供调用方对照契约。
-// 路由里的 BuildID 只说明这次对照用了谁的上报：任务投递到队列，由领取时的 Worker 执行，领取时再按它自己的上报对照契约。
+// ResolveActivityRoute 为配置或命令中的引用确定队列。任务投递到队列，由领取时的 Worker 执行，
+// 领取时再按它自己的上报对照契约；选路不对照契约，只在多个候选之间优先选上报兼容的那个。
 //
 // 指定了目标 Worker 或 TaskQueue 时，有在线候选就在候选里按契约与权重选择；没有候选时直接投递到
-// 指定的队列（与 Temporal 的隐式队列一致，任务在队列里等 Worker 上线）。引用声明了契约时没有候选就无法对照契约，
-// 返回 ErrActivityRouteUnavailable，由 Workflow Task 退避等待 Worker。
+// 指定的队列（与 Temporal 的隐式队列一致，任务在队列里等 Worker 上线）。
 //
-// 两者都没指定时，目录是选择队列的唯一依据：没有活跃路由返回 ErrActivityRouteUnavailable。
+// 两者都没指定时，目录是选择队列的唯一依据：没有活跃路由或路由歧义时返回 ErrActivityRouteUnavailable。
 func (c *ActivityRouteCatalog) ResolveActivityRoute(ref ActivityRouteRef) (ActivityRoute, error) {
 	ref.Namespace = protocol.NormalizeNamespace(ref.Namespace)
 	if ref.Type == "" {
@@ -176,11 +172,7 @@ func (c *ActivityRouteCatalog) ResolveActivityRoute(ref ActivityRouteRef) (Activ
 			sortActivityRoutes(candidates)
 			return chooseActivityRoute(candidates, ref), nil
 		}
-		taskQueue := NormalizeActivityTaskQueue(ref.TaskQueue)
-		if ref.declaredContract().HasDeclaration() {
-			return ActivityRoute{}, unavailableForContract(ref, taskQueue)
-		}
-		return ActivityRoute{Namespace: ref.Namespace, Type: ref.Type, TaskQueue: taskQueue, Identity: ref.TargetWorkerIdentity}, nil
+		return ActivityRoute{Namespace: ref.Namespace, Type: ref.Type, TaskQueue: NormalizeActivityTaskQueue(ref.TaskQueue), Identity: ref.TargetWorkerIdentity}, nil
 	}
 	if ref.TaskQueue != "" {
 		return c.resolveExplicitActivityRoute(ref)
@@ -301,8 +293,7 @@ func (c *ActivityRouteCatalog) instanceRoutes(namespace, activityType string, ke
 
 // resolveExplicitActivityRoute 处理调用方指定了 TaskQueue 的引用。
 //
-// 目录里有订阅该队列的活跃 Worker 时在它们之中选择，选中的路由带 Worker 上报的契约。
-// 没有时：引用声明了契约则返回 ErrActivityRouteUnavailable；否则原样投递到该队列并记 warning：
+// 目录里有订阅该队列的活跃 Worker 时在它们之中选择。没有时原样投递到该队列并记 warning：
 // ScheduleToStartTimeout 默认为 0，拼错的队列名会让任务一直留在队列里，warning 是这种情况唯一的线索。
 func (c *ActivityRouteCatalog) resolveExplicitActivityRoute(ref ActivityRouteRef) (ActivityRoute, error) {
 	taskQueue := NormalizeActivityTaskQueue(ref.TaskQueue)
@@ -316,9 +307,6 @@ func (c *ActivityRouteCatalog) resolveExplicitActivityRoute(ref ActivityRouteRef
 		candidates = contractCompatibleRoutes(candidates, ref)
 		sortActivityRoutes(candidates)
 		return chooseActivityRoute(candidates, ref), nil
-	}
-	if ref.declaredContract().HasDeclaration() {
-		return ActivityRoute{}, unavailableForContract(ref, taskQueue)
 	}
 	slog.Warn("activity task queue has no known active worker; task may stall in the queue",
 		slog.String("namespace", ref.Namespace),

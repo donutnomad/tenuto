@@ -25,7 +25,9 @@ func TestConfigErrorPausesRun(t *testing.T) {
 	if err := server.mgr.RunInTx(func(tx execution.ExecutionTx) error { return tx.CreateRun(WithRootBranch(current)) }); err != nil {
 		t.Fatal(err)
 	}
-	server.pauseRunForConfigError(current.ID, errActivityContract("activity contract mismatch: payments.charge.v1 expects order_id"))
+	if err := server.pauseRun(current.ID, "activity contract mismatch: payments.charge.v1 expects order_id"); err != nil {
+		t.Fatal(err)
+	}
 	paused, err := server.mgr.Get(current.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -147,12 +149,6 @@ func TestAutoUpgradeTargetConflictPauses(t *testing.T) {
 	}
 }
 
-type activityContractError string
-
-func (e activityContractError) Error() string { return string(e) }
-
-func errActivityContract(message string) error { return activityContractError(message) }
-
 func countEvents(t *testing.T, server *Server, runID string) int {
 	t.Helper()
 	events, err := server.mgr.GetEvents(runID)
@@ -263,7 +259,9 @@ func TestConfigErrorAckReleasesDispatchForSetPolicyRecovery(t *testing.T) {
 	if got := len(queue.snapshot()); got != 1 {
 		t.Fatalf("initial workflow task queue size = %d, want 1", got)
 	}
-	server.pauseRunForConfigError(runID, errConfigErrorRecoverProbe)
+	if err := server.pauseRun(runID, errConfigErrorRecoverProbe.Error()); err != nil {
+		t.Fatal(err)
+	}
 	_, matched, err := server.pollWorkflowTaskOnce(testContext())
 	if err != nil {
 		t.Fatal(err)

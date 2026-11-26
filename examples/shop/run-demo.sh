@@ -150,18 +150,16 @@ wait_for 1003 '"status":"payment_declined"'
 show 1003
 logs_for 1003
 
-step "场景 4：payment-service 宕机。订单在扣款前阻塞，服务恢复后从原处继续"
+step "场景 4：payment-service 宕机。扣款任务在队列里等待，服务恢复后从原处继续"
 stop payment
 note "已停止 payment-service"
 place '{"order_id":"1004","sku":"book","qty":1,"amount":4900,"address":"深圳市南山区 4 号","auto_confirm_seconds":5}'
-wait_for 1004 'activity_route_unavailable'
+wait_for 1004 '"stage":"charging"'
 show 1004
-note "库存已预留；payments 队列没有在线 Worker，扣款不会被调度，Run 显示 blocked 并按退避重试。"
-note "progress 是最后一个成功 Workflow Task 的状态，所以仍是 reserving。重新启动 payment-service："
+note "库存已预留；扣款已调度到 payments 队列，队列上没有在线 Worker，任务在队列里等待。重新启动 payment-service："
 PAYMENT_FLAKY=0 start payment "$BIN/payment-service"
 wait_log payment "ready"
-# Workflow Task 的失败退避最长 1 分钟。
-wait_for 1004 '"stage":"awaiting_delivery"' 70
+wait_for 1004 '"stage":"awaiting_delivery"' 30
 note "已发货；这一单不发 Signal，5 秒后持久 Timer 到期自动确认收货"
 wait_for 1004 '"status":"completed"' 20
 show 1004

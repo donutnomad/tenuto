@@ -229,7 +229,7 @@ func (w *Worker) Stop() {
 
 // activityTaskQueues 决定 Worker 拉取的 Activity 队列：explicit 为空时取 registry 登记的队列
 // （有没带队列的 Activity 时加上 "default"）；explicit 非空时原样使用，但必须包含 registry 登记的每个队列，
-// 否则那些 Activity 的任务没有 Worker 拉取，Run 要到调度时才阻塞在 activity_route_unavailable。
+// 否则那些 Activity 的任务投到没有本 Worker 拉取的队列，一直停在 Scheduled。
 func activityTaskQueues(explicit []string, registry *activity.Registry) ([]string, error) {
 	if registry == nil {
 		return explicit, nil

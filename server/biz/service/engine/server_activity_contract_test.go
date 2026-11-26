@@ -162,102 +162,6 @@ func TestScheduleActivityContractMatchDispatches(t *testing.T) {
 	}
 }
 
-// Worker 登记时没有带契约 → 声明的每个维度都不匹配，任务不派发。
-func TestScheduleActivityRejectsWorkerWithoutContract(t *testing.T) {
-	mgr := memory.NewExecutionManager()
-	activityTasks := newTestTaskQueue()
-	server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
-	defer server.Stop()
-	if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
-		Identity: "bare-worker", BuildID: "pay@v1",
-		TaskQueues:    []string{"payments"},
-		ActivityTypes: []string{"payments.charge"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	runID, wftID := startContractRun(t, mgr, server, chargeContractWorkflow("contract-unreported"))
-
-	err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), "")
-	if err == nil {
-		t.Fatal("a worker without a contract must not receive a contract-declared activity")
-	}
-	for _, want := range []string{`"payments.charge"`, `"bare-worker"`, `input expected "ChargeInput.v2" actual ""`} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error %q does not contain %q", err.Error(), want)
-		}
-	}
-	if len(activityTasks.tasks) != 0 {
-		t.Fatalf("activity must not be dispatched, got %d tasks", len(activityTasks.tasks))
-	}
-}
-
-// 上报契约与声明不兼容 → 明确错误、任务不派发、现场保留；修复上报后可恢复调度。
-func TestScheduleActivityContractMismatchBlocksDispatch(t *testing.T) {
-	mgr := memory.NewExecutionManager()
-	activityTasks := newTestTaskQueue()
-	server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
-	defer server.Stop()
-	registerWorker := func(input, output string) {
-		t.Helper()
-		if err := server.RegisterActivityWorkerVersion(context.Background(), protocol.ActivityWorkerVersion{
-			Identity: "pay-worker-1", BuildID: "pay@v1",
-			TaskQueues:    []string{"payments"},
-			ActivityTypes: []string{"payments.charge"},
-			Contracts: []activity.Contract{{
-				Type: "payments.charge", Input: input, Output: output,
-			}},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	registerWorker("ChargeInput.v1", "Receipt.v1")
-	runID, wftID := startContractRun(t, mgr, server, chargeContractWorkflow("contract-mismatch"))
-
-	err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), "")
-	if err == nil {
-		t.Fatal("expected contract mismatch error")
-	}
-	for _, want := range []string{
-		`"payments.charge"`,
-		`"pay-worker-1"`,
-		`input expected "ChargeInput.v2" actual "ChargeInput.v1"`,
-		`output expected "Receipt.v2" actual "Receipt.v1"`,
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error %q does not contain %q", err.Error(), want)
-		}
-	}
-	history, histErr := mgr.GetEvents(runID)
-	if histErr != nil {
-		t.Fatal(histErr)
-	}
-	if countEngineEvents(history, historypkg.EventActivityScheduled) != 0 {
-		t.Fatal("mismatched activity must not be scheduled into history")
-	}
-	if countEngineEvents(history, historypkg.EventActivityFailed) != 0 {
-		t.Fatal("mismatched activity must not produce a failure event")
-	}
-	if len(activityTasks.tasks) != 0 {
-		t.Fatalf("mismatched activity must not be dispatched, got %d tasks", len(activityTasks.tasks))
-	}
-	run, runErr := mgr.Get(runID)
-	if runErr != nil {
-		t.Fatal(runErr)
-	}
-	if run.Status != historypkg.StatusRunning {
-		t.Fatalf("run must stay running for recovery, got %s", run.Status)
-	}
-
-	// 修复上报后用同一条命令重试：WFT 尚未提交，重新执行即可恢复。
-	registerWorker("ChargeInput.v2", "Receipt.v2")
-	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), ""); err != nil {
-		t.Fatalf("recovered contract must schedule: %v", err)
-	}
-	if len(activityTasks.tasks) != 1 {
-		t.Fatalf("expected one activity task after recovery, got %d", len(activityTasks.tasks))
-	}
-}
-
 // 设置 target 必须覆盖全部静态引用，包括未选中的 GetVersion 分支。
 func TestSetWorkflowTargetRequiresAllStaticActivities(t *testing.T) {
 	server := newTestServer()
@@ -530,9 +434,8 @@ func TestActivityContractRoutingPrefersCompatibleWorker(t *testing.T) {
 	}
 }
 
-// [高熵密钥] 固定“全部候选都不兼容”的语义：
-// 不能静默挑一个 build 派发；返回带期望/实际值的明确错误并写 ConfigError 暂停，任务不入队。
-func TestActivityContractRoutingRejectsAllIncompatibleWorkers(t *testing.T) {
+// 全部候选都不兼容：调度不对照契约，任务照常入队到声明的队列，Run 不暂停；领取时的对照拒绝不兼容的 Worker。
+func TestActivityContractRoutingQueuesWhenAllWorkersIncompatible(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	activityTasks := newTestTaskQueue()
 	server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
@@ -558,27 +461,22 @@ func TestActivityContractRoutingRejectsAllIncompatibleWorkers(t *testing.T) {
 	}
 	runID, wftID := startContractRun(t, mgr, server, chargeContractWorkflow("contract-all-incompatible"))
 
-	err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), "")
-	if err == nil {
-		t.Fatal("all incompatible workers must fail explicitly")
+	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), ""); err != nil {
+		t.Fatalf("schedule with only incompatible workers online: %v", err)
 	}
-	if !strings.Contains(err.Error(), `input expected "ChargeInput.v2"`) {
-		t.Fatalf("error must report expected/actual contract: %v", err)
+	if len(activityTasks.tasks) != 1 || activityTasks.tasks[0].Task.TaskQueue != "payments" {
+		t.Fatalf("activity must be queued on payments, got %+v", activityTasks.tasks)
 	}
-	if len(activityTasks.tasks) != 0 {
-		t.Fatalf("incompatible activity must not be dispatched, got %d tasks", len(activityTasks.tasks))
+	run, err := mgr.Get(runID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	run, runErr := mgr.Get(runID)
-	if runErr != nil {
-		t.Fatal(runErr)
-	}
-	if run.ConfigError == "" {
-		t.Fatal("all incompatible workers must pause the run with ConfigError")
+	if run.ConfigError != "" {
+		t.Fatalf("incompatible workers must not pause the run: %q", run.ConfigError)
 	}
 }
 
-// [高熵密钥] 固定 target 优先级：
-// Run 固定 target 后，契约过滤只能在 target 自身的 route 内选择，不能漂移到同 type/queue 的其它 worker。
+// Run 固定 target 后，任务只投给 target：即使另一个 Worker 的契约兼容、target 的不兼容，任务也不漂移过去。
 func TestActivityContractRoutingKeepsTargetIdentity(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	activityTasks := newTestTaskQueue()
@@ -605,15 +503,14 @@ func TestActivityContractRoutingKeepsTargetIdentity(t *testing.T) {
 	}
 	runID, wftID := startContractRunWithTarget(t, mgr, server, chargeContractWorkflow("contract-target-precedence"), "pay-worker-old")
 
-	err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), "")
-	if err == nil {
-		t.Fatal("target worker with incompatible contract must fail")
+	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, scheduleChargeTask(), ""); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), `"pay-worker-old"`) {
-		t.Fatalf("error must name the pinned target worker: %v", err)
+	if len(activityTasks.tasks) != 1 {
+		t.Fatalf("expected one queued task, got %d", len(activityTasks.tasks))
 	}
-	if len(activityTasks.tasks) != 0 {
-		t.Fatalf("contract filter must not drift off the pinned target, got %d tasks", len(activityTasks.tasks))
+	if task := activityTasks.tasks[0].Task; task.TargetWorkerIdentity != "pay-worker-old" || task.TaskQueue != "payments" {
+		t.Fatalf("task must stay on the pinned target, got target=%q queue=%q", task.TargetWorkerIdentity, task.TaskQueue)
 	}
 }
 
@@ -641,18 +538,14 @@ func TestAppQueueTargetRouteKeepsBuildAndContracts(t *testing.T) {
 	register("other-worker", "pay@v9", "v2")
 	runID, wftID := startContractRunWithTarget(t, mgr, server, chargeContractWorkflow("contract-app-target"), "pay-worker")
 
-	err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, []historypkg.Command{{Type: historypkg.CmdScheduleActivity, StartToCloseTimeout: time.Minute, ActivityID: "charge", ActivityType: "payments.charge", TaskQueue: "payments"}}, "")
-	if err == nil {
-		t.Fatal("incompatible target contract must be detected on the App-only target route")
+	if err := server.HandleWorkflowTaskCompleted(server.WorkflowTaskContext(context.Background(), runID, wftID), runID, wftID, []historypkg.Command{{Type: historypkg.CmdScheduleActivity, StartToCloseTimeout: time.Minute, ActivityID: "charge", ActivityType: "payments.charge", TaskQueue: "payments"}}, ""); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "contract mismatch") {
-		t.Fatalf("error must be the contract mismatch, not a routing fallback: %v", err)
+	if len(activityTasks.tasks) != 1 {
+		t.Fatalf("expected one queued task, got %d", len(activityTasks.tasks))
 	}
-	if !strings.Contains(err.Error(), `"pay-worker"`) {
-		t.Fatalf("error must name the pinned target, not another worker: %v", err)
-	}
-	if len(activityTasks.tasks) != 0 {
-		t.Fatalf("incompatible activity must not be dispatched, got %d tasks", len(activityTasks.tasks))
+	if task := activityTasks.tasks[0].Task; task.TargetWorkerIdentity != "pay-worker" || task.TaskQueue != "payments" {
+		t.Fatalf("task must stay on the pinned target's App queue, got target=%q queue=%q", task.TargetWorkerIdentity, task.TaskQueue)
 	}
 
 	// target 升级契约后 route 解析必须保留 App 队列、target build 与上报契约，且不漂移到 other-worker。
@@ -673,9 +566,9 @@ func TestAppQueueTargetRouteKeepsBuildAndContracts(t *testing.T) {
 	}
 }
 
-// 显式队列上没有在线 Worker，而 Workflow 声明了契约：无法对照契约，WFT 记 activity_route_unavailable 退避等待，
-// Run 不写 ConfigError；任务不入队。
-func TestExplicitQueueWithoutWorkerWaitsInsteadOfPausing(t *testing.T) {
+// 显式队列上没有在线 Worker，而 Workflow 声明了契约：命令照常记录 ActivityScheduled 并入队，WFT 不失败，
+// Run 不暂停；任务在队列里等 Worker 上线，领取时再对照契约。
+func TestExplicitQueueWithoutWorkerEnqueues(t *testing.T) {
 	mgr := memory.NewExecutionManager()
 	activityTasks := newTestTaskQueue()
 	server := assembleServer(mgr, newTestTaskQueue(), activityTasks)
@@ -704,10 +597,17 @@ func TestExplicitQueueWithoutWorkerWaitsInsteadOfPausing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if blocked := state.BlockedInfo(); !blocked.Blocked || blocked.Cause != WorkflowTaskFailedCauseActivityRouteUnavailable {
-		t.Fatalf("blocked info = %+v", blocked)
+	if blocked := state.BlockedInfo(); blocked.Blocked {
+		t.Fatalf("an offline worker must not block the run: %+v", blocked)
 	}
-	if len(activityTasks.snapshot()) != 0 {
-		t.Fatalf("activity must wait for a worker, got %d queued tasks", len(activityTasks.snapshot()))
+	history, err := mgr.GetEvents(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countEngineEvents(history, historypkg.EventActivityScheduled) != 1 {
+		t.Fatal("the activity must be recorded as scheduled")
+	}
+	if queued := activityTasks.snapshot(); len(queued) != 1 || queued[0].Task.TaskQueue != "payments" {
+		t.Fatalf("activity must wait in the payments queue, got %+v", queued)
 	}
 }

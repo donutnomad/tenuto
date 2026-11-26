@@ -24,7 +24,7 @@ Workflow Task 由 app-a 与 app-b 的 Worker 执行。一次实际运行的输�
 | `mysql` | `UD_BACKEND=mysql UD_MYSQL_CNF="$HOME/.my.cnf" ./docs/examples/upgrade-demo/run-demo.sh` | `tenuto-server`，MySQL + TaskQ |
 | 进程内测试 | `GOWORK=off go test ./docs/examples/upgrade-demo/... -count=1 -v` | 用 `server/app/assembly` 组装与 `memory` 模式相同的 Server，全部进程在一个测试进程里 |
 
-两种后端按同一套规则投递 Activity Task：任务交给所在 Namespace、Task Queue 上的任一 Worker，与它的 BuildID 无关；Worker 开始执行前 Server 按它这个 build 上报的契约对照 Program 的声明，不一致的领取被拒绝，任务约 1s 后重新投递。两种模式跑的是同一份断言。
+两种后端按同一套规则投递 Activity Task：任务交给所在 Namespace、Task Queue 上的任一 Worker，与它的 BuildID 无关；Worker 开始执行前 Server 按它这个 build 上报的契约对照 Program 的声明，不兼容的领取被拒绝，任务约 1s 后重新投递。两种模式跑的是同一份断言。
 
 `mysql` 模式从 mysql 客户端配置的 `[client]` 段读取 `host`、`port`、`user`、`password`，也可以用 `UD_MYSQL_HOST`、`UD_MYSQL_PORT`、`UD_MYSQL_USER`、`UD_MYSQL_PASSWORD` 覆盖。凭据经权限 `0600` 的临时客户端配置与进程环境传递，退出时删除临时配置。每次运行重建 `upgrade_demo_workflow` 与 `upgrade_demo_taskq`，`UD_DB_PREFIX` 修改前缀。
 
@@ -110,17 +110,17 @@ w.Stop()
 
 driver 按下面的顺序发布，每一步之前都有停在 Signal 等待点的在途 Run：
 
-1. app-a v1 与 app-b v1 上线，跑一遍写法基础，再启动 9 个在途 Run。
+1. app-a v1 与 app-b v1 上线，跑一遍写法基础，再启动 8 个在途 Run。
 2. **app-a v2 上线，与 app-a v1 并存**（场景 2、5、7）。
 3. **app-b v2 上线，替换 app-b v1**（场景 1、2、3）。
-4. **app-a v1 下线**（场景 4），随后重新上线做恢复。
+4. **app-a v1 下线**（场景 4）。
 5. **app-a v3 上线**（场景 6）。
 
 先上提供 Activity 的一方、后上调用它的一方：新 Program 成为 latest 时，它声明的契约已经有 Worker 承接。
 
 ## Activity 升级
 
-Activity 契约有三个维度：`type`、入参指纹、出参指纹。含义或结构要变时用新的 `type`，旧 `type` 保留到没有 Run 再调用它。Server 在调度时确认至少一个在线 Worker 的上报与 Program 声明逐维度相等；任务投到队列，Worker 开始执行前再按领取者自己的上报对照一次，契约一致的 build 执行它。新旧 build 同时在线、契约不同时，任务可能先被不一致的 build 领到，被拒绝后约 1s 重新投递；一次完整运行里 Server 日志记录了 9 次这样的拒绝（`RESULTS.md`）。下文「派给」指实际执行它的 build（`ActivityStarted` 的 `workerBuildId`）。
+Activity 契约有三个维度：`type`、入参指纹、出参指纹。含义或结构要变时用新的 `type`，旧 `type` 保留到没有 Run 再调用它。Server 调度时不对照契约，任务投到队列；Worker 开始执行前按领取者自己的上报对照 Run 当前 Program 的声明：指纹相同即兼容，不同时按数据流向比较 wire 结构（入参新增字段兼容，删字段、改名、改类型不兼容），契约兼容的 build 执行它。新旧 build 同时在线、契约不兼容时，任务可能先被不兼容的 build 领到，被拒绝后约 1s 重新投递（`RESULTS.md` 记有这次运行的拒绝次数）。下文「派给」指实际执行它的 build（`ActivityStarted` 的 `workerBuildId`）。
 
 ### 场景 1：新增可选入参
 
@@ -137,7 +137,7 @@ type ReserveInput struct {
 
 调用方 `appb/v2/remote.go` 加上同一个字段，`appb/v2/workflow.go` 传 `Warehouse: "east"`。
 
-结果：入参指纹从 `wire:a3853d00…` 变成 `wire:ca791891…`。v2 Program 上的 Run 派给 app-a-v2，`warehouse = east`；`pinned` 在 v1 Program 上的 Run 声明旧指纹，派给 app-a-v1，`warehouse = west`。`appb/contract_test.go` 核对 app-b v1 的声明对上 app-a v2 的实现时恰好差一条：`fulfillment.reserve: input`。
+结果：入参指纹从 `wire:a3853d00…` 变成 `wire:ca791891…`。v1 写出的入参 v2 都能读（v2 只多了 `warehouse`），按数据流向兼容，所以新旧 build 都能执行 v1 Program 的 reserve。v2 Program 上的 Run 派给 app-a-v2，`warehouse = east`；`pinned` 在 v1 Program 上的 Run 不传 `warehouse`，由领到它的 build 执行，`warehouse = west`。`appb/contract_test.go` 核对 app-b v1 的声明对上 app-a v2 的实现：指纹恰好差一条 `fulfillment.reserve: input`，按结构比较全部兼容。
 
 ### 场景 2：结构不变、含义变化，换新 `type`
 
@@ -190,23 +190,12 @@ if shipVersion == workflow.DefaultVersion {
 
 ### 场景 4：旧 build 下线
 
-app-a v1 停止（`Worker.Stop` 注销路由）之后，对三个 `pinned` 在 v1 Program 上的 Run 发 Signal：
+app-a v1 停止（`Worker.Stop` 注销路由）之后，对两个 `pinned` 在 v1 Program 上的 Run 发 Signal：
 
 - `return-old-type`（return-flow v1）调度旧 type `fulfillment.quote`。app-a v2 保留了它，契约与 v1 相同，Run 由 app-a-v2 执行并完成，`label_fee = 500`。
-- `order-paused` 与 `order-to-latest`（order-flow v1）调度 `fulfillment.reserve`。它的入参在 v2 加了字段，在线的 app-a-v2 与旧声明不一致：
+- `order-v1-offline`（order-flow v1）调度 `fulfillment.reserve`。它的入参在 v2 加了可选字段 `warehouse`，指纹不同；领取时 Server 按数据流向比较结构，v1 写出的入参 app-a-v2 都能读，判为兼容。app-a-v2 直接执行，`warehouse = west`（v1 的入参没有这个字段），`ship_fee = 1000`，Run 留在 v1 Program 完成，不需要旧 build，也不需要 set-policy。
 
-```text
-ConfigError: activity "fulfillment.reserve" contract mismatch on worker "app-a-v2-1" (namespace "upgrade-demo" queue "fulfillment" build "app-a-v2"): input expected "wire:a3853d0050fc8a978880bdfc9dc776f4" actual "wire:ca79189195eccac12b159552f2a291cf"
-```
-
-Run 的 status 保持 `running`，Activity 没有被调度，History 保留。
-
-两种恢复都由 set-policy 触发。set-policy 清除 `ConfigError`，关闭暂停时打开的那个 Workflow Task（History 里记一条 `WorkflowTaskFailed`，`cause=run_resumed`），再开启一个新的 Workflow Task；选版在新的 Workflow Task 上按新策略重新运行。
-
-- **旧 build 保持离线，把 Run 改成 `auto_upgrade`**（`order-to-latest`）：新的 Workflow Task 选中 latest 的 v2 Program，重放通过，Run 切到 v2。v2 声明 reserve 的新入参与 `fulfillment.quote-taxed`，在线的 app-a-v2 承接，`warehouse = east`、`ship_fee = 1100`，Run 完成。
-- **旧 build 重新上线，把 Run 设为 `pinned`**（`order-paused`）：Run 留在 v1 Program，reserve 派给重新上线的 app-a-v1，`ship_fee = 1000`，Run 完成。旧 build 上线本身不恢复 Run，set-policy 是必需的一步；旧 build 仍然离线时设为 `pinned`，Run 会因为同一个不一致再次暂停。
-
-Console 里（`UD_CONSOLE=1 UD_STEP=1`，在检查点打开 Run 详情页）：暂停的 Run 顶部是红色横幅 `Configuration paused`，详情是上面的 ConfigError 原文，横幅上的 `Resume with latest (AutoUpgrade)` 与 `Pin current content` 两个按钮都调用 set-policy。Console 部分沿用 `docs/examples/multiprocess` 的启动方式，本示例交付时没有在浏览器里验证。
+改动不兼容时（例如 v2 把入参的 `sku` 改名为 `item`），app-a-v2 的领取被拒绝，Server 日志记 `activity claim refused`，原因写出不兼容的字段路径；任务留在队列里，Run 不暂停，旧 build 重新上线后自动继续，或者 set-policy `auto_upgrade` 让 Run 切到 v2 Program 后由 app-a-v2 领取。这条路径由 `server/biz/service/engine` 的测试覆盖，本示例没有演示。
 
 ## Workflow 升级
 
@@ -250,7 +239,6 @@ Run 的 status 保持 `running`，Program 保持 v1，History 里有一条 `Work
 
 - app-a v2 上线后 `return-flow` 的 latest 立即变成 v2：Program 随 Worker 的 `Start` 登记。
 - 此时 app-b 还在 v1：新启动的订单用 `order-flow` v1 Program，声明旧契约：reserve 派给 app-a-v1，旧 type quote 两个 build 都可以执行。新 Worker 先在线不影响旧 Program 上的 Run。
-- 场景 4 里旧二进制 app-a v1 重新启动、重新登记 v1 的定义，latest 保持 v2：重复登记已有内容不改变 latest。
 
 ## 说明
 

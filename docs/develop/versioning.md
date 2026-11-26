@@ -140,7 +140,7 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 
 `GetVersion` 选择业务分支，契约决定哪些 build 能执行 Activity，两者互不影响。配置见 [运行 Worker](/develop/workers)。
 
-旧 build 下线前先排空：Program 声明的契约只有旧 build 满足时（例如 `pinned` 在旧 Program 上的 Run），它的 Activity 一直等契约兼容的 Worker 领取；旧 build 已经下线时任务留在队列里，新 build 每次领到都被拒绝。等这些 Run 跑完再下线旧 build，或者给 Activity 设置 `ScheduleToStartTimeout` 限定等待。契约不变的发布（只改实现）不受影响：旧 build 下线后，重试与已经排队的投递由新 build 领取。
+旧 build 下线前先排空：Program 声明的契约只有旧 build 满足时（例如 `pinned` 在旧 Program 上的 Run），它的 Activity 一直等契约兼容的 Worker 领取；旧 build 已经下线时任务留在队列里，新 build 每次领到都被拒绝。等这些 Run 跑完再下线旧 build，或者给 Activity 设置 `ScheduleToStartTimeout` 限定等待。契约不变（只改实现）或只做兼容改动（入参新增字段）的发布不受影响：旧 build 下线后，重试与已经排队的投递由新 build 领取。
 
 ## 发布流程
 
@@ -161,7 +161,7 @@ result, err := c.ListWorkflow(ctx, client.ListWorkflowOptions{
 | 新增、删除 SideEffect / RandomUUID / RandomInt 调用 | Marker 对应关系改变 |
 | 修改 Update / Query Handler 名称 | 调用端契约改变 |
 
-Activity 内部实现可以常规发布；它的输入输出结构和错误 Type 保持业务兼容。Activity 的契约是 `type`、`input` 指纹、`output` 指纹三项。Activity 输入输出结构变化时，Server 在调度该 Activity 时对照 Program 声明的契约与在线 Worker 上报的契约，没有契约一致的在线 Worker 时 Run 记录 `ConfigError` 并暂停；Worker 领取时再按领取者自己的上报对照一次，不兼容的领取被拒绝后任务重新投递。新旧 build 同时在线且契约不同时，任务可能先被不兼容的 build 领到，每次拒绝让这次投递晚约 1s。
+Activity 内部实现可以常规发布；它的输入输出结构和错误 Type 保持业务兼容。Activity 的契约是 `type`、`input` 指纹、`output` 指纹三项。Server 调度 Activity 时不对照契约，任务照常写入 `ActivityScheduled` 并投到队列；Worker 领取时 Server 按领取者自己的上报对照 Program 声明的契约：指纹相同即兼容；指纹不同时按数据流向比较 wire 结构：`input` 由 Workflow 写、Worker 读，`output` 由 Worker 写、Workflow 读，写方的每个字段读方都要有、类型相同或无损放宽（如 `int32` → `int64`、`T` → `*T`），读方多出的字段取零值。所以 Worker 的入参新增字段兼容，旧 Program 的调用由新 build 直接执行；删字段、改名、改类型不兼容；Worker 的出参新增字段时旧 Workflow 不认识它，同样不兼容。不兼容的领取被拒绝，任务约 1s 后重新投递。在线 Worker 全都不兼容时任务在队列里等待，Run 不暂停，契约兼容的 build 上线后自动领取；设置了 `ScheduleToStartTimeout` 时按它超时。新旧 build 同时在线且契约不同时，任务可能先被不兼容的 build 领到，每次拒绝让这次投递晚约 1s。
 
 结构不变、结果的含义变了（例如运费从不含税改成含税）时，指纹不变，Server 分不出新旧含义。新含义用一个新的 `type`，旧 `type` 的实现留在 Worker 里，直到所有 Program 都不再调用它、旧 Program 上的 Run 都已结束。在途 Run 的 History 里已经记过旧 `type` 的位置，换成新 `type` 时用 `GetVersion` 保护。
 
@@ -188,7 +188,7 @@ Activity 内部实现可以常规发布；它的输入输出结构和错误 Type
 改 JSON 字段名（如 `json:"order_id"` 改成 `json:"orderId"`）会改变 Activity 契约指纹，并且旧载荷不再对应新字段：
 
 - `auto_upgrade` 的 Run：History 里已有 `order_id` 形状的载荷时，换版前的载荷检查拒绝升级，Run 留在旧 Program 并以 `ConfigError` 暂停（见下一节）。重放本身不比较载荷，没有这项检查时新类型会把旧载荷解成零值并继续执行。
-- `pinned` 的 Run 留在旧 Program，它的 Activity 需要旧契约的 build；旧 build 已下线时 Run 在调度这个 Activity 时记 `ConfigError` 并暂停，旧 build 重新上线后 `SetRunPolicy(..., pinned)` 恢复。
+- `pinned` 的 Run 留在旧 Program，它的 Activity 需要旧契约的 build；旧 build 已下线时这个 Activity 在队列里等待（新 build 的领取被拒绝），旧 build 重新上线后自动继续。
 
 字段改名按下文「安全地改 JSON 字段名」分步发布；Activity 的破坏性改动也可以用新 `type` 加 `GetVersion` 分支，或者把 Workflow 声明为 `pinned` 并保留旧 build 到存量 Run 结束。
 
@@ -224,7 +224,7 @@ auto upgrade to 3f2a… refused: payloads recorded in history cannot be read by 
 
 处理二选一：
 
-- `SetRunPolicy(..., pinned)`：Run 在当前内容上继续，当前内容用到的 Activity 仍需要契约一致的 Worker。
+- `SetRunPolicy(..., pinned)`：Run 在当前内容上继续，当前内容用到的 Activity 仍需要契约兼容的 Worker。
 - 发布能读回这些载荷的版本（保留旧字段），再 `SetRunPolicy(..., auto_upgrade)`：恢复后的 Workflow Task 重新检查并换到新的 latest。
 
 内容按版本不可变：Server 进程内按版本保存解码后的内容，调度、派发与 Activity 开始时的契约对照都读同一份，不再逐次解码；两份内容之间的对照结果也按版本对缓存在进程内；有不兼容位置时才读取 Run 的 History。当前内容或 History 读取失败时本次 Workflow Task 留在当前内容、不暂停，下一个 Workflow Task 再判定。

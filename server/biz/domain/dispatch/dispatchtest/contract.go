@@ -3,6 +3,7 @@
 package dispatchtest
 
 import (
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -358,11 +359,16 @@ func assertRouteNames(t *testing.T, routes []protocol.ActivityWorkerVersion, wan
 	}
 }
 
-// Worker 上报的契约跨 Upsert 与 ListActive 保留；没有上报契约的 Worker 读回空集合，
+// Worker 上报的契约（含入参出参的 wire 结构）跨 Upsert 与 ListActive 保留；没有上报契约的 Worker 读回空集合，
 // 声明了契约的 Activity 不会派给它。
 func testContractsRoundTrip(t *testing.T, repo dispatch.WorkerVersionRepository) {
 	now := registrationTime()
-	contracts := []protocol.ActivityContract{{Type: "payments.charge.v1", Input: "input@fp1", Output: "output@fp2"}}
+	input := protocol.WireType{Kind: protocol.WireKindRecord, Fields: []protocol.WireField{
+		{JSON: "order_id", Type: protocol.WireType{Kind: protocol.WireKindScalar, Name: "string"}},
+		{JSON: "note", Type: protocol.WireType{Kind: protocol.WireKindPointer, Optional: true, Elem: &protocol.WireType{Kind: protocol.WireKindScalar, Name: "string"}}, OmitEmpty: true},
+	}}
+	output := protocol.WireType{Kind: protocol.WireKindScalar, Name: "string"}
+	contracts := []protocol.ActivityContract{{Type: "payments.charge.v1", Input: "input@fp1", Output: "output@fp2", InputWire: &input, OutputWire: &output}}
 	mustUpsert(t, repo, protocol.DefaultNamespace, protocol.ActivityWorkerVersion{
 		Identity: "payments-worker", BuildID: "build-1", TaskQueues: []string{"payments"},
 		ActivityTypes: []string{"payments.charge.v1"}, Contracts: contracts, Default: true, Weight: 3,
@@ -377,7 +383,7 @@ func testContractsRoundTrip(t *testing.T, repo dispatch.WorkerVersionRepository)
 		t.Fatalf("payments-worker routes = %+v, want 1", reported)
 	}
 	route := reported[0]
-	if len(route.Contracts) != 1 || route.Contracts[0] != contracts[0] {
+	if len(route.Contracts) != 1 || !reflect.DeepEqual(route.Contracts[0], contracts[0]) {
 		t.Fatalf("contracts round-trip = %+v", route.Contracts)
 	}
 	if route.Namespace != protocol.DefaultNamespace || route.BuildID != "build-1" || !route.Default || route.Weight != 3 ||

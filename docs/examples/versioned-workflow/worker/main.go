@@ -120,7 +120,7 @@ func registerActivities(registry *wfsdk.Registry, declared map[string]program.Ac
 //
 // 两边都是 wire 指纹（与 Go 类型身份无关）：generator 侧 config.WLangWireFingerprint，
 // worker 侧 activity.ContractOf。不一致说明 workflow.json 落后于实现，直接 fail fast，
-// 让问题停在启动阶段而不是真实调度期的 contract mismatch。
+// 让问题停在启动阶段，而不是领取时被拒绝（contract mismatch）、任务一直留在队列里。
 func register[I, O any](registry *wfsdk.Registry, declared map[string]program.ActivityRef, symbol string, fn func(context.Context, I) (O, error)) {
 	ref, ok := declared[symbol]
 	if !ok {

@@ -31,7 +31,7 @@ type WorkflowExecutionDescription struct {
 	// Policy 是 Run 的有效版本策略，ProgramVersion 是它当前采用的 Program 内容版本。
 	Policy         workflow.Policy
 	ProgramVersion string
-	// ConfigError 非空表示配置、契约或目标 Worker 冲突，Run 暂停推进，等修复后用
+	// ConfigError 非空表示确定性的配置冲突，Run 暂停推进，等修复后用
 	// UpdateWorkflowExecutionOptions 恢复。
 	ConfigError string
 	// UpgradeError 是最近一次自动升级失败的原因；升级成功后清空。

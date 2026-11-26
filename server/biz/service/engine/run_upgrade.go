@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/donutnomad/tenuto/program"
@@ -185,21 +184,6 @@ func (s *Server) SetRunPolicy(ctx context.Context, namespace, runID, policy stri
 		return nil, err
 	}
 	return updated, nil
-}
-
-// pauseRunForConfigError 把确定性配置/契约错误记录到 Run 并停止后续 WFT 推进。
-// 不改变 current/original，也不自动修改 target 或内容；人工修复后用 set-policy 恢复。
-// 调用方持有 workflow 的 keyed lock；记录失败只影响暂停，调用方照常返回原错误。
-func (s *Server) pauseRunForConfigError(runID string, cause error) {
-	if cause == nil {
-		return
-	}
-	if err := s.pauseRun(runID, cause.Error()); err != nil {
-		s.logger.Warn("record config error failed",
-			slog.String("run_id", runID),
-			slog.Any("err", err),
-		)
-	}
 }
 
 // pauseRun 在事务内锁下读取 Run，把 ConfigError 写入并暂停它。调用方持有 workflow 的 keyed lock。

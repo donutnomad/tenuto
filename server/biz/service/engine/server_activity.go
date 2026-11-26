@@ -397,7 +397,7 @@ func (s *Server) RefuseIncompatibleActivityClaim(ctx context.Context, task proto
 	if s.workerVersions == nil {
 		return false, nil
 	}
-	// 与调度时的对照一致：读不到 Run 的配置时没有可对照的声明，不拦截。
+	// 读不到 Run 的配置时没有可对照的声明，不拦截。
 	wf, err := s.workflowConfigs.GetWorkflowConfig(runConfigRef(run, ""))
 	if err != nil || dispatch.DeclaredActivityContract(wf, task.ActivityType) == nil {
 		return false, nil

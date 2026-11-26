@@ -28,7 +28,9 @@ Server 在调度一个 Activity 时按下面的顺序确定队列，确定的队
 
 1. 调用处的 `ActivityOptions.TaskQueue`，只作用于这一次调用。
 2. Run 的 Workflow 定义（`workflow.json` 的 `activities[].task_queue`）声明的队列，来自 `@Activity(queue=...)`。队列是 Activity 自己的属性，与调用它的 Workflow、与放在同一个包里的 Workflow 都无关。
-3. 前两者都没有时，Server 在路由目录里选：目录是在线 Worker 上报的「拉取的队列 × 登记的 Activity 类型」。先排除契约（入参出参指纹）与定义不一致的路由，再优先默认路由（`ActivityWorkerVersionDefault`），最后按权重选择。没有任何 Worker 登记这个类型时，Run 显示 Blocked（`activity_route_unavailable`），Worker 上线后按退避继续。
+3. 前两者都没有时，Server 在路由目录里选：目录是在线 Worker 上报的「拉取的队列 × 登记的 Activity 类型」。有契约（入参出参）与定义兼容的路由时先排除不兼容的，再优先默认路由（`ActivityWorkerVersionDefault`），最后按权重选择。没有任何 Worker 登记这个类型、或路由歧义（见下文）时，Run 显示 Blocked（`activity_route_unavailable`），Worker 上线或声明队列后按退避继续。
+
+第 1、2 步确定了队列时，调度总是写入 `ActivityScheduled` 并投进这个队列，与此刻队列上有没有在线 Worker、在线 Worker 的契约是否兼容无关；`ScheduleToStartTimeout`、`ScheduleToCloseTimeout` 从调度时起算。契约在 Worker 领取时按它自己的上报对照，不兼容的领取被拒绝，任务约 1s 后重新投递，契约兼容的 Worker 上线后自动领取。
 
 两种写法：
 
@@ -86,7 +88,7 @@ Key 使用 `namespace/task_queue`，`physical` 是物理队列名，`partitions`
 | --- | --- |
 | Activity 长时间 Scheduled | logical/physical queue 映射、active Worker；Console Run 详情的 `Task Queue` 与 Workers 页 Activity Routing 里该类型的队列是否一致 |
 | Run Blocked，`activity_route_unavailable`，`declares no task queue and workers serve it on unrelated task queues` | 定义与调用处都没有声明队列，几个服务在不同队列上提供同一类型，见[没有声明队列时的歧义](#没有声明队列时的歧义) |
-| Activity 被反复拒绝领取 | 在线 Worker 上报的契约、Run 当前 Program 的声明、需要的旧 build 是否已下线 |
+| Activity 被反复拒绝领取（日志 `activity claim refused`），Run 不暂停 | 在线 Worker 上报的契约、Run 当前 Program 的声明、需要的旧 build 是否已下线；让契约兼容的 build 上线，或把 Run 改成 `auto_upgrade` |
 | 不同租户互相看见资源 | Namespace 传递、Task Token、Worker Options |
 | Worker 列表频繁消失 | Heartbeat interval、TTL、网络延迟 |
 | 同类型由旧版本执行 | 新旧 build 的契约是否相同（相同时任一 build 都可执行）、`ActivityStarted` 的 `workerBuildId` |

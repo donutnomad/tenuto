@@ -12,7 +12,7 @@ status: Stable
 
 1. 核对 Namespace 和 Task Queue。
 2. 核对 Activity Type 已注册。
-3. 核对 Worker 这个 Build ID 上报的契约与 Run 当前 Program 的声明一致：不一致的领取被拒绝，Server 日志记 `activity claim refused: worker contract is incompatible`，任务约 1s 后重新投递。
+3. 核对 Worker 这个 Build ID 上报的契约与 Run 当前 Program 的声明兼容：不兼容的领取被拒绝，Server 日志记 `activity claim refused: worker contract is incompatible`，任务约 1s 后重新投递。
 4. 核对 Version Heartbeat 尚在 TTL 内。
 5. 核对 logical queue 到 TaskQ physical queue 的映射。
 6. 查看 poll、ack、nack 和 TaskQ membership 日志。

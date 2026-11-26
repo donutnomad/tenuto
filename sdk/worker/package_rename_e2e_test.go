@@ -276,32 +276,26 @@ func TestPackageRenameUpgradeKeepsRunsWorking(t *testing.T) {
 			}
 		}
 
-		// pinned：旧 Program 声明的 order_id 契约只有已停止的 b1 满足，最后一次扣款调度时 Run 以 ConfigError 暂停。
-		description = env.waitConfigError(t, pinned)
-		if !strings.Contains(description.ConfigError, `activity "rename.charge" contract mismatch`) {
-			t.Fatalf("config error = %q", description.ConfigError)
-		}
-		if description.ProgramVersion != arts.v1Version {
-			t.Fatalf("pinned run moved to %s", description.ProgramVersion)
+		// pinned：旧 Program 声明的 order_id 契约只有已停止的 b1 满足。最后一次扣款照常调度并入队，b2 的领取被拒绝，
+		// Run 不暂停、不写 ConfigError，任务在队列里等 b1。
+		env.waitChargeQueued(t, pinned)
+		if description := env.describe(t, pinned); description.ConfigError != "" || description.ProgramVersion != arts.v1Version {
+			t.Fatalf("pinned run: config error %q version %s", description.ConfigError, description.ProgramVersion)
 		}
 
-		// 修复：旧 build 重新上线（同一份 v1 定义再次登记不改变 latest），发布保留 order_id 的 v2。auto_upgrade 恢复后
-		// 换到 v2 并用正确的载荷完成；pinned 恢复后留在 v1 完成。
+		// 修复：旧 build 重新上线（同一份 v1 定义再次登记不改变 latest），发布保留 order_id 的 v2。pinned 的扣款由 b1 领取，
+		// Run 留在 v1 自动完成；auto_upgrade 用 set-policy 恢复后换到 v2 并用正确的载荷完成。
 		env.startWorker(t, "rename-w1-back", "b1", arts.v1, renameCharge, nil)
 		if _, err := (artifact.Client{BaseURL: env.url, Namespace: protocol.DefaultNamespace}).Submit(env.ctx, artifact.PublishPath, artifact.Artifacts{Workflow: arts.v2}); err != nil {
 			t.Fatal(err)
 		}
-		for _, item := range []struct {
-			id     string
-			policy workflow.Policy
-			want   string
-		}{{auto, workflow.PolicyAutoUpgrade, arts.v2Version}, {pinned, workflow.PolicyPinned, arts.v1Version}} {
-			if err := env.c.UpdateWorkflowExecutionOptions(env.ctx, client.UpdateWorkflowExecutionOptions{WorkflowID: item.id, Policy: item.policy}); err != nil {
-				t.Fatal(err)
-			}
-			assertJSONEqual(t, env.result(t, item.id), expectedRenameResult(item.id))
-			env.assertProgramVersion(t, item.id, item.policy, item.want)
+		assertJSONEqual(t, env.result(t, pinned), expectedRenameResult(pinned))
+		env.assertProgramVersion(t, pinned, workflow.PolicyPinned, arts.v1Version)
+		if err := env.c.UpdateWorkflowExecutionOptions(env.ctx, client.UpdateWorkflowExecutionOptions{WorkflowID: auto, Policy: workflow.PolicyAutoUpgrade}); err != nil {
+			t.Fatal(err)
 		}
+		assertJSONEqual(t, env.result(t, auto), expectedRenameResult(auto))
+		env.assertProgramVersion(t, auto, workflow.PolicyAutoUpgrade, arts.v2Version)
 	})
 }
 
@@ -532,6 +526,53 @@ func (e *renameEnv) waitConfigError(t *testing.T, workflowID string) *client.Wor
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
+}
+
+// waitChargeQueued 等 workflowID 调度出一次还没开始的 rename.charge，再等过一次重新投递（约 1s）确认它仍没有开始：
+// 在线 Worker 的契约与声明不一致时领取被拒绝，任务留在队列里。
+func (e *renameEnv) waitChargeQueued(t *testing.T, workflowID string) {
+	t.Helper()
+	pending := func() (int64, bool) {
+		started := map[int64]bool{}
+		var scheduled []int64
+		for _, event := range e.history(t, workflowID) {
+			if event.ActivityScheduled != nil && event.ActivityScheduled.ActivityType == "rename.charge" {
+				scheduled = append(scheduled, event.ID)
+			}
+			if event.ActivityStarted != nil {
+				started[event.ActivityStarted.ScheduledEventID] = true
+			}
+		}
+		for _, id := range scheduled {
+			if !started[id] {
+				return id, true
+			}
+		}
+		return 0, false
+	}
+	for {
+		if id, ok := pending(); ok {
+			time.Sleep(1500 * time.Millisecond)
+			if still, ok := pending(); !ok || still != id {
+				t.Fatalf("%s: rename.charge %d started on an incompatible worker", workflowID, id)
+			}
+			return
+		}
+		select {
+		case <-e.ctx.Done():
+			t.Fatalf("%s did not schedule rename.charge", workflowID)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+func (e *renameEnv) describe(t *testing.T, workflowID string) *client.WorkflowExecutionDescription {
+	t.Helper()
+	description, err := e.c.DescribeWorkflowExecution(e.ctx, workflowID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return description
 }
 
 func (e *renameEnv) assertProgramVersion(t *testing.T, workflowID string, policy workflow.Policy, version string) {
