@@ -22,7 +22,7 @@ d, err := handle.Describe(ctx)
 ```
 
 - Cron 是 5 段表达式，粒度到分钟；无法解析或永远不会匹配（`0 0 31 2 *`）时 Create/Update 返回 `invalid cron_expression`（HTTP 400）。按 `TimeZone` 的墙上时间匹配：夏令时前拨日不存在的时刻当天跳过；回拨日重复的时刻只在第一次出现时触发一次（同 Vixie cron；Temporal 两次都触发）。日与星期两段都被限定（都不以 `*` 开头）时满足任意一段即触发：`0 0 13 * 5` 是每月 13 日和每个周五。
-- 触发顺序：catch-up 检查（逐个到期点）→ Overlap 检查 → 以到期点的 Workflow ID 启动 Run（该 ID 的 Run 已在运行时不再启动）→ CAS 把 `next_run_at` 推进到这个到期点之后的下一个 cron 时刻。启动失败：配置或请求错误（Workflow 类型没有部署、输入不合法）直接丢弃这个到期点；其他错误按退避（1s 起翻倍，最长 60s）重试到到期点之后 1 小时再丢弃（同 Temporal）。丢弃计入 `start_failed`，`next_run_at` 推进到下一个到期点，所以持续失败时 `next_run_at` 最多落后 1 小时，修好后只补出这 1 小时内的到期点。`Trigger` 不改变 `next_run_at`（同 Temporal TriggerImmediately），积压的到期点照常补触发。
+- 触发顺序：catch-up 检查（逐个到期点）→ Overlap 检查 → 以到期点的 Workflow ID 启动 Run（该 ID 的 Run 已在运行时不再启动）→ CAS 把 `next_run_at` 推进到这个到期点之后的下一个 cron 时刻。启动失败：配置或请求错误（Workflow 类型没有部署、输入不合法）直接丢弃这个到期点；其他错误按退避（1s 起翻倍，最长 60s）重试，期限从到期点起算、取 min(`catchup_window`, 1 小时)（同 Temporal）：超过 1 小时丢弃，`catchup_window` 更短时超过它计入 `missed_catchup_window`。丢弃前按到期点的 Workflow ID 确认启动是否其实已提交，已提交时按启动成功记录。丢弃计入 `start_failed`，`next_run_at` 推进到下一个到期点，所以持续失败时 `next_run_at` 最多落后 1 小时，修好后只补出这 1 小时内的到期点。`Trigger` 不改变 `next_run_at`（同 Temporal TriggerImmediately），积压的到期点照常补触发。
 - `OverlapPolicy` 只接受大写值，空值保存为 `SKIP`；其他值（`skip`、`BUFFER_ONE`、`CANCEL_OTHER`、`TERMINATE_OTHER` 等）Create/Update 返回 `invalid overlap_policy`（HTTP 400）。语义同 Temporal：
 
 | 值 | 行为 |

@@ -35,11 +35,15 @@ import (
 
 // fakeFirer 是 schedule.Firer 的测试桩，支持注入 runStatus/err 和记录调用
 type fakeFirer struct {
-	mu                sync.Mutex
-	store             schedule.Repository
-	startCalls        []startCall
-	startAttempts     int
-	startErr          error
+	mu            sync.Mutex
+	store         schedule.Repository
+	startCalls    []startCall
+	startAttempts int
+	startErr      error
+	// commitDespiteErr 让 startErr 在启动提交之后返回（模拟提交后入队失败或应答丢失）。
+	commitDespiteErr bool
+	// cronRuns 是已提交的 Cron 启动：workflowID → runID，供 CronRunStarted 查询。
+	cronRuns          map[string]string
 	runStatuses       map[string]history.Status
 	runStatusErr      error
 	runStatusNotFound bool
@@ -56,6 +60,7 @@ type startCall struct {
 func newFakeFirer(store schedule.Repository) *fakeFirer {
 	return &fakeFirer{
 		store:       store,
+		cronRuns:    make(map[string]string),
 		runStatuses: make(map[string]history.Status),
 	}
 }
@@ -64,11 +69,19 @@ func (f *fakeFirer) StartWorkflowForCron(_ context.Context, namespace, workflowT
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.startAttempts++
-	if f.startErr != nil {
+	if f.startErr != nil && !f.commitDespiteErr {
 		return "", f.startErr
 	}
+	runID := "run-" + workflowType
 	f.startCalls = append(f.startCalls, startCall{namespace: namespace, workflowType: workflowType, workflowID: workflowID, input: input, attributes: attributes})
-	return "run-" + workflowType, nil
+	f.cronRuns[workflowID] = runID
+	return runID, f.startErr
+}
+
+func (f *fakeFirer) CronRunStarted(_, workflowID string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cronRuns[workflowID], nil
 }
 
 func (f *fakeFirer) CurrentRunStatus(runID string) (history.Status, error) {

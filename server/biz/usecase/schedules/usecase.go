@@ -245,7 +245,11 @@ func (u *UseCase) fireAt(ctx context.Context, entity *schedule.Schedule, now tim
 		}
 		return u.startFailed(entity, key, retry, now, err)
 	}
+	return u.recordStarted(entity, fireTime, runID, now)
+}
 
+// recordStarted 在到期点 fireTime 的 Run runID 已启动后 CAS 推进 NextRunAt 并记录 LastRun，返回 false 表示 CAS 被抢先。
+func (u *UseCase) recordStarted(entity *schedule.Schedule, fireTime time.Time, runID string, now time.Time) bool {
 	// CAS 失败说明另一个实例已推进这次到期点，由它记录 Run
 	if !u.casNextRunAt(entity, entity.AdvanceNextRunAt(fireTime, now)) {
 		return false
@@ -263,7 +267,11 @@ func (u *UseCase) fireAt(ctx context.Context, entity *schedule.Schedule, now tim
 //   - 暂时性错误：记下重试状态，按 schedule.StartRetryBackoff 退避（1s 起翻倍，最长 60s）后由之后的扫描重试，返回 false；
 //     退避期间不睡眠，其他 Schedule 与这个 Schedule 的跳过检查照常进行；
 //   - 配置错误（schedule.IsConfigStartError），或下一次尝试会晚于到期点之后的 schedule.StartRetryTimeout：丢弃这个
-//     到期点，计入 StartFailed，CAS 推进 NextRunAt，返回 true 继续处理后面的到期点。
+//     到期点，计入 StartFailed，CAS 推进 NextRunAt，返回 true 继续处理后面的到期点。丢弃之前先用 Firer.CronRunStarted
+//     确认启动是否其实已经提交，已提交时按启动成功记录，不计入 StartFailed。
+//
+// catchup window 小于 1 小时时，fire 的 SkipUnstartable 先截断重试，到期点计入 MissedCatchupWindow：有效期限是
+// min(catchup window, 1 小时)，同 Temporal。
 //
 // 重试期限从到期点起算：准时处理的到期点第一次尝试就在到期点，期限即第一次尝试之后 1 小时（Temporal startWorkflow 的
 // ScheduleToCloseTimeout 上限）；补触发时已落后 1 小时以上的到期点只尝试一次。这样启动持续失败时 NextRunAt 最多落后
@@ -285,6 +293,18 @@ func (u *UseCase) startFailed(entity *schedule.Schedule, key scheduleKey, retry 
 		return false
 	}
 	delete(u.startRetries, key)
+	// 启动可能已经提交，只是提交之后入队失败或应答丢失：丢弃之前按到期点的 Workflow ID（即 requestID）确认一次，
+	// 已启动时按启动成功记录。确认本身失败时照常丢弃。
+	runID, lookupErr := u.firer.CronRunStarted(entity.Namespace, entity.RunWorkflowID(fireTime))
+	if lookupErr != nil {
+		u.logger.Warn("schedule driver: check whether the failed start took effect failed", "namespace", entity.Namespace, "schedule_id", entity.ID,
+			"fire_time", fireTime.UTC().Format(time.RFC3339), "err", lookupErr)
+	}
+	if runID != "" {
+		u.logger.Warn("schedule driver: start workflow returned an error but the run was started", "namespace", entity.Namespace, "schedule_id", entity.ID,
+			"fire_time", fireTime.UTC().Format(time.RFC3339), "run_id", runID, "err", err)
+		return u.recordStarted(entity, fireTime, runID, now)
+	}
 	u.logger.Error("schedule driver: start workflow failed, dropping this fire time", "namespace", entity.Namespace, "schedule_id", entity.ID,
 		"fire_time", fireTime.UTC().Format(time.RFC3339), "attempts", retry.attempts, "config_error", configErr, "err", err)
 	if !u.casNextRunAt(entity, entity.DropFailedStart(now)) {

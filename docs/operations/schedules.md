@@ -34,7 +34,7 @@ Policy 只接受以上大写值，空值保存为 `SKIP`；其他值在 Create/U
 
 ## 启动失败
 
-启动失败分两类处理（同 Temporal scheduler）：Workflow 类型没有部署、输入不合法、载荷超限这类配置或请求错误不重试，这个到期点直接丢弃；存储或网络暂时不可用等其他错误按退避（1 秒起翻倍，最长 60 秒）重试，到期点之后 1 小时仍没有启动成功就丢弃（Temporal 启动 Workflow 的本地 Activity 的 `ScheduleToCloseTimeout` 上限）。丢弃的到期点计入 `start_failed`，下一次执行时间推进到它之后的到期点，后面的到期点照常处理；重试期间 catch-up 检查照常进行，到期点先超出 `catchup_window` 时计入 `missed_catchup_window`。因此启动持续失败时下一次执行时间最多落后当前时间 1 小时，修好之后只补出这 1 小时内的到期点（按 Overlap Policy）。补触发时已落后 1 小时以上的到期点只尝试一次。重试状态保存在 leader 的内存里，leader 切换后从新的一次尝试开始退避。
+启动失败分两类处理（同 Temporal scheduler）：Workflow 类型没有部署、输入不合法、载荷超限这类配置或请求错误不重试，这个到期点直接丢弃；存储或网络暂时不可用等其他错误按退避（1 秒起翻倍，最长 60 秒）重试，重试期限从到期点起算，取 min(`catchup_window`, 1 小时)（同 Temporal 启动 Workflow 的本地 Activity：`ScheduleToCloseTimeout` 取 catchup 截止时间，上限 1 小时）。到期点之后 1 小时仍没有启动成功的丢弃并计入 `start_failed`；`catchup_window` 小于 1 小时时，重试先超过 catchup window，这个到期点计入 `missed_catchup_window`。丢弃之前 Server 按到期点的 Workflow ID 确认一次：启动其实已经提交（提交之后入队失败或应答丢失）时按启动成功记录，不计入 `start_failed`。丢弃或跳过之后下一次执行时间推进到它之后的到期点，后面的到期点照常处理。因此启动持续失败时下一次执行时间最多落后当前时间 1 小时，修好之后只补出这 1 小时内的到期点（按 Overlap Policy）。补触发时已落后 1 小时以上的到期点只尝试一次。重试状态保存在 leader 的内存里，leader 切换后从新的一次尝试开始退避。
 
 Server 每次丢弃记 ERROR `schedule driver: start workflow failed, dropping this fire time`（带 `fire_time`、`attempts`、`config_error` 与 `err`），每次重试前记 WARN `schedule driver: start workflow failed, will retry`（带 `attempt` 与 `next_attempt`）。`start_failed` 持续增长时按日志里的 `err` 处理：配置错误（`config_error=true`）登记缺少的 Program 或修正 Schedule 的输入，其他错误检查数据库与 Server 状态。
 

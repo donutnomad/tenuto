@@ -310,7 +310,7 @@ type Schedule struct {
 	MissedCatchupWindow int64 `json:"missed_catchup_window"`
 	// BufferDropped 是补触发时 buffer（1000 个）满之后到达而被丢弃的到期点数。
 	BufferDropped int64 `json:"buffer_dropped"`
-	// StartFailed 是启动失败而丢弃的到期点数：配置错误立即丢弃，暂时性错误重试 1 小时后丢弃。
+	// StartFailed 是启动失败而丢弃的到期点数：配置错误立即丢弃，暂时性错误的重试期限取 min(catchup window, 1 小时)，超过 1 小时丢弃（超过更短的 catchup window 计入 MissedCatchupWindow）。
 	StartFailed int64     `json:"start_failed"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

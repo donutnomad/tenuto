@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"testing"
 	"time"
 
@@ -187,6 +188,51 @@ func TestConfigStartErrorDropsFireTimeWithoutRetry(t *testing.T) {
 			f.uc.FireDue(context.Background())
 			if ids := f.startedWorkflowIDs(); len(ids) != 1 || ids[0] != "schedule-"+f.id+"-2026-11-10T13:00:00Z" {
 				t.Fatalf("after the fix started %v, want only the 13:00 fire", ids)
+			}
+		})
+	}
+}
+
+// 启动其实已经提交、却一直返回错误（提交后入队失败或应答丢失）：丢弃之前按到期点的 Workflow ID 确认到 Run 已存在，
+// 按启动成功记录 LastRunID 并推进，不计入 start_failed；SKIP 下这个 Run 仍在运行时，下一个到期点照常跳过，不与它重叠。
+func TestFailedStartThatTookEffectIsRecordedAsStarted(t *testing.T) {
+	for _, startErr := range []error{
+		errors.New("enqueue first workflow task: connection reset"),
+		protocol.InvalidRequestf("response lost behind a misbehaving proxy"),
+	} {
+		t.Run(startErr.Error(), func(t *testing.T) {
+			f := newCatchupFixture(t, "0 * * * *", "SKIP", 0)
+			f.firer.mu.Lock()
+			f.firer.commitDespiteErr = true
+			f.firer.runStatuses["run-wf"] = history.StatusRunning
+			f.firer.mu.Unlock()
+			f.setStartErr(startErr)
+			f.advanceTo(at(9, 0, 0))
+			f.uc.FireDue(context.Background())
+			f.scanEvery(30*time.Second, time.Hour, nil) // 09:00 的重试期限到 10:00
+
+			got := f.get(t)
+			if got.StartFailed != 0 || got.LastRunID != "run-wf" || got.RunCount != 1 {
+				t.Fatalf("start_failed=%d last_run_id=%q run_count=%d, want 0, run-wf, 1", got.StartFailed, got.LastRunID, got.RunCount)
+			}
+			committed := func() map[string]string {
+				f.firer.mu.Lock()
+				defer f.firer.mu.Unlock()
+				return maps.Clone(f.firer.cronRuns)
+			}
+			if runs := committed(); len(runs) != 1 || runs["schedule-"+f.id+"-2026-11-10T09:00:00Z"] == "" {
+				t.Fatalf("committed runs %v, want only the 09:00 run", runs)
+			}
+			// 10:00 到期时 09:00 的 Run 仍在运行：SKIP 跳过，不启动第二个。
+			f.setStartErr(nil)
+			attempts := f.startAttempts()
+			f.advanceTo(at(10, 0, 30))
+			f.uc.FireDue(context.Background())
+			if n := f.startAttempts() - attempts; n != 0 || len(committed()) != 1 {
+				t.Fatalf("10:00 tried %d starts overlapping the 09:00 run; committed %v", n, committed())
+			}
+			if got := f.get(t); !got.NextRunAt.Equal(at(11, 0, 0)) {
+				t.Fatalf("next_run_at=%v, want 11:00", got.NextRunAt)
 			}
 		})
 	}

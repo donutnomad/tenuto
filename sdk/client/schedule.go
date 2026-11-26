@@ -98,7 +98,7 @@ type ScheduleDescription struct {
 	RunCount int
 	// MissedCatchupWindow 是因超出 CatchupWindow 没有触发的到期点数；BufferDropped 是停机恢复后待补的到期点超过
 	// 1000 个时，保留最早的 1000 个之后丢弃的到期点数；StartFailed 是启动失败而丢弃的到期点数（配置错误立即丢弃，
-	// 暂时性错误重试 1 小时后丢弃）。
+	// 暂时性错误的重试期限取 min(CatchupWindow, 1 小时)，超过 1 小时丢弃，超过更短的 CatchupWindow 计入 MissedCatchupWindow）。
 	MissedCatchupWindow int64
 	BufferDropped       int64
 	StartFailed         int64
