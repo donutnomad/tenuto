@@ -103,6 +103,7 @@ func testRoundTrip(t *testing.T, store schedule.Repository) {
 		CatchupWindow:       2 * time.Hour,
 		MissedCatchupWindow: 3,
 		BufferDropped:       4,
+		StartFailed:         5,
 		LastRunAt:           &lastRunAt,
 		NextRunAt:           &nextRunAt,
 		LastRunID:           "run-prev",
@@ -153,9 +154,9 @@ func testRoundTrip(t *testing.T, store schedule.Repository) {
 	if got.RunCount != sch.RunCount {
 		t.Errorf("RunCount: want %d, got %d", sch.RunCount, got.RunCount)
 	}
-	if got.CatchupWindow != sch.CatchupWindow || got.MissedCatchupWindow != sch.MissedCatchupWindow || got.BufferDropped != sch.BufferDropped {
-		t.Errorf("catch-up fields: want (%s, %d, %d), got (%s, %d, %d)", sch.CatchupWindow, sch.MissedCatchupWindow, sch.BufferDropped,
-			got.CatchupWindow, got.MissedCatchupWindow, got.BufferDropped)
+	if got.CatchupWindow != sch.CatchupWindow || got.MissedCatchupWindow != sch.MissedCatchupWindow || got.BufferDropped != sch.BufferDropped || got.StartFailed != sch.StartFailed {
+		t.Errorf("catch-up fields: want (%s, %d, %d, %d), got (%s, %d, %d, %d)", sch.CatchupWindow, sch.MissedCatchupWindow, sch.BufferDropped, sch.StartFailed,
+			got.CatchupWindow, got.MissedCatchupWindow, got.BufferDropped, got.StartFailed)
 	}
 	if got.LastRunAt == nil || !got.LastRunAt.Equal(lastRunAt) {
 		t.Errorf("LastRunAt: want %v, got %v", lastRunAt, got.LastRunAt)

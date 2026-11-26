@@ -22,6 +22,7 @@ func (p *SchedulePO) ToPO(entity *schedule.Schedule) *SchedulePO {
 		CatchupWindow:       entity.CatchupWindow,
 		MissedCatchupWindow: entity.MissedCatchupWindow,
 		BufferDropped:       entity.BufferDropped,
+		StartFailed:         entity.StartFailed,
 		BufferDropFrom:      entity.BufferDropFrom,
 		BufferDropUntil:     entity.BufferDropUntil,
 		CreatedAt:           entity.CreatedAt,

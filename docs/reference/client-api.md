@@ -212,7 +212,7 @@ type ScheduleOptions struct {
 }
 ```
 
-`ScheduleDescription` 带 `CatchupWindow`、`MissedCatchupWindow`（超出窗口没有触发的到期点数）与 `BufferDropped`（待补到期点超过 1000 个时，buffer 满之后到达而被丢弃的数量）；`ScheduleUpdateOptions.CatchupWindow` 是 `*time.Duration`。
+`ScheduleDescription` 带 `CatchupWindow`、`MissedCatchupWindow`（超出窗口没有触发的到期点数）、`BufferDropped`（待补到期点超过 1000 个时，buffer 满之后到达而被丢弃的数量）与 `StartFailed`（启动失败而丢弃的到期点数，见[触发流程与错过触发](/develop/scheduling#触发流程与错过触发)）；`ScheduleUpdateOptions.CatchupWindow` 是 `*time.Duration`。
 
 ```go
 ```

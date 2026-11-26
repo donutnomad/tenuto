@@ -225,6 +225,7 @@ func scheduleToWire(s *schedule.Schedule) *runtimeapi.Schedule {
 		CatchupWindow:       s.CatchupWindow,
 		MissedCatchupWindow: s.MissedCatchupWindow,
 		BufferDropped:       s.BufferDropped,
+		StartFailed:         s.StartFailed,
 		CreatedAt:           s.CreatedAt,
 		UpdatedAt:           s.UpdatedAt,
 	}

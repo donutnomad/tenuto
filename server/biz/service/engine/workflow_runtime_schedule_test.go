@@ -188,6 +188,32 @@ func TestStartWorkflowForCronReturnsTheRunOfTheSameFireTime(t *testing.T) {
 	}
 }
 
+// CronRunStarted 只认同一个到期点的 Cron 启动：其他启动创建的 Run 与不存在的 Workflow ID 返回空串。
+func TestCronRunStartedFindsTheRunOfTheSameFireTime(t *testing.T) {
+	ctx := context.Background()
+	server := newTestServer()
+	defer server.Stop()
+	registerScheduleWorkflow(t, server, "wf-cron-lookup")
+	const cronID, otherID = "schedule-x-2026-11-10T09:15:00Z", "schedule-x-2026-11-10T09:20:00Z"
+
+	if runID, err := server.CronRunStarted("", cronID); err != nil || runID != "" {
+		t.Fatalf("before any start = %q, %v; want empty", runID, err)
+	}
+	runID, err := server.StartWorkflowForCron(ctx, "", "wf-cron-lookup", cronID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := server.CronRunStarted("default", cronID); err != nil || got != runID {
+		t.Fatalf("after the cron start = %q, %v; want %s", got, err, runID)
+	}
+	if _, err := server.StartWorkflow(ctx, "", "wf-cron-lookup", otherID, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := server.CronRunStarted("", otherID); err != nil || got != "" {
+		t.Fatalf("run started by another request = %q, %v; want empty", got, err)
+	}
+}
+
 func registerScheduleWorkflow(t *testing.T, server *Server, workflowType string) definition.WorkflowConfigRef {
 	t.Helper()
 	ref, err := server.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, &program.WorkflowConfig{Type: workflowType, Name: workflowType, Program: programtest.Noop()})

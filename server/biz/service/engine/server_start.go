@@ -257,6 +257,16 @@ func (s *Server) StartWorkflowForCron(ctx context.Context, namespace, workflowTy
 	return run.ID, nil
 }
 
+// CronRunStarted 返回 workflowID 的 current Run 由 StartWorkflowForCron(workflowID) 启动时的 Run ID（requestID 即
+// workflowID），没有时返回空串。
+func (s *Server) CronRunStarted(namespace, workflowID string) (string, error) {
+	run, err := s.runStartedByRequest(protocol.NormalizeNamespace(namespace), workflowID, workflowID)
+	if err != nil || run == nil {
+		return "", err
+	}
+	return run.ID, nil
+}
+
 // CurrentRunStatus 返回 runID 所在 Workflow ID 的 current Run 的状态：runID 经 continue-as-new、重试或 reset 接续时是
 // 接续的那一代。runID 不存在时返回的错误满足 errors.Is(err, ErrRunNotFound)。
 func (s *Server) CurrentRunStatus(runID string) (history.Status, error) {
