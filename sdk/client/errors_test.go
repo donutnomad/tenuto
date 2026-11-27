@@ -30,6 +30,8 @@ func TestErrorMappingTable(t *testing.T) {
 		{name: "504 deadline", kind: callOther, status: http.StatusGatewayTimeout, body: "context deadline exceeded", is: []error{ErrDeadlineExceeded}},
 		{name: "500 internal", kind: callOther, status: http.StatusInternalServerError, body: "internal server error", is: []error{ErrInternal}, isNot: []error{ErrUnavailable}},
 		{name: "503 unavailable", kind: callOther, status: http.StatusServiceUnavailable, body: "service temporarily unavailable", is: []error{ErrUnavailable}, isNot: []error{ErrInternal}},
+		{name: "413 request too large", kind: callOther, status: http.StatusRequestEntityTooLarge, body: "request body exceeds 4194304 bytes", is: []error{ErrInvalidArgument}},
+		{name: "429 from a gateway", kind: callOther, status: http.StatusTooManyRequests, body: "rate limited", is: []error{ErrUnavailable}},
 		{name: "502 unavailable", kind: callOther, status: http.StatusBadGateway, body: "service temporarily unavailable; the request may have taken effect", is: []error{ErrUnavailable}},
 		{name: "400 update rejection", kind: callUpdate, status: http.StatusBadRequest, body: rejection, is: []error{ErrUpdateRejected}, isNot: []error{ErrInvalidArgument}, appType: "CardExpired"},
 		{name: "400 plain text on update", kind: callUpdate, status: http.StatusBadRequest, body: "decode request: unexpected EOF", is: []error{ErrInvalidArgument}, isNot: []error{ErrUpdateRejected}},

@@ -333,10 +333,17 @@ Workflow Task 是服务端派给 worker 的一次"推进编排"的任务：worke
 
 ```go
 func OrderFlow(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
-    a := workflow.ExecuteActivity(ctx, Charge, in, workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}).Get(ctx)   // 等待点 1
-    workflow.Sleep(ctx, time.Hour)                            // 等待点 2
-    b := workflow.ExecuteActivity(ctx, Ship, a, workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}).Get(ctx)      // 等待点 3
-    return b, nil
+    opts := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+    var a ChargeOutput
+    if err := workflow.ExecuteActivity(ctx, Charge, in, opts).Get(ctx, &a); err != nil { // 等待点 1
+        return OrderOutput{}, err
+    }
+    if err := workflow.Sleep(ctx, time.Hour); err != nil { // 等待点 2
+        return OrderOutput{}, err
+    }
+    var b OrderOutput
+    err := workflow.ExecuteActivity(ctx, Ship, a, opts).Get(ctx, &b) // 等待点 3
+    return b, err
 }
 ```
 

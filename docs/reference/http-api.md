@@ -23,7 +23,7 @@ Tenuto 的 Go Client 使用 JSON Runtime HTTP API。业务系统通过 SDK 调�
 | 413 | 请求体超过 4 MiB | `request body exceeds 4194304 bytes`；Workflow Task 的提交被拒绝时 Worker 改报 `payload_size_limit_exceeded`，见 [容量上限](/operations/capacity-limits#载荷大小) |
 | 415 | POST 的 `Content-Type` 不是 `application/json`（可带 `charset` 等参数），没有请求体的端点也一样 | 表单或 `text/plain` 提交：`Content-Type must be application/json` |
 | 500 | Server 故障：数据库返回的非瞬时错误（缺表、数据超长等）或代码错误。原因看 Server 日志 | `internal server error` |
-| 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发；带 `request_id` 的 Reset 可以用同一个 `request_id` 直接重发 | `service temporarily unavailable; the request may have taken effect` |
+| 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发；带 `request_id` 的 Reset 可以用同一个 `request_id` 直接重发（Go SDK 自动重发） | `service temporarily unavailable; the request may have taken effect` |
 | 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）；在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`；同时重放的 Query 数达到 `WORKFLOW_QUERY_CONCURRENCY`；Signal 或 Update 遇到正在关闭的 Run（带结束命令的 Workflow Task 因新事实作废、重做的 Workflow Task 进行中，见 [Event History](/concepts/event-history)）；请求在生效之前被取消。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable`、`too many requests in flight; retry`、`request cancelled before taking effect; retry`、`workflow operation can not be applied because workflow is closing` |
 | 504 | 请求在 Server 端等待超时 | `context deadline exceeded` |
 
@@ -110,9 +110,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 }
 ```
 
-`policy` 取 `auto_upgrade` 或 `pinned`。目标 Run 已结束时返回 400，body 为 `cannot set policy: workflow <run_id> is <status>`。
-
-`policy` 取 `auto_upgrade` 或 `pinned`，其他取值返回 400（`unknown workflow policy ...`）。调用清除该 Run 的 `config_error` 并重新调度 Workflow Task，响应是更新后的 Run。
+`policy` 取 `auto_upgrade` 或 `pinned`，其他取值返回 400（`unknown workflow policy ...`）；目标 Run 已结束时返回 400，body 为 `cannot set policy: workflow <run_id> is <status>`。调用清除该 Run 的 `config_error` 并重新调度 Workflow Task，响应是更新后的 Run。
 
 ## Visibility 与管理
 
@@ -149,6 +147,8 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 ```
 
 `create-schedule` 的请求体用 `workflow_type` 指定要启动的 Workflow Type，`catchup_window`（纳秒，可省略）是补触发窗口：省略或 0 取 365 天，小于 10 秒返回 400，`update-schedule` 的 `update.catchup_window` 同样校验；Schedule 的应答带 `catchup_window`、`missed_catchup_window`、`buffer_dropped` 与 `start_failed`（见 [错过触发](/develop/scheduling#触发流程与错过触发)）。`list-schedules` 的 `filter.workflow_type` 按它过滤。每次触发启动的 Run 的 Workflow ID 是 `schedule-<Schedule ID>-<名义触发时间>`，搜索属性带 `TemporalScheduledById`（Schedule ID）与 `TemporalScheduledStartTime`（名义触发时间，UTC RFC 3339 秒级）；`list` 与 `start-batch` 的 `filter.search_attributes` 写 `{"TemporalScheduledById": "<Schedule ID>"}` 选出这个 Schedule 的全部 Run。这两个键与 `TemporalChangeVersion` 由 Server 维护，`search-attributes` 写入它们返回 400。
+
+`trigger-schedule` 的请求体是 `{namespace, schedule_id}`，应答是这次启动的 Run `{workflow_id, run_id}`，Workflow ID 取调用时刻（同一秒内重复触发得到同一个 Run），不改变 Schedule 的下一次执行时间；`SKIP` 下上一次触发的执行链仍在运行时返回 409 `previous scheduled run is still running`。
 
 ## 启动请求体
 
@@ -296,4 +296,4 @@ The saved version applies to new runs, including future schedule starts. Existin
 
 `/runtime/workflow/reset` 要求 `reset_type`（`first_workflow_task` 或 `last_workflow_task`）或 `reset_event_id`，二者选一；缺少定位时返回 400。可选的 `request_id`（最长 128 字节）让重复的请求返回第一次 Reset 出的 `run_id`，见 [Reset 的 request_id 去重](/operations/reset#request-id-去重)。Batch Reset 只接受 `reset_type`，缺少时创建被拒绝（400）。
 
-Reset 截止点必须满足此前调度的 activity/timer 均已闭合。仍有待处理项目时接口返回 400，错误包含截止事件 ID、项目类型及调度事件 ID；可以选择其调度前或完成后的工作流任务边界。校验发生在终止/替换当前运行之前，失败请求保留当前运行。终止被 reset 的运行与创建新运行在同一个事务里提交：写入失败时原运行保持运行，没有新运行。Console Reset 弹窗直接展示该错误。并行活动示例：A 已完成、B 仍待处理时，A 完成后的边界暂时无法 Reset；B 完成后的边界可执行 Reset。
+重置点上未结束的 Activity 与 Timer 不阻止 Reset：未开始的 Activity 在新 Run 里以 Attempt 1 重新派发，已开始的写 `ActivityFailed`（`ResetWorkflowError`），未触发的 Timer 保留原 deadline，规则见 [分叉点上未结束的 Activity 与 Timer](/operations/reset#分叉点上未结束的-activity-与-timer)。重置点上有未结束的子 Workflow 时返回 400 `cannot reset: pending child workflows exist at reset point`。校验发生在终止原 Run 之前，失败的请求不影响原 Run。终止被 reset 的 Run 与创建新 Run 在同一个事务里提交：写入失败时原 Run 保持运行，没有新 Run。Console 的 Reset 弹窗直接展示错误。

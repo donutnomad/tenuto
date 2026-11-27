@@ -56,6 +56,7 @@ type Client interface {
     GetWorkflowHistory(ctx context.Context, workflowID, runID string) HistoryEventIterator
     ListWorkflow(ctx context.Context, options ListWorkflowOptions) (*ListWorkflowResult, error)
     ResetWorkflowExecution(ctx context.Context, options ResetWorkflowExecutionOptions) (string, error)
+    UpsertSearchAttributes(ctx context.Context, workflowID, runID string, attributes map[string]string) error
     UpdateWorkflowExecutionOptions(ctx context.Context, options UpdateWorkflowExecutionOptions) error
     ScheduleClient() ScheduleClient
     StartBatchOperation(ctx context.Context, options StartBatchOperationOptions) (*BatchOperation, error)
@@ -170,7 +171,8 @@ type ResetWorkflowExecutionOptions struct {
     Reason              string
     ResetType           ResetType // ResetTypeFirstWorkflowTask、ResetTypeLastWorkflowTask
     EventID             int64     // 与 ResetType 二选一
-    ReapplyExcludeTypes []ResetReapplyExcludeType
+    ReapplyExcludeTypes []ResetReapplyExcludeType // ResetReapplyExcludeTypeSignal、ResetReapplyExcludeTypeUpdate
+    RequestID           string                    // 可选：同一个 Run 上相同 RequestID 的 Reset 只生效一次，SDK 按可以重发的调用重试
 }
 
 type UpdateWorkflowExecutionOptions struct {
@@ -214,9 +216,6 @@ type ScheduleOptions struct {
 
 `ScheduleDescription` 带 `CatchupWindow`、`MissedCatchupWindow`（超出窗口没有触发的到期点数）、`BufferDropped`（待补到期点超过 1000 个时，buffer 满之后到达而被丢弃的数量）与 `StartFailed`（启动失败而丢弃的到期点数，见[触发流程与错过触发](/develop/scheduling#触发流程与错过触发)）；`ScheduleUpdateOptions.CatchupWindow` 是 `*time.Duration`。
 
-```go
-```
-
 ## 批量操作
 
 ```go
@@ -234,13 +233,13 @@ type StartBatchOperationOptions struct {
 
 ```go
 var (
-    ErrInvalidArgument                 // 400
+    ErrInvalidArgument                 // 400，以及请求体超过 4 MiB 的 413
     ErrUnauthenticated                 // 401，不重试
     ErrNotFound                        // 404
     ErrConflict                        // 409
     ErrWorkflowExecutionAlreadyStarted // 启动类调用的 409，同时满足 ErrConflict
     ErrDeadlineExceeded                // 504
-    ErrUnavailable                     // 503 或 502：Server 依赖的数据库或任务队列暂时不可用，重试用尽后返回
+    ErrUnavailable                     // 503、502 或网关的 429：Server 依赖的数据库或任务队列暂时不可用，重试用尽后返回
     ErrInternal                        // 500
     ErrUpdateRejected                  // Update 的 validator 拒绝
 )

@@ -164,7 +164,7 @@ func TestTriggerKeepsBacklogOfMissedFireTimes(t *testing.T) {
 	f.clk.Advance(3 * time.Hour) // 11:30，积压 09:00、10:00、11:00
 	before := f.get(t).NextRunAt
 
-	runID, err := f.uc.Trigger(context.Background(), "default", f.id)
+	_, runID, err := f.uc.Trigger(context.Background(), "default", f.id)
 	if err != nil {
 		t.Fatal(err)
 	}

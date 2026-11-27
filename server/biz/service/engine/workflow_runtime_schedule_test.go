@@ -42,7 +42,7 @@ func TestTriggerSchedule(t *testing.T) {
 		t.Fatalf("expected no run yet, got run_count=%d last_run_at=%v", created.RunCount, created.LastRunAt)
 	}
 
-	runID1, err := server.ScheduleUseCase().Trigger(ctx, "default", created.ID)
+	_, runID1, err := server.ScheduleUseCase().Trigger(ctx, "default", created.ID)
 	if err != nil {
 		t.Fatalf("TriggerSchedule failed: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestTriggerSchedule(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.Advance(time.Minute)
-	runID2, err := server.ScheduleUseCase().Trigger(ctx, "default", created.ID)
+	_, runID2, err := server.ScheduleUseCase().Trigger(ctx, "default", created.ID)
 	if err != nil {
 		t.Fatalf("second TriggerSchedule failed: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestScheduleSkipFollowsTheContinuedRun(t *testing.T) {
 	if got := getSchedule(t, server, created.ID); got.RunCount != 1 {
 		t.Fatalf("second due point while the continued run is running: run_count = %d, want 1", got.RunCount)
 	}
-	if _, err := uc.Trigger(ctx, "default", created.ID); !errors.Is(err, schedule.ErrOverlapSkipped) {
+	if _, _, err := uc.Trigger(ctx, "default", created.ID); !errors.Is(err, schedule.ErrOverlapSkipped) {
 		t.Fatalf("manual trigger while the continued run is running: err = %v, want ErrOverlapSkipped", err)
 	}
 
@@ -278,7 +278,7 @@ func TestTriggerSchedule_Paused(t *testing.T) {
 		t.Fatal("expected next_run_at=nil for paused schedule")
 	}
 
-	runID, err := server.ScheduleUseCase().Trigger(ctx, "default", created.ID)
+	_, runID, err := server.ScheduleUseCase().Trigger(ctx, "default", created.ID)
 	if err != nil {
 		t.Fatalf("TriggerSchedule on paused schedule failed: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestScheduleRunsCarryScheduleSearchAttributes(t *testing.T) {
 	var runIDs []string
 	var fireTimes []string
 	for range 2 {
-		runID, err := uc.Trigger(ctx, "default", created.ID)
+		_, runID, err := uc.Trigger(ctx, "default", created.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -330,7 +330,7 @@ func TestScheduleRunsCarryScheduleSearchAttributes(t *testing.T) {
 		fireTimes = append(fireTimes, clk.Now().UTC().Truncate(time.Second).Format(time.RFC3339))
 		clk.Advance(time.Minute)
 	}
-	otherRunID, err := uc.Trigger(ctx, "default", other.ID)
+	_, otherRunID, err := uc.Trigger(ctx, "default", other.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

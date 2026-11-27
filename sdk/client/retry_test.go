@@ -219,6 +219,35 @@ func TestTriggerScheduleIsNotRetriedAfterLostResponse(t *testing.T) {
 	}
 }
 
+// Trigger 生效之后不再读取 Run：get-run 暂时不可用时 Trigger 照常返回启动的 Run，调用方不会因为一个已生效的触发
+// 拿到错误而再触发一次。
+func TestTriggerScheduleReturnsRunWithoutReadingIt(t *testing.T) {
+	f := newFaultyServer(t)
+	handle, err := f.client.ScheduleClient().Create(context.Background(), client.ScheduleOptions{
+		WorkflowType: "waiting", CronExpression: "0 0 1 1 *", OverlapPolicy: client.ScheduleOverlapPolicyAllowAll,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.inject(runtimeapi.WorkflowRuntimeGetRunPath, droppedConnection, droppedConnection, droppedConnection)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	run, err := handle.Trigger(ctx)
+	if err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	if got := f.attemptsOf(runtimeapi.WorkflowRuntimeGetRunPath); got != 0 {
+		t.Fatalf("get-run attempts = %d, want 0", got)
+	}
+	description, err := handle.Describe(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.GetRunID() != description.LastRunID || run.GetID() != "schedule-"+handle.GetID()+"-"+description.LastRunAt.UTC().Format(time.RFC3339) {
+		t.Fatalf("triggered run = %s/%s, schedule last run = %s at %v", run.GetID(), run.GetRunID(), description.LastRunID, description.LastRunAt)
+	}
+}
+
 // 4xx 是确定的结果，不重试。
 func TestClientErrorsAreNotRetried(t *testing.T) {
 	f := newFaultyServer(t)

@@ -19,9 +19,9 @@ import (
 //
 // 调用的重试分两类（见 retryMode）。按幂等调用重试：读取与长轮询、Cancel（已请求过取消时返回成功）、Terminate
 // 与 Schedule 的 Delete（重发可能报告 Run 已结束、Schedule 不存在）、带 request ID 的 Start 与 Signal、带 Update ID
-// 的 Update、搜索属性与 Run 策略的写入、Schedule 的 Update / Pause / Resume、批量操作的取消、Worker 的登记与心跳。
-// 只在请求确定没有被处理时重试（runtimeapi.IsIdempotent 为 false 的端点）：Reset、Schedule 的 Create 与 Trigger、
-// 批量操作的启动，它们重发会再执行一次。
+// 的 Update、带 request ID 的 Reset、搜索属性与 Run 策略的写入、Schedule 的 Update / Pause / Resume、批量操作的取消、
+// Worker 的登记与心跳。只在请求确定没有被处理时重试（runtimeapi.IsIdempotent 为 false 的端点）：不带 request ID 的
+// Reset、Schedule 的 Create 与 Trigger、批量操作的启动，它们重发会再执行一次。
 type WorkflowRuntimeHTTPClient struct {
 	baseURL   string
 	client    *http.Client
@@ -135,9 +135,15 @@ func updateSpanAttributes(namespace, workflowID, runID, updateName, updateID str
 	}
 }
 
+// ResetWorkflow 不带 request_id 时每次请求分叉一个新 Run，只在请求确定没有被处理时重试；带 request_id 时 Server
+// 让重复的请求返回第一次 reset 出的 Run，按幂等调用重试。
 func (c *WorkflowRuntimeHTTPClient) ResetWorkflow(ctx context.Context, req runtimeapi.WorkflowRuntimeResetRequest) (string, error) {
 	var resp runtimeapi.WorkflowRuntimeResetResponse
-	err := c.post(ctx, runtimeapi.WorkflowRuntimeResetPath, req, &resp)
+	mode := retryUnsent
+	if req.RequestID != "" {
+		mode = retryIdempotent
+	}
+	err := runtimePostRetrying(ctx, c.retry, mode, c.client, c.baseURL, runtimeapi.WorkflowRuntimeResetPath, "workflow runtime api", nil, req, &resp)
 	return resp.RunID, err
 }
 
@@ -183,10 +189,10 @@ func (c *WorkflowRuntimeHTTPClient) ListSchedules(ctx context.Context, filter ru
 	return result, err
 }
 
-func (c *WorkflowRuntimeHTTPClient) TriggerSchedule(ctx context.Context, req runtimeapi.WorkflowRuntimeScheduleRequest) (string, error) {
+func (c *WorkflowRuntimeHTTPClient) TriggerSchedule(ctx context.Context, req runtimeapi.WorkflowRuntimeScheduleRequest) (runtimeapi.WorkflowRuntimeTriggerScheduleResponse, error) {
 	var resp runtimeapi.WorkflowRuntimeTriggerScheduleResponse
 	err := c.post(ctx, runtimeapi.WorkflowRuntimeTriggerSchedulePath, req, &resp)
-	return resp.RunID, err
+	return resp, err
 }
 
 // StartBatchOperation 受理批量操作并返回 pending 记录（HTTP 202）；处理在服务端后台进行。

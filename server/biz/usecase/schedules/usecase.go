@@ -126,30 +126,32 @@ func (u *UseCase) List(filter ListFilter) (ListResult, error) {
 
 // Trigger 立即触发一次，同样遵守 Overlap Policy：SKIP 下上一次触发的 Run 仍在运行时返回 schedule.ErrOverlapSkipped。
 // 与 Temporal 的 TriggerImmediately 一致，手动触发不改变 NextRunAt：积压的到期点照常按 catchup window 补触发。
-// Workflow ID 取触发时刻（秒级），同一秒内重复触发（含并发的两次）返回同一个 Run，不重复记录。
-func (u *UseCase) Trigger(ctx context.Context, namespace, scheduleID string) (string, error) {
+// Workflow ID 取触发时刻（秒级），同一秒内重复触发（含并发的两次）返回同一个 Run，不重复记录。返回启动的 Run 的
+// Workflow ID 与 Run ID。
+func (u *UseCase) Trigger(ctx context.Context, namespace, scheduleID string) (workflowID, runID string, err error) {
 	namespace = protocol.NormalizeNamespace(namespace)
 	entity, err := u.Get(namespace, scheduleID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if !u.overlapAllowsStart(entity) {
-		return "", fmt.Errorf("%w: schedule %s/%s last run %s", schedule.ErrOverlapSkipped, namespace, scheduleID, entity.LastRunID)
+		return "", "", fmt.Errorf("%w: schedule %s/%s last run %s", schedule.ErrOverlapSkipped, namespace, scheduleID, entity.LastRunID)
 	}
 	now := u.clock.Now()
-	runID, err := u.firer.StartWorkflowForCron(ctx, entity.Namespace, entity.WorkflowType, entity.RunWorkflowID(now), entity.Input, entity.RunSearchAttributes(now))
+	workflowID = entity.RunWorkflowID(now)
+	runID, err = u.firer.StartWorkflowForCron(ctx, entity.Namespace, entity.WorkflowType, workflowID, entity.Input, entity.RunSearchAttributes(now))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if runID == entity.LastRunID {
-		return runID, nil
+		return workflowID, runID, nil
 	}
 	entity.RecordRun(runID, now)
 	entity.Touch(now)
 	if err := u.repo.UpdateSchedule(entity); err != nil {
 		u.logger.Error("schedule triggered but updating its last run failed", "namespace", entity.Namespace, "schedule_id", entity.ID, "run_id", runID, "err", err)
 	}
-	return runID, nil
+	return workflowID, runID, nil
 }
 
 // FireDue 扫描到期的 Schedule 并逐一触发；入口和循环内均检查 ctx。

@@ -262,7 +262,7 @@ type scheduleOps interface {
 	Pause(namespace, scheduleID string) error
 	Resume(namespace, scheduleID string) error
 	List(filter schedules.ListFilter) (schedules.ListResult, error)
-	Trigger(ctx context.Context, namespace, scheduleID string) (string, error)
+	Trigger(ctx context.Context, namespace, scheduleID string) (workflowID, runID string, err error)
 }
 
 // batchOps 是批量操作的受理、查询与取消，*batches.UseCase 满足它。
@@ -553,8 +553,8 @@ func (a *workflowRuntimeHTTPAPI) ListSchedules(ctx *gin.Context, req runtimeapi.
 }
 
 func (a *workflowRuntimeHTTPAPI) TriggerSchedule(ctx *gin.Context, req runtimeapi.WorkflowRuntimeScheduleRequest) (runtimeapi.WorkflowRuntimeTriggerScheduleResponse, error) {
-	runID, err := a.schedules.Trigger(ctx.Request.Context(), req.Namespace, req.ScheduleID)
-	return runtimeapi.WorkflowRuntimeTriggerScheduleResponse{RunID: runID}, err
+	workflowID, runID, err := a.schedules.Trigger(ctx.Request.Context(), req.Namespace, req.ScheduleID)
+	return runtimeapi.WorkflowRuntimeTriggerScheduleResponse{WorkflowID: workflowID, RunID: runID}, err
 }
 
 // StartBatch 只保存 pending 记录，应答 202 Accepted：处理在后台进行，经 get-batch 查询进度。
