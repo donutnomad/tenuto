@@ -71,7 +71,7 @@ if err := handle.Get(ctx, &result); err != nil {
 
 `c` 是 [`sdk/client`](/sdk/client) 的 `Client`，Namespace 取自它。多个 goroutine 调用同一个 Handle 的 `Get` 时会共享 Completed 轮询结果。
 
-等待 `Completed` 的请求在 Server 上最多等 20s：Update 完成时应答带结果；Run 在 Update 完成之前结束时，History 里这个 Update 已是失败的终态，应答带这个失败；20s 到期仍未完成时应答 `Accepted`，`handle.Get` 以同一个 Update ID 再发一次（按 Update ID 幂等，不会重复执行 Handler）。
+等待 `Completed` 的请求在 Server 上最多等 20s：Update 完成时应答带结果；Run 在 Update 完成之前结束时，History 里这个 Update 已是失败的终态，应答带这个失败；20s 到期仍未完成时应答 `Accepted`，`handle.Get` 以同一个 Update ID 再发一次（按 Update ID 幂等，不会重复执行 Handler；去重范围见[下文](#update-id-的去重范围)）。
 
 Run 显示 Blocked 时，新的 Update 照常写入 `WorkflowUpdateAccepted`，Handler 等失败退避到期的那次重试执行（退避从 1s 起、最长 1 分钟；导致 Blocked 的原因没修好时重试仍会失败）。等待方不会无限挂起：Server 每次请求最多等 20s，`handle.Get` 在 `ctx` 结束时返回 `ctx.Err()`，用带截止时间的 `ctx` 限定调用方愿意等多久。
 
@@ -86,6 +86,39 @@ Run 显示 Blocked 时，新的 Update 照常写入 `WorkflowUpdateAccepted`，H
 代价：没有等待者的副本不读库、不排定定时器。有等待者时每个副本每秒 10 条批量读取，与等待者数量无关（被等待的 Run 超过 500 个时按 500 个一条增加）；Run 每变化一次，它的每个等待者多读一次 execution state 与新增的事件（Update 等待者）或 execution state（`wait-closed`）。Update 的去重与结果查找按 Update ID 的索引一次读出这个 Update 的事件与 Run 的终态事件，读取量与 History 长度无关；与 Run 结束同批提交的 Update 结果和终态事件同时可见，不会被当成「Run 结束了这个 Update」。
 
 等待者只存在于受理请求的副本内存里。副本重启或下线时进行中的请求随连接断开，调用方重发：`handle.Get` 与 `WorkflowRun.Get` 收到连接错误时返回错误，对同一个句柄再调用一次即可，Update 按 Update ID 幂等。
+
+### Update ID 的去重范围
+
+Update ID 只在**一个 Run 内**去重，与 Temporal 相同。`handle.Get` 固定在接受 Update 的 Run 上，它的重发总是幂等的。只带 Workflow ID（`RunID` 为空）发送的 `UpdateWorkflow` 请求解析到当时的 current Run。第一次请求的应答丢失时，SDK 的传输层或调用方会带同一个 Update ID 重发；如果这期间 Run 已经完成这个 Update 并 Continue-As-New，重发的请求会落到新 Run，新 Run 没有这个 Update ID 的记录，就把它当作新的 Update 接受，Handler 再执行一次。这种情况只在应答丢失（副本被 kill、网络中断）与 Continue-As-New 恰好重叠时出现。
+
+会 Continue-As-New 的 Workflow 如果要求 Update 恰好生效一次，就在 Workflow 里去重：把已处理的 Update ID 与结果带进 Continue-As-New 的输入，Handler 先查这张表，命中就直接返回原结果。
+
+```go
+type Input struct {
+    Balance int64
+    Applied map[string]DepositResult // 已处理的 Update ID 与结果
+}
+
+func Account(ctx workflow.Context, in Input) (Output, error) {
+    applied := in.Applied
+    if applied == nil {
+        applied = map[string]DepositResult{}
+    }
+    _ = workflow.SetUpdateHandler(ctx, "deposit", func(ctx workflow.Context, amount int64, id string) (DepositResult, error) {
+        if prev, ok := applied[id]; ok {
+            return prev, nil // 上一个 Run 已处理过：返回原结果，不重复记账
+        }
+        // ... 记账
+        result := DepositResult{Balance: in.Balance}
+        applied[id] = result
+        return result, nil
+    })
+    // ...
+    return Output{}, workflow.ContinueAsNew(ctx, "", Input{Balance: balance, Applied: applied})
+}
+```
+
+调用方把 Update ID 同时作为 Handler 的参数传入（如上例的 `id`）。表随 Continue-As-New 增长，按业务需要裁剪（例如只保留最近一段时间或最近 N 个 ID）。
 
 ## Await 与 Activity
 
@@ -151,7 +184,7 @@ Handler 在主流程第一次阻塞之前注册，才能接到 Run 启动时就�
 | Handler 返回 Application Error | Accepted + Completed failure | `*apperror.Error`（`Outcome.Failure`） |
 | Handler 缺失 | Accepted + Completed failure | `*apperror.Error`，Type 为 `UnknownUpdate` |
 | Handler Await 尚未满足 | Accepted | Handle 保持可等待 |
-| 同一 Update ID 重试 | 复用已有记录 | 返回相同阶段或结果 |
+| 同一 Update ID 重试 | 同一个 Run 内复用已有记录 | 返回相同阶段或结果；只带 Workflow ID 的重试在 Continue-As-New 之后落到新 Run 时被当作新 Update，见 [Update ID 的去重范围](#update-id-的去重范围) |
 | 同一 Update ID 并发发送 | first-wins Accepted | 所有调用观察同一逻辑 Update |
 | Client Context 先截止 | 服务端状态继续推进 | 使用相同 Update ID 再次调用 |
 | Accepted 后、Handler 完成前 Run 关闭（完成、失败、超时、取消、终止、continue-as-new） | Accepted + Run 终态事件，不写 Completed | `*apperror.Error`，Type 为 `AcceptedUpdateCompletedWorkflow`，不可重试；等待 Completed 的调用在 Run 关闭时立即返回，查询看到同一结果 |

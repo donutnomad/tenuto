@@ -220,7 +220,7 @@ func ApprovalWorkflow(ctx workflow.Context, input CreateInput) error {
 | 没有同名 Handler（到达的 Workflow Task 里所有协程阻塞或主协程返回时仍未注册） | Accepted + Completed failure | `*apperror.Error`，`Type() == "UnknownUpdate"`，message `no update handler registered for "<name>"` |
 | 参数无法解码 | Accepted + Completed failure | Type `DataConversionError` |
 | Handler 的 `Await` 尚未满足 | Accepted | Handle 保持可等待 |
-| 同一 Update ID 重试或并发发送 | 复用已有记录 | 相同阶段或结果 |
+| 同一 Update ID 重试或并发发送 | 同一个 Run 内复用已有记录 | 相同阶段或结果；只带 Workflow ID 的重试在 Continue-As-New 之后落到新 Run 时被当作新 Update（与 Temporal 相同） |
 | 调用端 Context 先截止 | 服务端继续推进 | 用相同 Update ID 再次调用取结果 |
 | Accepted 后、Handler 完成前 Run 关闭（主函数返回、失败、超时、取消、终止、continue-as-new） | Accepted + Run 终态事件，不写 Completed | `*apperror.Error`，`Type() == "AcceptedUpdateCompletedWorkflow"`，`NonRetryable()`；等待中的调用在关闭时立即返回 |
 | Run 已终态后发送 | 无新 Accepted | Update ID 已记录过时返回当时的阶段或结果；新的 Update ID 返回错误 |
@@ -252,6 +252,7 @@ Update-With-Start 见 `client-api.md`。
 ### 跨副本等待
 
 - 等 `Completed` 的请求在 Server 上最多等 20s，到期应答 `Accepted`，`handle.Get` 以同一 Update ID 重发（幂等，不重复执行 Handler）。
+- Update ID 只在一个 Run 内去重（与 Temporal 相同）。`handle.Get` 固定在接受它的 Run 上；只带 Workflow ID 的 `UpdateWorkflow` 在应答丢失、期间 Run 已 Continue-As-New 时，重发落到新 Run 并被再次执行。会 Continue-As-New 且要求恰好一次的 Workflow 把已处理的 Update ID 与结果带进 CAN 输入，Handler 命中就返回原结果（写法见 `docs/develop/updates.md#update-id-的去重范围`）。
 - Run Blocked 时 Update 照常被接受，Handler 等失败退避到期的那次重试执行；`handle.Get` 在 `ctx` 结束时返回，用带截止时间的 `ctx` 限定等待。
 - 受理请求的副本与完成 Update 的副本可以不同。等待方第一次按 Update ID 的索引读取这个 Update 的事件，之后每轮先读 Run 的 execution state，再只读上一轮之后新增的事件，未完成时等 Run 变化：本副本的提交立即唤醒；有等待者期间副本每 100ms 用一条批量查询读取被等待 Run 的 `next_event_id`，变大就唤醒重读。其他副本完成的 Update 最多晚 100ms 返回。`run.Get` 的 `wait-closed` 用同一机制。
 - 代价：没有等待者时不读库；有等待者时每副本每秒 10 条批量读取（每 500 个 Run 一条），与等待者数量无关；Run 每变化一次，它的每个 Update 等待者读一次 execution state 与新增的事件，读取量与 History 长度无关。

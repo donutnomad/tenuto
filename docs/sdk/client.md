@@ -82,7 +82,7 @@ c, err := client.Dial(client.Options{
 | --- | --- | --- |
 | `ExecuteWorkflow` | 可以重发 | SDK 为每次调用生成 request ID（`ID` 为空时同时生成 Workflow ID），Server 认出重发的启动，返回这次启动开启的 Run 链的 current Run（失败重试、Continue-As-New 之后是接替的 Run），链已经结束也一样 |
 | `SignalWorkflow`、`SignalWithStartWorkflow` | 可以重发 | SDK 为每次调用生成 request ID，同一个 Run 上同一个 request ID 只记一条 `WorkflowSignaled`；`SignalWithStartWorkflow` 的重发在第一次启动的 Run 已结束时返回那个 Run，不启动新 Run |
-| `UpdateWorkflow`、`UpdateWithStartWorkflow`、Update 句柄的 `Get` | 可以重发 | `UpdateID` 为空时 SDK 生成，Server 按 Update ID 去重 |
+| `UpdateWorkflow`、`UpdateWithStartWorkflow`、Update 句柄的 `Get` | 可以重发 | `UpdateID` 为空时 SDK 生成，Server 在一个 Run 内按 Update ID 去重；只带 Workflow ID 的重发在 Continue-As-New 之后落到新 Run 时会再执行一次，见 [Update ID 的去重范围](/develop/updates#update-id-的去重范围) |
 | `CancelWorkflow` | 可以重发 | 已请求过取消时返回成功 |
 | `TerminateWorkflow`、Schedule 的 `Delete` | 可以重发 | 效果相同；第一次的应答丢失时，重发报告 Run 已结束（`ErrInvalidArgument`）或 Schedule 不存在（`ErrNotFound`） |
 | `UpsertSearchAttributes`、`UpdateWorkflowExecutionOptions`、Schedule 的 `Update` / `Pause` / `Unpause`、`StopBatchOperation` | 可以重发 | 写入相同的值 |
