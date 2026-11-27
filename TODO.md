@@ -45,3 +45,7 @@
 - [ ] 批量 Reset 中途崩溃后重做时，已经 Reset 过的 Run 被计为 skipped。
 - [ ] 启动恢复失败时，Timer 会晚约 45s 触发。
 - [ ] 多属性过滤时，驱动属性按键名选择，而不是按选择性选择。
+- [ ] 待观察：upgrade-demo（memory）在 21fc843e 上失败过一次，之后连续 12 次都通过，失败时的服务端日志没有保留。
+  - 失败位置：场景 4，app-a v1 下线后，pinned Run 在 Signal 之后调度 fulfillment.restock，ActivityScheduled 写入后 30s 内没有被领取，driver 等待超时。
+  - 疑似原因：投递丢失，要等 reconciler 30s 宽限期后补投；也可能只是负载下的计时问题。
+  - 再次出现时，先保存 `.run/upgrade-demo/logs/` 再排查。
