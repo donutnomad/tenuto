@@ -18,8 +18,7 @@ import (
 //     WLang 的 == 比较指向的内容。其余指针（*[]T、*map、*基础类型）的载体是指向的值本身，没有地址可比，保持按
 //     内容比较（go-subset 列为差异）；
 //   - tag 或 case 表达式是 any 的 switch：tag 先求值一次存入临时变量，每个 case 用 workflow.Equal 比较；
-//   - 元素类型是 struct、基础类型、slice 或 map 的 map 读取 m[k] 与 v, ok := m[k]：改成立即调用的闭包，key 不存在时
-//     得到元素类型的零值；
+//   - any 与 nil 的 == / !=：改成 workflow.Equal(x, nil)，按动态类型判断（装着 nil 指针的 any 不等于 nil）；
 //   - 类型是 slice 或 map 的 nil（赋值、return、实参、复合字面量的元素与字段）：改成该类型的零值，之后能 append、range。
 //
 // 改写是 Go 到 Go 的等价变换，写在原来的行上，后续诊断的行号不变。一次类型检查算出全部改写；
@@ -106,6 +105,7 @@ func (r *typedRewriter) rewrite(body *ast.BlockStmt) {
 			// 转换检查按先序：外层转换先报（string(rune(x)) 报 string）。
 			if call, ok := node.(*ast.CallExpr); ok {
 				r.checkConversion(call)
+				r.checkChannelReceive(call)
 			}
 			stack = append(stack, node)
 			return true
@@ -119,8 +119,6 @@ func (r *typedRewriter) rewrite(body *ast.BlockStmt) {
 		switch x := current.(type) {
 		case *ast.BinaryExpr:
 			r.rewriteComparison(x)
-		case *ast.IndexExpr:
-			r.rewriteMapRead(x, stack)
 		case *ast.SwitchStmt:
 			r.rewriteSwitch(x, parent)
 		case *ast.Ident:
@@ -146,10 +144,15 @@ func (r *typedRewriter) rewriteComparison(x *ast.BinaryExpr) {
 		if xNil {
 			operand = x.Y
 		}
-		if !isSliceOrMap(r.typeOf(operand)) {
+		switch operandType := r.typeOf(operand); {
+		case isSliceOrMap(operandType):
+			r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.IsNil(%s)", negate, r.text(operand.Pos(), operand.End())))
+		case isEmptyInterface(operandType):
+			// any 与 nil 比较按动态类型：装着 nil 指针、nil slice 的 any 不等于 nil。
+			r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.Equal(%s, nil)", negate, r.text(operand.Pos(), operand.End())))
+		default:
 			return
 		}
-		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.IsNil(%s)", negate, r.text(operand.Pos(), operand.End())))
 	case isEmptyInterface(r.typeOf(x.X)) || isEmptyInterface(r.typeOf(x.Y)):
 		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.Equal(%s, %s)", negate,
 			r.text(x.X.Pos(), x.X.End()), r.text(x.Y.Pos(), x.Y.End())))
@@ -208,65 +211,24 @@ func (r *typedRewriter) rewriteSwitch(s *ast.SwitchStmt, parent ast.Node) {
 	r.needsWorkflowImport = true
 }
 
-// rewriteMapRead 把元素类型是 struct、基础类型、slice 或 map 的 map 读取改成立即调用的闭包，key 不存在时得到
-// 元素类型的零值。WLang 的 map 读取在 key 不存在时取 map 载体的元素零值：元素是 struct 时是 nil；结构体字段与
-// 具名 map 类型的 nil map 载体是 map[string]any，元素零值也是 nil；元素是 slice、map 时得到带元素类型名、没有
-// 载体的值，append、range 与读取都报 E_TYPE。闭包里的 `var zz T` 是规范的零值。元素是指针、接口时 nil 就是
-// Go 的零值，不改。赋值左侧（m[k] = v、m[k] += v、m[k][j] = v）与 delete 的目标不改。
-func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, stack []ast.Node) {
-	var parent ast.Node
-	if len(stack) > 0 {
-		parent = stack[len(stack)-1]
-	}
-	mapType, ok := r.typeOf(x.X).Underlying().(*gotypes.Map)
-	if !ok {
+// checkChannelReceive 拒绝 Receive 到接口类型的目标（`var v any; ch.Receive(ctx, &v)`）：Channel 在内存里传递
+// 值的载体，接口目标得不到值原来的 WLang 类型。目标写成发送方的具体类型（string、结构体、map 等）。
+func (r *typedRewriter) checkChannelReceive(call *ast.CallExpr) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Receive" || len(call.Args) != 2 {
 		return
 	}
-	switch elem := mapType.Elem().Underlying().(type) {
-	case *gotypes.Struct, *gotypes.Slice, *gotypes.Map:
-	case *gotypes.Basic:
-		if elem.Kind() == gotypes.UntypedNil {
-			return
-		}
-	default:
+	named, ok := r.info.TypeOf(sel.X).(*gotypes.Named)
+	if !ok || named.Obj().Pkg() == nil || named.Obj().Pkg().Path() != workflowSDKPath || named.Obj().Name() != "Channel" {
 		return
 	}
-	commaOK := false
-	switch p := parent.(type) {
-	case *ast.IndexExpr:
-		if p.X == x && len(stack) > 1 && assignTarget(p, stack[len(stack)-2]) {
-			return
-		}
-	case *ast.CallExpr:
-		if fn, ok := p.Fun.(*ast.Ident); ok && fn.Name == "delete" && len(p.Args) > 0 && p.Args[0] == x {
-			return
-		}
-	case *ast.AssignStmt:
-		for _, lhs := range p.Lhs {
-			if lhs == x {
-				return
-			}
-		}
-		commaOK = len(p.Lhs) == 2 && len(p.Rhs) == 1
-	case *ast.ValueSpec:
-		commaOK = len(p.Names) == 2 && len(p.Values) == 1
-	case *ast.IncDecStmt:
+	target, ok := unparen(call.Args[1]).(*ast.UnaryExpr)
+	if !ok || target.Op != token.AND {
 		return
 	}
-	elem, ok := r.typeText(mapType.Elem())
-	if !ok {
-		r.fail(x, "读取 %s 需要写出元素类型 %s，但本文件没有导入它所在的包；先导入该包", r.text(x.Pos(), x.End()), mapType.Elem())
-		return
+	if targetType := r.info.TypeOf(target.X); targetType != nil && gotypes.IsInterface(targetType) {
+		r.fail(call.Args[1], "Channel 的 Receive 目标不能是接口类型 %s；workflow 里 Channel 传递的值不带 Go 类型，目标写成发送方的具体类型（string、结构体、map 等）", targetType)
 	}
-	value, present, zero := r.freeName("zzValue"), r.freeName("zzOK"), r.freeName("zzZero")
-	read := r.text(x.Pos(), x.End())
-	if commaOK {
-		r.replace(x.Pos(), x.End(), fmt.Sprintf("func() (%s, bool) { if %s, %s := %s; %s { return %s, true }; var %s %s; return %s, false }()",
-			elem, value, present, read, present, value, zero, elem, zero))
-		return
-	}
-	r.replace(x.Pos(), x.End(), fmt.Sprintf("func() %s { if %s, %s := %s; %s { return %s }; var %s %s; return %s }()",
-		elem, value, present, read, present, value, zero, elem, zero))
 }
 
 // checkConversion 拒绝改变值表示、转换目标不是 int 与 int64 的基础类型转换（float64(n)、string(65)、int32(x)）：
@@ -435,21 +397,6 @@ func compositeElem(t gotypes.Type, field string) gotypes.Type {
 		return compositeElem(current.Elem(), field)
 	}
 	return nil
-}
-
-// assignTarget 报告 expr 是否是 parent 这条赋值或自增语句的左侧。
-func assignTarget(expr ast.Expr, parent ast.Node) bool {
-	switch p := parent.(type) {
-	case *ast.AssignStmt:
-		for _, lhs := range p.Lhs {
-			if lhs == expr {
-				return true
-			}
-		}
-	case *ast.IncDecStmt:
-		return p.X == expr
-	}
-	return false
 }
 
 // typeOf 返回 expr 的类型。类型检查没有得到它的类型时（包有类型错误、导入解析失败，或包加载失败后只检查了

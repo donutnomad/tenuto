@@ -17,7 +17,7 @@ const probeWorkflowsFile = "go_semantics_probe_workflows_test.go"
 
 // TestGoSemanticsProbes：go_semantics_probe_workflows_test.go 里的函数原生调用的结果（输入按 encoding/json 解码）
 // 与解释器执行生成程序的结果（输入按 History 的方式解码）相同，冷重放与 sticky 会话两条路径都比较。覆盖结构体值
-// 语义、slice 别名、map 增删改查、any 与载荷、具名基础类型字段、预分配容量后的 append、nil slice 与 map 零值、
+// 语义、slice 别名、map 增删改查、any 与载荷、具名基础类型字段、make 的容量（cap、超出长度的切片、append 共享底层数组）、nil slice 与 map 零值、
 // 指针比较。
 func TestGoSemanticsProbes(t *testing.T) {
 	src, err := os.ReadFile(probeWorkflowsFile)
@@ -55,6 +55,8 @@ func TestGoSemanticsProbes(t *testing.T) {
 		// 指向基础类型、slice 与 map 的指针内容不同时，按内容比较的结果与 Go 相同，不 panic。
 		{SemDifferenceScalarPointers, "SemDifferenceScalarPointers", `{"A":1,"B":2,"S":"x","T":"y","L":[1],"M":[2],"N":{"k":1},"O":{"k":2},"P":{"x":1,"y":2}}`},
 		{SemDifferenceScalarPointers, "SemDifferenceScalarPointers", `{}`},
+		{SemAnyNilPointer, "SemAnyNilPointer", `{}`},
+		{SemAnyTypedContainers, "SemAnyTypedContainers", `{}`},
 		{SemPointerIdentity, "SemPointerIdentity", `{"Ptrs": {"a": {"Qty": 1}, "b": {"Qty": 1}}}`},
 		{SemAnyFieldFromInput, "SemAnyFieldFromInput", `{}`},
 		{SemAnyFieldFromInput, "SemAnyFieldFromInput", `{"V": "x"}`},
@@ -78,6 +80,11 @@ func TestGoSemanticsProbes(t *testing.T) {
 		{SemAppendInputNilField, "SemAppendInputNilField", `{}`},
 		{SemAppendAfterCapCopy, "SemAppendAfterCapCopy", `{}`},
 		{SemAppendCapSelf, "SemAppendCapSelf", `{}`},
+		{SemMakeCapAlias, "SemMakeCapAlias", `{}`},
+		{SemMakeSliceBeyondLen, "SemMakeSliceBeyondLen", `{}`},
+		{SemMakeSpareCapacityZero, "SemMakeSpareCapacityZero", `{}`},
+		{SemSmallIntIndexes, "SemSmallIntIndexes", `{}`},
+		{SemSmallIntIndexNegative, "SemSmallIntIndexNegative", `{}`},
 		{SemAppendSizedCopy, "SemAppendSizedCopy", `{}`},
 		{SemAppendCapPassToFunc, "SemAppendCapPassToFunc", `{}`},
 		{SemAppendRuntimeZeroLenCap, "SemAppendRuntimeZeroLenCap", `{}`},
@@ -144,15 +151,11 @@ func TestGoSemanticsDocumentedDifferences(t *testing.T) {
 		name, input string
 		want        string
 	}{
-		// make 的容量只是提示：b := a 之后两边 append 不共享底层数组。Go 里 b[2] 被 a 的 append 覆盖成 7。
-		{SemDifferenceCapAlias, "SemDifferenceCapAlias", `{}`, `{"Count":7,"Flag":false,"List":null,"Sum":5,"Text":"","Value":null}`},
-		// 超出长度的切片 a[:3] 在解释器里越界，Workflow Task 以 workflow_panic 失败。
-		{SemDifferenceSliceBeyondLen, "SemDifferenceSliceBeyondLen", `{}`, "panic"},
 		// any 里 int 与 int64 不区分（1、100、10000），具名类型与底层类型不区分（1000）。
 		{SemDifferenceAnyTyped, "SemDifferenceAnyTyped", `{"ID": 3, "Status": "ok"}`, `{"Count":11101,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
 		{SemDifferenceAnyNumbers, "SemDifferenceAnyNumbers", `{"n": 3}`, `{"Count":100,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
-		// 装着 nil 指针的 any 等于 nil（10）。
-		{SemDifferenceAnyNilPointer, "SemDifferenceAnyNilPointer", `{}`, `{"Count":111,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
+		// 类型化的 slice、map 存进 map[string]any、[]any 之后断言成 []any、map[string]any 成立（1、10）。
+		{SemDifferenceAnyContainerNested, "SemDifferenceAnyContainerNested", `{}`, `{"Count":11,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
 		{SemDifferenceAnyNamed, "SemDifferenceAnyNamed", `{"Status": "ok"}`, `{"Count":11,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
 		// 指针放进 any 后比较（1）、含指针字段的结构体比较（10）按内容。
 		{SemDifferencePointerContent, "SemDifferencePointerContent", `{"Plain": {"a": {"Qty": 1}, "b": {"Qty": 1}}}`, `{"Count":11,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},

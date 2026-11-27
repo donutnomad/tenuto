@@ -78,6 +78,81 @@ func TestNormalizeProgramTypesUsesUnderlyingBasicTypes(t *testing.T) {
 	}
 }
 
+const namedCollectionSrc = `package flows
+
+import workflow "github.com/donutnomad/tenuto/sdk/workflow"
+
+type Status string
+type Tags []string
+type Codes []Status
+type Stock map[string]int
+
+func (t Tags) Has(x string) bool {
+	for _, v := range t {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
+func (s Stock) Reserve(sku string, n int) bool {
+	if s[sku] < n {
+		return false
+	}
+	s[sku] -= n
+	return true
+}
+
+type In struct {
+	Tags  Tags
+	Codes Codes
+	Stock Stock
+}
+
+type Out struct{ N int }
+
+func W(ctx workflow.Context, in In) (Out, error) {
+	var extra Tags
+	extra = append(extra, in.Tags...)
+	n := 0
+	if extra.Has("a") && in.Stock.Reserve("x", 1) {
+		n = len(in.Codes)
+	}
+	return Out{N: n}, nil
+}
+`
+
+// 底层是 slice、map 的具名类型同样换成底层集合类型（元素里的具名基础类型一并换掉）；方法的接收者形参随之是
+// 底层类型。
+func TestNormalizeProgramTypesUsesUnderlyingCollections(t *testing.T) {
+	result, err := GenerateFromSource([]byte(namedCollectionSrc), Options{WorkflowType: "named", FuncName: "W", Filename: "w.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := map[string]string{}
+	for _, field := range result.Workflow.Program.Types["flows.In"].Fields {
+		fields[field.GoName] = field.TypeID
+	}
+	want := map[string]string{"Tags": "[]string", "Codes": "[]string", "Stock": "map[string]int64"}
+	for name, typeID := range want {
+		if fields[name] != typeID {
+			t.Errorf("field %s type = %q, want %q", name, fields[name], typeID)
+		}
+	}
+	for id, descriptor := range result.Workflow.Program.Types {
+		if descriptor.Kind == wlangtypes.TypeKindAlias {
+			t.Errorf("alias descriptor %s (%s) is left", id, descriptor.LanguageName)
+		}
+	}
+	program := string(result.ProgramJSON)
+	for _, stale := range []string{"flows.Tags", "flows.Codes", "flows.Stock", "flows.Status"} {
+		if strings.Contains(program, stale) {
+			t.Errorf("program still mentions %s:\n%s", stale, program)
+		}
+	}
+}
+
 // rename 只替换完整的名字，前后是类型语法的分隔符。
 func TestRenameReplacesWholeTypeNames(t *testing.T) {
 	names := map[string]string{"flows.Status": "string", "flows.Prio": "int64"}
