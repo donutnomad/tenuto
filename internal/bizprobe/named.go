@@ -177,8 +177,18 @@ func BizPointers(ctx workflow.Context, in BizNamedIn) (BizNamedOut, error) {
 			seen[k] = true
 		}
 	}
-	keys := ""
+	// map 的遍历顺序在 Go 里是随机的：先排序键，结果才与解释器可比。
+	var names []string
 	for k := range seen {
+		names = append(names, k)
+	}
+	for i := 1; i < len(names); i++ {
+		for j := i; j > 0 && names[j] < names[j-1]; j-- {
+			names[j], names[j-1] = names[j-1], names[j]
+		}
+	}
+	keys := ""
+	for _, k := range names {
 		keys += k
 	}
 	out = append(out, keys)

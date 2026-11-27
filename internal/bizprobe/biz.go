@@ -224,9 +224,19 @@ func BizMultiReturn(ctx workflow.Context, in BizIn) (BizOut, error) {
 		}
 		kv[k] = kv[k] + v
 	}
+	// map 的遍历顺序在 Go 里是随机的：先排序键，结果才与解释器可比。
+	var names []string
+	for k := range kv {
+		names = append(names, k)
+	}
+	for i := 1; i < len(names); i++ {
+		for j := i; j > 0 && names[j] < names[j-1]; j-- {
+			names[j], names[j-1] = names[j-1], names[j]
+		}
+	}
 	keys := ""
-	for k, v := range kv {
-		keys += k + "=" + strconv.Itoa(v) + " "
+	for _, k := range names {
+		keys += k + "=" + strconv.Itoa(kv[k]) + " "
 	}
 	return BizOut{Text: keys, List: errs, N: len(kv)}, nil
 }
