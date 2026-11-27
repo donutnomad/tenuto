@@ -319,6 +319,7 @@ func (w *rewriter) walkStmt(stmt ast.Stmt, prefix func(string), inInit bool) {
 		w.walkCaseBodies(s.Body)
 	case *ast.TypeSwitchStmt:
 		w.walkStmt(s.Init, prefix, true)
+		w.walkFuncLits(s.Assign)
 		w.walkCaseBodies(s.Body)
 	case *ast.BlockStmt:
 		w.walkStmts(s.List)
@@ -343,15 +344,14 @@ func (w *rewriter) walkCaseBodies(body *ast.BlockStmt) {
 }
 
 // walkFuncLits 递归处理语句里内联闭包（如 workflow.Go(ctx, func(...){...})）的语句体，
-// 但不再深入普通嵌套语句——那些由 walkStmt 逐层处理。
+// 但不深入子语句（if/for/switch 的 Init、Post、语句体，标签语句的目标）——那些由 walkStmt 逐层处理，
+// 这里再进入会把同一个闭包重写两次。
 func (w *rewriter) walkFuncLits(stmt ast.Stmt) {
 	ast.Inspect(stmt, func(node ast.Node) bool {
 		if node == stmt {
 			return true
 		}
-		switch node.(type) {
-		case *ast.BlockStmt, *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt,
-			*ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt, *ast.LabeledStmt:
+		if _, ok := node.(ast.Stmt); ok {
 			return false
 		}
 		literal, ok := node.(*ast.FuncLit)
