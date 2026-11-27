@@ -1,17 +1,16 @@
 # TODO
 
-## MySQL 下的验证（测试库 10.1.1.129:3306 不可用期间没有跑）
+## MySQL 下的验证
 
-从 5e61822 起，合入 main 的改动只在 memory 后端验证过。MySQL 恢复后补跑：
+2026-11-27 在测试库 172.16.0.6:3306 上补跑完成（这个 MySQL 实例上还有其他项目的库，清理时只动 `tenuto_` 开头的库）：
 
-- [ ] `TENUTO_TEST_MYSQL=1 TENUTO_TEST_MYSQL_DSN='tenuto_test:root@tcp(10.1.1.129:3306)/' go test -p 1 ./server/... -timeout 40m`
-  - 重点：执行层契约测试的 MySQL 部分，包括新增的 `ExecutionTx.GetEventIDByDedupeKey`、History 硬上限关闭、Signal 先去重后做关闭检查。
-- [ ] `UD_BACKEND=mysql ./docs/examples/upgrade-demo/run-demo.sh`，期望 RESULT PASS。
-- [ ] `./docs/examples/multiprocess/run-demo.sh`（MySQL），期望 RESULT PASS。
-- [ ] 端到端故障注入（场景代码在 review5-e2e worktree 的 `cmd/tenuto-cluster` r4/r5 子命令里，未提交）：
-  - Server 副本与 leader 在故障场景下的表现。
-  - 2 副本 MySQL soak，至少 30 分钟。观测 retention GC、数据库连接数、TaskQ 积压，以及内存与 goroutine 是否平稳。
-- [ ] 删除残留的测试库：`tenuto_e2e_r5_worker2`、`tenuto_e2e_r5_can`，以及其他以 `tenuto_e2e_` 开头的库。
+- [x] `go test -p 1 ./server/...`（`TENUTO_TEST_MYSQL=1`）：47e4a9ee 与 67030ac7 均通过。
+- [x] upgrade-demo（MySQL）RESULT PASS；multiprocess（MySQL）RESULT PASS。
+- [x] `tenuto-cluster r5 -scenario server|worker|upgrade`（2 副本 + 2 Worker）全部 PASS。server 场景首次运行发现 Update 跨 Continue-As-New 重复执行，结论是与 Temporal 相同的 Run 内去重语义：文档已补充，r5acct 负载改为在 Workflow 里去重。
+- [x] 2 副本 MySQL soak 31 分钟（kill-worker 8 次、kill-replica 1 次、pause-replica 5 次）：1800 个 Run 全部结束并核对通过，每次故障 1s 内恢复，26 次 Activity 重复执行全部是 Worker 被 kill 时正在执行的 attempt。数据库连接数 38–45，TaskQ 积压接近 0，overdue 始终为 0。副本 RSS 斜率 9–17 MiB/h。
+- [ ] retention GC 没有覆盖到：`-retention` 最小 1h，要跑 90 分钟以上。`tenuto_task_dispatches` 每小时增长约 8.4 万行（约 10 行/Run），需要确认 GC 会回收。
+- [ ] soak 报告 `unmatched records: 100`（核对之后才写完、没被取走的执行记录），没有逐条核对。
+- [ ] 删除残留的测试库：`tenuto_e2e_r5_worker2`，以及 `tenuto_test_*`（中断的测试留下的）。
 
 ## 已知遗留
 
