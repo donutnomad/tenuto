@@ -152,10 +152,11 @@ func (e *WorkflowExecutor) executeWLang(wf *programpkg.WorkflowConfig) error {
 	scope.LetReadOnly("input", untypedInput)
 	// 入口参数按 Entry.InputVar（Go 形参名，如 `in`、`req`）绑定：翻译产物的 body 直接按形参名引用入口参数
 	// （产物形如 {"var":"in.Amount"}），换个名字会让 body 找不到符号。有 descriptor 的入参按类型解码，
-	// map[string]any 入参原样绑定；上面的 `input` 与之并存。
+	// map[string]any 入参原样绑定；上面的 `input` 与之并存。入口参数与 Go 的形参一样是可赋值的局部变量
+	// （`in.Region = "us"`、`st.Iter++` 后 ContinueAsNew）。
 	entry := wf.Program.Entry
 	if entry.InputVar != "" && entry.Input == "" {
-		scope.LetReadOnly(entry.InputVar, untypedInput)
+		scope.LetWritable(entry.InputVar, untypedInput)
 	}
 	if entry.Input != "" && entry.InputVar != "" {
 		rawInput, err := json.Marshal(e.input)
@@ -166,7 +167,7 @@ func (e *WorkflowExecutor) executeWLang(wf *programpkg.WorkflowConfig) error {
 		if err != nil {
 			return fmt.Errorf("decode workflow entry input %q: %w", entry.Input, err)
 		}
-		scope.LetReadOnly(entry.InputVar, typedInput)
+		scope.LetWritable(entry.InputVar, typedInput)
 	}
 	wlExec := wlruntime.NewExecutor(e.ctx, scope, reg, reg.PackageNames(), workflowWLangBudget())
 	wlExec.OnStep = func(info wlruntime.StepInfo) error {

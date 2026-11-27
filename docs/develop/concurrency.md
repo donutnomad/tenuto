@@ -161,7 +161,7 @@ more := ch.Receive(ctx, &got)
 
 规则：
 
-- `Receive` 的目标是 `*map[string]any`。发送 map 或结构体时接收方得到对应的 map；发送标量时接收方得到 `{"value": v}`。
+- `Receive` 与 Go 一样按目标类型接收：目标与发送的值同类型（`var s string`、`var n int`、结构体、slice、map）时得到这个值，slice 与 map 与发送方共享。目标是 `map[string]any` 时，发送的结构体换成对应的 map，标量包成 `{"value": v}`。目标不能是接口类型（`var v any`），生成期报错：Channel 传递的值不带 Go 类型。
 - 向已关闭的 Channel 发送、发送阻塞期间 Channel 被关闭，都会 panic 并使当前 Workflow Task 失败。
 - Channel 的值只在内存中传递，不写入 History；重放时由协程重新执行得到相同的传递顺序。
 

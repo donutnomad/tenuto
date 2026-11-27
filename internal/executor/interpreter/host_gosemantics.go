@@ -13,15 +13,34 @@ import (
 // 两侧都是指针的比较改写成 SamePointer，
 // 目标是 []any、map[string]any 的类型断言改写成 TypeAssert、TypeAssertOK、
 // TypeIs（解释器里这两种值的类型名与断言目标不同，WLang 的断言永远不成立）。
+//
+// 这些函数的参数是 types.Value：保存在变量与形参里的值带着 WLang 类型名（Go 里接口值的动态类型），
+// var x any = []Order{} 的 x 是 array<Order>，装着 nil 指针的 any 是 *T。值存进 []any、map[string]any 或
+// 结构体的 any 字段之后只剩 Go 载体，类型名是 any，只能按载体判断（go-subset 文档列为差异）。
 
 // Equal 按 Go 的接口比较规则比较 a 与 b：动态类型与值都相等时为 true；动态类型相同但不可比较
 // （slice、map、函数，或含这些字段的 struct）时与 Go 一样 panic。
-func (api *runtimeWorkflowAPI) Equal(a, b any) bool {
-	equal, err := goEqual(a, b)
+func (api *runtimeWorkflowAPI) Equal(a, b types.Value) bool {
+	if nilA, nilB := isNilInterface(a), isNilInterface(b); nilA || nilB {
+		return nilA && nilB
+	}
+	equal, err := goEqual(a.Go(), b.Go())
 	if err != nil {
 		panic(err)
 	}
 	return equal
+}
+
+// isNilInterface 报告 v 作为 Go 接口值是否为 nil：没有动态类型（null），或类型名已丢失（any）且载体是 nil。
+// 带类型名的 nil 载体（nil 指针 *T、nil slice、nil map）是非 nil 的接口值。
+func isNilInterface(v types.Value) bool {
+	switch v.TypeName() {
+	case types.TNull:
+		return true
+	case types.TAny:
+		return v.Go() == nil
+	}
+	return false
 }
 
 // SamePointer 是 Go 的指针 a == b，a、b 指向 struct：指向同一个对象时为 true。解释器里指向结构体的指针的载体是
@@ -33,11 +52,11 @@ func (api *runtimeWorkflowAPI) SamePointer(a, b any) bool {
 
 // IsNil 报告 v 是否为 nil 值。nil slice（var xs []T、JSON 缺省或 null 的字段）与 nil map 是 nil，
 // []T{}、make([]T, 0) 与空 map 不是。
-func (api *runtimeWorkflowAPI) IsNil(v any) bool {
-	if v == nil {
+func (api *runtimeWorkflowAPI) IsNil(v types.Value) bool {
+	if v.Go() == nil {
 		return true
 	}
-	switch value := reflect.ValueOf(v); value.Kind() {
+	switch value := reflect.ValueOf(v.Go()); value.Kind() {
 	case reflect.Slice, reflect.Map, reflect.Pointer, reflect.Func, reflect.Interface, reflect.Chan:
 		return value.IsNil()
 	}
@@ -46,7 +65,7 @@ func (api *runtimeWorkflowAPI) IsNil(v any) bool {
 
 // TypeAssert 是 Go 的 v.(T)，T 是 []any（target "array<any>"）或 map[string]any（"map<string,any>"）：
 // 动态类型不是 T 时与 Go 一样 panic（Workflow Task 以 workflow_panic 失败）。
-func (api *runtimeWorkflowAPI) TypeAssert(v any, target string) types.Value {
+func (api *runtimeWorkflowAPI) TypeAssert(v types.Value, target string) types.Value {
 	value, ok := assertAnyContainer(v, target)
 	if !ok {
 		panic(fmt.Sprintf("interface conversion: interface {} is %s, not %s", dynamicTypeName(v), goContainerName(target)))
@@ -55,22 +74,26 @@ func (api *runtimeWorkflowAPI) TypeAssert(v any, target string) types.Value {
 }
 
 // TypeAssertOK 是 Go 的 x, ok := v.(T)：动态类型不是 T 时得到 T 的零值（nil）与 false。
-func (api *runtimeWorkflowAPI) TypeAssertOK(v any, target string) (types.Value, bool) {
+func (api *runtimeWorkflowAPI) TypeAssertOK(v types.Value, target string) (types.Value, bool) {
 	return assertAnyContainer(v, target)
 }
 
 // TypeIs 报告 v 的动态类型是否为 T，用于 type switch 的 case。
-func (api *runtimeWorkflowAPI) TypeIs(v any, target string) bool {
+func (api *runtimeWorkflowAPI) TypeIs(v types.Value, target string) bool {
 	_, ok := assertAnyContainer(v, target)
 	return ok
 }
 
 // assertAnyContainer 判断 v 的动态类型是否为 target 对应的 []any 或 map[string]any，返回带 WLang 类型名的值；
-// 不是时返回 nil 值与 false。解释器里来自载荷与字面量的 []any、map[string]any 值的载体就是这两种 Go 类型。
-// 宿主只拿到载体，拿不到 WLang 的类型名：元素不是基础类型的类型化 slice（[]Order、[][]any、[]map[string]any）
-// 与 map（map[string]Order）的载体同样是 []any、map[string]any，放进 any 之后这里判为成立，Go 里不成立；放进
-// map[string]any 之后 WLang 也只保留载体，无法区分。文档列为差异。
-func assertAnyContainer(v any, target string) (types.Value, bool) {
+// 不是时返回 nil 值与 false。带类型名的值按类型名判断（array<Order> 不是 array<any>，与 Go 相同）。类型名是
+// any 的值（取自 []any、map[string]any 或 any 字段）只剩载体：元素不是基础类型的类型化 slice（[]Order、
+// [][]any、[]map[string]any）与 map（map[string]Order）的载体同样是 []any、map[string]any，这里判为成立，
+// Go 里不成立。文档列为差异。
+func assertAnyContainer(value types.Value, target string) (types.Value, bool) {
+	v := value.Go()
+	if name := value.TypeName(); name != types.TAny && name != types.TNull && name != target {
+		v = nil
+	}
 	switch target {
 	case "array<any>":
 		if items, ok := v.([]any); ok {
@@ -94,7 +117,11 @@ func goContainerName(target string) string {
 }
 
 // dynamicTypeName 是 Go 的 panic 消息里 v 的动态类型名。
-func dynamicTypeName(v any) string {
+func dynamicTypeName(value types.Value) string {
+	if name := value.TypeName(); name != types.TAny && name != types.TNull {
+		return name
+	}
+	v := value.Go()
 	if v == nil {
 		return "nil"
 	}

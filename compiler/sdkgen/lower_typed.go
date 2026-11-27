@@ -106,6 +106,7 @@ func (r *typedRewriter) rewrite(body *ast.BlockStmt) {
 			// 转换检查按先序：外层转换先报（string(rune(x)) 报 string）。
 			if call, ok := node.(*ast.CallExpr); ok {
 				r.checkConversion(call)
+				r.checkChannelReceive(call)
 			}
 			stack = append(stack, node)
 			return true
@@ -146,10 +147,15 @@ func (r *typedRewriter) rewriteComparison(x *ast.BinaryExpr) {
 		if xNil {
 			operand = x.Y
 		}
-		if !isSliceOrMap(r.typeOf(operand)) {
+		switch operandType := r.typeOf(operand); {
+		case isSliceOrMap(operandType):
+			r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.IsNil(%s)", negate, r.text(operand.Pos(), operand.End())))
+		case isEmptyInterface(operandType):
+			// any 与 nil 比较按动态类型：装着 nil 指针、nil slice 的 any 不等于 nil。
+			r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.Equal(%s, nil)", negate, r.text(operand.Pos(), operand.End())))
+		default:
 			return
 		}
-		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.IsNil(%s)", negate, r.text(operand.Pos(), operand.End())))
 	case isEmptyInterface(r.typeOf(x.X)) || isEmptyInterface(r.typeOf(x.Y)):
 		r.replace(x.Pos(), x.End(), fmt.Sprintf("%sworkflow.Equal(%s, %s)", negate,
 			r.text(x.X.Pos(), x.X.End()), r.text(x.Y.Pos(), x.Y.End())))
@@ -267,6 +273,26 @@ func (r *typedRewriter) rewriteMapRead(x *ast.IndexExpr, stack []ast.Node) {
 	}
 	r.replace(x.Pos(), x.End(), fmt.Sprintf("func() %s { if %s, %s := %s; %s { return %s }; var %s %s; return %s }()",
 		elem, value, present, read, present, value, zero, elem, zero))
+}
+
+// checkChannelReceive 拒绝 Receive 到接口类型的目标（`var v any; ch.Receive(ctx, &v)`）：Channel 在内存里传递
+// 值的载体，接口目标得不到值原来的 WLang 类型。目标写成发送方的具体类型（string、结构体、map 等）。
+func (r *typedRewriter) checkChannelReceive(call *ast.CallExpr) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Receive" || len(call.Args) != 2 {
+		return
+	}
+	named, ok := r.info.TypeOf(sel.X).(*gotypes.Named)
+	if !ok || named.Obj().Pkg() == nil || named.Obj().Pkg().Path() != workflowSDKPath || named.Obj().Name() != "Channel" {
+		return
+	}
+	target, ok := unparen(call.Args[1]).(*ast.UnaryExpr)
+	if !ok || target.Op != token.AND {
+		return
+	}
+	if targetType := r.info.TypeOf(target.X); targetType != nil && gotypes.IsInterface(targetType) {
+		r.fail(call.Args[1], "Channel 的 Receive 目标不能是接口类型 %s；workflow 里 Channel 传递的值不带 Go 类型，目标写成发送方的具体类型（string、结构体、map 等）", targetType)
+	}
 }
 
 // checkConversion 拒绝改变值表示、转换目标不是 int 与 int64 的基础类型转换（float64(n)、string(65)、int32(x)）：

@@ -223,94 +223,19 @@
       },
       {
         "let": {
-          "zzMakeLen1": {
-            "var": "in.Parallel"
-          }
-        }
-      },
-      {
-        "let": {
           "values": {
-            "array": {
-              "elem": "int64",
-              "items": []
-            }
-          }
-        }
-      },
-      {
-        "fori": {
-          "cond": {
-            "\u003c": [
+            "arr.make": [
               {
-                "var": "zzMake1"
+                "literal": {
+                  "type": "string",
+                  "value": "int64"
+                }
               },
               {
-                "var": "zzMakeLen1"
+                "var": "in.Parallel"
               }
             ]
-          },
-          "do": [
-            {
-              "let": {
-                "zzLoopStep5": {
-                  "literal": {
-                    "type": "int64",
-                    "value": "0"
-                  }
-                }
-              }
-            },
-            {
-              "expr": {
-                "arr.push": [
-                  {
-                    "var": "values"
-                  },
-                  {
-                    "ptr.deref": [
-                      {
-                        "ptr.new": [
-                          {
-                            "literal": {
-                              "type": "string",
-                              "value": "int64"
-                            }
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              }
-            }
-          ],
-          "from": {
-            "literal": {
-              "type": "int64",
-              "value": "0"
-            }
-          },
-          "post": [
-            {
-              "set": {
-                "zzMake1": {
-                  "+": [
-                    {
-                      "var": "zzMake1"
-                    },
-                    {
-                      "literal": {
-                        "type": "int64",
-                        "value": "1"
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          ],
-          "var": "zzMake1"
+          }
         }
       },
       {
@@ -988,86 +913,19 @@
       },
       {
         "let": {
-          "zzMakeLen2": {
-            "var": "in.Children"
-          }
-        }
-      },
-      {
-        "let": {
           "children": {
-            "array": {
-              "elem": "order.ChildOutput",
-              "items": []
-            }
-          }
-        }
-      },
-      {
-        "fori": {
-          "cond": {
-            "\u003c": [
+            "arr.make": [
               {
-                "var": "zzMake2"
+                "literal": {
+                  "type": "string",
+                  "value": "order.ChildOutput"
+                }
               },
               {
-                "var": "zzMakeLen2"
+                "var": "in.Children"
               }
             ]
-          },
-          "do": [
-            {
-              "let": {
-                "zzLoopStep6": {
-                  "literal": {
-                    "type": "int64",
-                    "value": "0"
-                  }
-                }
-              }
-            },
-            {
-              "expr": {
-                "arr.push": [
-                  {
-                    "var": "children"
-                  },
-                  {
-                    "struct": [
-                      "order.ChildOutput",
-                      {}
-                    ]
-                  }
-                ]
-              }
-            }
-          ],
-          "from": {
-            "literal": {
-              "type": "int64",
-              "value": "0"
-            }
-          },
-          "post": [
-            {
-              "set": {
-                "zzMake2": {
-                  "+": [
-                    {
-                      "var": "zzMake2"
-                    },
-                    {
-                      "literal": {
-                        "type": "int64",
-                        "value": "1"
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          ],
-          "var": "zzMake2"
+          }
         }
       },
       {

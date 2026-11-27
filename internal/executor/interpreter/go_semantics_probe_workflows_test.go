@@ -182,7 +182,7 @@ func SemSliceAlias(ctx workflow.Context, in SemInput) (SemOut, error) {
 	return SemOut{List: a, Sum: len(c)}, nil
 }
 
-func SemDifferenceCapAlias(ctx workflow.Context, in SemInput) (SemOut, error) {
+func SemMakeCapAlias(ctx workflow.Context, in SemInput) (SemOut, error) {
 	a := make([]int, 2, 10)
 	b := a
 	b = append(b, 5)
@@ -257,9 +257,14 @@ func SemMapCRUD(ctx workflow.Context, in SemInput) (SemOut, error) {
 	delete(m, "a")
 	_, okA := m["a"]
 	v, okB := m["b"]
+	// Go 的 map 遍历顺序随机：只记录遍历到的 key 集合。
 	keys := ""
 	for k := range m {
-		keys += k
+		if k == "b" || k == "c" {
+			keys += "+"
+		} else {
+			keys += k
+		}
 	}
 	return SemOut{Count: len(m), Sum: v, Flag: !okA && okB, Text: keys}, nil
 }
@@ -902,7 +907,7 @@ func SemDurationMap(ctx workflow.Context, input map[string]any) (SemOut, error) 
 	return SemOut{Sum: int(d), Count: int(e / time.Millisecond)}, nil
 }
 
-func SemDifferenceAnyNilPointer(ctx workflow.Context, input map[string]any) (SemOut, error) {
+func SemAnyNilPointer(ctx workflow.Context, input map[string]any) (SemOut, error) {
 	count := 0
 	if input["x"] == nil {
 		count += 1
@@ -1194,12 +1199,13 @@ func SemPointerIdentity(ctx workflow.Context, in SemInput) (SemOut, error) {
 
 // ---- 文档列出的差异（期望值是解释器的结果，与 go-subset 的「与 Go 的差异」一致） ----
 
-// 切片超出长度、未超出 make 给出的容量：Go 合法，解释器的 slice 不保留容量，panic（Workflow Task 以
-// workflow_panic 失败，Run Blocked）。
-func SemDifferenceSliceBeyondLen(ctx workflow.Context, in SemInput) (SemOut, error) {
+// 切片超出长度、未超出 make 给出的容量：与 Go 相同合法，新元素是零值，写入经底层数组对 a 的后续切片可见。
+func SemMakeSliceBeyondLen(ctx workflow.Context, in SemInput) (SemOut, error) {
 	a := make([]int, 0, 10)
 	b := a[:3]
-	return SemOut{Count: len(b) + cap(a)}, nil
+	b[2] = 4
+	c := a[1:4]
+	return SemOut{Count: len(b) + cap(a) + cap(c)*100, Sum: c[1], List: c}, nil
 }
 
 // 具名基础类型放进 any 后与底层类型的值相等。
@@ -1272,4 +1278,51 @@ func SemDifferenceScalarPointers(ctx workflow.Context, in SemScalarPointers) (Se
 		c += 100000
 	}
 	return SemOut{Count: c}, nil
+}
+
+// 保存在 any 变量里的类型化 slice、map 保留动态类型：x.([]any)、x.(map[string]any) 与对应的 case 不成立，
+// 断言回自己的类型成立；装着 nil slice、nil map 的 any 不等于 nil。
+func SemAnyTypedContainers(ctx workflow.Context, in SemInput) (SemOut, error) {
+	var x any = []SemItem{{Name: "a"}}
+	var m any = map[string]SemItem{"k": {Qty: 2}}
+	var ns []SemItem
+	var nilSlice any = ns
+	count := 0
+	if _, ok := x.([]any); ok {
+		count += 1
+	}
+	if items, ok := x.([]SemItem); ok {
+		count += 10 * len(items)
+	}
+	if _, ok := m.(map[string]any); ok {
+		count += 100
+	}
+	switch m.(type) {
+	case map[string]any:
+		count += 1000
+	case map[string]SemItem:
+		count += 10000
+	}
+	if nilSlice == nil {
+		count += 100000
+	}
+	var raw any = []any{1, "a"}
+	if list, ok := raw.([]any); ok {
+		count += 1000000 * len(list)
+	}
+	return SemOut{Count: count}, nil
+}
+
+// 类型化的 slice 存进 map[string]any 或 []any 之后只剩载体：读出来的值断言成 []any 成立（Go 不成立）。
+func SemDifferenceAnyContainerNested(ctx workflow.Context, in SemInput) (SemOut, error) {
+	box := map[string]any{"items": []SemItem{{Name: "a"}}}
+	list := []any{map[string]SemItem{"k": {}}}
+	count := 0
+	if _, ok := box["items"].([]any); ok {
+		count += 1
+	}
+	if _, ok := list[0].(map[string]any); ok {
+		count += 10
+	}
+	return SemOut{Count: count}, nil
 }

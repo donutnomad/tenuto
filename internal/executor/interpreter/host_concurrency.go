@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"fmt"
+	"reflect"
 	"runtime"
 	"strconv"
 
@@ -226,7 +227,7 @@ func (h channelHandle) Send(ctx workflowContext, v any) {
 // Receive 接收一个值，返回 more（channel 已关闭且取空时为 false）。有值或已关闭时立即返回；
 // 否则登记一次 receive callback，置 blocked 并 park，每次被恢复后检查 callback 是否已收到值。
 // 不变式：callback 只登记一次，被恢复后只重查结果，不重新登记。
-func (h channelHandle) Receive(ctx workflowContext, out *map[string]any) bool {
+func (h channelHandle) Receive(ctx workflowContext, out any) bool {
 	e := h.executor
 	var result any
 	hasResult := false
@@ -245,9 +246,7 @@ func (h channelHandle) Receive(ctx workflowContext, out *map[string]any) bool {
 			return m
 		}
 		if ok || !m { // 有值 / closed
-			if out != nil {
-				*out = mapFromAny(h.executor.registry(), v)
-			}
+			h.store(out, v)
 			e.blocked = false
 			e.progressed()
 			return m
@@ -255,15 +254,39 @@ func (h channelHandle) Receive(ctx workflowContext, out *map[string]any) bool {
 		// 没有值：cb 已登记在 channel 上，下面只等它被触发。
 		for {
 			if hasResult { // sender 已触发 cb
-				if out != nil {
-					*out = mapFromAny(h.executor.registry(), result)
-				}
+				h.store(out, result)
 				e.blocked = false
 				e.progressed()
 				return more
 			}
 			e.blocked = true
 			e.park()
+		}
+	}
+}
+
+// store 把收到的值写进 Receive 的目标 out（*T）。与 Go 相同，值原样交给同类型的目标（string、bool、slice、
+// map 共享同一份）；目标是 map[string]any 时结构体换成对应的 map、标量包成 {"value": v}；其余目标（结构体经
+// map 代理、数值宽度不同）按 JSON 编解码赋值。
+func (h channelHandle) store(out any, v any) {
+	target := reflect.ValueOf(out)
+	if out == nil || target.Kind() != reflect.Pointer || target.IsNil() {
+		return
+	}
+	elem := target.Elem()
+	switch {
+	case v == nil:
+		elem.SetZero()
+	case reflect.TypeOf(v).AssignableTo(elem.Type()):
+		elem.Set(reflect.ValueOf(v))
+	case elem.Type() == reflect.TypeOf(map[string]any{}):
+		elem.Set(reflect.ValueOf(mapFromAny(h.executor.registry(), v)))
+	default:
+		if containsRecord(v) {
+			v = mustRecordToMap(h.executor.registry(), v)
+		}
+		if err := assignAny(out, v); err != nil {
+			panic(fmt.Errorf("channel receive into %s: %w", elem.Type(), err))
 		}
 	}
 }

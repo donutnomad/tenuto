@@ -81,9 +81,7 @@ func TestLowerRejectsNonDeterministicConstructs(t *testing.T) {
 		{"Sprintf of a struct", `return Out{Text: fmt.Sprintf("%v", Out{})}, nil`, []string{"w.go:", "fmt operand of type"}},
 		{"non-host package call", `return Out{Text: uuid.New().String()}, nil`, []string{"uuid.New", "workflow.RandomUUID"}},
 		{"assertion field in condition", `var a any = Out{}; if a.(Out).Sum > 0 { return Out{}, nil }; return Out{}, nil`, []string{"a.(Out).Sum", "先把类型断言赋值给变量"}},
-		{"sized make as argument", `n := 2; x := len(make([]int, n)); return Out{Sum: x}, nil`, []string{"make([]int, n)", "独立的赋值语句"}},
 		{"for without init and condition", "for {\n\t}\n\treturn Out{}, nil", []string{"w.go:41", "for requires an init statement and a condition"}},
-		{"make with capacity as argument", `x := len(make([]int, 0, 4)); return Out{Sum: x}, nil`, []string{"make([]int, 0, 4)", "独立的赋值语句"}},
 		{"pointer alias", `a := Out{Sum: 1}; p := &a; p.Sum = 5; return a, nil`, []string{"w.go:41", "&a 只能直接作为调用实参", "直接使用值 a"}},
 		{"pointer to field returned", `a := Out{}; q := &a.Sum; _ = q; return a, nil`, []string{"&a.Sum 只能直接作为调用实参"}},
 		{"labeled switch on any with init", `var k any = 1
@@ -215,7 +213,7 @@ func TestGenerateAcceptsMapLiteralWithMapTypedUpdateHandler(t *testing.T) {
 }
 
 // 操作数含 any 的比较、any 上的 switch、slice/map 与 nil 的比较改写成 workflow.Equal / workflow.IsNil；
-// 元素是 struct 的 map 读取改写成立即调用的闭包；带容量的 make 不再调用宿主（容量只是提示）。
+// 元素是 struct 的 map 读取改写成立即调用的闭包。
 func TestLowerTypedRewritesGoSemantics(t *testing.T) {
 	result, err := generateLowered(`
 	var xs []int
@@ -235,13 +233,10 @@ func TestLowerTypedRewritesGoSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	program := string(result.ProgramJSON)
-	for _, want := range []string{`"Equal"`, `"IsNil"`, `"zzTag1"`, `"zzZero1"`, `"zzZero2"`, `"zzMakeCap1"`} {
+	for _, want := range []string{`"Equal"`, `"IsNil"`, `"zzTag1"`, `"zzZero1"`, `"zzZero2"`} {
 		if !strings.Contains(program, want) {
 			t.Fatalf("program misses %s:\n%s", want, program)
 		}
-	}
-	if strings.Contains(program, `"SetCap"`) {
-		t.Fatalf("make with capacity must not call the host:\n%s", program)
 	}
 }
 
@@ -297,13 +292,12 @@ func TestLowerLoopBodyGetsCountedStatement(t *testing.T) {
 		t.Fatal(err)
 	}
 	program := string(result.ProgramJSON)
-	// 三个循环，加上 make([]int, i) 展开出的追加零值循环。
-	for _, name := range []string{`"zzLoopStep1"`, `"zzLoopStep2"`, `"zzLoopStep3"`, `"zzLoopStep4"`} {
+	for _, name := range []string{`"zzLoopStep1"`, `"zzLoopStep2"`, `"zzLoopStep3"`} {
 		if strings.Count(program, name) != 1 {
 			t.Fatalf("program should declare %s once:\n%s", name, program)
 		}
 	}
-	if strings.Contains(program, "zzLoopStep5") {
+	if strings.Contains(program, "zzLoopStep4") {
 		t.Fatalf("program should count steps once per loop:\n%s", program)
 	}
 }
@@ -419,18 +413,39 @@ func W(ctx workflow.Context, input map[string]any) (Out, error) {
 	}
 }
 
-// 带容量的 make 按 make([]T, n) 生成：容量照常求值，小于长度时与 Go 一样 panic，不调用宿主。
-func TestLowerMakeWithCapacityIsHint(t *testing.T) {
+// Channel 的 Receive 到具体类型的目标照常生成；目标是接口类型时生成期报错（Channel 的值不带 Go 类型）。
+func TestLowerChannelReceiveTarget(t *testing.T) {
+	if _, err := generateLowered(`
+	ch := workflow.NewBufferedChannel(ctx, 1)
+	ch.Send(ctx, "a")
+	var s string
+	ch.Receive(ctx, &s)
+	return Out{Text: s}, nil`); err != nil {
+		t.Fatalf("receive into string must generate: %v", err)
+	}
+	_, err := generateLowered(`
+	ch := workflow.NewBufferedChannel(ctx, 1)
+	ch.Send(ctx, "a")
+	var v any
+	ch.Receive(ctx, &v)
+	return Out{}, nil`)
+	if err == nil || !strings.Contains(err.Error(), "Receive 目标不能是接口类型") {
+		t.Fatalf("err = %v, want receive into any rejected", err)
+	}
+}
+
+// slice 的 make 在任意表达式位置都翻译成 arr.make，带上长度与容量。
+func TestLowerSliceMakeTranslatesToArrMake(t *testing.T) {
 	result, err := generateLowered(`
 	n := 2
 	xs := make([]int, n, n+3)
 	xs = append(xs, 1)
-	return Out{Sum: len(xs)}, nil`)
+	return Out{Sum: len(xs) + cap(make([]int, 0, 4))}, nil`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	program := string(result.ProgramJSON)
-	if strings.Contains(program, `"SetCap"`) || !strings.Contains(program, "makeslice: cap out of range") {
-		t.Fatalf("make with capacity must check the capacity without a host call:\n%s", program)
+	if strings.Count(program, `"arr.make"`) != 2 || strings.Contains(program, "zzMake") {
+		t.Fatalf("slice make must translate to arr.make:\n%s", program)
 	}
 }

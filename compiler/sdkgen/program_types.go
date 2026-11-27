@@ -12,7 +12,7 @@ import (
 
 // normalizeProgramTypes 在翻译之后整理程序与类型表，返回同样整理过的 extraTypes：
 //
-//   - 底层是基础类型的具名类型统一成底层类型（见 basicNamedTypes）；
+//   - 底层是基础类型、slice 或 map 的具名类型统一成底层类型（见 namedTypes）；
 //   - 程序里出现的 map<string,V>，V 是 slice 或 map 时补齐 V（及其内部集合）与这个 map 的描述符（见
 //     collectionDescriptors）。
 func normalizeProgramTypes(translated *go2wlang.Result, extraTypes map[string]programpkg.WLangTypeDescriptor) (map[string]programpkg.WLangTypeDescriptor, error) {
@@ -21,7 +21,7 @@ func normalizeProgramTypes(translated *go2wlang.Result, extraTypes map[string]pr
 		return nil, err
 	}
 	program := raw["program"]
-	named := newBasicNamedTypes(translated.Types, extraTypes)
+	named := newNamedTypes(translated.Types, extraTypes)
 	if len(named.ids) > 0 {
 		translated.Types = named.descriptors(translated.Types)
 		translated.Entry.Input = rename(translated.Entry.Input, named.ids)
@@ -49,29 +49,34 @@ func normalizeProgramTypes(translated *go2wlang.Result, extraTypes map[string]pr
 	return extraTypes, nil
 }
 
-// basicNamedTypes 把底层是基础类型的具名类型（`type Status string`、`type Prio int`）换成底层类型。
+// namedTypes 把底层是基础类型、slice 或 map 的具名类型（`type Status string`、`type Prio int`、
+// `type Tags []string`、`type Stock map[string]int`）换成底层类型。
 //
 // go2wlang 给这类类型生成 alias 描述符：按描述符解码的载荷（Workflow 输入、Update 参数、Activity、子 Workflow 与
-// Signal 结果）里的值带 alias 的类型名，而常量、字面量、`var s Status` 与函数形参都是底层类型。WLang 的 ==、
-// switch 与有序比较、算术要求类型名相同，同一个 Go 类型的两种来源互相比较恒为不等或报 E_TYPE。生成器把类型表、
-// 入口与程序里的这些类型名统一成底层类型，两种来源就是同一个类型；编码输出只看底层类型，载荷不变。
+// Signal 结果）里的值与 `var t Tags` 的零值带 alias 的类型名，而常量、字面量与运算结果是底层类型。WLang 的 ==、
+// switch、有序比较与算术要求类型名相同，range、append、下标与 map 读写只认 `array<T>`、`map<K,V>`，函数形参
+// 按类型名检查，同一个 Go 类型的两种来源互相比较恒为不等或报 E_TYPE。生成器把类型表、入口与程序里的这些类型名
+// 统一成底层类型，两种来源就是同一个类型；方法是按函数名静态分派的同包函数，接收者形参随之改成底层类型；编码输出
+// 只看底层类型，载荷不变。
 //
 // 代价：放进 any 之后具名值与底层类型的值不再区分（`any(Status("a")) == "a"` 为 true，`x.(Status)` 与
 // `x.(string)` 判断相同），go-subset 文档列为差异。
-type basicNamedTypes struct {
-	// ids 与 names 分别按描述符 ID、程序里的类型名映射到底层的基础类型名。
+type namedTypes struct {
+	// ids 与 names 分别按描述符 ID、程序里的类型名映射到底层类型的描述符 ID 与类型名。
 	ids, names map[string]string
 }
 
-// newBasicNamedTypes 从各组描述符里找出底层（经 alias 链）是基础标量类型的 alias。
-func newBasicNamedTypes(tables ...map[string]programpkg.WLangTypeDescriptor) basicNamedTypes {
+// newNamedTypes 从各组描述符里找出底层（经 alias 链）是基础标量、slice 或 map 的 alias。底层集合里再引用的
+// 具名类型一并换掉（`type Codes []Status` 换成 `[]string`）。
+func newNamedTypes(tables ...map[string]programpkg.WLangTypeDescriptor) namedTypes {
 	all := map[string]programpkg.WLangTypeDescriptor{}
 	for _, table := range tables {
 		for id, descriptor := range table {
 			all[id] = descriptor
 		}
 	}
-	named := basicNamedTypes{ids: map[string]string{}, names: map[string]string{}}
+	named := namedTypes{ids: map[string]string{}, names: map[string]string{}}
+	underlyingName := map[string]string{}
 	for id, descriptor := range all {
 		if descriptor.Kind != wlangtypes.TypeKindAlias {
 			continue
@@ -86,9 +91,32 @@ func newBasicNamedTypes(tables ...map[string]programpkg.WLangTypeDescriptor) bas
 		}
 		if basicScalarType(underlying) {
 			named.ids[id] = underlying
-			named.names[descriptor.LanguageName] = underlying
+			underlyingName[descriptor.LanguageName] = underlying
+			continue
+		}
+		if target, ok := all[underlying]; ok && (target.Kind == wlangtypes.TypeKindSlice || target.Kind == wlangtypes.TypeKindMap) {
+			named.ids[id] = underlying
+			underlyingName[descriptor.LanguageName] = target.LanguageName
 		}
 	}
+	// 底层集合的元素可能又是被换掉的具名类型，重复替换到不再变化；替换链不会长于 alias 个数。
+	for range len(named.ids) + 1 {
+		changed := false
+		for id, target := range named.ids {
+			if next := rename(target, named.ids); next != target {
+				named.ids[id], changed = next, true
+			}
+		}
+		for name, target := range underlyingName {
+			if next := rename(target, underlyingName); next != target {
+				underlyingName[name], changed = next, true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	named.names = underlyingName
 	return named
 }
 
@@ -105,7 +133,7 @@ func basicScalarType(id string) bool {
 
 // descriptors 返回去掉这些 alias、其余描述符里的引用换成底层类型后的类型表。改名后与已有描述符同 ID 的
 // （`[]Status` 与 `[]string`）是同一个类型，保留一份。
-func (n basicNamedTypes) descriptors(table map[string]programpkg.WLangTypeDescriptor) map[string]programpkg.WLangTypeDescriptor {
+func (n namedTypes) descriptors(table map[string]programpkg.WLangTypeDescriptor) map[string]programpkg.WLangTypeDescriptor {
 	if len(n.ids) == 0 || table == nil {
 		return table
 	}
@@ -129,7 +157,7 @@ func (n basicNamedTypes) descriptors(table map[string]programpkg.WLangTypeDescri
 	return out
 }
 
-// rename 把类型名 s 里作为完整名字出现的键换成对应的基础类型名：`flows.Status`、`array<flows.Status>`、
+// rename 把类型名 s 里作为完整名字出现的键换成对应的底层类型名：`flows.Status`、`array<flows.Status>`、
 // `map<string,flows.Status>`、`[]flows.Status`、`*flows.Prio`。名字由字母、数字、`_`、`.`、`/`、`-` 组成，
 // 其余字符是分隔符。
 func rename(s string, names map[string]string) string {
@@ -223,8 +251,8 @@ func collectionDescriptors(program any, table map[string]programpkg.WLangTypeDes
 }
 
 // mapTypeNames 用 fn 改写程序 JSON 里写类型名的位置：zero、函数形参与返回值、数组元素、map 与 chan 的类型、
-// struct 名、let 的声明类型、字面量的类型，以及 type.assert、type.assert.ok、type.is 的目标与 ptr.new 的类型。
-// map 的类型 [K, V] 另外以 map<K,V> 的整体名字交给 fn 看一遍（结果不用）。
+// struct 名、let 的声明类型、字面量的类型，以及 type.assert、type.assert.ok、type.is 的目标、ptr.new 的类型与
+// arr.make 的元素类型。map 的类型 [K, V] 另外以 map<K,V> 的整体名字交给 fn 看一遍（结果不用）。
 func mapTypeNames(value any, fn func(string) string) any {
 	switch current := value.(type) {
 	case []any:
@@ -263,23 +291,41 @@ func mapTypeNameField(key string, value any, fn func(string) string) any {
 			items[2] = mapTypeNames(items[2], fn)
 			return items
 		}
+	case "arr.make":
+		// 第一个实参是元素类型名，写成字符串字面量。
+		if args, ok := value.([]any); ok && len(args) > 0 {
+			typeNameLiteral(args[0], fn)
+			for i := range args[1:] {
+				args[i+1] = mapTypeNames(args[i+1], fn)
+			}
+			return args
+		}
 	case "type.assert", "type.assert.ok", "type.is", "ptr.new":
 		// 类型名是最后一个实参，写成字符串字面量。
 		if args, ok := value.([]any); ok && len(args) > 0 {
 			for i := range args[:len(args)-1] {
 				args[i] = mapTypeNames(args[i], fn)
 			}
-			if target, ok := args[len(args)-1].(map[string]any); ok {
-				if literal, ok := target["literal"].(map[string]any); ok {
-					if name, ok := literal["value"].(string); ok {
-						literal["value"] = fn(name)
-					}
-				}
-			}
+			typeNameLiteral(args[len(args)-1], fn)
 			return args
 		}
 	}
 	return mapTypeNames(value, fn)
+}
+
+// typeNameLiteral 用 fn 改写写成字符串字面量的类型名实参。
+func typeNameLiteral(arg any, fn func(string) string) {
+	if name := literalString(arg); name != "" {
+		arg.(map[string]any)["literal"].(map[string]any)["value"] = fn(name)
+	}
+}
+
+// literalString 返回字符串字面量实参 {"literal": {"value": s}} 的 s。
+func literalString(arg any) string {
+	target, _ := arg.(map[string]any)
+	literal, _ := target["literal"].(map[string]any)
+	name, _ := literal["value"].(string)
+	return name
 }
 
 // typeNamePosition 改写一个类型名位置：字符串本身，或数组里的字符串（形参的 [name, type] 对里形参名不含包限定，

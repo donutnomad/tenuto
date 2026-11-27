@@ -102,7 +102,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 ```
 
 - 支持：多返回值与命名返回值、`defer`、递归与互相调用（调用深度上限 128）、把 `workflow.Context` 作为参数并在函数里调度 Activity、timer、子 Workflow、调用桥 `CallX`、调用上表的标准库函数、读取包级常量。
-- 参数按 Go 语义传值：结构体参数是副本，slice 与 map 共享。函数只看得见自己的参数、局部变量、常量与其他同包函数。
+- 参数按 Go 语义传值：结构体参数是副本，slice 与 map 共享。参数是普通局部变量，可以赋值（`in.Region = "us"`、`st.Iter++`），Workflow 入口参数也一样。函数只看得见自己的参数、局部变量、常量与其他同包函数。
 - 生成期拒绝，报函数声明或调用点的 `file:line`：泛型函数、可变参数函数、指针接收者方法、嵌入字段提升的方法、经本包接口类型调用的方法、读写包级变量、把函数或方法当成值。
 - 被调用函数的函数体属于产物：只改一个同包函数也会改变 Workflow 的内容版本，部署时按[版本控制](/develop/versioning)处理。
 - 生成器对这些函数做与 Workflow 函数相同的检查与改写（`time.Now`、原生并发、桥调用形态等）。直接调用 `@Activity` 实现函数仍然报错，要经桥 `CallX` 调度。
@@ -113,7 +113,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 
 - 变量：`var x = expr`、`var x T`、`x := expr`、`x = expr`、`a, b := call()`、`a, b = call()`、`_ = expr`。`a, b = call()` 与 `v, ok = m[k]` 更新已有变量。
 - 多值赋值：`a, b := x, y`、`a, b = b, a`、`i, xs[i] = 1, 9`，先求值左侧下标与全部右值，再依次赋值。
-- 复合赋值：`+=`、`-=`、`*=`、`/=`、`%=`；`i++`、`i--`。
+- 复合赋值：`+=`、`-=`、`*=`、`/=`、`%=`；`i++`、`i--`。map 元素同样可以：key 不存在时从元素类型的零值开始（`totals[k] += v`、`counts[k]++`）。
 - `return`，包括多返回值和命名返回值。
 - `if` / `else` / `else if` / `if init; cond`，`init` 声明的变量只在该 `if` 内可见。
 - 表达式 `switch`（tag 只求值一次）、条件 `switch`、类型 `switch`；`case` 里的 `break` 退出 `switch`。
@@ -123,20 +123,20 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 - `for k, v := range m`：按 key 升序遍历，见[确定性：Map 与迭代顺序](/develop/determinism#map-与迭代顺序)。
 - `break`、`continue`，包括带标签的形式。
 - `panic(expr)`、`defer` 调用（参数在 `defer` 处求值，按后进先出执行，可修改命名返回值）。
-- 内联函数字面量（闭包），可以赋值给变量再调用。
+- 内联函数字面量（闭包），可以赋值给变量再调用；`var f func(int) int` 先声明、再赋值闭包，用于递归闭包与按条件选择闭包。函数变量的零值是 nil，调用 nil 函数与 Go 一样 panic（`workflow_panic`）。
 
 ## 支持的表达式
 
 - 字面量：字符串、整数、浮点、布尔、`nil`。
-- 运算：`+ - * / %`、比较、`&&`、`||`、`!`、一元 `-`。整数按位宽溢出回绕，整数除法与 `%` 向零截断，与 Go 相同。
+- 运算：`+ - * / %`、比较、`&&`、`||`、`!`、一元 `-`。整数按位宽溢出回绕，整数除法与 `%` 向零截断，整数除以 0 panic；浮点除以 0 得到 `+Inf`、`-Inf` 或 `NaN`，与 Go 相同。
 - `==`、`!=` 与 `switch` 的比较结果与 Go 相同，见下文「比较」。
-- 字段访问 `user.Name`、slice 索引 `xs[i]`、切片 `xs[a:b]`（`b` 不超过 `len(xs)` 时与 Go 相同；`make` 指定的容量不保留，见「与 Go 的差异」）、map 读取 `m[k]` 与 `v, ok := m[k]`。key 不存在（含 nil map）时得到元素类型的零值：结构体得到各字段为零值的结构体，slice、map 得到 nil，之后可以 `append`、`range`、读取，例如按 key 分组的 `list := groups[k]; list = append(list, v); groups[k] = list`。嵌套读取 `m[a][b]` 在外层 key 不存在时同样得到零值。
+- 字段访问 `user.Name`、slice 索引 `xs[i]`、切片 `xs[a:b]`（`b` 可以超过长度、不超过容量，与 Go 相同）、map 读取 `m[k]` 与 `v, ok := m[k]`。key 不存在（含 nil map）时得到元素类型的零值：结构体得到各字段为零值的结构体，slice、map 得到 nil，之后可以 `append`、`range`、读取，例如按 key 分组的 `list := groups[k]; list = append(list, v); groups[k] = list`。嵌套读取 `m[a][b]` 在外层 key 不存在时同样得到零值。
 - 复合字面量：`[]T{...}`、`map[string]T{...}`、`pkg.Type{Field: v}`、当前包 `Type{Field: v}`、具名 slice/map 类型 `Tags{"a"}`（`type Tags []string`），以及省略元素类型的 `[]Point{ {X: 1} }`、`map[string]Amounts{"x": {1, 2}}`。
 - 内建函数：`len`、`cap`、`copy`、`delete`、`append`（语句 `xs = append(xs, v...)`，包括 `xs = append(xs, ys...)`）。
-- `make`：`make(map[K]V)`、`make([]T, 0)` 得到空容器；`xs := make([]T, n)` 与带容量的 `xs := make([]T, n, c)` 写成独立语句，得到 n 个零值。容量 `c` 只是提示：照常求值，`c < n` 时与 Go 一样 panic，之后的 `append`、`range`、`len` 与 Go 相同；slice 不保留这个容量，见「与 Go 的差异」。
+- `make`：`make(map[K]V)` 得到空 map；`make([]T, n)`、`make([]T, n, c)` 得到 n 个零值、容量为 c 的 slice，可以写在任意表达式位置。`cap`、超出长度的切片 `xs[:k]`（`k` 不超过 `c`）、`append` 复用剩余容量与共享底层数组都与 Go 相同；`n < 0` 或 `c < n` 与 Go 一样 panic。
 - 类型转换：不改变数值表示的转换，`int` 与 `int64` 互转、`time.Duration(n)`（`n` 为整数）、具名基础类型与其底层类型互转（`string(status)`、`Status("paid")`、`float64(amount)`、`int(prio)`）。
 - 取址输出参数：`&ident`、`&selector` 直接作为调用实参，用于 `Get(ctx, &out)` 等调用。
-- 类型断言 `x.(T)`、`v, ok := x.(T)`、type switch，以及赋值、`return`、表达式语句里的 `x.(T).Field`（生成器先把断言赋给临时变量）。载荷里的嵌套数组与嵌套对象用 `x.([]any)`、`x.(map[string]any)` 与 `case []any`、`case map[string]any` 读取，结果与 Go 相同：动态类型不对时非 comma-ok 形式 panic（Workflow Task 以 `workflow_panic` 失败），comma-ok 形式得到 nil 与 `false`。差异：Workflow 代码里类型化的 slice、map 放进 `any` 之后（`var x any = []Order{...}`、`m["items"] = [][]any{...}`，以及 `[]map[string]any`、`map[string]Order`），解释器只保留它的元素值，`x.([]any)`、`x.(map[string]any)` 与对应的 case 判为成立，Go 里不成立；对这类值断言回它自己的类型（`x.([]Order)`）。
+- 类型断言 `x.(T)`、`v, ok := x.(T)`、type switch，以及赋值、`return`、表达式语句里的 `x.(T).Field`（生成器先把断言赋给临时变量）。载荷里的嵌套数组与嵌套对象用 `x.([]any)`、`x.(map[string]any)` 与 `case []any`、`case map[string]any` 读取，结果与 Go 相同：动态类型不对时非 comma-ok 形式 panic（Workflow Task 以 `workflow_panic` 失败），comma-ok 形式得到 nil 与 `false`。保存在 `any` 变量或参数里的类型化 slice、map（`var x any = []Order{...}`）保留动态类型，`x.([]any)` 不成立、`x.([]Order)` 成立，与 Go 相同。差异见下文「与 Go 的差异」：类型化的 slice、map 存进 `map[string]any`、`[]any` 或结构体的 `any` 字段之后再取出来断言。
 
 ## 生成期拒绝的语法
 
@@ -151,13 +151,13 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 - `&xs[i]`、`&T{...}` 等复杂取址表达式，先存入局部变量再传 `&local`；`new(T)`（`T` 为本包结构体）。
 - 调用实参之外的 `&x`、`&x.F`，例如 `p := &a`、`return &a`、`Out{P: &a}`：Workflow 程序没有指针别名，经 `p` 的读写不会作用到 `a`；直接使用值。
 - 匿名参数的函数字面量、可变参数函数字面量 `func(xs ...int)`。
+- Channel 的 `Receive` 目标是接口类型（`var v any; ch.Receive(ctx, &v)`）：Channel 传递的值不带 Go 类型，目标写成发送方的具体类型。
 - 改变数值表示的类型转换：`float64(n)`（`n` 为整数）、`int(f)`（`f` 为浮点）、`string(n)`（`n` 为整数或 rune）、`[]byte(s)`、`int32(v)`。
 - string 的下标 `s[i]` 与切片 `s[a:b]`、完整切片表达式 `xs[a:b:c]`。
 - 移位与位运算 `<<`、`>>`、`&`、`|`、`^`、`&^`（常量运算除外）。
 - 计算值上的字段访问与赋值：`xs[i].Field`、`f().Field`、`xs[i].Field = v`，先赋给局部变量。
 - 表达式里的 `append`，例如 `ys := append(xs, v)`、`f(append(xs, v))`；只支持语句 `xs = append(xs, ...)`。
 - 内建函数 `recover`、`min`、`max`、`clear`、`print`。
-- 不是独立赋值语句的 `make([]T, n)` 与 `make([]T, n, c)`。
 - 带标签、带初始化语句、tag 是 `any` 的 `switch`（`L: switch v := f(); x { ... }`）：把初始化语句移到 `switch` 之前。
 - 条件表达式、闭包或带函数调用的操作数里的 `x.(T).Field`：先写 `v := x.(T)`，再用 `v.Field`。
 - 读写包级变量、点导入。
@@ -167,7 +167,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 
 Workflow 代码接触到的每个数据类型都登记进 Program 的类型表（`workflow.json` 里 `program.types`），嵌套深度不限：入口签名、局部变量、复合字面量（包括只出现在 `ExecuteChildWorkflow`、`ExecuteActivity`、`ContinueAsNew` 实参或 Query 结果里的字面量）、闭包与同包函数的参数和结果、Signal 与 Activity 结果的接收变量、Update Handler 的参数和结果，以及从这些类型经字段、指针、slice、map 元素和具名类型的底层类型能到达的全部类型。
 
-- 当前包与其他非 SDK 包（契约包、DTO 包）声明的 struct、具名基础类型、具名 slice / map 都可以用；定长数组见下文「数据类型」。具名基础类型（`type Status string`、`type Priority int`）在 Program 里按底层类型表示：Workflow 输入、Update 参数、Signal、Activity 与子 Workflow 结果解进结构体后，具名字段与常量、字面量的 `==`、`!=`、`switch`、有序比较与算术都与 Go 相同。
+- 当前包与其他非 SDK 包（契约包、DTO 包）声明的 struct、具名基础类型、具名 slice / map 都可以用；定长数组见下文「数据类型」。具名基础类型（`type Status string`、`type Priority int`）与具名 slice / map（`type Tags []string`、`type Stock map[string]int`）在 Program 里按底层类型表示：Workflow 输入、Update 参数、Signal、Activity 与子 Workflow 结果解进结构体后，具名字段与常量、字面量的 `==`、`!=`、`switch`、有序比较与算术，以及 `range`、`append`、下标、map 读写、`var t Tags` 的零值与这些类型上的方法，都与 Go 相同。
 - 递归与互相递归的类型可以用，递归要经过指针、slice 或 map，与 Go 相同：
 
 ```go
@@ -260,12 +260,10 @@ Workflow 协程由解释器按 History 协作式调度。原生并发语法在�
 
 | 写法 | Go | 解释器 | 改写 |
 | --- | --- | --- | --- |
-| `make([]T, n, c)` 后的 `cap(xs)` | `c` | 实际分配的容量 | 不依赖 `cap` |
-| `a := make([]T, 0, c); b := a[:k]`（`k` 超过长度） | 合法 | 越界，Workflow Task 以 `workflow_panic` 失败，Run Blocked | `make([]T, k)` 后按下标赋值 |
-| 依赖底层数组共享：`b := a; b = append(b, x); a = append(a, y)`，再读 `b[len]` | `a` 的 `append` 覆盖 `b` 的元素 | `make` 的容量不保留，两边不共享 | 不依赖 `append` 之后的别名 |
 | `var x any = int64(3)`、来自 `int64` 字段的 `any`，与 `3` 或装着 `int` 的 `any` 比较 | `false`（动态类型不同） | `true`（`int` 与 `int64` 是同一个类型） | 先断言 `n, ok := x.(int64)` 再比较 |
 | 具名基础类型放进 `any`：`var x any = Status("a")` | `x == "a"` 为 `false`，`x.(string)` 不成立 | `x == "a"` 为 `true`，`x.(string)` 与 `x.(Status)` 都成立 | 先断言成具名类型再比较 |
-| 装着 nil 指针的 `any`：`var p *T; var x any = p; x == nil` | `false` | `true` | 比较指针本身 `p == nil` |
+| 具名 slice / map 放进 `any`：`var x any = Tags{"a"}` | `x.([]string)` 不成立 | `x.([]string)` 与 `x.(Tags)` 都成立 | 断言成具名类型 |
+| 类型化的 slice、map 存进 `map[string]any`、`[]any` 或结构体的 `any` 字段后取出：`m["items"] = []Order{...}; m["items"].([]any)`（也包括 `[][]any`、`[]map[string]any`、`map[string]Order`） | 不成立 | 成立（容器里只保留元素值，类型名丢失），`case []any`、`case map[string]any` 同样命中 | 断言回它自己的类型 `m["items"].([]Order)`，或不经 `any` 容器传递 |
 | 指向基础类型、具名基础类型、slice、map 的指针相互比较（`*int`、`*Status`、`*[]T`，以及从 `map[string]*int` 取出的值） | 按地址 | 按指向的内容：内容相同的两个对象相等 | 比较指向的值 `*p == *q`，或改用指向 struct 的指针 |
 | 指针放进 `any` 后比较，或比较含指针字段的结构体 | 按地址 | 按指向的内容；`any` 里的指针指向含 slice、map 字段的结构体时 panic（`workflow_panic`，Run Blocked） | 直接比较指向 struct 的指针 `p == q` |
 
