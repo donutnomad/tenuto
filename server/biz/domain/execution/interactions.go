@@ -53,32 +53,39 @@ func ensureNotClosing(tx ExecutionTx, current *Run) error {
 }
 
 // RecordSignal 在 Run 上记一条 WorkflowSignaled。requestID 非空时同一个 Run 上同一个 requestID 只记一条：
-// 重发的请求返回第一次记下的事件 ID。Run 正在关闭时返回 ErrWorkflowClosing。
+// 重发的请求返回第一次记下的事件 ID。Run 正在关闭时新的 Signal 返回 ErrWorkflowClosing。
 func RecordSignal(tx ExecutionTx, current *Run, treeID, branchID, name, requestID string, input map[string]any) (int64, error) {
-	if err := EnsureActive(current); err != nil {
-		return 0, err
-	}
-	if err := ensureNotClosing(tx, current); err != nil {
-		return 0, err
-	}
 	event := history.NewWorkflowSignaledEvent(name, input)
-	if requestID == "" {
-		return tx.Append(current.ID, treeID, branchID, event)
-	}
 	event.WorkflowSignaled.RequestID = requestID
-	id, _, err := tx.AppendIdempotent(current.ID, treeID, branchID, event)
-	return id, err
+	return recordInteraction(tx, current, treeID, branchID, event)
 }
 
-// AcceptUpdate 在 Run 上记一条 WorkflowUpdateAccepted。Run 正在关闭时返回 ErrWorkflowClosing。
+// AcceptUpdate 在 Run 上记一条 WorkflowUpdateAccepted；同一个 updateID 只记一条。Run 正在关闭时新的 Update 返回
+// ErrWorkflowClosing。
 func AcceptUpdate(tx ExecutionTx, current *Run, treeID, branchID, name, updateID string, args history.Payloads) (int64, error) {
+	return recordInteraction(tx, current, treeID, branchID, history.NewWorkflowUpdateAcceptedEvent(name, updateID, args))
+}
+
+// recordInteraction 先按去重键找已记下的同一请求（重发返回第一次的事件 ID），再做关闭检查，最后写入；顺序与 Temporal
+// signalworkflow 先 IsSignalRequested、后关闭检查相同：应答丢失后的重发在 Run 正在关闭时仍然成功，不会落到接续 Run
+// 再记一次。没有去重键（不带 requestID 的 Signal）时直接写入。
+func recordInteraction(tx ExecutionTx, current *Run, treeID, branchID string, event history.Event) (int64, error) {
 	if err := EnsureActive(current); err != nil {
 		return 0, err
+	}
+	key, idempotent := history.DedupeKey(event)
+	if idempotent {
+		if id, found, err := tx.GetEventIDByDedupeKey(current.ID, branchID, key); err != nil || found {
+			return id, err
+		}
 	}
 	if err := ensureNotClosing(tx, current); err != nil {
 		return 0, err
 	}
-	id, _, err := tx.AppendIdempotent(current.ID, treeID, branchID, history.NewWorkflowUpdateAcceptedEvent(name, updateID, args))
+	if !idempotent {
+		return tx.Append(current.ID, treeID, branchID, event)
+	}
+	id, _, err := tx.AppendIdempotent(current.ID, treeID, branchID, event)
 	return id, err
 }
 

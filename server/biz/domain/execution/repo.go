@@ -165,6 +165,9 @@ type ExecutionManager interface {
 
 type ExecutionTx interface {
 	AppendIdempotent(runID, treeID, branchID string, event history.Event) (eventID int64, inserted bool, err error)
+	// GetEventIDByDedupeKey 返回 Run 的 branch 上去重键（history.DedupeKey）为 dedupeKey 的事件 ID，包含本事务
+	// 写入的事件。MySQL 上加锁读取，与 AppendIdempotent 的去重判定一致。
+	GetEventIDByDedupeKey(runID, branchID, dedupeKey string) (eventID int64, found bool, err error)
 	Append(runID, treeID, branchID string, event history.Event) (eventID int64, err error)
 	AppendWorkflowTaskClosed(runID, treeID, branchID string, event history.Event) (eventID int64, inserted bool, err error)
 	AppendWorkflowTaskCompleted(runID, treeID, branchID string, closeEvent history.Event, commandEvents []history.Event) (WorkflowTaskCompletionResult, error)

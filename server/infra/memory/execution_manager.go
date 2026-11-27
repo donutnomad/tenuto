@@ -382,6 +382,22 @@ func (t *memExecutionTx) prepareEvent(event history.Event) (history.Event, error
 	return normalized, nil
 }
 
+// GetEventIDByDedupeKey 先看本 Run branch 上已提交的事件，再看本事务缓冲。
+func (t *memExecutionTx) GetEventIDByDedupeKey(runID, _, dedupeKey string) (int64, bool, error) {
+	if id, found := t.events.findDedupe(runID, dedupeKey); found {
+		return id, true, nil
+	}
+	for _, pe := range t.pendingEvents {
+		if pe.runID != runID {
+			continue
+		}
+		if k, ok := history.DedupeKey(pe.event); ok && k == dedupeKey {
+			return pe.event.ID, true, nil
+		}
+	}
+	return 0, false, nil
+}
+
 func (t *memExecutionTx) AppendIdempotent(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
 	if err := t.requireRun(runID); err != nil {
 		return 0, false, err
@@ -391,18 +407,9 @@ func (t *memExecutionTx) AppendIdempotent(runID, treeID, branchID string, event 
 		return 0, false, err
 	}
 	event = normalized
-	// 去重：先看本 Run branch 上已提交的事件，再看本事务缓冲。
 	if key, ok := history.DedupeKey(event); ok {
-		if id, found := t.events.findDedupe(runID, key); found {
+		if id, found, _ := t.GetEventIDByDedupeKey(runID, branchID, key); found {
 			return id, false, nil
-		}
-		for _, pe := range t.pendingEvents {
-			if pe.runID != runID {
-				continue
-			}
-			if k, exok := history.DedupeKey(pe.event); exok && k == key {
-				return pe.event.ID, false, nil
-			}
 		}
 	}
 	if err := t.checkOpen(runID, event); err != nil {

@@ -248,7 +248,7 @@ cancellation · complete · fail · release
 `heartbeat` 记录进度并答复 `{cancel_requested, reason}`：
 
 - Workflow 请求取消这个 Activity 时 `reason` 为 `activity_cancel_requested`。Worker 取消 Activity 的 `ctx`；Activity 以取消错误或 `context.Canceled` 结束时，Worker 用 `fail` 上报 `type` 为 `CanceledError` 的失败（带取消错误的 details），Server 记 `ActivityCancelled`；Activity 返回成功或其他错误时照常上报。
-- Run 已关闭（`run_closed`、`run_cancelled`、`run_terminated`）、Activity 已结束（`activity_closed`）或这次 Attempt 已过期（`stale_task`）时 Worker 取消 `ctx`，之后不上报这次 Attempt 的结果。
+- Run 已关闭（`run_closed`、`run_cancelled`、`run_terminated`）、Run 不存在（`run_not_found`，例如已被 retention 回收；以 200 答复而不是 404，Worker 才能与反向代理的 404 区分）、Activity 已结束（`activity_closed`）或这次 Attempt 已过期（`stale_task`）时 Worker 取消 `ctx`，之后不上报这次 Attempt 的结果。心跳请求得到其他错误时只算一次失败的心跳。
 
 `cancellation` 只做上面的取消检查，不记录心跳。
 

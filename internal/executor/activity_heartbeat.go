@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -113,11 +112,6 @@ func (h *heartbeater) send(ctx context.Context, details map[string]any) {
 	ctx, cancel := context.WithTimeout(ctx, h.interval)
 	defer cancel()
 	result, err := h.runtime.RecordActivityHeartbeat(ctx, h.task, details)
-	if errors.Is(err, protocol.ErrInvalidRequest) {
-		// Server 不再认这次 attempt（Run 不存在等 4xx）：重发也不会成功，结果没有接收方。
-		h.cancel(errActivityAbandoned)
-		return
-	}
 	if err != nil {
 		h.mu.Lock()
 		expired := h.heartbeatTimeout > 0 && time.Since(h.lastOK) >= h.heartbeatTimeout

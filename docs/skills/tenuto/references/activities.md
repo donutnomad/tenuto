@@ -111,7 +111,7 @@ type RetryPolicy struct {
 - **Activity 默认重试。** 缺省策略与 Temporal 相同，由 Server 补齐：零值 `RetryPolicy` 不限次数重试，部分设置的策略其余字段取缺省值；`ActivityScheduled` 事件记录补齐后的生效策略。只执行一次写 `RetryPolicy{MaxAttempts: 1}`。没有 `ScheduleToCloseTimeout` 也没有 `MaxAttempts` 的 Call 一直重试到成功或遇到不可重试的错误。
 - 退避：`interval(n) = min(InitialInterval × BackoffCoefficient^(n-1), MaxInterval)`。
 - `ScheduleToCloseTimeout` 到期，或下一次 Attempt 会落在它之后时，Call 直接失败（`retryState` 为 `Timeout`）；`ScheduleToStartTimeout` 到期同样直接失败；`StartToCloseTimeout` 与 `HeartbeatTimeout` 按 RetryPolicy 决定下一次 Attempt。
-- Activity 的 `ctx` 截止在本次 Attempt 的 deadline：`StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个（同 Temporal Go SDK）。Attempt 在 `ctx` 截止之后才返回时 Worker 不上报结果（成功或 `context deadline exceeded`），由 Server 判定超时，Workflow 稳定收到超时错误，`workflow.TimeoutTypeOf(err)` 返回对应种类。心跳得知 Attempt 已失效（Run 已结束、Activity 已关闭、Attempt 已过期，或 Server 以 4xx 拒绝心跳，例如 Run 不存在）时 Worker 取消 `ctx`、不上报，Activity 返回后执行槽位随即释放。
+- Activity 的 `ctx` 截止在本次 Attempt 的 deadline：`StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个（同 Temporal Go SDK）。Attempt 在 `ctx` 截止之后才返回时 Worker 不上报结果（成功或 `context deadline exceeded`），由 Server 判定超时，Workflow 稳定收到超时错误，`workflow.TimeoutTypeOf(err)` 返回对应种类。心跳应答明确答复 Attempt 已失效（Run 已结束、Activity 已关闭、Attempt 已过期，或 Run 不存在 `run_not_found`）时 Worker 取消 `ctx`、不上报，Activity 返回后执行槽位随即释放；心跳请求的其他错误（包括反向代理的 4xx）只算一次失败的心跳，继续执行。
 - Call 因超时最终失败时，`workflow.TimeoutTypeOf(err)` 返回超时种类（`workflow.TimeoutTypeStartToClose` 等），其他错误返回空串。
 
 停止重试的判定顺序（只看顶层失败；`fmt.Errorf("%w")` 包装后顶层 Type 与标记属于包装层）：

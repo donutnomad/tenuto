@@ -385,11 +385,18 @@ func TestSupersededCloseCommandMarksRunClosing(t *testing.T) {
 	store := newStoreWithRun(t, "run-1")
 	seedStartedWorkflowTask(t, store, "run-1")
 	run := mustGetRun(t, store, "run-1")
-	signal := func() error {
-		return store.RunInTx(func(tx execution.ExecutionTx) error {
-			_, err := execution.RecordSignal(tx, run, "run-1", "run-1", "tick", "", nil)
+	signalWithID := func(requestID string) (int64, error) {
+		var id int64
+		err := store.RunInTx(func(tx execution.ExecutionTx) error {
+			var err error
+			id, err = execution.RecordSignal(tx, run, "run-1", "run-1", "tick", requestID, nil)
 			return err
 		})
+		return id, err
+	}
+	signal := func() error {
+		_, err := signalWithID("")
+		return err
 	}
 	update := func(id string) error {
 		return store.RunInTx(func(tx execution.ExecutionTx) error {
@@ -445,8 +452,9 @@ func TestSupersededCloseCommandMarksRunClosing(t *testing.T) {
 		t.Fatal("a committed decision marked the run closing")
 	}
 
-	// 带结束 Run 命令的决策被作废。
-	if err := signal(); err != nil {
+	// 带结束 Run 命令的决策被作废。作废它的 Signal 带 requestID，应答丢失后会被重发。
+	firstID, err := signalWithID("req-1")
+	if err != nil {
 		t.Fatal(err)
 	}
 	completeCommands := []history.Command{{Type: history.CmdCompleteWorkflow}}
@@ -474,6 +482,18 @@ func TestSupersededCloseCommandMarksRunClosing(t *testing.T) {
 	}
 	if err := update("u-1"); !errors.Is(err, execution.ErrWorkflowClosing) {
 		t.Fatalf("update while closing: err = %v, want ErrWorkflowClosing", err)
+	}
+	// 已记下的请求重发：先去重、后关闭检查（同 Temporal signalworkflow），返回第一次的事件 ID，History 只有一条。
+	if id, err := signalWithID("req-1"); err != nil || id != firstID {
+		t.Fatalf("resent signal while closing: id = %d, err = %v, want the first event %d", id, err, firstID)
+	}
+	if _, err := signalWithID("req-2"); !errors.Is(err, execution.ErrWorkflowClosing) {
+		t.Fatalf("new signal with a request id while closing: err = %v, want ErrWorkflowClosing", err)
+	}
+	if events, err := store.GetEvents("run-1"); err != nil {
+		t.Fatal(err)
+	} else if n := countSignals(events, "req-1"); n != 1 {
+		t.Fatalf("WorkflowSignaled(req-1) = %d, want 1", n)
 	}
 	if result := commit(scheduled, started, completeCommands, completeEvents); !result.ClosedInserted || result.Superseded {
 		t.Fatalf("retried close = %+v, want committed", result)
@@ -506,4 +526,14 @@ func TestWorkflowTaskTimeoutClearsClosing(t *testing.T) {
 	if state, err = store.GetWorkflowExecutionState("run-1"); err != nil || state.WorkflowClosing() || state.WorkflowTask.CloseAttempted {
 		t.Fatalf("state = %+v, err = %v, want the close attempt cleared", state, err)
 	}
+}
+
+func countSignals(events []history.Event, requestID string) int {
+	n := 0
+	for _, event := range events {
+		if event.WorkflowSignaled != nil && event.WorkflowSignaled.RequestID == requestID {
+			n++
+		}
+	}
+	return n
 }

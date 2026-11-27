@@ -129,7 +129,7 @@ Worker 对心跳做节流，`RecordHeartbeat` 可以在循环里频繁调用：
 - 间隔外的一次调用立即发出（在调用方 goroutine 里同步等待，最多一个间隔）并开启间隔；间隔内的调用只保留最新的 details，间隔结束时发出。
 - Activity 返回成功时完成结果取代未发出的 details；以失败、取消或 Worker 停止交还结束时，先发出未发出的最新 details，下一次 Attempt 用 `GetLastHeartbeatDetails` 读到它们。
 - 设置了 `HeartbeatTimeout` 时，心跳请求连续失败超过 `HeartbeatTimeout`（Server 已按 Heartbeat 超时结束这次 Attempt）后 Worker 取消 `ctx`，结果不再上报。
-- Server 以 4xx 拒绝心跳（例如 Run 不存在）时，这次 Attempt 不再有接收方：Worker 立即取消 `ctx`，结果不再上报。
+- Server 在心跳应答里明确答复这次 Attempt 已失效时（Run 已结束、Activity 已关闭、Attempt 已过期，或 Run 不存在，`reason` 为 `run_not_found`），结果不再有接收方：Worker 立即取消 `ctx`，结果不再上报。心跳请求得到其他错误（包括反向代理返回的 404、413 等 4xx）只算一次失败的心跳，Activity 继续执行，下一次心跳再试。
 
 Heartbeat 不写 History：Server 只更新 Activity 状态里的最后一次详情与时间（MySQL 上是一条 UPDATE），并从这个时间重新计算 Heartbeat 超时。运行中的详情在 Console 的 Pending 页签与 `activity-states` 里查看；Attempt 超时时，`ActivityTimedOut` 的 `lastHeartbeatDetails` 保存当时最后一次心跳的详情。
 

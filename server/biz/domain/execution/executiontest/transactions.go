@@ -142,6 +142,48 @@ func TransactionContract(t *testing.T, newManager func(t *testing.T) execution.E
 		}
 	})
 
+	// 事务内按去重键查找：读到已提交的事件与本事务写入的事件，其他 Run 的同键事件读不到。
+	t.Run("GetEventIDByDedupeKeySeesCommittedAndOwnWrites", func(t *testing.T) {
+		manager := newManager(t)
+		const runID, otherID = "run-dedupe", "run-dedupe-other"
+		createContractRun(t, manager, runID)
+		createContractRun(t, manager, otherID)
+		signal := func(requestID string) history.Event {
+			event := history.NewWorkflowSignaledEvent("tick", nil)
+			event.WorkflowSignaled.RequestID = requestID
+			return event
+		}
+		committedID, _, err := manager.AppendIdempotent(runID, runID, runID, signal("req-1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := manager.AppendIdempotent(otherID, otherID, otherID, signal("req-other")); err != nil {
+			t.Fatal(err)
+		}
+		key := func(requestID string) string {
+			k, _ := history.DedupeKey(signal(requestID))
+			return k
+		}
+		if err := manager.RunInTx(func(tx execution.ExecutionTx) error {
+			if id, found, err := tx.GetEventIDByDedupeKey(runID, runID, key("req-1")); err != nil || !found || id != committedID {
+				t.Errorf("committed event: id=%d found=%v err=%v, want %d", id, found, err, committedID)
+			}
+			if _, found, err := tx.GetEventIDByDedupeKey(runID, runID, key("req-other")); err != nil || found {
+				t.Errorf("another run's event: found=%v err=%v, want not found", found, err)
+			}
+			ownID, _, err := tx.AppendIdempotent(runID, runID, runID, signal("req-2"))
+			if err != nil {
+				return err
+			}
+			if id, found, err := tx.GetEventIDByDedupeKey(runID, runID, key("req-2")); err != nil || !found || id != ownID {
+				t.Errorf("event written in the same tx: id=%d found=%v err=%v, want %d", id, found, err, ownID)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	// 终态事件之后 History 不再接受事件：重复的终态写入按去重返回已记录的事件，其余追加返回 ErrRunClosed。
 	t.Run("ClosedRunRejectsAppends", func(t *testing.T) {
 		manager := newManager(t)

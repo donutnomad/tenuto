@@ -384,6 +384,10 @@ func runNamespace(db *gorm.DB, runID string) (string, error) {
 	return row.Namespace, nil
 }
 
+func (t *gormExecutionTx) GetEventIDByDedupeKey(_, branchID, dedupeKey string) (int64, bool, error) {
+	return findDedupedEventID(t.db, branchID, dedupeKey)
+}
+
 // dedupedEventID 返回 branch 上已有的同 dedupe key 事件的 node_id。加锁读取最新已提交的行，
 // 不受事务较早建立的一致性读快照影响。
 func dedupedEventID(db *gorm.DB, branchID, dedupeKey string) (int64, error) {
