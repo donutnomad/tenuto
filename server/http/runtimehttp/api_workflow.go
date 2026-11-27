@@ -74,6 +74,10 @@ type WorkflowRuntimeHTTPAPI interface {
 	// @POST(/deregister-activity-worker-version)
 	DeregisterActivityWorkerVersion(ctx *gin.Context, req runtimeapi.WorkflowRuntimeDeregisterActivityWorkerRequest) (runtimeapi.RuntimeOKResponse, error)
 
+	// ShutdownWorker 结束 Worker 实例在本副本上在途的领取长轮询，Worker 停止时在断开连接之前调用
+	// @POST(/shutdown-worker)
+	ShutdownWorker(ctx *gin.Context, req runtimeapi.WorkflowRuntimeShutdownWorkerRequest) (runtimeapi.RuntimeOKResponse, error)
+
 	// ListRuns 查询 Run 列表
 	// @POST(/list)
 	ListRuns(ctx *gin.Context, req runtimeapi.WorkflowRuntimeListRunsRequest) (runtimeapi.RunListResult, error)
@@ -220,6 +224,7 @@ type workflowEngine interface {
 	RegisterActivityWorkerVersion(ctx context.Context, worker protocol.ActivityWorkerVersion) error
 	HeartbeatActivityWorkerVersionInNamespace(ctx context.Context, namespace, identity, buildID string) error
 	DeregisterActivityWorkerVersionInNamespace(ctx context.Context, namespace, identity, buildID string) error
+	ShutdownWorkerPolls(ctx context.Context, namespace, identity, session string) error
 	UpsertSearchAttributes(ctx context.Context, namespace, workflowID, runID string, attrs map[string]string) error
 	SignalWorkflow(ctx context.Context, namespace, workflowID, runID, name, requestID string, input map[string]any) (int64, error)
 	QueryWorkflow(ctx context.Context, namespace, workflowID, runID, name string, input map[string]any) (execution.WorkflowQueryResult, error)
@@ -395,6 +400,10 @@ func (a *workflowRuntimeHTTPAPI) RegisterActivityWorkerVersion(ctx *gin.Context,
 
 func (a *workflowRuntimeHTTPAPI) HeartbeatActivityWorkerVersion(ctx *gin.Context, req runtimeapi.WorkflowRuntimeHeartbeatActivityWorkerRequest) (runtimeapi.RuntimeOKResponse, error) {
 	return runtimeOK(a.engine.HeartbeatActivityWorkerVersionInNamespace(ctx.Request.Context(), req.Namespace, req.Identity, req.BuildID))
+}
+
+func (a *workflowRuntimeHTTPAPI) ShutdownWorker(ctx *gin.Context, req runtimeapi.WorkflowRuntimeShutdownWorkerRequest) (runtimeapi.RuntimeOKResponse, error) {
+	return runtimeOK(a.engine.ShutdownWorkerPolls(ctx.Request.Context(), req.Namespace, req.Identity, req.Session))
 }
 
 func (a *workflowRuntimeHTTPAPI) DeregisterActivityWorkerVersion(ctx *gin.Context, req runtimeapi.WorkflowRuntimeDeregisterActivityWorkerRequest) (runtimeapi.RuntimeOKResponse, error) {

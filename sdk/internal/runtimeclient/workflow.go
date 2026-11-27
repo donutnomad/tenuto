@@ -240,6 +240,11 @@ func (c *WorkflowRuntimeHTTPClient) DeregisterActivityWorkerVersionInNamespace(c
 	return c.post(ctx, runtimeapi.WorkflowRuntimeDeregisterActivityWorkerPath, runtimeapi.WorkflowRuntimeDeregisterActivityWorkerRequest{Namespace: namespace, Identity: identity, BuildID: buildID}, nil)
 }
 
+// ShutdownWorkerPolls 请求 Server 结束 Worker 实例在途的领取长轮询，Worker 停止时在断开连接之前调用。
+func (c *WorkflowRuntimeHTTPClient) ShutdownWorkerPolls(ctx context.Context, namespace, identity, session string) error {
+	return c.post(ctx, runtimeapi.WorkflowRuntimeShutdownWorkerPath, runtimeapi.WorkflowRuntimeShutdownWorkerRequest{Namespace: namespace, Identity: identity, Session: session}, nil)
+}
+
 // RegisterWorkflowJSON 让 Activity-role Worker 经路由 registry 登记随二进制发布的
 // workflow.json，语义与 WorkflowTaskRuntimeHTTPClient.RegisterWorkflowJSON 相同。
 func (c *WorkflowRuntimeHTTPClient) RegisterWorkflowJSON(ctx context.Context, namespace string, workflowJSON []byte) (string, error) {

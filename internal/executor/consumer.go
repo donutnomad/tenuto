@@ -17,7 +17,10 @@ const (
 	pollRetryMaxDelay     = 10 * time.Second
 )
 
-// Consume polls one task stream until pollCtx ends and runs each leased task
+// ErrPollingStopped 由 poll 返回，表示调用方已停止拉取：Consume 立即返回，不再退避重试。
+var ErrPollingStopped = errors.New("polling stopped")
+
+// Consume polls one task stream until pollCtx ends or poll returns ErrPollingStopped, and runs each leased task
 // under handleCtx. pollCtx carries worker routing metadata; cancelling it stops
 // polling (an in-flight long poll returns promptly) while the task being handled
 // keeps running until it finishes or handleCtx is cancelled. A lease returned by
@@ -36,6 +39,9 @@ func Consume(
 	backoff := pollBackoff{logger: logger, taskKind: taskKind}
 	for pollCtx.Err() == nil {
 		lease, err := poll(pollCtx)
+		if errors.Is(err, ErrPollingStopped) {
+			return
+		}
 		if errors.Is(err, protocol.ErrTaskPollTimeout) {
 			backoff.recovered()
 			continue

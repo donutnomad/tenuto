@@ -102,6 +102,13 @@ type WorkflowRuntimeDeregisterActivityWorkerRequest struct {
 	BuildID   string `json:"build_id"`
 }
 
+// WorkflowRuntimeShutdownWorkerRequest 请求 Server 结束一个 Worker 实例（Identity + Session）的在途领取长轮询。
+type WorkflowRuntimeShutdownWorkerRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+	Identity  string `json:"identity"`
+	Session   string `json:"session"`
+}
+
 type WorkflowRuntimeSearchAttributesRequest struct {
 	Namespace        string            `json:"namespace,omitempty"`
 	WorkflowID       string            `json:"workflow_id,omitempty"`

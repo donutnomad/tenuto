@@ -39,12 +39,14 @@
 
 ### 其他
 
+- [ ] Worker 停止时的 `shutdown-worker` 只结束接到请求的副本上的长轮询。多副本部署时，落在其他副本上的长轮询仍由 Worker 直接断开，那一刻出队的任务要等可见性超时（Activity）或 Workflow Task 超时才重投。彻底解决需要跨副本广播 session 关闭（例如经 DB 或 TaskQ 通知）。
 - [ ] Reset 在 CAS 冲突时会留下孤儿 History 分支。
 - [ ] update handler 优先运行（SDKPriorityUpdateHandling）没有按 History 设开关。等到需要兼容已部署的 Run 时再补。
 - [ ] Schedule 启动失败的重试状态只保存在内存里，leader 切换后会重新计时。
 - [ ] 批量 Reset 中途崩溃后重做时，已经 Reset 过的 Run 被计为 skipped。
 - [ ] 启动恢复失败时，Timer 会晚约 45s 触发。
 - [ ] 多属性过滤时，驱动属性按键名选择，而不是按选择性选择。
+- [ ] 待观察：`compiler/sdkgen` 的 `TestGenerateDoesNotDependOnGeneratedFiles` 在高负载下失败过一次（与 MySQL 全量测试并发，耗时 95s，`open testdata/tmp-orders-*/zz_orders_contract_gen.go: no such file or directory`），单独与整包重跑都通过。
 - [ ] 待观察：upgrade-demo（memory）在 21fc843e 上失败过一次，之后连续 12 次都通过，失败时的服务端日志没有保留。
   - 失败位置：场景 4，app-a v1 下线后，pinned Run 在 Signal 之后调度 fulfillment.restock，ActivityScheduled 写入后 30s 内没有被领取，driver 等待超时。
   - 疑似原因：投递丢失，要等 reconciler 30s 宽限期后补投；也可能只是负载下的计时问题。
