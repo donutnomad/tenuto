@@ -83,6 +83,8 @@ func TestGoSemanticsProbes(t *testing.T) {
 		{SemMakeCapAlias, "SemMakeCapAlias", `{}`},
 		{SemMakeSliceBeyondLen, "SemMakeSliceBeyondLen", `{}`},
 		{SemMakeSpareCapacityZero, "SemMakeSpareCapacityZero", `{}`},
+		{SemSmallIntIndexes, "SemSmallIntIndexes", `{}`},
+		{SemSmallIntIndexNegative, "SemSmallIntIndexNegative", `{}`},
 		{SemAppendSizedCopy, "SemAppendSizedCopy", `{}`},
 		{SemAppendCapPassToFunc, "SemAppendCapPassToFunc", `{}`},
 		{SemAppendRuntimeZeroLenCap, "SemAppendRuntimeZeroLenCap", `{}`},

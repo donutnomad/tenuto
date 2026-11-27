@@ -93,7 +93,7 @@ Workflow 函数可以调用同包普通函数和值接收者方法（任意文�
 - `if` / `else` / `else if` / `if init; cond`（`init` 的变量只在该 `if` 内可见）。
 - 表达式 `switch`（tag 只求值一次）、条件 `switch`、类型 `switch`；`case` 里的 `break` 退出 `switch`。
 - 三段式循环 `for i := from; cond; post`：每轮求值 `cond`，`post` 是任意简单语句，循环体对 `i` 的写入带入下一轮，闭包捕获每轮自己的 `i`。
-- `for i := range xs`（`i` 是下标）、`for i, item := range xs`、`for _, item := range xs`、`for range xs`、`for i := range n`。
+- `for i := range xs`（`i` 是下标）、`for i, item := range xs`、`for _, item := range xs`、`for range xs`、`for i := range n`（`n` 是任意整数类型）。
 - `for k, v := range m`：按 key 升序遍历，每次执行与重放顺序相同。
 - `break`、`continue`，包括带标签的形式。
 - `panic(expr)`、`defer` 调用。

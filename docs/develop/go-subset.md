@@ -119,7 +119,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 - 表达式 `switch`（tag 只求值一次）、条件 `switch`、类型 `switch`；`case` 里的 `break` 退出 `switch`。
 - 三段式循环 `for i := from; cond; post`：每轮重新求值 `cond`，`post` 可以是任意简单语句（`i++`、`i += 2`、`i = i * 2`），循环体对 `i` 的写入带入下一轮，闭包捕获每轮自己的 `i`。
 - `for i := range xs`（`i` 是下标）、`for i, item := range xs`、`for _, item := range xs`、`for range xs`。迭代次数在循环开始时固定，元素在每轮开始时读取。
-- `for i := range n`。
+- `for i := range n`：`n` 可以是任意整数类型，`i` 与 `n` 同类型。
 - `for k, v := range m`：按 key 升序遍历，见[确定性：Map 与迭代顺序](/develop/determinism#map-与迭代顺序)。
 - `break`、`continue`，包括带标签的形式。
 - `panic(expr)`、`defer` 调用（参数在 `defer` 处求值，按后进先出执行，可修改命名返回值）。
@@ -130,7 +130,7 @@ func PlaceOrder(ctx workflow.Context, in OrderInput) (OrderOutput, error) {
 - 字面量：字符串、整数、浮点、布尔、`nil`。
 - 运算：`+ - * / %`、比较、`&&`、`||`、`!`、一元 `-`。整数按位宽溢出回绕，整数除法与 `%` 向零截断，整数除以 0 panic；浮点除以 0 得到 `+Inf`、`-Inf` 或 `NaN`，与 Go 相同。
 - `==`、`!=` 与 `switch` 的比较结果与 Go 相同，见下文「比较」。
-- 字段访问 `user.Name`、slice 索引 `xs[i]`、切片 `xs[a:b]`（`b` 可以超过长度、不超过容量，与 Go 相同）、map 读取 `m[k]` 与 `v, ok := m[k]`。key 不存在（含 nil map）时得到元素类型的零值：结构体得到各字段为零值的结构体，slice、map 得到 nil，之后可以 `append`、`range`、读取，例如按 key 分组的 `list := groups[k]; list = append(list, v); groups[k] = list`。嵌套读取 `m[a][b]` 在外层 key 不存在时同样得到零值。
+- 字段访问 `user.Name`、slice 索引 `xs[i]`（下标与切片边界可以是任意整数类型，负数或越界与 Go 一样 panic）、切片 `xs[a:b]`（`b` 可以超过长度、不超过容量，与 Go 相同）、map 读取 `m[k]` 与 `v, ok := m[k]`。key 不存在（含 nil map）时得到元素类型的零值：结构体得到各字段为零值的结构体，slice、map 得到 nil，之后可以 `append`、`range`、读取，例如按 key 分组的 `list := groups[k]; list = append(list, v); groups[k] = list`。嵌套读取 `m[a][b]` 在外层 key 不存在时同样得到零值。
 - 复合字面量：`[]T{...}`、`map[string]T{...}`、`pkg.Type{Field: v}`、当前包 `Type{Field: v}`、具名 slice/map 类型 `Tags{"a"}`（`type Tags []string`），以及省略元素类型的 `[]Point{ {X: 1} }`、`map[string]Amounts{"x": {1, 2}}`。
 - 内建函数：`len`、`cap`、`copy`、`delete`、`append`（语句 `xs = append(xs, v...)`，包括 `xs = append(xs, ys...)`）。
 - `make`：`make(map[K]V)` 得到空 map；`make([]T, n)`、`make([]T, n, c)` 得到 n 个零值、容量为 c 的 slice，可以写在任意表达式位置。`cap`、超出长度的切片 `xs[:k]`（`k` 不超过 `c`）、`append` 复用剩余容量与共享底层数组都与 Go 相同；`n < 0` 或 `c < n` 与 Go 一样 panic。

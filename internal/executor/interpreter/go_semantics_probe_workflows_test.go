@@ -1344,3 +1344,31 @@ func SemMakeSpareCapacityZero(ctx workflow.Context, in SemInput) (SemOut, error)
 	second, third := more[1], more[2]
 	return SemOut{Count: len(more)*10 + cap(items), Sum: second.Qty + tail.Qty, Text: tail.Name + third.Name}, nil
 }
+
+// 下标、切片边界与 range n 可以是任意整数类型（int32、uint8 等），与 Go 相同。
+func SemSmallIntIndexes(ctx workflow.Context, in SemInput) (SemOut, error) {
+	xs := []int{10, 20, 30, 40}
+	var i int32 = 1
+	var j uint8 = 3
+	var k int16 = 2
+	xs[k] = xs[i] + xs[j]
+	ys := xs[i:j]
+	var n int32 = 3
+	var total int32
+	for r := range n {
+		total += r
+	}
+	var m uint8 = 2
+	count := 0
+	for range m {
+		count++
+	}
+	return SemOut{List: ys, Sum: xs[k], Count: len(ys)*100 + count*10, Text: fmt.Sprint(total)}, nil
+}
+
+// 负数下标与 Go 一样 panic（Workflow Task 以 workflow_panic 失败）。
+func SemSmallIntIndexNegative(ctx workflow.Context, in SemInput) (SemOut, error) {
+	xs := []int{1, 2}
+	var i int8 = -1
+	return SemOut{Sum: xs[i]}, nil
+}
