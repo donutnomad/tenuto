@@ -10,7 +10,7 @@
 - [x] 2 副本 MySQL soak 31 分钟（kill-worker 8 次、kill-replica 1 次、pause-replica 5 次）：1800 个 Run 全部结束并核对通过，每次故障 1s 内恢复，26 次 Activity 重复执行全部是 Worker 被 kill 时正在执行的 attempt。数据库连接数 38–45，TaskQ 积压接近 0，overdue 始终为 0。副本 RSS 斜率 9–17 MiB/h。
 - [ ] retention GC 没有覆盖到：`-retention` 最小 1h，要跑 90 分钟以上。`tenuto_task_dispatches` 每小时增长约 8.4 万行（约 10 行/Run），需要确认 GC 会回收。
 - [ ] soak 报告 `unmatched records: 100`（核对之后才写完、没被取走的执行记录），没有逐条核对。
-- [ ] 删除残留的测试库：`tenuto_e2e_r5_worker2`，以及 `tenuto_test_*`（中断的测试留下的）。
+- [x] 删除残留的测试库：`tenuto_e2e_r5_worker2` 与 8 个 `tenuto_test_*`（2026-11-27）。
 
 ## 已知遗留
 
