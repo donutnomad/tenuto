@@ -134,7 +134,7 @@ if err := handle.Get(ctx, &result); err != nil {
 | `UnknownUpdate` | Update 名没有注册 Handler |
 | `DataConversionError` | Update 参数无法解码成 Handler 的参数类型 |
 | `HandlerExecutionError` | Update Handler 执行出错（非业务返回的错误） |
-| `HistoryLimitExceeded` | Run 因 Event History 超过硬上限被关闭 |
+| `HistoryLimitExceeded` | Run 因 Event History 超过硬上限被关闭：任何写入（命令、Signal、Update、Activity / Timer 结果、`WorkflowTaskScheduled`）会超过上限时，Server 用终态预留写 `WorkflowFailed`，message 写明指标、预计值与上限（Temporal 写 `WorkflowExecutionTerminated`） |
 | `AcceptedUpdateCompletedWorkflow` | Update 已接受、Handler 尚未完成时 Run 关闭（不可重试） |
 
 ## 设计规则

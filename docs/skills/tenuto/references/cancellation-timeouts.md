@@ -108,7 +108,7 @@ HTTP：`POST /runtime/workflow/terminate`，body 同取消。终止立即结束 
 | `HeartbeatTimeout` | 两次 Heartbeat 的间隔 | Worker 崩溃、网络中断 |
 
 - `ScheduleToStartTimeout` 与 `ScheduleToCloseTimeout` 到期后 Call 直接失败；`StartToCloseTimeout` 与 `HeartbeatTimeout` 按 RetryPolicy 决定下一次 Attempt。
-- 配置了 `StartToCloseTimeout` 时，Activity 的 `ctx` 带同样的 deadline。
+- Activity 的 `ctx` 截止在本次 Attempt 的 deadline：`StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个（同 Temporal Go SDK）。Attempt 在 `ctx` 截止之后才返回时 Worker 不上报结果（成功或 `context deadline exceeded`），由 Server 判定超时，Workflow 稳定收到超时错误，`workflow.TimeoutTypeOf(err)` 返回对应种类。心跳得知 Attempt 已失效（Run 已结束、Activity 已关闭、Attempt 已过期，或 Server 以 4xx 拒绝心跳，例如 Run 不存在）时 Worker 取消 `ctx`、不上报，Activity 返回后执行槽位随即释放。
 - 每个调用至少设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout`：Attempt 开始后它的存活只由超时判定。
 - 超时后旧 Attempt 的回报按 Task Token 校验，过期回报不推进状态。
 - 每次超时写一条 `ActivityTimedOut`，`timeoutType` 是超时种类（`ScheduleToStart`、`StartToClose`、`ScheduleToClose`、`Heartbeat`），`failure.message` 是说明，`lastHeartbeatDetails` 是超时时最后一次心跳的详情（心跳本身不写 History）。Call 因超时最终失败时，`workflow.TimeoutTypeOf(err)` 返回超时种类，不是超时错误时为空串。

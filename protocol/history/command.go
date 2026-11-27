@@ -35,6 +35,16 @@ const (
 	CmdContinueAsNew    CommandType = "ContinueAsNew"    // 截断历史、开下一代 Run（→ WorkflowContinuedAsNew，终态）
 )
 
+// ClosesWorkflow 报告命令是否结束当前 Run（第 3 类）。一批命令里它排在最后（对标 Temporal 的
+// ValidateCommandSequence：关闭命令必须是最后一条）。
+func (t CommandType) ClosesWorkflow() bool {
+	switch t {
+	case CmdCompleteWorkflow, CmdFailWorkflow, CmdCancelWorkflow, CmdContinueAsNew:
+		return true
+	}
+	return false
+}
+
 // Command 是宽结构体：各种命令共用同一个 struct，不同 Type 只填各自相关的字段。
 // 下方注释标了每个字段服务于哪种命令。
 type Command struct {

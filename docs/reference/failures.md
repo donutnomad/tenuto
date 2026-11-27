@@ -41,7 +41,7 @@ Tenuto 将程序失败、业务拒绝、超时、取消和确定性错误映射�
 | `PanicError` | Activity 函数 panic；按 Retry Policy 重试 |
 | `PayloadSizeLimitExceeded` | Activity 的结果或心跳详情超过载荷上限（`WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES`），见 [容量上限](/operations/capacity-limits#载荷大小)；不可重试 |
 | `ActivityResultRejected` | Server 以不可重试的 4xx 拒绝了 Activity 的结果（例如请求体超限），Worker 改报的失败；不可重试 |
-| `HistoryLimitExceeded` | Run 因 Event History 超过硬上限被关闭；父 Workflow 在 `ChildWorkflowFailed` 中读到同一 Type |
+| `HistoryLimitExceeded` | Run 因 Event History 超过硬上限被关闭：任何写入会超过上限时 Server 以 `WorkflowFailed` 关闭 Run，message 写明指标、预计值与上限；父 Workflow 在 `ChildWorkflowFailed` 中读到同一 Type。Temporal 在这种情况下写 `WorkflowExecutionTerminated`（reason 是超限说明），Tenuto 写 `WorkflowFailed`，以便按 Failure Type 判断，见 [History 容量管理](/operations/history-scaling#默认限制) |
 | `AcceptedUpdateCompletedWorkflow` | Update 已接受、Handler 尚未完成时 Run 关闭；不可重试（`NonRetryable`），与 Temporal 同名 |
 | `CanceledError` | 取消错误，与 Temporal 的 CanceledError 对应：`ctx.Err()`、被取消的 Activity / timer / 子 Workflow 返回给 Workflow 代码的错误，以及 `workflow.NewCanceledError(details...)`；不可重试。Workflow 返回它时 Run 以 Cancelled 结束、details 记进 `WorkflowCancelled`；Activity 确认取消时以它上报，details 记进 `ActivityCancelled`。用 `workflow.IsCanceledError` 或 `apperror.IsCanceled` 判断 |
 | `ResetWorkflowError` | Workflow Reset 时分叉点上已开始的 Activity 被打断：新 Run 在这次调用上写 `ActivityFailed`，Workflow 代码收到它；不可重试（`NonRetryable`），`ActivityFailed.lastHeartbeatDetails` 是原 Run 在 reset 时的最新心跳。对应 Temporal 的 `ResetWorkflowFailure`，见 [Reset](/operations/reset#分叉点上未结束的-activity-与-timer) |

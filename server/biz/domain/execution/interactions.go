@@ -2,6 +2,7 @@ package execution
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
@@ -34,10 +35,30 @@ func ValidateRequestID(requestID string) error {
 	return nil
 }
 
+// ErrWorkflowClosing 表示 Run 正在关闭（WorkflowExecutionState.WorkflowClosing）：新的 Signal 与 Update 不写入这个 Run。
+// 它满足 errors.Is(err, protocol.ErrResourceExhausted)（对标 Temporal 的 RESOURCE_EXHAUSTED_CAUSE_BUSY_WORKFLOW），
+// HTTP 应答 503 与 Retry-After；SDK 按 Workflow ID 重发，关闭命令提交后落到接续 Run，Run 结束后按已结束处理。
+var ErrWorkflowClosing = fmt.Errorf("workflow operation can not be applied because workflow is closing: %w", protocol.ErrResourceExhausted)
+
+// ensureNotClosing 拒绝写入正在关闭的 Run，对标 Temporal 对 Signal 与 Update 返回的 ErrWorkflowClosing。
+func ensureNotClosing(tx ExecutionTx, current *Run) error {
+	state, err := tx.GetWorkflowExecutionStateForUpdate(current.ID)
+	if err != nil {
+		return err
+	}
+	if state.WorkflowClosing() {
+		return fmt.Errorf("%w: run %s", ErrWorkflowClosing, current.ID)
+	}
+	return nil
+}
+
 // RecordSignal 在 Run 上记一条 WorkflowSignaled。requestID 非空时同一个 Run 上同一个 requestID 只记一条：
-// 重发的请求返回第一次记下的事件 ID。
+// 重发的请求返回第一次记下的事件 ID。Run 正在关闭时返回 ErrWorkflowClosing。
 func RecordSignal(tx ExecutionTx, current *Run, treeID, branchID, name, requestID string, input map[string]any) (int64, error) {
 	if err := EnsureActive(current); err != nil {
+		return 0, err
+	}
+	if err := ensureNotClosing(tx, current); err != nil {
 		return 0, err
 	}
 	event := history.NewWorkflowSignaledEvent(name, input)
@@ -49,8 +70,12 @@ func RecordSignal(tx ExecutionTx, current *Run, treeID, branchID, name, requestI
 	return id, err
 }
 
+// AcceptUpdate 在 Run 上记一条 WorkflowUpdateAccepted。Run 正在关闭时返回 ErrWorkflowClosing。
 func AcceptUpdate(tx ExecutionTx, current *Run, treeID, branchID, name, updateID string, args history.Payloads) (int64, error) {
 	if err := EnsureActive(current); err != nil {
+		return 0, err
+	}
+	if err := ensureNotClosing(tx, current); err != nil {
 		return 0, err
 	}
 	id, _, err := tx.AppendIdempotent(current.ID, treeID, branchID, history.NewWorkflowUpdateAcceptedEvent(name, updateID, args))

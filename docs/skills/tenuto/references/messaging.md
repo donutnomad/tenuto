@@ -170,7 +170,9 @@ if err != nil {
 - 签名：`func(workflow.Context, ...Args) error` 或 `func(workflow.Context, ...Args) (Result, error)`。内联函数，业务参数个数固定（不支持 `...T`）。
 - 参数与 `Result` 用 struct、标量、切片或 map，嵌套深度不限。
 - Handler 属于 Workflow 代码，遵守全部确定性规则；可以用 `Await`、桥、Activity Future、Timer、Channel、Selector、`workflow.Go`。
-- Handler 在 `update:<UpdateID>` 协程里执行，多个 Update 按 Accepted 事件顺序执行。
+- Handler 在 `update:<UpdateID>` 协程里执行。调度同 Temporal Go SDK 的 `SDKPriorityUpdateHandling`：同一个 Workflow Task 里到达的 Update，Handler 先于主流程与 `workflow.Go` 协程运行（到第一个阻塞点）；多个 Update 按 Accepted 事件顺序执行；Signal 没有 Handler 协程，同批 Signal 由等待它的协程之后取走。冷重放、sticky 与 Query 顺序相同。
+- 所以“Handler 里 `inflight++`、主流程 `Await(inflight == 0)` 后 Continue-As-New / 返回”成立：同批到达的 Update 在主流程检查条件前已计入。
+- Update 到达时 Handler 未注册：排队，主流程在同一个 Workflow Task 里注册时立即执行；这个 Workflow Task 结束仍未注册则以 `UnknownUpdate` 失败。
 - `SetUpdateHandler` 是处理 Update 的唯一方式。
 
 等待主流程推进后再返回（Update-With-Start 的典型用法）：
@@ -215,7 +217,7 @@ func ApprovalWorkflow(ctx workflow.Context, input CreateInput) error {
 | --- | --- | --- |
 | Handler 成功 | Accepted + Completed success | `handle.Get` 解码强类型结果 |
 | Handler 返回错误 | Accepted + Completed failure | `*apperror.Error` |
-| 没有同名 Handler（主协程第一次阻塞或返回时仍未注册） | Accepted + Completed failure | `*apperror.Error`，`Type() == "UnknownUpdate"`，message `no update handler registered for "<name>"` |
+| 没有同名 Handler（到达的 Workflow Task 里所有协程阻塞或主协程返回时仍未注册） | Accepted + Completed failure | `*apperror.Error`，`Type() == "UnknownUpdate"`，message `no update handler registered for "<name>"` |
 | 参数无法解码 | Accepted + Completed failure | Type `DataConversionError` |
 | Handler 的 `Await` 尚未满足 | Accepted | Handle 保持可等待 |
 | 同一 Update ID 重试或并发发送 | 复用已有记录 | 相同阶段或结果 |

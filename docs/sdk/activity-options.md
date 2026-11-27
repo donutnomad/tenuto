@@ -118,6 +118,8 @@ if workflow.TimeoutTypeOf(err) == workflow.TimeoutTypeScheduleToClose {
 }
 ```
 
+Activity 按 `ctx` 返回的写法（带 `ctx` 的 HTTP、数据库调用）同样得到超时错误：Activity 的 `ctx` 在 `StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个截止，截止之后才返回的 Attempt 由 Worker 丢弃、由 Server 判定超时（同 Temporal Go SDK），Workflow 不会收到 `context deadline exceeded` 普通错误。
+
 超时种类是 `TimeoutTypeScheduleToStart`、`TimeoutTypeStartToClose`、`TimeoutTypeScheduleToClose`、`TimeoutTypeHeartbeat`。错误的 message 是给人读的说明，例如 `activity StartToClose timeout`；History 里 `ActivityTimedOut` 事件的 `timeoutType` 字段记录同一个种类。
 
 ## Activity Reset

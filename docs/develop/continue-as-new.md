@@ -65,7 +65,7 @@ if info.GetContinueAsNewSuggested() {
 ## 切换前的收尾
 
 - 在调用 `ContinueAsNew` 之前等待本 Run 启动的协程、Activity 和 Child Workflow 完成，把需要延续的结果写进下一代输入。仍在运行的 Child Workflow 在切换时按各自的[父关闭策略](/develop/child-workflows#父关闭策略)处理，默认被终止。
-- 已接受、Handler 尚未完成的 Update 在切换时以 `AcceptedUpdateCompletedWorkflow` 失败结束，见 [Update](/develop/updates#行为矩阵)。
+- 已接受、Handler 尚未完成的 Update 在切换时以 `AcceptedUpdateCompletedWorkflow` 失败结束，见 [Update](/develop/updates#行为矩阵)。切换前用 `workflow.Await` 等 Handler 全部结束（Handler 里计数，见 [Update 的执行顺序](/develop/updates#执行顺序)）：同一批到达的 Update 先于主流程计入。
 - 新 Run 的 History 从 `WorkflowStarted` 开始。持续接收 Signal 的 Workflow 在切换点前处理完已到达的消息，并把去重所需的状态放进输入。
 - Update Handler 和 Query Handler 在新 Run 里重新注册。
 

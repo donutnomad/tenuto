@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 )
 
@@ -43,8 +44,11 @@ func RecordWorkflowTaskFailure(tx ExecutionTx, run *Run, treeID, branchID string
 // CloseWorkflowTaskAtHistoryLimit keeps the task completion, the terminal
 // failure and the Run's failed status in one transaction.
 func CloseWorkflowTaskAtHistoryLimit(tx ExecutionTx, run *Run, treeID, branchID string, closeEvent history.Event, message, failureType string) (WorkflowTaskCompletionResult, error) {
-	result, err := tx.AppendWorkflowTaskCompleted(run.ID, treeID, branchID, closeEvent,
-		[]history.Event{history.NewWorkflowFailedEvent(message, failureType)})
+	failed, err := history.NewWorkflowFailedFailureEvent(protocol.Failure{Message: message, Type: failureType}, "")
+	if err != nil {
+		return WorkflowTaskCompletionResult{}, err
+	}
+	result, err := tx.AppendWorkflowTaskCompleted(run.ID, treeID, branchID, closeEvent, []history.Event{failed})
 	if err != nil || !result.ClosedInserted {
 		return result, err
 	}

@@ -100,6 +100,9 @@ type WorkflowTaskProjection struct {
 	// LastActivationEventID 是最近一个需要 Workflow 处理的事实的事件 ID。WFT 完成时与 Worker 看到的位置
 	// （WorkflowTaskCompleted.SeenThroughEventID）比较，得出进行期间是否到达了 Worker 没有看到的事实。
 	LastActivationEventID int64 `json:"last_activation_event_id,omitempty"`
+	// CloseAttempted 表示最近关闭的 WFT 带着结束 Run 的命令、因 unhandled_events 作废：Run 正在关闭。
+	// 下一个 WFT 关闭时清除。
+	CloseAttempted bool `json:"close_attempted,omitempty"`
 }
 
 // WorkflowExecutionStateStore 读写 execution state。Run 不存在时各方法返回 ErrRunNotFound。
@@ -266,6 +269,14 @@ func (s *WorkflowExecutionState) WorkflowTaskStartedEventID(scheduledEventID int
 // UnseenFacts 报告 open WFT 的 Worker 看到 seenThroughEventID 为止之后，是否还落库了需要 Workflow 处理的事实。
 func (s *WorkflowExecutionState) UnseenFacts(seenThroughEventID int64) bool {
 	return s.WorkflowTask.LastActivationEventID > seenThroughEventID
+}
+
+// WorkflowClosing 报告 Run 是否正在关闭：上一个 WFT 带着结束 Run 的命令作废，重做的 WFT 已 started、尚未关闭。
+// 这期间新的 Signal 与 Update 以 ErrWorkflowClosing 拒绝，重做的关闭命令不会再被它们作废
+// （对标 Temporal 的 IsWorkflowCloseAttempted() && HasStartedWorkflowTask()）。
+func (s *WorkflowExecutionState) WorkflowClosing() bool {
+	return s.WorkflowTask.CloseAttempted && s.OpenWorkflowTaskEventID != 0 &&
+		s.WorkflowTask.StartedScheduledEventID == s.OpenWorkflowTaskEventID
 }
 
 // WorkflowTaskTimeoutDeadline 返回已 started 且仍 open 的 WFT 的调度事件 ID 与 start-to-close 超时时刻。
@@ -491,6 +502,11 @@ func applyBlockedEvent(state *WorkflowExecutionState, event history.Event) {
 func applyWorkflowTaskEvent(state *WorkflowExecutionState, event history.Event) {
 	task := state.WorkflowTask
 	typ := event.EventType()
+	// 带结束 Run 命令的决策因 unhandled_events 作废时进入正在关闭状态（对标 Temporal 的 workflowCloseAttempted），
+	// 其余 WFT 关闭清除它。
+	if history.IsWorkflowTaskCloseEventType(typ) {
+		task.CloseAttempted = typ == history.EventWorkflowTaskFailed && event.WorkflowTaskFailed.Cause == WorkflowTaskFailedCauseUnhandledEvents
+	}
 	// 被新事实取代或被恢复关闭的 WFT：待处理的事实仍在，ActivationPending 为 true，也不记失败时间。
 	if typ == history.EventWorkflowTaskFailed && isRedoWorkflowTaskFailure(event.WorkflowTaskFailed.Cause) {
 		task.ActivationPending = true

@@ -19,6 +19,8 @@ Event History 大小直接影响 cold replay、网络传输、存储和调试体
 
 业务事件使用 `hard - reserved` 范围。终态和 Workflow Task close 事件可以使用预留空间，保证 Run 能够形成明确终态。
 
+任何写入（Workflow Task 的命令、Signal、Update、Activity 与 Timer 结果、`WorkflowTaskScheduled`）会让业务事件超过 `hard - reserved` 时，这次写入被拒绝，Run 随即用终态预留以 `WorkflowFailed` 关闭：`failure.type` 是 `HistoryLimitExceeded`，`failure.message` 写明超限的指标、预计值与上限（例如 `history limit exceeded: history_event_count projected=51169 limit=51168`）。同一个事务关闭 Run 仍未触发的 Timer 与未结束的 Activity，子 Workflow 按父关闭策略处理，父 Workflow 在 `ChildWorkflowFailed` 里读到同一个 Type，与其他失败关闭相同。Run 不会停在 running。Temporal 在同样情况下写 `WorkflowExecutionTerminated`，Tenuto 写 `WorkflowFailed`，见 [Failure 与错误类型](/reference/failures#引擎产生的-failure-type)。
+
 每个 Event 整条以 canonical JSON 存入 `tenuto_events.event_json`（`LONGBLOB`），`event_size_bytes` 是这段 JSON 的字节数，也就是上表 Canonical JSON 预算的计量单位。事件表其余的列（`tree_id`、`branch_id`、`node_id`、`run_id`、`type`、`dedupe_key`、`timestamp`）用于定位、排序、去重和回收；排查单个事件的内容用 History API 或 Console，运维 SQL 只按这些列过滤。
 
 ## Workflow 内主动切换
@@ -61,7 +63,7 @@ Projection 行与 Run 行在同一个事务里写入，这个计数应为 0。
 
 ## Hard Limit 处理
 
-1. 记录当前 Event 数、字节数和触发 reason。
+1. 从 `WorkflowFailed` 的 `failure.message` 读出超限的指标、预计值与上限。
 2. 检查最近 Workflow Task 的 Continue-As-New 建议。
 3. 调整 Workflow 的切换阈值和携带状态。
 4. 使用新 Run 验证 History 从紧凑起点重新增长。

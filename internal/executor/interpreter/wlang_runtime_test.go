@@ -675,3 +675,47 @@ func RollingWorkflow(ctx workflow.Context, input map[string]any) error {
 		t.Fatalf("unexpected continue-as-new command: %+v", commands[0])
 	}
 }
+
+// main 调用 ContinueAsNew 的同一批里，update handler 随后起了 timer：ContinueAsNew 排在批末，Server 按序写入时
+// 终态事件在最后（对标 Temporal 关闭命令必须是最后一条）。
+func TestWLangRuntimeContinueAsNewIsLastCommand(t *testing.T) {
+	src := []byte(`package flows
+
+import (
+	"time"
+
+	workflow "github.com/donutnomad/tenuto/sdk/workflow"
+)
+
+func W(ctx workflow.Context, input map[string]any) error {
+	if err := workflow.SetUpdateHandler(ctx, "add", func(ctx workflow.Context, v int) (int, error) {
+		return v, workflow.Sleep(ctx, time.Second)
+	}); err != nil {
+		return err
+	}
+	if err := workflow.WaitSignal(ctx, "tick").Get(ctx, nil); err != nil {
+		return err
+	}
+	return workflow.ContinueAsNew(ctx, "", input)
+}
+`)
+	result, err := sdkgen.GenerateFromSource(src, sdkgen.Options{WorkflowType: "can-last", FuncName: "W", Filename: "w.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	arg, err := protocol.NewJSONPayload(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands, err := NewWorkflowExecutor(result.Workflow, []history.Event{
+		history.NewWorkflowStartedEvent(nil, "", "", "", "", 0),
+		{ID: 2, Timestamp: time.Now(), WorkflowSignaled: &history.WorkflowSignaledEvent{Name: "tick"}},
+		acceptedArgsEvent(3, "add", "u-1", protocol.Payloads{arg}),
+	}).Execute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 2 || commands[0].Type != history.CmdScheduleTimer || commands[1].Type != history.CmdContinueAsNew {
+		t.Fatalf("commands = %+v, want ScheduleTimer then ContinueAsNew", commands)
+	}
+}

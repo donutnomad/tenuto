@@ -588,7 +588,7 @@ func (t *memExecutionTx) checkHistoryBudget(runID string, eventSizes []int64, se
 			metrics.SizeBytes += pending.size
 		}
 	}
-	return history.CheckHistoryBudget(metrics, eventSizes, t.historyLimits, serverClose)
+	return history.CheckHistoryBudget(runID, metrics, eventSizes, t.historyLimits, serverClose)
 }
 
 // committedHistoryMetrics 读取 runID 已提交的 history 计数/字节数。缺少 execution state

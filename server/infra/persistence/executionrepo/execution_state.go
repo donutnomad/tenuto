@@ -332,7 +332,7 @@ func (t *gormExecutionTx) appendEvent(runID, treeID, branchID string, event hist
 		return 0, false, err
 	}
 	size := int64(len(eventJSON))
-	if err := history.CheckHistoryBudget(history.HistoryMetrics{EventCount: state.HistoryEventCount, SizeBytes: state.HistorySizeBytes}, []int64{size}, s.historyLimits, history.UsesReservedHistoryCloseBudget(event)); err != nil {
+	if err := history.CheckHistoryBudget(runID, history.HistoryMetrics{EventCount: state.HistoryEventCount, SizeBytes: state.HistorySizeBytes}, []int64{size}, s.historyLimits, history.UsesReservedHistoryCloseBudget(event)); err != nil {
 		return 0, false, err
 	}
 	row := eventToRow(runID, treeID, branchID, event, eventJSON, dedupeKey)

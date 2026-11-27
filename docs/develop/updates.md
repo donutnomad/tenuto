@@ -106,9 +106,39 @@ Validator 是 Server 侧按 Update Name 注册的无状态输入校验器，在�
 
 依赖 Workflow 状态的校验写在 Handler 里，通过返回 `workflow.NewApplicationError` 表达拒绝。
 
+## 执行顺序
+
+Handler 的调度顺序与 Temporal Go SDK（`SDKPriorityUpdateHandling`）相同：
+
+- 同一个 Workflow Task 里到达的 Update，Handler 在主流程与其他 `workflow.Go` 协程之前运行，到第一个阻塞点为止；之后与其他协程一起按确定性顺序推进。
+- 同一批里的多个 Update 按 Accepted 事件顺序执行 Handler。
+- Signal 没有 Handler 协程：同批到达的 Signal 写进对应的 Signal 队列，由等待它的协程在之后的推进里取走，所以同一批里 Update Handler 先于读取 Signal 的代码运行。
+- 冷重放、sticky 会话与 Query 重放按同一顺序执行。
+
+因此“Handler 里计数、主流程等计数归零后再结束或 Continue-As-New”的写法成立：同一批到达的 Update 在主流程检查条件之前已经计入。
+
+```go
+inflight := 0
+_ = workflow.SetUpdateHandler(ctx, "add", func(ctx workflow.Context, v int) (int, error) {
+    inflight++
+    if err := workflow.Sleep(ctx, time.Second); err != nil {
+        inflight--
+        return 0, err
+    }
+    total += v
+    inflight--
+    return total, nil
+})
+// ... 主流程
+if err := workflow.Await(ctx, func() bool { return inflight == 0 }); err != nil {
+    return err
+}
+return workflow.ContinueAsNew(ctx, "", state)
+```
+
 ## Handler 缺失
 
-Update 进入 Accepted 后，Worker 在 Workflow 主流程第一次阻塞（或返回）时查找同名 Handler。没有找到时，Worker 用 `Failure{Type: "UnknownUpdate", Message: "no update handler registered for \"<name>\""}` 完成这个 Update，History 写入 `WorkflowUpdateCompleted`（failure）。调用端的 `handle.Get` 或 `WaitForStage=Completed` 得到 `*apperror.Error`，`Type()` 为 `UnknownUpdate`。
+Update 到达时同名 Handler 还没有注册，这个 Update 排队等待：主流程在同一个 Workflow Task 里调用 `SetUpdateHandler` 注册它时，排队的 Update 立即执行（排在注册它的协程这次推进之后）。这个 Workflow Task 的所有协程都阻塞（或主流程返回）后仍没有注册时，Worker 用 `Failure{Type: "UnknownUpdate", Message: "no update handler registered for \"<name>\""}` 完成这个 Update，History 写入 `WorkflowUpdateCompleted`（failure）。调用端的 `handle.Get` 或 `WaitForStage=Completed` 得到 `*apperror.Error`，`Type()` 为 `UnknownUpdate`。
 
 Handler 在主流程第一次阻塞之前注册，才能接到 Run 启动时就已到达的 Update。调用端和 Workflow 共享稳定的 Update Name。
 
