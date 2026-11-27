@@ -36,7 +36,7 @@ func (s *Server) chooseWorkflowTaskProgram(ctx context.Context, runID string, sc
 	}
 	defer release()
 	var choice execution.ProgramVersionChoice
-	err = s.telemetry.runInTx(ctx, "choose_workflow_task_program", s.mgr, func(tx execution.ExecutionTx) error {
+	err = s.runInTx(ctx, "choose_workflow_task_program", func(tx execution.ExecutionTx) error {
 		var err error
 		choice, err = execution.ChooseWorkflowTaskProgram(tx, runID, scheduledEventID, candidate)
 		return err
@@ -165,7 +165,7 @@ func (s *Server) SetRunPolicy(ctx context.Context, namespace, runID, policy stri
 	// 请求的 ctx 只用于入口的取消检查；写入与调度不随请求取消。
 	writeCtx := context.Background()
 	var updated *execution.Run
-	if err := s.telemetry.runInTx(writeCtx, "set_run_policy", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(writeCtx, "set_run_policy", func(tx execution.ExecutionTx) error {
 		run, err := tx.GetRunForUpdate(ref.ID)
 		if err != nil {
 			return err
@@ -188,7 +188,7 @@ func (s *Server) SetRunPolicy(ctx context.Context, namespace, runID, policy stri
 
 // pauseRun 在事务内锁下读取 Run，把 ConfigError 写入并暂停它。调用方持有 workflow 的 keyed lock。
 func (s *Server) pauseRun(runID, message string) error {
-	return s.telemetry.runInTx(context.Background(), "pause_run", s.mgr, func(tx execution.ExecutionTx) error {
+	return s.runInTx(context.Background(), "pause_run", func(tx execution.ExecutionTx) error {
 		run, err := tx.GetRunForUpdate(runID)
 		if err != nil {
 			return err

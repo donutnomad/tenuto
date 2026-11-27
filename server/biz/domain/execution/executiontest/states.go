@@ -634,6 +634,29 @@ func ExecutionStateContract(t *testing.T, newManager func(t *testing.T) executio
 		t.Errorf("sticky after the timeout: identity=%q expires=%v generation=%d, want cleared at generation %d",
 			state.StickyWorkerIdentity, state.StickyExpiresAt, state.StickyGeneration, stickyGeneration)
 	}
+
+	// 带结束 Run 命令的决策被作废：CloseAttempted 随投影存下，重做的 WFT started 期间 Run 正在关闭。
+	closeID, inserted, err := manager.AppendWorkflowTaskScheduled(runID, runID, runID, history.NewWorkflowTaskScheduledEvent(1000))
+	if err != nil || !inserted {
+		t.Fatalf("schedule close workflow task: inserted=%v err=%v", inserted, err)
+	}
+	appendEvent("close workflow task started", history.NewWorkflowTaskStartedEvent(closeID, "worker-1", "build-1", 0))
+	if _, _, err := manager.AppendWorkflowTaskClosed(runID, runID, runID, history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{
+		ScheduledEventID: closeID, Cause: execution.WorkflowTaskFailedCauseUnhandledEvents,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	redoID, inserted, err := manager.AppendWorkflowTaskScheduled(runID, runID, runID, history.NewWorkflowTaskScheduledEvent(1000))
+	if err != nil || !inserted {
+		t.Fatalf("schedule redo workflow task: inserted=%v err=%v", inserted, err)
+	}
+	if state = requireProjection("redo workflow task scheduled"); !state.WorkflowTask.CloseAttempted || state.WorkflowClosing() {
+		t.Errorf("before the redo starts: close attempted=%v closing=%v, want true/false", state.WorkflowTask.CloseAttempted, state.WorkflowClosing())
+	}
+	appendEvent("redo workflow task started", history.NewWorkflowTaskStartedEvent(redoID, "worker-1", "build-1", 0))
+	if state = requireProjection("redo workflow task started"); !state.WorkflowClosing() {
+		t.Errorf("redo workflow task started on a run whose close was superseded: closing=false")
+	}
 }
 
 // beginActivation 在一个只开始激活的事务里调用 BeginWorkflowActivation。

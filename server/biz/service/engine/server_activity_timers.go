@@ -83,7 +83,7 @@ func (s *Server) handleActivityTimeoutAttempt(runID string, scheduledEventID int
 	}
 	timeoutCtx := ctx
 	var failure execution.ActivityFailureResult
-	if err := s.telemetry.runInTx(timeoutCtx, "timeout_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(timeoutCtx, "timeout_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		failure, err = execution.TimeoutActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,

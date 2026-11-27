@@ -450,7 +450,7 @@ func (w *Worker) HandleActivityTask(ctx context.Context, lease protocol.TaskLeas
 		w.ackActivity(ctx, lease)
 	})
 	switch outcome {
-	case "skipped", "pending", "failed":
+	case "skipped", "pending", "failed", "timed_out":
 		markTaskOutcome(ctx, outcome, executionErr)
 	case "cancelled", "released":
 		markTaskOutcome(ctx, outcome, nil)

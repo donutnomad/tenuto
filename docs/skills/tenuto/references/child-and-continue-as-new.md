@@ -148,7 +148,7 @@ History 缺省限制：
 ### 切换前的收尾
 
 - 先等待本 Run 启动的协程、Activity 与子 Workflow 完成（`wg.Wait`、`Get`），把需要延续的结果写进下一代输入。仍在运行的子 Workflow 在切换时按父关闭策略处理（默认终止）。
-- 已接受、Handler 尚未完成的 Update 在切换时以 `AcceptedUpdateCompletedWorkflow` 失败结束。
+- 已接受、Handler 尚未完成的 Update 在切换时以 `AcceptedUpdateCompletedWorkflow` 失败结束。切换前用 `workflow.Await` 等 Handler 全部结束（Handler 里计数，见 `messaging.md` 的 Handler 调度）：同一批到达的 Update 先于主流程计入。
 - 持续接收 Signal 的 Workflow 在切换点前处理完已到达的消息，把去重所需的状态放进输入。
 - Update Handler 与 Query Handler 在新 Run 的函数开头重新注册（同一个函数，自然满足）。
 - 下一代输入只带继续执行所需的紧凑状态（cursor、聚合值、待处理标识）；明细放在业务数据库，由 Activity 按需读取。

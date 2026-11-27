@@ -62,7 +62,7 @@ func (s *Server) restoreRunDeadlines(runID string) (*execution.Run, error) {
 		return nil, nil
 	}
 	var restored *execution.Run
-	err = s.telemetry.runInTx(context.Background(), "restore_run_deadlines", s.mgr, func(tx execution.ExecutionTx) error {
+	err = s.runInTx(context.Background(), "restore_run_deadlines", func(tx execution.ExecutionTx) error {
 		run, err := tx.GetRunForUpdate(runID)
 		if err != nil {
 			return err

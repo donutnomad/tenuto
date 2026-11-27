@@ -24,7 +24,7 @@ Tenuto 的 Go Client 使用 JSON Runtime HTTP API。业务系统通过 SDK 调�
 | 415 | POST 的 `Content-Type` 不是 `application/json`（可带 `charset` 等参数），没有请求体的端点也一样 | 表单或 `text/plain` 提交：`Content-Type must be application/json` |
 | 500 | Server 故障：数据库返回的非瞬时错误（缺表、数据超长等）或代码错误。原因看 Server 日志 | `internal server error` |
 | 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发；带 `request_id` 的 Reset 可以用同一个 `request_id` 直接重发 | `service temporarily unavailable; the request may have taken effect` |
-| 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）；在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`；同时重放的 Query 数达到 `WORKFLOW_QUERY_CONCURRENCY`；请求在生效之前被取消。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable`、`too many requests in flight; retry`、`request cancelled before taking effect; retry` |
+| 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）；在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`；同时重放的 Query 数达到 `WORKFLOW_QUERY_CONCURRENCY`；Signal 或 Update 遇到正在关闭的 Run（带结束命令的 Workflow Task 因新事实作废、重做的 Workflow Task 进行中，见 [Event History](/concepts/event-history)）；请求在生效之前被取消。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable`、`too many requests in flight; retry`、`request cancelled before taking effect; retry`、`workflow operation can not be applied because workflow is closing` |
 | 504 | 请求在 Server 端等待超时 | `context deadline exceeded` |
 
 成功应答总带 JSON 响应体（长轮询的 204 除外）；2xx 空响应体说明应答没有完整送达，Go SDK 把它当作传输错误。
@@ -248,7 +248,7 @@ cancellation · complete · fail · release
 `heartbeat` 记录进度并答复 `{cancel_requested, reason}`：
 
 - Workflow 请求取消这个 Activity 时 `reason` 为 `activity_cancel_requested`。Worker 取消 Activity 的 `ctx`；Activity 以取消错误或 `context.Canceled` 结束时，Worker 用 `fail` 上报 `type` 为 `CanceledError` 的失败（带取消错误的 details），Server 记 `ActivityCancelled`；Activity 返回成功或其他错误时照常上报。
-- Run 已关闭（`run_closed`、`run_cancelled`、`run_terminated`）、Activity 已结束（`activity_closed`）或这次 Attempt 已过期（`stale_task`）时 Worker 取消 `ctx`，之后不上报这次 Attempt 的结果。
+- Run 已关闭（`run_closed`、`run_cancelled`、`run_terminated`）、Run 不存在（`run_not_found`，例如已被 retention 回收；以 200 答复而不是 404，Worker 才能与反向代理的 404 区分）、Activity 已结束（`activity_closed`）或这次 Attempt 已过期（`stale_task`）时 Worker 取消 `ctx`，之后不上报这次 Attempt 的结果。心跳请求得到其他错误时只算一次失败的心跳。
 
 `cancellation` 只做上面的取消检查，不记录心跳。
 

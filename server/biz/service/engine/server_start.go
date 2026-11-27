@@ -74,7 +74,7 @@ func (s *Server) commitStart(ctx context.Context, plan *startPlan, with func(tx 
 	ctx, span := s.telemetry.start(ctx, "StartWorkflow", workflowSpanAttributes(run.Namespace, run.WorkflowID, run.ID, run.WorkflowType)...)
 	defer func() { tenutotel.FinishSpan(span, err) }()
 	// CreateRun + Append 同事务原子提交（崩溃在两步之间不再产生"有 run 无 started 事件"的不一致）。
-	if err := s.telemetry.runInTx(ctx, "create_started_run", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "create_started_run", func(tx execution.ExecutionTx) error {
 		if err := execution.CommitStartedRun(tx, run, plan.expectedCurrent, plan.treeID, plan.branchID, plan.started); err != nil {
 			return err
 		}

@@ -221,6 +221,7 @@ func TestRuntimeErrorStatus(t *testing.T) {
 		{execution.ErrRunOrWorkflowIDRequired, http.StatusBadRequest},
 		{execution.ErrInvalidHistoryPageToken, http.StatusBadRequest},
 		{protocol.ErrUpdateRejected, http.StatusBadRequest},
+		{fmt.Errorf("%w: run run-1", execution.ErrWorkflowClosing), http.StatusServiceUnavailable},
 		{context.DeadlineExceeded, http.StatusGatewayTimeout},
 		{errors.New("boom"), http.StatusInternalServerError},
 		{fmt.Errorf("dial tcp 10.0.0.5:3306: connection refused"), http.StatusInternalServerError},
@@ -229,6 +230,10 @@ func TestRuntimeErrorStatus(t *testing.T) {
 		if got := runtimeErrorStatus(runtimeapi.WorkflowRuntimeGetRunPath, tc.err, db.IsTransient); got != tc.want {
 			t.Errorf("runtimeErrorStatus(%v) = %d, want %d", tc.err, got, tc.want)
 		}
+	}
+	// 正在关闭的 Run 没有写入请求：重发会再执行一次的 Signal 端点也是 503，SDK 重发。
+	if got := runtimeErrorStatus(runtimeapi.WorkflowRuntimeSignalPath, execution.ErrWorkflowClosing, nil); got != http.StatusServiceUnavailable {
+		t.Errorf("signal on a closing run: runtimeErrorStatus = %d, want 503", got)
 	}
 }
 

@@ -3,6 +3,7 @@ package activitytasks
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
@@ -124,7 +125,8 @@ func (s *UseCase) RecordActivityHeartbeat(ctx context.Context, task protocol.Tas
 		return protocol.ActivityHeartbeatResult{}, err
 	}
 	if _, err := s.backend.TaskRun(task); err != nil {
-		return protocol.ActivityHeartbeatResult{}, err
+		result, err := runNotFoundCancellation(err)
+		return protocol.ActivityHeartbeatResult(result), err
 	}
 	// 先记录心跳 details，再检查取消。即使 activity 即将被取消，最新的
 	// heartbeat details 仍需持久化，以便重试时通过 LastHeartbeatDetails 恢复进度。
@@ -143,9 +145,21 @@ func (s *UseCase) CheckActivityTaskCancellation(ctx context.Context, task protoc
 		return protocol.ActivityCancellationResult{}, err
 	}
 	if _, err := s.backend.TaskRun(task); err != nil {
-		return protocol.ActivityCancellationResult{}, err
+		return runNotFoundCancellation(err)
 	}
 	return s.checkCancellation(task)
+}
+
+// ActivityRunNotFoundReason 是 Run 不存在（例如已被 retention 回收）时取消结果的 Reason。
+const ActivityRunNotFoundReason = "run_not_found"
+
+// runNotFoundCancellation 把 Run 不存在答复为明确的停止（同 closed / stale，Worker 放弃这次 attempt），其余错误原样返回。
+// 不用 404 表达：反向代理同样会返回 404，Worker 分不出来，只按普通心跳失败处理。
+func runNotFoundCancellation(err error) (protocol.ActivityCancellationResult, error) {
+	if errors.Is(err, execution.ErrRunNotFound) {
+		return protocol.ActivityCancellationResult{CancelRequested: true, Reason: ActivityRunNotFoundReason}, nil
+	}
+	return protocol.ActivityCancellationResult{}, err
 }
 
 // checkCancellation 按 execution state 与 Activity state 判定 task 的 attempt 是否应停止；调用方已校验 task。

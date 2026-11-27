@@ -2,6 +2,7 @@ package activitytasks_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/donutnomad/tenuto/protocol"
@@ -89,3 +90,26 @@ func TestWorkflowCancellationRequestDoesNotStopActivities(t *testing.T) {
 }
 
 func (b *closedRunBackend) PayloadSizeLimit() int { return 0 }
+
+// missingRunBackend 找不到 task 的 Run（例如已被 retention 回收）。
+type missingRunBackend struct {
+	closedRunBackend
+}
+
+func (*missingRunBackend) TaskRun(protocol.Task) (*execution.Run, error) {
+	return nil, fmt.Errorf("load run: %w", execution.ErrRunNotFound)
+}
+
+// Run 不存在时心跳与取消检查明确答复 run_not_found，Worker 放弃这次 attempt；不用 404 表达，反向代理的 404 与它分得开。
+func TestHeartbeatAnswersRunNotFoundExplicitly(t *testing.T) {
+	service := activitytasks.NewUseCase(&missingRunBackend{})
+	want := protocol.ActivityCancellationResult{CancelRequested: true, Reason: activitytasks.ActivityRunNotFoundReason}
+	heartbeat, err := service.RecordActivityHeartbeat(context.Background(), runtimeTask(), nil)
+	if err != nil || protocol.ActivityCancellationResult(heartbeat) != want {
+		t.Fatalf("heartbeat = %+v err=%v, want %+v", heartbeat, err, want)
+	}
+	check, err := service.CheckActivityTaskCancellation(context.Background(), runtimeTask())
+	if err != nil || check != want {
+		t.Fatalf("cancellation check = %+v err=%v, want %+v", check, err, want)
+	}
+}

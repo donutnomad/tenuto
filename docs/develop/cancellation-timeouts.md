@@ -132,7 +132,7 @@ Activity 支持四类超时，通过 `workflow.ActivityOptions` 配置：
 | `ScheduleToCloseTimeout` | 整个 Call，含重试 | 外部依赖持续失败 |
 | `HeartbeatTimeout` | 两次 Heartbeat 的间隔 | Worker 崩溃或网络中断 |
 
-超时产生 Activity 失败事件。`ScheduleToStartTimeout` 与 `ScheduleToCloseTimeout` 到期后 Call 直接失败；`StartToCloseTimeout` 与 `HeartbeatTimeout` 按 Retry Policy 决定下一次 Attempt。配置了 `StartToCloseTimeout` 时，Worker 给 Activity 的 `ctx` 设置相同的 deadline。详见 [Activity 执行生命周期](/develop/activity-execution)。
+超时产生 Activity 失败事件。`ScheduleToStartTimeout` 与 `ScheduleToCloseTimeout` 到期后 Call 直接失败；`StartToCloseTimeout` 与 `HeartbeatTimeout` 按 Retry Policy 决定下一次 Attempt。Worker 给 Activity 的 `ctx` 设置本次 Attempt 的 deadline：`StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个（同 Temporal Go SDK），只设 `ScheduleToCloseTimeout` 的调用同样有截止。Attempt 在 `ctx` 截止之后才返回时 Worker 不上报结果，由 Server 判定超时，Workflow 稳定收到超时错误。详见 [Activity 执行生命周期](/develop/activity-execution)。
 
 ## Workflow 级的等待上限
 

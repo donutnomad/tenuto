@@ -79,6 +79,8 @@ Activity 的执行语义是至少一次（at-least-once），不是只执行一�
 
 Schedule-To-Start 与 Schedule-To-Close 超时后 Call 直接失败，不再重试。Start-To-Close 与 Heartbeat 超时按 Retry Policy 决定下一次 Attempt。
 
+Worker 给 Activity 的 `ctx` 设置本次 Attempt 的截止时间：Start-To-Close 与 Schedule-To-Close 剩余时间中先到的一个（同 Temporal Go SDK）。Attempt 在 `ctx` 截止之后才返回时（成功或返回 `context deadline exceeded`）Worker 不上报结果，由 Server 判定超时并写 `ActivityTimedOut`，Workflow 稳定收到超时错误；Activity 返回后执行槽位随即释放。
+
 每次超时在 History 里写一条 `ActivityTimedOut`，`timeoutType` 是超时种类（`ScheduleToStart`、`StartToClose`、`ScheduleToClose`、`Heartbeat`），`failure.message` 是说明（如 `activity StartToClose timeout`），`lastHeartbeatDetails` 是超时时最后一次心跳的详情。Call 因超时最终失败时，Workflow 拿到的错误是超时错误，`workflow.TimeoutTypeOf(err)` 返回它的超时种类，见 [超时错误](/sdk/activity-options#超时错误)。
 
 Schedule-To-Start 约束每一个 Attempt，从该 Attempt 可派发的时刻起算：首个 Attempt 从调度时起算，重试的 Attempt 从退避到期时起算，Reset Activity 产生的 Attempt 从 reset 时起算。
@@ -127,6 +129,7 @@ Worker 对心跳做节流，`RecordHeartbeat` 可以在循环里频繁调用：
 - 间隔外的一次调用立即发出（在调用方 goroutine 里同步等待，最多一个间隔）并开启间隔；间隔内的调用只保留最新的 details，间隔结束时发出。
 - Activity 返回成功时完成结果取代未发出的 details；以失败、取消或 Worker 停止交还结束时，先发出未发出的最新 details，下一次 Attempt 用 `GetLastHeartbeatDetails` 读到它们。
 - 设置了 `HeartbeatTimeout` 时，心跳请求连续失败超过 `HeartbeatTimeout`（Server 已按 Heartbeat 超时结束这次 Attempt）后 Worker 取消 `ctx`，结果不再上报。
+- Server 在心跳应答里明确答复这次 Attempt 已失效时（Run 已结束、Activity 已关闭、Attempt 已过期，或 Run 不存在，`reason` 为 `run_not_found`），结果不再有接收方：Worker 立即取消 `ctx`，结果不再上报。心跳请求得到其他错误（包括反向代理返回的 404、413 等 4xx）只算一次失败的心跳，Activity 继续执行，下一次心跳再试。
 
 Heartbeat 不写 History：Server 只更新 Activity 状态里的最后一次详情与时间（MySQL 上是一条 UPDATE），并从这个时间重新计算 Heartbeat 超时。运行中的详情在 Console 的 Pending 页签与 `activity-states` 里查看；Attempt 超时时，`ActivityTimedOut` 的 `lastHeartbeatDetails` 保存当时最后一次心跳的详情。
 

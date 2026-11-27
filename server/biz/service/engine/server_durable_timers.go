@@ -65,7 +65,7 @@ func (s *Server) handleUserTimerFired(ctx context.Context, runID string, schedul
 	}
 	now := s.clock.Now()
 	fired := false
-	if txErr := s.telemetry.runInTx(ctx, "fire_timer", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "fire_timer", func(tx execution.ExecutionTx) error {
 		var err error
 		fired, err = execution.FireTimer(tx, execution.TimerFire{
 			RunID: runID, TreeID: treeID, BranchID: branchID,
@@ -99,7 +99,7 @@ func (s *Server) handleRetryBackoffFired(ctx context.Context, runID string, sche
 
 	now := s.clock.Now()
 	fired := false
-	if txErr := s.telemetry.runInTx(ctx, "fire_retry_timer", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "fire_retry_timer", func(tx execution.ExecutionTx) error {
 		var err error
 		fired, err = execution.FireTimer(tx, execution.TimerFire{
 			RunID: runID, ScheduledEventID: scheduledEventID,

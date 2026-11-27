@@ -26,6 +26,9 @@ func (t *workflowTaskTestTx) AppendWorkflowTaskClosed(_ string, _, _ string, eve
 func (t *workflowTaskTestTx) AppendIdempotent(string, string, string, history.Event) (int64, bool, error) {
 	return 0, false, nil
 }
+func (t *workflowTaskTestTx) GetEventIDByDedupeKey(string, string, string) (int64, bool, error) {
+	return 0, false, nil
+}
 func (t *workflowTaskTestTx) Append(string, string, string, history.Event) (int64, error) {
 	return 0, nil
 }

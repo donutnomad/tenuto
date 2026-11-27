@@ -332,7 +332,7 @@ func (t *gormExecutionTx) appendEvent(runID, treeID, branchID string, event hist
 		return 0, false, err
 	}
 	size := int64(len(eventJSON))
-	if err := history.CheckHistoryBudget(history.HistoryMetrics{EventCount: state.HistoryEventCount, SizeBytes: state.HistorySizeBytes}, []int64{size}, s.historyLimits, history.UsesReservedHistoryCloseBudget(event)); err != nil {
+	if err := history.CheckHistoryBudget(runID, history.HistoryMetrics{EventCount: state.HistoryEventCount, SizeBytes: state.HistorySizeBytes}, []int64{size}, s.historyLimits, history.UsesReservedHistoryCloseBudget(event)); err != nil {
 		return 0, false, err
 	}
 	row := eventToRow(runID, treeID, branchID, event, eventJSON, dedupeKey)
@@ -382,6 +382,10 @@ func runNamespace(db *gorm.DB, runID string) (string, error) {
 		return "", err
 	}
 	return row.Namespace, nil
+}
+
+func (t *gormExecutionTx) GetEventIDByDedupeKey(_, branchID, dedupeKey string) (int64, bool, error) {
+	return findDedupedEventID(t.db, branchID, dedupeKey)
 }
 
 // dedupedEventID 返回 branch 上已有的同 dedupe key 事件的 node_id。加锁读取最新已提交的行，

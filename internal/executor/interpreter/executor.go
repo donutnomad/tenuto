@@ -88,7 +88,11 @@ type WorkflowExecutor struct {
 	replayBatchStart int
 	// spawnedUpdates 是已经起过 handler 协程的 UpdateID 集合，保证每个 update 只起一个协程。
 	spawnedUpdates map[string]bool
-	evalErr        error
+	// queuedUpdates 是本批到达、name 尚未登记 handler 的 update，按事件顺序排队；SetUpdateHandler 登记时立即起它们的
+	// handler 协程，本批收敛后仍未登记的以 UnknownUpdate 失败（对标 Temporal Go SDK 的 QueueUpdate 与
+	// DrainUnhandledUpdates）。
+	queuedUpdates []history.WorkflowUpdateRecord
+	evalErr       error
 	// workflowReturnErr 是 main body 返回非 nil error 时的错误消息。
 	workflowReturnErr string
 	// workflowReturnFailed 标记 body 返回了非 nil error。失败判定用它，
@@ -404,6 +408,18 @@ func (e *WorkflowExecutor) activate(batch []history.Event) error {
 	if !e.terminated {
 		e.emitConvergedCommand()
 	}
+	// ContinueAsNew 在调用时立即入批，同一批里其他协程（例如 update handler）随后产出的命令排在它后面。
+	// 结束 Run 的命令移到本批末尾，其余命令保持产出顺序（对标 Temporal SDK 在批末追加关闭命令）：
+	// Server 按顺序写入，终态事件之后不再接受事件。
+	var closing []history.Command
+	e.commands = slices.DeleteFunc(e.commands, func(command history.Command) bool {
+		if command.Type.ClosesWorkflow() {
+			closing = append(closing, command)
+			return true
+		}
+		return false
+	})
+	e.commands = append(e.commands, closing...)
 	return nil
 }
 
@@ -446,6 +462,13 @@ func (e *WorkflowExecutor) runDecisionBatch(batch []history.Event, replay bool) 
 	e.flushFutureBridges()
 	e.spawnUpdateHandlers()
 	e.sched.RunBatch()
+	if len(e.queuedUpdates) > 0 {
+		for _, rec := range e.queuedUpdates {
+			e.sched.Spawn("update:"+rec.UpdateID, e.updateHandlerCoroutine(rec))
+		}
+		e.queuedUpdates = nil
+		e.sched.RunBatch()
+	}
 }
 
 func (e *WorkflowExecutor) executionError() error {

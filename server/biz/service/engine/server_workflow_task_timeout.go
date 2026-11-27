@@ -61,7 +61,7 @@ func (s *Server) timeoutWorkflowTask(ctx context.Context, runID string, schedule
 		return err
 	}
 	var result execution.WorkflowTaskCloseResult
-	if err := s.telemetry.runInTx(ctx, "timeout_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "timeout_workflow_task", func(tx execution.ExecutionTx) error {
 		var err error
 		result, err = execution.TimeoutWorkflowTask(tx, execution.WorkflowTaskTimeout{
 			RunID: runID, TreeID: treeID, BranchID: branchID, ScheduledEventID: scheduledEventID,

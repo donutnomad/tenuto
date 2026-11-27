@@ -252,7 +252,7 @@ func Export(ctx context.Context, in ExportInput) (ExportOutput, error) {
 }
 ```
 
-Workflow 取消 Activity 所在的 Context（Run 被取消时的根 Context，或 `workflow.WithCancel` 的作用域）后，Server 在 Heartbeat 响应里返回取消请求，Worker 取消 Activity 的 `ctx`。长任务通过定期 Heartbeat 获得取消信号，在 `ctx.Done()` 后释放资源，返回 `ctx.Err()`（或 `apperror.NewCanceled(details...)`）确认取消，History 记 `ActivityCancelled`。配置了 `StartToCloseTimeout` 时，`ctx` 同时带有该超时的 deadline。
+Workflow 取消 Activity 所在的 Context（Run 被取消时的根 Context，或 `workflow.WithCancel` 的作用域）后，Server 在 Heartbeat 响应里返回取消请求，Worker 取消 Activity 的 `ctx`。长任务通过定期 Heartbeat 获得取消信号，在 `ctx.Done()` 后释放资源，返回 `ctx.Err()`（或 `apperror.NewCanceled(details...)`）确认取消，History 记 `ActivityCancelled`。`ctx` 同时带有本次 Attempt 的 deadline：`StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个；`ctx` 截止之后才返回的 Attempt 不上报结果，由 Server 判定超时，见 [超时](/develop/activity-execution#超时)。
 
 Heartbeat 只更新 Activity 的当前状态，不写 History；Attempt 超时时最后一次详情随 `ActivityTimedOut` 写入 History（`lastHeartbeatDetails`）。
 

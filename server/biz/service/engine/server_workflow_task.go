@@ -201,6 +201,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		continuedInserted      bool
 		workflowFailedInserted bool
 	)
+	// 超限走 closeWorkflowForHistoryLimit（保留本次完成事件），不用 s.runInTx 的通用超限关闭。
 	if txErr := s.telemetry.runInTx(ctx, "complete_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
 		// 死锁重放时上一次尝试的结果作废。
 		run, promoted, result, continuedInserted, workflowFailedInserted = nil, false, execution.WorkflowTaskCompletionResult{}, false, false
@@ -520,7 +521,7 @@ func (s *Server) recordWorkflowTaskFailure(ctx context.Context, runID string, wo
 	// set-policy/signal 即可继续推进。
 	inserted := false
 	var state *execution.WorkflowExecutionState
-	if err := s.telemetry.runInTx(ctx, "fail_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "fail_workflow_task", func(tx execution.ExecutionTx) error {
 		run, err := tx.GetRunForUpdate(runID)
 		if err != nil {
 			return err

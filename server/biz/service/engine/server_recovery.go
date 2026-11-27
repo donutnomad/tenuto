@@ -264,7 +264,7 @@ func (s *Server) reconcileClosedRun(ctx context.Context, run *execution.Run) err
 
 // reconcileRunStatus 在事务内按锁下读到的 Run 写回 History 里最后一个生命周期事件的状态。
 func (s *Server) reconcileRunStatus(ctx context.Context, runID string, event history.Event, status history.Status) error {
-	return s.telemetry.runInTx(ctx, "reconcile_run_status", s.mgr, func(tx execution.ExecutionTx) error {
+	return s.runInTx(ctx, "reconcile_run_status", func(tx execution.ExecutionTx) error {
 		run, err := tx.GetRunForUpdate(runID)
 		if err != nil {
 			return err

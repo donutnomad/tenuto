@@ -116,7 +116,7 @@ func (s *Server) withWorkflowLease(ctx context.Context, namespace, workflowID, r
 	var act LeaseAction
 	for attempt := 1; ; attempt++ {
 		checkCurrent := runID == "" && attempt <= maxCurrentRunLeaseAttempts
-		txErr := s.telemetry.runInTx(ctx, "workflow_lease", s.mgr, func(tx execution.ExecutionTx) error {
+		txErr := s.runInTx(ctx, "workflow_lease", func(tx execution.ExecutionTx) error {
 			act = LeaseAction{} // 死锁重放与换 current 重试时上一次尝试的结果作废。
 			run, e := tx.GetRunForUpdate(ref.ID)
 			if e != nil {
@@ -215,7 +215,7 @@ func (s *Server) startOrAcceptUpdate(
 	}
 
 	var scheduled bool
-	if txErr := s.telemetry.runInTx(ctx, "workflow_lease", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "workflow_lease", func(tx execution.ExecutionTx) error {
 		scheduled = false // 死锁重放时上一次尝试的结果作废。
 		current, e := tx.GetRunForUpdate(currentID)
 		if e != nil {
@@ -306,7 +306,7 @@ func (s *Server) startOrSignal(
 		return plan.run.ID, eventID, nil
 	}
 
-	if txErr := s.telemetry.runInTx(ctx, "signal_with_start", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "signal_with_start", func(tx execution.ExecutionTx) error {
 		eventID = 0 // 死锁重放时上一次尝试的结果作废。
 		current, e := tx.GetRunForUpdate(currentID)
 		if e != nil {

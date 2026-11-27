@@ -72,7 +72,7 @@ func (s *Server) startActivityAttempt(task protocol.Task, branch runBranch, star
 	now := s.clock.Now()
 	tid, bid := branch.treeID, branch.branchID
 	txCtx := s.telemetry.extract(context.Background(), task.TraceContext)
-	if err := s.telemetry.runInTx(txCtx, "start_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(txCtx, "start_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		started, err = execution.StartActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
@@ -141,7 +141,7 @@ func (s *Server) completeActivityAttempt(ctx context.Context, runID string, bran
 		return err
 	}
 	// 事务内读取并更新同一条 ActivityState，提交后才推进下一轮。
-	if err := s.telemetry.runInTx(ctx, "complete_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "complete_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		completed, err = execution.CompleteActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
@@ -251,7 +251,7 @@ func (s *Server) failActivityAttempt(ctx context.Context, runID string, branch r
 	}
 	// 事务返回的新状态用于提交后安装内存 retry timer。
 	var result execution.ActivityFailureResult
-	if err := s.telemetry.runInTx(ctx, "fail_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "fail_activity", func(tx execution.ExecutionTx) error {
 		var txErr error
 		result, txErr = execution.FailActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
@@ -317,7 +317,7 @@ func (s *Server) ResetActivity(namespace, runID, activityID string, opts executi
 		return err
 	}
 	// 状态校验、reset 事件和 stamp 更新在同一事务内完成。
-	if err := s.telemetry.runInTx(context.Background(), "reset_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(context.Background(), "reset_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		newState, err = execution.ResetActivity(tx, execution.ActivityReset{
 			ActivityTransition: execution.ActivityTransition{
@@ -365,7 +365,7 @@ func (s *Server) releaseActivityAttempt(ctx context.Context, runID string, branc
 		return err
 	}
 	var release execution.ActivityRelease
-	if err := s.telemetry.runInTx(ctx, "release_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "release_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		release, err = execution.ReleaseActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
@@ -446,7 +446,7 @@ func (s *Server) HandleActivityHeartbeat(runID string, scheduledEventID int64, a
 	}
 	now := s.clock.Now()
 	var st *execution.ActivityState
-	if err := s.telemetry.runInTx(context.Background(), "record_activity_heartbeat", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(context.Background(), "record_activity_heartbeat", func(tx execution.ExecutionTx) error {
 		var err error
 		st, err = execution.RecordActivityHeartbeat(tx, execution.ActivityTransition{
 			RunID: runID, ScheduledEventID: scheduledEventID,

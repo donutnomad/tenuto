@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/donutnomad/tenuto/protocol/history"
@@ -30,7 +31,8 @@ func (s *Server) appendWorkflowTaskScheduled(runID, treeID, branchID string, eve
 	if event.WorkflowTaskScheduled == nil {
 		event.WorkflowTaskScheduled = &history.WorkflowTaskScheduledEvent{}
 	}
-	return execution.AppendEvent(s.mgr, runID, treeID, branchID, event)
+	eventID, inserted, err := execution.AppendEvent(s.mgr, runID, treeID, branchID, event)
+	return eventID, inserted, s.closeAtHistoryLimit(context.Background(), err)
 }
 
 // workflowAlreadyTerminated 报告 Run 是否已有终态，读 execution state。

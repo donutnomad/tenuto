@@ -56,7 +56,7 @@ func (s *Server) resetOnce(ctx context.Context, req execution.ResetWorkflowReque
 	// 搬运 reset 点之后的外部输入（Signal / Update-Accepted，ReapplyExcludeTypes 排除指定类型）+
 	// 把父 run 的子关联改指新 run，在同一事务内，任一步失败整体回滚。scheduleWorkflowTask（含队列入队）
 	// 留事务外。对标 startRetryRun。
-	if txErr := s.telemetry.runInTx(ctx, "reset_workflow", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "reset_workflow", func(tx execution.ExecutionTx) error {
 		return execution.CommitResetRun(tx, commit)
 	}); txErr != nil {
 		return "", txErr

@@ -208,7 +208,7 @@ func (s *Server) startWorkflowTask(ctx context.Context, polled polledWorkflowTas
 	now := s.clock.Now()
 	var result execution.WorkflowTaskStartResult
 	// 选版、激活与 WorkflowTaskStarted 同一事务提交：两者要么都写入，要么都不写入。
-	if err := s.telemetry.runInTx(ctx, "start_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "start_workflow_task", func(tx execution.ExecutionTx) error {
 		var err error
 		result, err = execution.StartWorkflowTask(tx, execution.WorkflowTaskStart{
 			RunID: lease.Task.RunID, TreeID: tid, BranchID: bid, ScheduledEventID: scheduledEventID,

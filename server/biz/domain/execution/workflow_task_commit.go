@@ -42,7 +42,9 @@ type WorkflowTaskCommit struct {
 // and leaves them to the next workflow task (result.UnseenFacts). A decision
 // that closes the Workflow would drop them, so it is closed as failed with
 // unhandled_events and the caller schedules a new task, like Temporal's
-// UNHANDLED_COMMAND.
+// UNHANDLED_COMMAND. The failure marks the Run closing
+// (WorkflowExecutionState.WorkflowClosing): while the retried task is started,
+// new Signals and Updates are rejected, so the retried close commits.
 //
 // A Run that already holds a terminal event accepts no further decision: the
 // result reports nothing inserted and History stays unchanged.
@@ -65,7 +67,7 @@ func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTask
 	}
 	scheduledEventID := commit.CloseEvent.FlatScheduledEventID()
 	unseen := state.WorkflowTaskOpen(scheduledEventID) && state.UnseenFacts(commit.CloseEvent.WorkflowTaskCompleted.SeenThroughEventID)
-	if unseen && slices.ContainsFunc(commit.Commands, isCloseWorkflowCommand) {
+	if unseen && slices.ContainsFunc(commit.Commands, func(command history.Command) bool { return command.Type.ClosesWorkflow() }) {
 		_, inserted, err := tx.AppendWorkflowTaskClosed(run.ID, commit.TreeID, commit.BranchID, history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{
 			ScheduledEventID: scheduledEventID,
 			Cause:            WorkflowTaskFailedCauseUnhandledEvents,
@@ -191,15 +193,6 @@ func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTask
 		}
 	}
 	return result, nil
-}
-
-// isCloseWorkflowCommand 报告命令是否关闭 Workflow。
-func isCloseWorkflowCommand(command history.Command) bool {
-	switch command.Type {
-	case history.CmdCompleteWorkflow, history.CmdFailWorkflow, history.CmdCancelWorkflow, history.CmdContinueAsNew:
-		return true
-	}
-	return false
 }
 
 // checkActivityIDs 拒绝与仍未关闭的 Activity 重复的 ActivityID（对标 Temporal 的 SCHEDULE_ACTIVITY_DUPLICATE_ID）：
