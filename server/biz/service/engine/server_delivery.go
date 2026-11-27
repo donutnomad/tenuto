@@ -18,9 +18,13 @@ import (
 // PollWorkflowTask 取一个 workflow task lease。不再属于 open Workflow Task 的陈旧投递由 Server Ack 丢弃，
 // 继续下一轮 poll；用循环而非递归，队列里堆积大量陈旧投递时栈深度恒定。
 //
-// 等待随 ctx 或 StopLongPolls 结束；取到 lease 之后的准备、领取与 Ack/Nack 不随它们取消（见 pollWorkflowTaskOnce）。
+// 等待随 ctx、StopLongPolls 或 Worker session 关闭（ShutdownWorkerPolls）结束；取到 lease 之后的准备、领取与
+// Ack/Nack 不随它们取消（见 pollWorkflowTaskOnce）。
 func (s *Server) PollWorkflowTask(ctx context.Context) (protocol.TaskLease, error) {
-	ctx, cancel := s.longPollContext(ctx)
+	ctx, cancel, err := s.taskPollContext(ctx)
+	if err != nil {
+		return protocol.TaskLease{}, err
+	}
 	defer cancel()
 	for {
 		polled, matched, err := s.pollWorkflowTaskOnce(ctx)
@@ -281,7 +285,10 @@ func (s *Server) validateWorkflowTaskWorkerCapabilities(ctx context.Context, con
 }
 
 func (s *Server) PollActivityTask(ctx context.Context, taskQueue string) (protocol.TaskLease, error) {
-	pollCtx, cancel := s.longPollContext(ctx)
+	pollCtx, cancel, err := s.taskPollContext(ctx)
+	if err != nil {
+		return protocol.TaskLease{}, err
+	}
 	defer cancel()
 	lease, err := s.actQueue.Dequeue(pollCtx, taskQueue)
 	if err != nil {

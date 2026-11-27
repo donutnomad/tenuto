@@ -103,13 +103,13 @@ func run(ctx context.Context, url, namespace string) error {
 
 `Stop()` 是优雅停止（与 Temporal 相同的语义）：
 
-1. 停止 poll，在途的长轮询立即返回。应答已开始到达的任务照常在宽限期内处理；Server 在连接断开之后才领到的任务立即交还（Workflow Task 记 `WorkflowTaskTimedOut` 并立即重新调度，Activity 租约退回队列），不等 10s 的 Workflow Task 超时。
+1. 停止 poll：不再发起新的 poll，先调 `POST /runtime/workflow/shutdown-worker` 让 Server 结束本实例（Identity + 随机 session，请求头 `X-Workflow-Worker-Session`）在途的长轮询（204，已领到的任务照常交给 Worker），最多再等 1 秒后取消剩余的 poll；多副本时只结束接到请求的副本上的长轮询。应答已开始到达的任务照常在宽限期内处理；Server 在连接断开之后才领到的任务立即交还（Workflow Task 记 `WorkflowTaskTimedOut` 并立即重新调度，Activity 租约退回队列），不等 10s 的 Workflow Task 超时。
 2. 关闭 `activity.GetWorkerStopChannel(ctx)`；在途任务的 `ctx` 不取消。
 3. 等在途 Activity 与 Workflow Task 结束，最多 `GracefulStopTimeout`；期间结束的任务照常上报。
 4. 到期后取消仍在运行的任务的 `ctx` 并等它们返回。因停止而结束的 Activity（宽限期内返回 `activity.ErrWorkerStopping`，或 `ctx` 被取消后返回）不上报失败，Worker 调 `POST /runtime/activity/release` 交还 Attempt，Server 以同一序号立即重新派发、不消耗重试次数；未完成的 Workflow Task 不上报，由 Server 的 Workflow Task 超时重新调度。
 5. 向 Server 注销本 Worker 的 Activity 路由（这个 build 立刻退出选路；尽力而为，上限 3 秒），关闭 Execution Cache。
 
-`Stop` 可重复、并发调用，都在停止完成后返回；没有在途任务时立即返回；忽略 `ctx` 的 Activity 会让它一直等。部署平台在 `SIGTERM` 后留出大于 `GracefulStopTimeout` 的终止宽限期。进程崩溃时路由靠心跳 TTL 到期，已开始的 Attempt 靠 StartToClose 或 Heartbeat 超时重试。到期的登记保留：指定 Target Worker 的 Run 仍按它最后登记的队列排队，受 `ScheduleToStartTimeout` 约束。Server 的全量补偿删除到期超过一天、且没有 Running Run 指定的登记；仍在运行的 Worker 的登记被删除后，下一次心跳得到 404，Worker 立即重新登记（退避重试）。
+`Stop` 可重复、并发调用，都在停止完成后返回；没有在途任务时立即返回；忽略 `ctx` 的 Activity 会让它一直等。部署平台在 `SIGTERM` 后留出大于 `GracefulStopTimeout` 加约 7 秒（结束长轮询最多 4 秒、注销最多 3 秒）的终止宽限期。进程崩溃时路由靠心跳 TTL 到期，已开始的 Attempt 靠 StartToClose 或 Heartbeat 超时重试。到期的登记保留：指定 Target Worker 的 Run 仍按它最后登记的队列排队，受 `ScheduleToStartTimeout` 约束。Server 的全量补偿删除到期超过一天、且没有 Running Run 指定的登记；仍在运行的 Worker 的登记被删除后，下一次心跳得到 404，Worker 立即重新登记（退避重试）。
 
 Server 以不可重试的 4xx（400、404、409、413、422）拒绝时 Worker 不立即退回投递：`begin` 按连续拒绝次数退避（1s 起翻倍，最长 1 分钟）后退回；Activity 结果被拒绝时改报不可重试的 `ActivityResultRejected` 失败；Workflow Task 提交被 413 拒绝（或提交前算出命令合计超过 3.5 MiB）时改报 `payload_size_limit_exceeded` 失败，其他上报被拒绝时投递留到队列可见性超时，已开始的 Workflow Task 由 Server 超时重新调度。程序要求的能力超出 Worker 声明时 Workflow Task 照常立即退回。`begin` 应答丢失后的重发带同一个 `request_id`，Server 返回原来的开始结果。
 

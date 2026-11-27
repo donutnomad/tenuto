@@ -27,6 +27,7 @@ const (
 	WorkflowRuntimeRegisterActivityWorkerPath   = "/runtime/workflow/register-activity-worker-version"
 	WorkflowRuntimeHeartbeatActivityWorkerPath  = "/runtime/workflow/heartbeat-activity-worker-version"
 	WorkflowRuntimeDeregisterActivityWorkerPath = "/runtime/workflow/deregister-activity-worker-version"
+	WorkflowRuntimeShutdownWorkerPath           = "/runtime/workflow/shutdown-worker"
 	WorkflowRuntimeListRunsPath                 = "/runtime/workflow/list"
 	WorkflowRuntimeRunStatsPath                 = "/runtime/workflow/run-stats"
 	WorkflowRuntimeSearchAttributesPath         = "/runtime/workflow/search-attributes"

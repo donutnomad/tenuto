@@ -85,6 +85,8 @@ type Server struct {
 	// 经 longPollContext 监听它，停机时立即返回；其余请求不受影响，在 HTTP Shutdown 的期限内照常做完。
 	longPolls     context.Context
 	stopLongPolls context.CancelFunc
+	// workerPolls 记录各 Worker 实例在途的领取长轮询，Worker 停止时经 ShutdownWorkerPolls 结束，见 worker_polls.go。
+	workerPolls *workerPollSessions
 
 	// timers 保存全部进程内 timer 句柄，到期统一进入 fireTimer。锁顺序：keyedMu -> timers 内部锁。
 	timers *timerSet
@@ -149,6 +151,7 @@ func NewServer(deps ServerDeps, options ...ServerOption) *Server {
 		workflowWorkers:   make(map[string]executionview.WorkflowWorkerStatus),
 		updateValidators:  make(map[string]InputValidator),
 		telemetry:         newEngineTelemetry(resolved.telemetry, deps.Clock),
+		workerPolls:       newWorkerPollSessions(deps.Clock),
 	}
 	server.logger = server.telemetry.providers.Logger
 	server.longPolls, server.stopLongPolls = context.WithCancel(context.Background())

@@ -211,7 +211,7 @@ Workflow 程序要求的能力超出 Worker 声明时，Workflow Task 照常立�
 
 `Stop()` 按顺序执行：
 
-1. 停止拉取：取消 Workflow Task 和 Activity Task 的 poll，在途的长轮询立即返回。应答已开始到达的任务照常交给 Worker，在宽限期内处理；Server 在连接断开之后才领到的任务立即交还：Workflow Task 记一条 `WorkflowTaskTimedOut`（`worker disconnected before receiving the workflow task`）并立即调度下一个，Activity 租约退回队列立即重投，都不等超时。
+1. 停止拉取：不再发起新的 poll，并请求 Server 结束本 Worker 实例在途的长轮询（`POST /runtime/workflow/shutdown-worker`，上限 3 秒）。长轮询在连接仍然连着时以 204 结束，Server 恰好已领到的任务照常交给 Worker，在宽限期内处理。Server 确认后 Worker 最多再等 1 秒，然后取消仍未返回的 poll。Server 在连接断开之后才领到的任务立即交还：Workflow Task 记一条 `WorkflowTaskTimedOut`（`worker disconnected before receiving the workflow task`）并立即调度下一个，Activity 租约退回队列立即重投，都不等超时。
 2. 关闭 `activity.GetWorkerStopChannel(ctx)` 返回的 channel。在途任务的 `ctx` 此时不取消。
 3. 等在途的 Activity 和 Workflow Task 结束，最多等 `GracefulStopTimeout`（缺省 10 秒）。宽限期内结束的任务照常上报结果。
 4. 宽限期到期时取消仍在运行的任务的 `ctx`，并等它们返回。
@@ -248,6 +248,8 @@ func Export(ctx context.Context, in ExportInput) (ExportOutput, error) {
 }
 ```
 
+Worker 先请求 Server 结束长轮询、再断开连接，是因为 Server 不能立即察觉连接断开：这期间领到的任务写进已关闭的连接，要等队列的可见性超时或 Workflow Task 超时才重新投递。每个 Worker 实例带一个随机 session（请求头 `X-Workflow-Worker-Session`），Server 按 Identity 加 session 结束长轮询，并在 2 分钟内对这个 session 新到的 poll 立即应答 204；重启后复用同一 Identity 的新实例使用新的 session，不受影响。多副本部署时，只有接到 `shutdown-worker` 请求的副本会结束长轮询，落在其他副本上的长轮询仍由 Worker 直接取消，那一刻领到的任务按上面的超时重投。
+
 `Stop` 可以重复、并发调用，每个调用都在停止完成后返回；没有在途任务时立即返回。忽略 `ctx` 的 Activity 会让 `Stop` 一直等到它返回。`Start` 的 `ctx` 被取消时在途任务立即中止，与宽限期到期相同。
 
 注销是尽力而为的一次调用，等待上限 3 秒；调用失败时只记日志。进程崩溃或被 `SIGKILL` 时没有机会注销，路由在心跳 TTL（默认 30s）之后到期；队列里的任务由同一队列上仍在 poll 的 Worker 领取，它已经开始的 Attempt 由 StartToClose 或心跳超时重试。
@@ -256,4 +258,4 @@ func Export(ctx context.Context, in ExportInput) (ExportOutput, error) {
 
 Worker 是否在线只由它自己的心跳决定：网络分区或数据库故障让心跳失败超过上述期限、登记被删除后，下一次心跳得到 404，Worker 立即重新登记（失败时从 1 秒起加倍退避、不超过心跳间隔），重新进入选路。
 
-部署平台在 `SIGTERM` 后预留的终止宽限期大于 `GracefulStopTimeout` 加几秒注销时间，让 `Stop()` 走完（Kubernetes 缺省 30 秒）。
+部署平台在 `SIGTERM` 后预留的终止宽限期大于 `GracefulStopTimeout` 加约 7 秒（结束长轮询最多 4 秒、注销最多 3 秒），让 `Stop()` 走完（Kubernetes 缺省 30 秒）。

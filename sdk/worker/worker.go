@@ -146,6 +146,7 @@ func newWorker(c client.Client, options Options, cache *executor.ExecutionCache)
 		ActivityWorkerVersionDefault:           options.ActivityWorkerVersionDefault,
 		ActivityWorkerVersionWeight:            options.ActivityWorkerVersionWeight,
 		ActivityWorkerVersionRegistry:          conn.Workflow,
+		PollShutdown:                           conn.Workflow,
 		ActivityWorkerVersionHeartbeatInterval: options.ActivityWorkerVersionHeartbeatInterval,
 		ActivityWorkerVersionHeartbeatTTL:      options.ActivityWorkerVersionHeartbeatTTL,
 		GracefulStopTimeout:                    options.GracefulStopTimeout,

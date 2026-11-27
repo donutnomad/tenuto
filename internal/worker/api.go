@@ -45,3 +45,8 @@ type ActivityWorkerVersionRegistryAPI interface {
 	HeartbeatActivityWorkerVersionInNamespace(ctx context.Context, namespace, identity, buildID string) error
 	DeregisterActivityWorkerVersionInNamespace(ctx context.Context, namespace, identity, buildID string) error
 }
+
+// WorkerPollShutdownAPI 是 Worker 停止时请求 Server 结束本实例（identity + session）在途领取长轮询的能力。
+type WorkerPollShutdownAPI interface {
+	ShutdownWorkerPolls(ctx context.Context, namespace, identity, session string) error
+}

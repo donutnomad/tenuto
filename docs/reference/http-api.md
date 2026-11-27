@@ -126,6 +126,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 | POST | `/runtime/workflow/register-activity-worker-version` | 注册 Activity Worker Build ID |
 | POST | `/runtime/workflow/heartbeat-activity-worker-version` | 刷新 Activity Worker Build ID TTL；登记不存在（从未登记，或到期超过一天后被清理）时应答 404，Worker 应重新调用 `register-activity-worker-version` |
 | POST | `/runtime/workflow/deregister-activity-worker-version` | 注销 Activity Worker 的路由，`{namespace, identity, build_id}`；`Worker.Stop()` 调用 |
+| POST | `/runtime/workflow/shutdown-worker` | 结束一个 Worker 实例在本副本上在途的领取长轮询（Workflow Task 与 Activity Task，应答 204），`{namespace, identity, session}`，`session` 即该实例请求头 `X-Workflow-Worker-Session` 的值；之后 2 分钟内这个 session 的新 poll 立即应答 204。`Worker.Stop()` 在断开连接之前调用；缺少 `identity` 或 `session` 时 400 |
 | POST | `/runtime/workflow/start-batch` | 受理批量操作：`{"req":{namespace,type,filter,reason,reset_type}}`，返回 202 与 `pending` 记录，后台异步处理；`type` 未知或 Reset 缺 `reset_type` 时返回 400，不产生记录 |
 | POST | `/runtime/workflow/get-batch` | `{namespace, operation_id}`，返回记录的状态与进度；不存在时 404 |
 | POST | `/runtime/workflow/list-batches` | `{namespace, offset, limit}`，按创建时间从新到旧分页，`{items, total}`；`limit` 缺省 50 |

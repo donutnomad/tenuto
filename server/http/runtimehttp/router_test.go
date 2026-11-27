@@ -71,6 +71,7 @@ var runtimeHTTPRoutes = []struct {
 	{path: runtimeapi.WorkflowRuntimeRegisterActivityWorkerPath},
 	{path: runtimeapi.WorkflowRuntimeHeartbeatActivityWorkerPath},
 	{path: runtimeapi.WorkflowRuntimeDeregisterActivityWorkerPath},
+	{path: runtimeapi.WorkflowRuntimeShutdownWorkerPath},
 	{path: runtimeapi.WorkflowRuntimeListRunsPath},
 	{path: runtimeapi.WorkflowRuntimeRunStatsPath},
 	{path: runtimeapi.WorkflowRuntimeSearchAttributesPath},

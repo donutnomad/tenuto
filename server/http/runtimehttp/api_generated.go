@@ -565,6 +565,23 @@ func (a *WorkflowRuntimeHTTPAPIWrap) DeregisterActivityWorkerVersion(ctx *gin.Co
 	onGinResponse[runtimeapi.RuntimeOKResponse](ctx, result, err)
 }
 
+// ShutdownWorker
+// @Summary 结束 Worker 实例在本副本上在途的领取长轮询，Worker 停止时在断开连接之前调用
+// @Tags Runtime-Workflow
+// @Accept json
+// @Produce json
+// @Param req body runtimeapi.WorkflowRuntimeShutdownWorkerRequest true "req"
+// @Success 200 {object} runtimeapi.RuntimeOKResponse
+// @Router /runtime/workflow/shutdown-worker [post]
+func (a *WorkflowRuntimeHTTPAPIWrap) ShutdownWorker(ctx *gin.Context) {
+	var req runtimeapi.WorkflowRuntimeShutdownWorkerRequest
+	if !onGinBind(ctx, &req, "JSON") {
+		return
+	}
+	result, err := a.inner.ShutdownWorker(ctx, req)
+	onGinResponse[runtimeapi.RuntimeOKResponse](ctx, result, err)
+}
+
 // ListRuns
 // @Summary 查询 Run 列表
 // @Tags Runtime-Workflow
@@ -1272,6 +1289,19 @@ func (a *WorkflowRuntimeHTTPAPIWrap) BindDeregisterActivityWorkerVersion(router 
 	a.bind(router, "POST", "/runtime/workflow/deregister-activity-worker-version", preHandlers, handlers, a.DeregisterActivityWorkerVersion)
 }
 
+func (a *WorkflowRuntimeHTTPAPIWrap) BindShutdownWorker(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
+	var handlers = []gin.HandlerFunc{
+		func(c *gin.Context) {
+			c.Set("gormgen:methodcomment", "// ShutdownWorker 结束 Worker 实例在本副本上在途的领取长轮询，Worker 停止时在断开连接之前调用\n// @POST(/shutdown-worker)")
+			c.Set("gormgen:interfacecomment", "// WorkflowRuntimeHTTPAPI 是面向外部调用方（SDK client、console、运维）的 workflow 端点。\n// @TAG(Runtime-Workflow)\n// @PREFIX(/runtime/workflow)")
+		},
+	}
+	if a.handler != nil {
+		handlers = append(handlers, a.handler.PreHandlers()...)
+	}
+	a.bind(router, "POST", "/runtime/workflow/shutdown-worker", preHandlers, handlers, a.ShutdownWorker)
+}
+
 func (a *WorkflowRuntimeHTTPAPIWrap) BindListRuns(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
 	var handlers = []gin.HandlerFunc{
 		func(c *gin.Context) {
@@ -1714,6 +1744,7 @@ func (a *WorkflowRuntimeHTTPAPIWrap) BindAll(router gin.IRoutes, preHandlers ...
 	a.BindRegisterActivityWorkerVersion(router, preHandlers...)
 	a.BindHeartbeatActivityWorkerVersion(router, preHandlers...)
 	a.BindDeregisterActivityWorkerVersion(router, preHandlers...)
+	a.BindShutdownWorker(router, preHandlers...)
 	a.BindListRuns(router, preHandlers...)
 	a.BindRunStats(router, preHandlers...)
 	a.BindUpsertSearchAttributes(router, preHandlers...)

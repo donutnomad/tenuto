@@ -15,6 +15,7 @@ const (
 	workerStickyCacheHeader  = "X-Workflow-Worker-Sticky-Cache"
 	workerNamespaceHeader    = "X-Workflow-Namespace"
 	workerTaskTimeoutHeader  = "X-Workflow-Worker-Task-Timeout-Ms"
+	workerSessionHeader      = "X-Workflow-Worker-Session"
 )
 
 // WorkerInfo 是 Worker 随 runtime 请求上报的元数据。
@@ -26,6 +27,9 @@ type WorkerInfo struct {
 	StickyCache          *ExecutionCacheSnapshot
 	// WorkflowTaskTimeout 是 Worker 执行一个 Workflow Task 的超时；Server 按它为领取的 Workflow Task 计时。
 	WorkflowTaskTimeout time.Duration
+	// Session 是 Worker 实例的随机标识，每个进程内的 Worker 各不相同。Worker 停止时按它请求 Server 结束自己的在途长轮询，
+	// 重启后复用同一 Identity 的新实例不受影响。
+	Session string
 }
 
 type workerInfoContextKey struct{}
@@ -50,6 +54,7 @@ func WorkerInfoFromRequest(r *http.Request) WorkerInfo {
 		Namespace: r.Header.Get(workerNamespaceHeader),
 		Identity:  r.Header.Get(workerIdentityHeader),
 		BuildID:   r.Header.Get(workerBuildIDHeader),
+		Session:   r.Header.Get(workerSessionHeader),
 	}
 	_ = json.Unmarshal([]byte(r.Header.Get(workerCapabilitiesHeader)), &info.WorkflowCapabilities)
 	if ms, err := strconv.ParseInt(r.Header.Get(workerTaskTimeoutHeader), 10, 64); err == nil && ms > 0 {
@@ -73,6 +78,9 @@ func ApplyWorkerInfoHeaders(r *http.Request, info WorkerInfo) {
 	}
 	if info.BuildID != "" {
 		r.Header.Set(workerBuildIDHeader, info.BuildID)
+	}
+	if info.Session != "" {
+		r.Header.Set(workerSessionHeader, info.Session)
 	}
 	if info.WorkflowCapabilities != nil {
 		if encoded, err := json.Marshal(info.WorkflowCapabilities); err == nil {

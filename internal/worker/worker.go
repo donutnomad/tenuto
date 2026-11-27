@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -42,6 +43,8 @@ type WorkerOptions struct {
 	ActivityWorkerVersionRegistry          ActivityWorkerVersionRegistryAPI
 	ActivityWorkerVersionHeartbeatInterval time.Duration
 	ActivityWorkerVersionHeartbeatTTL      time.Duration
+	// PollShutdown 是 Stop 请求 Server 结束本 Worker 在途长轮询的能力；nil 时（同进程 Worker）Stop 直接取消长轮询。
+	PollShutdown WorkerPollShutdownAPI
 	// GracefulStopTimeout 是 Stop 等待在途 Activity 与 Workflow Task 结束的上限，<=0 时取
 	// DefaultGracefulStopTimeout。到期后仍在运行的 Activity 的 context 被取消，它们和未完成的
 	// Workflow Task 都不上报失败，交还 Server 重新派发。
@@ -85,6 +88,10 @@ type Worker struct {
 	telemetry      *workerTelemetry
 	// logger 取自 WorkerOptions.Telemetry.Logger，未配置时丢弃日志。
 	logger *slog.Logger
+	// session 是本 Worker 实例的随机标识，随每个 runtime 请求上报，Stop 时按它结束 Server 上的在途长轮询。
+	session string
+	// polls 统计在途的长轮询；Stop 先关闭它，之后不再发起新的 poll。
+	polls pollTracker
 	// beginRejections 是 Server 连续以不可重试的 4xx 拒绝 BeginActivityTask 的次数，决定退回投递前的退避。
 	beginRejections atomic.Int64
 }
@@ -149,6 +156,7 @@ func New(workflowAPI WorkflowWorkerAPI, activityQueue ActivityWorkerQueueAPI, ac
 		stopped:         make(chan struct{}),
 		executionCache:  opts.ExecutionCache,
 		telemetry:       newWorkerTelemetry(opts.Telemetry),
+		session:         rand.Text(),
 	}
 	worker.logger = worker.telemetry.providers.Logger
 	if err := executor.ValidateWorkerCache(worker.executionCache, worker.options.Identity); err != nil {
@@ -306,7 +314,7 @@ const deregisterTimeout = 3 * time.Second
 // errWorkerStopped 是宽限期到期时在途任务 context 的取消原因。
 var errWorkerStopped = errors.New("worker stopped")
 
-// Stop 优雅停止 Worker：先停止拉取（在途的长轮询立即返回），关闭 activity.GetWorkerStopChannel，
+// Stop 优雅停止 Worker：先停止拉取（不再发起新的 poll，请求 Server 结束在途的长轮询，见 endPolls），关闭 activity.GetWorkerStopChannel，
 // 再等在途的 Activity 与 Workflow Task 结束，最多等 GracefulStopTimeout。到期后取消仍在运行的任务的
 // context：因此结束的 Activity 不上报失败，交还 Server 以同一个 attempt 重新派发；未完成的 Workflow
 // Task 不上报，由 Server 的 Workflow Task 超时重新调度。最后向 Server 注销本 Worker 的 Activity 路由，
@@ -323,7 +331,7 @@ func (w *Worker) stop() {
 	close(w.stopping)
 	started := w.stopPolling != nil
 	if started {
-		w.stopPolling()
+		w.endPolls()
 		drained := make(chan struct{})
 		go func() {
 			w.wg.Wait()
@@ -356,18 +364,92 @@ func (w *Worker) stop() {
 	}
 }
 
+// pollShutdownGrace 是 Server 确认结束长轮询之后，Stop 等在途 poll 返回的上限。接到关闭请求的副本上的长轮询立即返回；
+// 落在其他副本上的到期后由 Worker 取消。
+const pollShutdownGrace = time.Second
+
+// endPolls 停止拉取。Worker 先断开长轮询会丢投递：Server 察觉断开之前出队的任务写进已关闭的连接，要等可见性超时或
+// Workflow Task 超时才重新投递。所以先关闭 polls（不再发起新的 poll），再请求 Server 结束本 session 在途的长轮询：
+// 它们在连接仍然连着时以超时结束，已出队的任务照常交给 Worker 处理。之后再取消仍未返回的 poll。
+func (w *Worker) endPolls() {
+	idle := w.polls.close()
+	if w.options.PollShutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), deregisterTimeout)
+		err := w.options.PollShutdown.ShutdownWorkerPolls(ctx, protocol.NormalizeNamespace(w.options.Namespace), w.options.Identity, w.session)
+		cancel()
+		if err != nil {
+			w.logger.Warn("shutdown worker polls failed; cancelling in-flight polls", "err", err)
+		} else {
+			timer := time.NewTimer(pollShutdownGrace)
+			select {
+			case <-idle:
+			case <-timer.C:
+			}
+			timer.Stop()
+		}
+	}
+	w.stopPolling()
+}
+
+// trackedPoll 包装 poll：Stop 关闭 polls 之后返回 executor.ErrPollingStopped，否则计入在途 poll。
+func (w *Worker) trackedPoll(poll func(context.Context) (protocol.TaskLease, error)) func(context.Context) (protocol.TaskLease, error) {
+	return func(ctx context.Context) (protocol.TaskLease, error) {
+		if !w.polls.begin() {
+			return protocol.TaskLease{}, executor.ErrPollingStopped
+		}
+		defer w.polls.end()
+		return poll(ctx)
+	}
+}
+
+// pollTracker 统计在途的 poll。close 之后 begin 返回 false，返回的 channel 在在途 poll 全部结束时关闭。
+type pollTracker struct {
+	mu       sync.Mutex
+	inFlight int
+	idle     chan struct{}
+}
+
+func (t *pollTracker) begin() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.idle != nil {
+		return false
+	}
+	t.inFlight++
+	return true
+}
+
+func (t *pollTracker) end() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.inFlight--
+	if t.idle != nil && t.inFlight == 0 {
+		close(t.idle)
+	}
+}
+
+func (t *pollTracker) close() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.idle = make(chan struct{})
+	if t.inFlight == 0 {
+		close(t.idle)
+	}
+	return t.idle
+}
+
 func (w *Worker) consumeWorkflowTasks(ctx, workCtx context.Context) {
 	pollCtx := protocol.WithWorkerInfo(ctx, w.workerInfo())
-	executor.Consume(pollCtx, workCtx, w.logger, "workflow task", w.workflowAPI.PollWorkflowTask, w.HandleWorkflowTask)
+	executor.Consume(pollCtx, workCtx, w.logger, "workflow task", w.trackedPoll(w.workflowAPI.PollWorkflowTask), w.HandleWorkflowTask)
 }
 
 func (w *Worker) consumeActivityTasks(ctx, workCtx context.Context, taskQueue string) {
 	pollCtx := protocol.WithWorkerInfo(protocol.WithNamespace(ctx, w.options.Namespace), w.workerInfo())
 	activityCtx := runtimectx.WithWorkerStop(workCtx, w.stopping)
 	executor.Consume(pollCtx, activityCtx, w.logger, "activity task",
-		func(ctx context.Context) (protocol.TaskLease, error) {
+		w.trackedPoll(func(ctx context.Context) (protocol.TaskLease, error) {
 			return w.activityQueue.PollActivityTask(ctx, taskQueue)
-		},
+		}),
 		w.HandleActivityTask)
 }
 
@@ -493,6 +575,7 @@ func (w *Worker) workerInfo() protocol.WorkerInfo {
 		BuildID:              w.options.BuildID,
 		WorkflowCapabilities: append([]string(nil), w.options.WorkflowCapabilities...),
 		WorkflowTaskTimeout:  w.options.WorkflowTaskTimeout,
+		Session:              w.session,
 	}
 	if w.executionCache != nil {
 		snapshot := w.executionCache.Snapshot()
