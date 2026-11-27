@@ -213,7 +213,7 @@ func TestGenerateAcceptsMapLiteralWithMapTypedUpdateHandler(t *testing.T) {
 }
 
 // 操作数含 any 的比较、any 上的 switch、slice/map 与 nil 的比较改写成 workflow.Equal / workflow.IsNil；
-// 元素是 struct 的 map 读取改写成立即调用的闭包。
+// map 读取保持原样（缺失 key 的零值由 WLang 的 map.value 给出）。
 func TestLowerTypedRewritesGoSemantics(t *testing.T) {
 	result, err := generateLowered(`
 	var xs []int
@@ -233,10 +233,13 @@ func TestLowerTypedRewritesGoSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	program := string(result.ProgramJSON)
-	for _, want := range []string{`"Equal"`, `"IsNil"`, `"zzTag1"`, `"zzZero1"`, `"zzZero2"`} {
+	for _, want := range []string{`"Equal"`, `"IsNil"`, `"zzTag1"`} {
 		if !strings.Contains(program, want) {
 			t.Fatalf("program misses %s:\n%s", want, program)
 		}
+	}
+	if strings.Contains(program, "zzZero") {
+		t.Fatalf("map reads must stay plain:\n%s", program)
 	}
 }
 

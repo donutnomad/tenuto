@@ -1326,3 +1326,21 @@ func SemDifferenceAnyContainerNested(ctx workflow.Context, in SemInput) (SemOut,
 	}
 	return SemOut{Count: count}, nil
 }
+
+// make 的剩余容量里是元素类型的零值：结构体元素经超出长度的切片读到零值结构体；长度与容量可以是任意整数类型。
+func SemMakeSpareCapacityZero(ctx workflow.Context, in SemInput) (SemOut, error) {
+	var n int32 = 1
+	var c uint8 = 4
+	items := make([]SemItem, n, c)
+	more := items[:3]
+	last := more[2]
+	last.Qty = len(last.Tags) + 7
+	more[1] = last
+	grown := []SemItem{{Qty: 1}}
+	grown = append(grown, SemItem{Qty: 2})
+	grown = append(grown, SemItem{Qty: 3})
+	all := grown[:cap(grown)]
+	tail := all[len(all)-1]
+	second, third := more[1], more[2]
+	return SemOut{Count: len(more)*10 + cap(items), Sum: second.Qty + tail.Qty, Text: tail.Name + third.Name}, nil
+}

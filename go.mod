@@ -8,7 +8,7 @@ require (
 	github.com/donutnomad/dbleader v0.1.1
 	github.com/donutnomad/gsql v0.3.1
 	github.com/donutnomad/taskq v0.0.0-20261112214249-7934cdc84014
-	github.com/donutnomad/wlang v0.0.0-20261127001609-3cfbb2aa0953
+	github.com/donutnomad/wlang v0.0.0-20261127004102-8855e622616a
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/google/uuid v1.6.0
