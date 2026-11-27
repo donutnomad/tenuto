@@ -7,7 +7,7 @@ require github.com/donutnomad/tenuto v0.0.0-00010101000000-000000000000
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/donutnomad/wlang v0.0.0-20261112195913-46182b15d49c // indirect
+	github.com/donutnomad/wlang v0.0.0-20261127005209-c674254fc863 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

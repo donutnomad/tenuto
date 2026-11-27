@@ -14,8 +14,8 @@ github.com/cloudwego/base64x v0.1.6 h1:t11wG9AECkCDk5fMSoxmufanudBtJ+/HemLstXDLI
 github.com/cloudwego/base64x v0.1.6/go.mod h1:OFcloc187FXDaYHvrNIjxSe8ncn0OOM8gEHfghB2IPU=
 github.com/donutnomad/gsql v0.3.1 h1:3ov4Svi65fFvhyU/I2decc0VkzVUxjHaBt61l96VkJs=
 github.com/donutnomad/gsql v0.3.1/go.mod h1:80xMU0CpxknV9fkQr/+KF/0kLATZ0brdBaFyOtg/Qws=
-github.com/donutnomad/wlang v0.0.0-20261112195913-46182b15d49c h1:7Ra/N1UUrewEgROTU8vRX2Lrh67Gk9C+0mSCYytYvr0=
-github.com/donutnomad/wlang v0.0.0-20261112195913-46182b15d49c/go.mod h1:cs/Weujie2pos89isR5NS1JWt60ghVzlPiV0YdvkY7g=
+github.com/donutnomad/wlang v0.0.0-20261127005209-c674254fc863 h1:sm4uqUlrOqGyjpQTOi8k93FvBVPelK/lLiA3lxV1PH4=
+github.com/donutnomad/wlang v0.0.0-20261127005209-c674254fc863/go.mod h1:cs/Weujie2pos89isR5NS1JWt60ghVzlPiV0YdvkY7g=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
 github.com/gabriel-vasile/mimetype v1.4.12 h1:e9hWvmLYvtp846tLHam2o++qitpguFiYCKbn0w9jyqw=
