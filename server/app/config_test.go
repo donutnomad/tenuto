@@ -9,6 +9,8 @@ import (
 	"time"
 
 	workerpkg "github.com/donutnomad/tenuto/internal/worker"
+	"github.com/donutnomad/tenuto/protocol"
+	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/biz/usecase/retention"
 )
 
@@ -94,6 +96,25 @@ func TestLoadConfigParsesEmbeddedWorkflowWorkerSettings(t *testing.T) {
 	if worker.Concurrency != 3 || worker.TaskTimeout != 30*time.Second ||
 		worker.CacheMaxEntries != 50 || worker.CacheMaxBytes != 1<<20 || worker.CacheIdleTTL != time.Minute {
 		t.Fatalf("workflow worker settings = %+v", worker)
+	}
+}
+
+func TestLoadConfigParsesQueryConcurrency(t *testing.T) {
+	cfg, err := loadConfig(mapLookup(validEnvironment()), "workflow-node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.QueryConcurrency != engine.DefaultQueryConcurrency {
+		t.Fatalf("default query concurrency = %d, want %d", cfg.QueryConcurrency, engine.DefaultQueryConcurrency)
+	}
+	env := validEnvironment()
+	env["WORKFLOW_QUERY_CONCURRENCY"] = "2"
+	if cfg, err = loadConfig(mapLookup(env), "workflow-node-a"); err != nil || cfg.QueryConcurrency != 2 {
+		t.Fatalf("query concurrency = %d, err = %v, want 2", cfg.QueryConcurrency, err)
+	}
+	env["WORKFLOW_QUERY_CONCURRENCY"] = "0"
+	if _, err := loadConfig(mapLookup(env), "workflow-node-a"); err == nil {
+		t.Fatal("WORKFLOW_QUERY_CONCURRENCY=0 was accepted")
 	}
 }
 
@@ -277,6 +298,14 @@ func TestLoadConfigRejectsInvalidProductionContracts(t *testing.T) {
 			message: "TASKQ_TLS_ENABLED must be true",
 		},
 		{
+			// 内嵌 matching 的 gRPC 监听是明文，按 TLS 拨号的 TaskQ 客户端全部握手失败，启动校验直接拒绝。
+			name: "TaskQ TLS with embedded matching",
+			mutate: func(env map[string]string) {
+				env["TASKQ_TLS_ENABLED"] = "true"
+			},
+			message: "requires an external matching service",
+		},
+		{
 			name: "invalid activity queue JSON",
 			mutate: func(env map[string]string) {
 				env["TASKQ_ACTIVITY_QUEUES_JSON"] = `{"default/default":{"physical":"activity-default"}} trailing`
@@ -340,6 +369,9 @@ func TestLoadConfigParsesExplicitSettings(t *testing.T) {
 	}
 	if cfg.HTTP.Address != "127.0.0.1:8080" || cfg.NodeID != "workflow-01" {
 		t.Fatalf("HTTP/node = %q/%q", cfg.HTTP.Address, cfg.NodeID)
+	}
+	if cfg.HTTP.MaxInFlight != defaultMaxInFlightPerConn*80 {
+		t.Fatalf("in-flight limit = %d, want %d times the workflow pool", cfg.HTTP.MaxInFlight, defaultMaxInFlightPerConn)
 	}
 	if cfg.Database.MaxOpenConns != 80 || cfg.Database.MaxIdleConns != 20 {
 		t.Fatalf("database pool = %d/%d", cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns)
@@ -433,7 +465,7 @@ func TestValidateRejectsActivityPhysicalEqualToWorkflowQueue(t *testing.T) {
 	cfg := Config{
 		Backend:                   BackendMySQLTaskQ,
 		TaskTokenSecret:           []byte("0123456789abcdef0123456789abcdef"),
-		HTTP:                      HTTPConfig{Address: ":7400", ShutdownTimeout: time.Second, ReadHeaderTimeout: time.Second, IdleTimeout: time.Second},
+		HTTP:                      HTTPConfig{Address: ":7400", ShutdownTimeout: time.Second, ReadHeaderTimeout: time.Second, IdleTimeout: time.Second, MaxInFlight: 1},
 		Database:                  DatabaseConfig{DSN: "d", HistoryPageTokenKey: []byte("0123456789abcdef0123456789abcdef"), MaxOpenConns: 10, MaxIdleConns: 5, ConnMaxLifetime: time.Minute, ConnMaxIdleTime: time.Minute},
 		NodeID:                    "n",
 		StartupTimeout:            time.Second,
@@ -677,5 +709,54 @@ func TestMigrateRequiresMySQLBackendAndDSN(t *testing.T) {
 				t.Fatalf("err = %v, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadConfigPayloadSizeLimit(t *testing.T) {
+	cfg, err := loadConfig(mapLookup(validEnvironment()), "workflow-node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PayloadSizeLimit != protocol.DefaultPayloadSizeLimit {
+		t.Fatalf("default payload size limit = %d, want %d", cfg.PayloadSizeLimit, protocol.DefaultPayloadSizeLimit)
+	}
+	env := validEnvironment()
+	env["WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES"] = "524288"
+	if cfg, err = loadConfig(mapLookup(env), "workflow-node-a"); err != nil || cfg.PayloadSizeLimit != 524288 {
+		t.Fatalf("payload size limit = %d, err = %v; want 524288", cfg.PayloadSizeLimit, err)
+	}
+	for _, value := range []string{"0", "-1", "3145729"} {
+		env["WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES"] = value
+		if _, err := loadConfig(mapLookup(env), "workflow-node-a"); err == nil || !strings.Contains(err.Error(), "WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES") {
+			t.Fatalf("WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES=%s: err = %v, want it rejected", value, err)
+		}
+	}
+}
+
+// WORKFLOW_HTTP_MAX_IN_FLIGHT 覆盖按连接池推导的缺省值，必须是正整数。
+func TestLoadConfigMaxInFlight(t *testing.T) {
+	env := validEnvironment()
+	env["WORKFLOW_HTTP_MAX_IN_FLIGHT"] = "7"
+	cfg, err := loadConfig(mapLookup(env), "node")
+	if err != nil || cfg.HTTP.MaxInFlight != 7 {
+		t.Fatalf("max in flight = %d, %v", cfg.HTTP.MaxInFlight, err)
+	}
+	env["WORKFLOW_HTTP_MAX_IN_FLIGHT"] = "0"
+	if _, err := loadConfig(mapLookup(env), "node"); err == nil || !strings.Contains(err.Error(), "WORKFLOW_HTTP_MAX_IN_FLIGHT") {
+		t.Fatalf("zero limit error = %v", err)
+	}
+}
+
+// TaskQ TLS 与外置 matching 一起配置时通过校验，客户端按 TLS 拨号。
+func TestLoadConfigAcceptsTaskQTLSWithExternalMatching(t *testing.T) {
+	env := validEnvironment()
+	env["TASKQ_TLS_ENABLED"] = "true"
+	env["TASKQ_MATCHING_ENABLED"] = "false"
+	cfg, err := loadConfig(mapLookup(env), "workflow-node-a")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.TaskQ.TLS.Enabled || cfg.TaskQ.MatchingEnabled() {
+		t.Fatalf("TaskQ TLS = %v, embedded matching = %v", cfg.TaskQ.TLS.Enabled, cfg.TaskQ.MatchingEnabled())
 	}
 }

@@ -95,7 +95,7 @@ func DecodeUpdatePayloadValue(reg *wlregistry.Registry, payload protocol.Payload
 	if err := payload.Validate(); err != nil {
 		return wltypes.Value{}, err
 	}
-	return reg.DecodeJSONValue(typeName, json.RawMessage(payload.Data))
+	return DecodeTypedJSON(reg, typeName, json.RawMessage(payload.Data))
 }
 
 func EncodeUpdatePayloadValue(reg *wlregistry.Registry, value wltypes.Value) (protocol.Payload, error) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/donutnomad/tenuto/internal/executor"
@@ -84,7 +85,16 @@ type Worker struct {
 	telemetry      *workerTelemetry
 	// logger 取自 WorkerOptions.Telemetry.Logger，未配置时丢弃日志。
 	logger *slog.Logger
+	// beginRejections 是 Server 连续以不可重试的 4xx 拒绝 BeginActivityTask 的次数，决定退回投递前的退避。
+	beginRejections atomic.Int64
 }
+
+const (
+	// beginRejectionInitialBackoff 与 beginRejectionMaxBackoff 是 Begin 被 4xx 拒绝后、退回投递之前的退避：
+	// 按连续拒绝次数翻倍。
+	beginRejectionInitialBackoff = time.Second
+	beginRejectionMaxBackoff     = time.Minute
+)
 
 func NewWorkflowWorker(api WorkflowWorkerAPI, opts WorkerOptions) *Worker {
 	opts.Role = WorkerRoleWorkflow
@@ -390,8 +400,7 @@ func (w *Worker) HandleWorkflowTask(ctx context.Context, lease protocol.TaskLeas
 			Execute: func(ctx context.Context, workflow *program.WorkflowConfig, events []history.Event) ([]history.Command, error) {
 				return interpreter.NewWorkflowExecutorWithContext(ctx, workflow, events).Execute()
 			},
-			BlocksOnError: func(err error) bool { return executor.ClassifyWorkflowError(err) == executor.WorkflowErrorBlock },
-			BlockedCause:  history.WorkflowTaskFailedCauseNonDeterministic,
+			BlockedCause: executor.WorkflowTaskBlockedCause,
 		},
 		IncrementalABI: history.ExecutorABIVersionV1,
 	}
@@ -441,20 +450,39 @@ func (w *Worker) HandleActivityTask(ctx context.Context, lease protocol.TaskLeas
 		w.ackActivity(ctx, lease)
 	})
 	switch outcome {
-	case "skipped", "pending", "failed":
+	case "skipped", "pending", "failed", "timed_out":
 		markTaskOutcome(ctx, outcome, executionErr)
 	case "cancelled", "released":
 		markTaskOutcome(ctx, outcome, nil)
 	}
 	if !acked {
+		if errors.Is(reportErr, protocol.ErrInvalidRequest) {
+			// Server 以不可重试的 4xx 拒绝开始：立即退回只会让队列无退避地重投同一份投递。按连续拒绝次数退避后再退回。
+			w.backoffRejectedBegin(ctx, reportErr)
+		}
 		w.finishActivityLease(ctx, lease, reportErr)
 		return
 	}
+	w.beginRejections.Store(0)
 	// The lease was acknowledged when the attempt started. A result that could not be
 	// reported leaves the attempt started; its StartToClose or heartbeat timeout retries it.
 	if reportErr != nil {
 		markTaskOutcome(ctx, "error", reportErr)
 		w.logger.Error("report activity result failed; the attempt's timeout will retry it", "run_id", lease.Task.RunID, "err", reportErr)
+	}
+}
+
+// backoffRejectedBegin 记一次 Begin 被拒绝，等待 min(1s·2^(n-1), 1min)（n 是连续拒绝次数）；ctx 结束时提前返回。
+func (w *Worker) backoffRejectedBegin(ctx context.Context, err error) {
+	n := w.beginRejections.Add(1)
+	delay := min(beginRejectionInitialBackoff<<min(n-1, 6), beginRejectionMaxBackoff)
+	w.logger.Warn("server rejected the activity begin request; returning the task after a backoff",
+		"consecutive_rejections", n, "backoff", delay, "err", err)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
 	}
 }
 
@@ -474,6 +502,20 @@ func (w *Worker) workerInfo() protocol.WorkerInfo {
 }
 
 func (w *Worker) finishWorkflowLease(ctx context.Context, lease protocol.TaskLease, err error) {
+	var unsupported *program.UnsupportedWLangCapabilityError
+	if errors.As(err, &unsupported) {
+		// 本 Worker 不具备程序要求的能力：立即退回，由具备能力的 Worker 领取。
+		w.nackWorkflow(ctx, lease, err)
+		return
+	}
+	if errors.Is(err, protocol.ErrInvalidRequest) {
+		// Server 以不可重试的 4xx 拒绝上报：立即退回只会让同一份投递无退避地重放。不确认也不退回，投递留到
+		// 队列的可见性超时；已 started 的 WFT 由 Server 的 Workflow Task 超时重新调度。
+		markTaskOutcome(ctx, "rejected", err)
+		w.logger.Error("server rejected the workflow task report; leaving the delivery to the queue's visibility timeout",
+			"run_id", lease.Task.RunID, "scheduled_event_id", lease.Task.ScheduledEventID, "err", err)
+		return
+	}
 	if err != nil {
 		w.nackWorkflow(ctx, lease, err)
 		return

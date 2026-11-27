@@ -191,9 +191,9 @@ func TestRuntimeHTTPRoutesAcceptOnlyPost(t *testing.T) {
 
 func TestRuntimeHTTPRejectsOversizedBody(t *testing.T) {
 	handler := newRuntimeHTTPRouteTestHandler(t)
-	body := `{"run_id":"` + strings.Repeat("a", maxRuntimeRequestBody) + `"}`
+	body := `{"run_id":"` + strings.Repeat("a", protocol.MaxRuntimeRequestBody) + `"}`
 	response := serveRuntimeHTTP(handler, http.MethodPost, runtimeapi.WorkflowRuntimeGetRunPath, body)
-	if response.Code != http.StatusBadRequest || response.Body.String() != "decode request: http: request body too large\n" {
+	if response.Code != http.StatusRequestEntityTooLarge || response.Body.String() != "request body exceeds 4194304 bytes\n" {
 		t.Fatalf("oversized body = %d %q", response.Code, response.Body.String())
 	}
 }
@@ -207,6 +207,7 @@ func TestRuntimeErrorStatus(t *testing.T) {
 		{definition.ErrWorkflowConfigNotFound, http.StatusNotFound},
 		{fmt.Errorf("load run: %w", execution.ErrRunNotFound), http.StatusNotFound},
 		{execution.ErrNoCurrentRun, http.StatusNotFound},
+		{fmt.Errorf("%w: default/pod-1/v1", protocol.ErrActivityWorkerVersionNotRegistered), http.StatusNotFound},
 		{fmt.Errorf("%w: default/batch-1", batch.ErrNotFound), http.StatusNotFound},
 		{fmt.Errorf("%w: batch operation b-1 is completed, cannot become cancelled", batch.ErrInvalidTransition), http.StatusConflict},
 		{batch.ErrConcurrentUpdate, http.StatusConflict},
@@ -220,6 +221,7 @@ func TestRuntimeErrorStatus(t *testing.T) {
 		{execution.ErrRunOrWorkflowIDRequired, http.StatusBadRequest},
 		{execution.ErrInvalidHistoryPageToken, http.StatusBadRequest},
 		{protocol.ErrUpdateRejected, http.StatusBadRequest},
+		{fmt.Errorf("%w: run run-1", execution.ErrWorkflowClosing), http.StatusServiceUnavailable},
 		{context.DeadlineExceeded, http.StatusGatewayTimeout},
 		{errors.New("boom"), http.StatusInternalServerError},
 		{fmt.Errorf("dial tcp 10.0.0.5:3306: connection refused"), http.StatusInternalServerError},
@@ -228,6 +230,10 @@ func TestRuntimeErrorStatus(t *testing.T) {
 		if got := runtimeErrorStatus(runtimeapi.WorkflowRuntimeGetRunPath, tc.err, db.IsTransient); got != tc.want {
 			t.Errorf("runtimeErrorStatus(%v) = %d, want %d", tc.err, got, tc.want)
 		}
+	}
+	// 正在关闭的 Run 没有写入请求：重发会再执行一次的 Signal 端点也是 503，SDK 重发。
+	if got := runtimeErrorStatus(runtimeapi.WorkflowRuntimeSignalPath, execution.ErrWorkflowClosing, nil); got != http.StatusServiceUnavailable {
+		t.Errorf("signal on a closing run: runtimeErrorStatus = %d, want 503", got)
 	}
 }
 
@@ -306,6 +312,58 @@ func TestWriteRuntimeErrorSetsRetryAfterOnUnavailable(t *testing.T) {
 	response = write(runtimeapi.WorkflowRuntimeTriggerSchedulePath, tooMany)
 	if response.Code != http.StatusBadGateway || response.Header().Get("Retry-After") != "" || strings.Contains(response.Body.String(), "1040") {
 		t.Fatalf("trigger-schedule: status = %d, Retry-After = %q, body = %q", response.Code, response.Header().Get("Retry-After"), response.Body.String())
+	}
+}
+
+// Server 没有余量（Query 重放名额已满）：请求没有生效，任何端点都应答 503 与 Retry-After，SDK 退避重发。
+func TestWriteRuntimeErrorAnswersResourceExhaustedWith503(t *testing.T) {
+	err := fmt.Errorf("query replay concurrency limit 8 reached: %w", protocol.ErrResourceExhausted)
+	for _, path := range []string{runtimeapi.WorkflowRuntimeQueryPath, runtimeapi.WorkflowRuntimeResetPath} {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPost, path, nil)
+		c.Set(loggerKey, slog.New(slog.DiscardHandler))
+		writeRuntimeError(c, err)
+		if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Retry-After") != retryAfterSeconds {
+			t.Fatalf("%s: status = %d, Retry-After = %q", path, recorder.Code, recorder.Header().Get("Retry-After"))
+		}
+	}
+}
+
+// 请求在生效之前被取消（等 keyed lock 时 context 结束）应答 503 与 Retry-After，不应答空 body 的 200；
+// 非幂等端点同样是 503，因为取消只发生在提交之前。
+func TestWriteRuntimeErrorAnswersCancelledRequestsWith503(t *testing.T) {
+	for _, path := range []string{runtimeapi.WorkflowRuntimeSignalPath, runtimeapi.WorkflowRuntimeResetPath} {
+		for _, requestCancelled := range []bool{false, true} {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestCtx, cancel := context.WithCancel(context.Background())
+			if requestCancelled {
+				cancel()
+			}
+			c.Request = httptest.NewRequest(http.MethodPost, path, nil).WithContext(requestCtx)
+			c.Set(loggerKey, slog.New(slog.DiscardHandler))
+			writeRuntimeError(c, fmt.Errorf("lock workflow: %w", context.Canceled))
+			cancel()
+			if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Retry-After") != retryAfterSeconds || recorder.Body.Len() == 0 {
+				t.Errorf("%s (request cancelled %v) = %d, Retry-After %q, body %q", path, requestCancelled,
+					recorder.Code, recorder.Header().Get("Retry-After"), recorder.Body.String())
+			}
+		}
+	}
+}
+
+// 长轮询在请求方仍在等待时因停机结束（context.Canceled）应答 204。
+func TestRuntimePollErrorMapsShutdownToNoContent(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, runtimeapi.WorkflowTaskRuntimePollPath, nil)
+	if err := runtimePollError(c, context.Canceled); !errors.Is(err, errSkipResponse) {
+		t.Fatalf("err = %v, want errSkipResponse", err)
+	}
+	c.Writer.WriteHeaderNow()
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", recorder.Code)
 	}
 }
 

@@ -16,8 +16,8 @@ status: Stable
 | `WORKFLOW_BACKEND` | `mysql-taskq` | `mysql-taskq` 或 `memory` |
 | `WORKFLOW_NODE_ID` | hostname | Server 节点唯一标识 |
 | `WORKFLOW_STARTUP_TIMEOUT` | `30s` | 数据库、membership、路由与内嵌 Workflow Worker 的启动期限；启动恢复在后台运行，不计入 |
-| `WORKFLOW_RECONCILE_INTERVAL` | `30s` | 周期补偿的间隔：按到期索引只处理有到期或待处理事项的 Running Run（截止时间、timer、Activity 超时在两个周期内到期，或有 Scheduled Activity、open / 待调度的 Workflow Task、blocked），补投任务、接管到期定时器；MySQL 部署只有选为 leader 的副本执行 |
-| `WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL` | `10m` | 全量补偿的间隔：按游标逐页检查全部 Running Run，补齐没有到期索引的崩溃窗口（子 Run 补建、子 Run 终态传播、终态写回 Run、父关闭策略、子 Run 取消请求补发）；与周期补偿同一 leader 执行 |
+| `WORKFLOW_RECONCILE_INTERVAL` | `30s` | 周期补偿的间隔：按到期索引只处理有到期或待处理事项的 Running Run（截止时间、timer、Activity 超时在两个周期内到期，或有 Scheduled Activity、open / 待调度的 Workflow Task、blocked），补投任务、把两个周期内到期的截止时间、timer 与 Activity 超时挂到本进程、接管到期定时器；MySQL 部署只有选为 leader 的副本执行 |
+| `WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL` | `10m` | 全量补偿的间隔：按游标逐页批量检查全部 Running Run（每页 200 个、固定几条查询），补齐没有到期索引的崩溃窗口（子 Run 补建、子 Run 终态传播、终态写回 Run、父关闭策略、子 Run 取消请求补发），并删除到期超过一天、没有 Running Run 指定（Target Worker）的 Activity Worker 登记；与周期补偿同一 leader 执行，各用一个 goroutine，全量补偿运行期间周期补偿照常执行 |
 | `WORKFLOW_TASK_TOKEN_SECRET` | 生产后端必填 | Task Token HMAC Secret，至少 32 字节；所有 Server 副本配置同一值，任一副本签发的 Token 才能被其他副本校验；memory 后端提供开发默认值 |
 | `WORKFLOW_WORKER_ENABLED` | `true` | 在本进程内执行 Workflow Task；`false` 时由独立 workflow worker 消费 |
 | `WORKFLOW_WORKER_CONCURRENCY` | `8` | 内嵌 workflow worker 并发度 |
@@ -25,8 +25,10 @@ status: Stable
 | `WORKFLOW_WORKER_CACHE_MAX_ENTRIES` | `1000` | Sticky Execution Cache 的 session 上限 |
 | `WORKFLOW_WORKER_CACHE_MAX_BYTES` | `268435456` | Sticky Execution Cache 的估算内存上限 |
 | `WORKFLOW_WORKER_CACHE_IDLE_TTL` | `5m` | Sticky Execution Cache 空闲逐出时间 |
+| `WORKFLOW_QUERY_CONCURRENCY` | `8` | 本进程同时重放 History 求值 Query 的上限；超出的 Query 立即应答 503 与 `Retry-After`，Go SDK 退避重发。`__stack_trace` 不占名额 |
 | `WORKFLOW_ARTIFACTS` | 空 | 启动时加载的生成产物目录，逗号分隔，递归查找 `workflow.json`；空表示不加载 |
 | `WORKFLOW_ARTIFACTS_NAMESPACE` | `default` | `WORKFLOW_ARTIFACTS` 中产物登记到的 Namespace |
+| `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES` | `2097152`（2 MiB） | 单个载荷 JSON 编码后的字节上限：Workflow 输入与结果、Signal 输入、Update 参数、Activity 输入、结果与心跳详情、子 Workflow 与 Continue-As-New 输入、Marker 数据。最大 `3145728`（3 MiB，载荷连同请求其余部分要放进 4 MiB 的 Runtime 请求体）。超限时的处理见 [容量上限](/operations/capacity-limits#载荷大小) |
 | `WORKFLOW_PPROF_ADDR` | 空 | 非空时在这个 `host:port` 上另开 `net/http/pprof` 监听（`/debug/pprof/`），并开启 mutex（1/100）与 block（阻塞超过 100µs）采样；空表示关闭。调试用，不鉴权、不走业务 HTTP，只绑定本机或内网地址，不要暴露到公网 |
 | `WORKFLOW_ARTIFACTS_PUBLISH` | `false` | `true` 时启动加载把 latest 指向这些产物；`false` 只登记，旧 Worker 重启不会把 latest 拉回旧版本。取值按 Go `strconv.ParseBool` 解析，非法取值（如 `ture`）使启动失败 |
 
@@ -34,7 +36,8 @@ status: Stable
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `WORKFLOW_HTTP_SHUTDOWN_TIMEOUT` | `20s` | 优雅退出期限 |
+| `WORKFLOW_HTTP_SHUTDOWN_TIMEOUT` | `20s` | 优雅退出期限：收到 `SIGTERM` 时在途的非长轮询请求在这个期限内照常做完并应答结果 |
+| `WORKFLOW_HTTP_MAX_IN_FLIGHT` | `4 × WORKFLOW_DB_MAX_OPEN_CONNS`（缺省 200） | `/runtime/*` 上同时处理的非长轮询请求数上限，必须为正整数。超出时立即应答 `503` 与 `Retry-After: 1`，请求没有被处理，可以原样重发；长轮询（`workflow-task/poll`、`activity/poll`、`wait-closed`）不计入；`update` 与 `update-with-start` 在拿锁与写库阶段计入，进入等结果的长等待之前归还名额 |
 | `WORKFLOW_HTTP_READ_HEADER_TIMEOUT` | `5s` | Header 读取超时 |
 | `WORKFLOW_HTTP_READ_TIMEOUT` | `30s` | 读完整个请求（含 body）的期限；`0` 表示不限制，不可为负 |
 | `WORKFLOW_HTTP_WRITE_TIMEOUT` | `2m` | 从读完请求头到写完响应的期限；必须大于长轮询上界 `1m`，或设为 `0` 不限制，否则启动失败 |
@@ -50,9 +53,9 @@ status: Stable
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `WORKFLOW_DB_DSN` | 生产后端必填 | MySQL DSN；`tenuto-server migrate` 在这个库上执行 Tenuto 的迁移。`parseTime=true`、`loc=UTC`、`interpolateParams=true` 由 Server 设置；字符集用 `utf8mb4`，GBK、Big5、SJIS 等不能与客户端插值同用的字符集启动失败（见[部署 Tenuto Server](../deploy/server.md#必需配置)） |
+| `WORKFLOW_DB_DSN` | 生产后端必填 | MySQL DSN；`tenuto-server migrate` 在这个库上执行 Tenuto 的迁移。`parseTime=true`、`loc=UTC`、`interpolateParams=true` 由 Server 设置；字符集用 `utf8mb4`，GBK、Big5、SJIS 等不能与客户端插值同用的字符集启动失败（见[部署 Tenuto Server](../deploy/server.md#必需配置)）。DSN 没有给出 `readTimeout` / `writeTimeout` 时，Server 设为 `60s` / `30s`：数据库失联或主从切换时，挂在连接上的读写在这个期限内以连接错误返回（应答 503）；`readTimeout` 大于 `innodb_lock_wait_timeout` 的缺省值 50s，锁等待照常以 `1205` 返回。`tenuto-server migrate` 不设这两项 |
 | `WORKFLOW_HISTORY_PAGE_TOKEN_KEY_BASE64` | 生产后端必填 | Base64 编码的 History Page Token HMAC Key，解码后至少 32 字节 |
-| `WORKFLOW_DB_MAX_OPEN_CONNS` | `50` | 最大连接数；Workflow 与 TaskQ 两个连接池各自的上限，所有副本合计最多 `副本数 × 2 × 该值`，要小于 MySQL 的 `max_connections`（见[数据库连接数](../deploy/production.md#数据库连接数)） |
+| `WORKFLOW_DB_MAX_OPEN_CONNS` | `50` | 最大连接数，最小 `2`：readiness 探针在每个池里长期占一条连接，小于 2 时 Server 启动失败（注入的连接池同样检查）；Workflow 与 TaskQ 两个连接池各自的上限，所有副本合计最多 `副本数 × 2 × 该值`，要小于 MySQL 的 `max_connections`（见[数据库连接数](../deploy/production.md#数据库连接数)） |
 | `WORKFLOW_DB_MAX_IDLE_CONNS` | `10` | 最大空闲连接数，同样作用于两个连接池；不能大于 `WORKFLOW_DB_MAX_OPEN_CONNS` |
 | `WORKFLOW_DB_CONN_MAX_LIFETIME` | `30m` | 连接最大生命周期 |
 | `WORKFLOW_DB_CONN_MAX_IDLE_TIME` | `5m` | 空闲连接生命周期 |
@@ -91,7 +94,7 @@ status: Stable
 
 | 变量 | 说明 |
 | --- | --- |
-| `TASKQ_TLS_ENABLED` | 启用 gRPC TLS |
+| `TASKQ_TLS_ENABLED` | 连接外置 matching 时启用 gRPC TLS；要求 `TASKQ_MATCHING_ENABLED=false` |
 | `TASKQ_TLS_CA_FILE` | CA Certificate |
 | `TASKQ_TLS_SERVER_NAME` | TLS Server Name |
 | `TASKQ_TLS_CERT_FILE` | mTLS Client Certificate |
@@ -114,3 +117,5 @@ OTLP 连接使用 OpenTelemetry 标准环境变量，例如 `OTEL_EXPORTER_OTLP_
 `WORKFLOW_BACKEND=memory` 用于本地开发和自动化测试，Workflow state 与 queue 都保存在进程内。`WORKFLOW_BACKEND=mysql-taskq` 启用 MySQL 持久化和 TaskQ 路由，并要求配置数据库 DSN、History Token Key 与 Task Token Secret；Activity Queue 映射 `TASKQ_ACTIVITY_QUEUES_JSON` 可选，未配置的路由使用 `activity:<namespace>/<task_queue>`。
 
 TLS Certificate 与 Private Key 需要成对配置。启用任一 TaskQ TLS 文件或 Server Name 时，同时设置 `TASKQ_TLS_ENABLED=true`。
+
+TaskQ TLS 只用于连接外置 matching：内嵌 matching（`TASKQ_MATCHING_ENABLED=true`，缺省）的 gRPC 监听是明文，`TASKQ_TLS_ENABLED=true` 与它同时配置时 Server 启动失败。内嵌模式下副本之间的 matching 流量（`:7235`）靠网络隔离保护，只对 Server 副本开放。

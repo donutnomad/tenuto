@@ -57,7 +57,7 @@ func TestTransactionReadsAndWritesExecutionStateOnce(t *testing.T) {
 // 没有改动 state 的事务不写回：sticky 分配被代数 fence 拒绝时只有一条加锁读。
 func TestUnchangedExecutionStateIsNotWritten(t *testing.T) {
 	repo, connector := newCannedRepository(t)
-	if _, assigned, err := repo.AssignStickyExecution("run-1", 99, 99, "worker", "build", repo.clock.Now()); err != nil || assigned {
+	if _, assigned, err := repo.AssignStickyExecution("run-1", 99, 99, "worker", "build"); err != nil || assigned {
 		t.Fatalf("assigned = %v, err = %v", assigned, err)
 	}
 	if len(connector.statements) != 1 {

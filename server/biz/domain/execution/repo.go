@@ -20,8 +20,11 @@ type WorkflowTaskCommandEventResult struct {
 }
 
 type WorkflowTaskCompletionResult struct {
-	// Superseded 表示 started 之后有新事实，本次完成没有提交，已写入 WorkflowTaskFailed，调用方立即重新调度。
-	Superseded     bool
+	// Superseded 表示本批含终态命令、而 Worker 没有看到 Workflow Task 进行期间到达的新事实：本次完成没有提交，
+	// 已写入 WorkflowTaskFailed(unhandled_events)，调用方立即重新调度。
+	Superseded bool
+	// UnseenFacts 表示本次完成已提交，Workflow Task 进行期间到达的事实留给下一个 Workflow Task，调用方提交后调度它。
+	UnseenFacts    bool
 	ClosedInserted bool
 	ClosedEventID  int64
 	CommandEvents  []WorkflowTaskCommandEventResult
@@ -41,6 +44,8 @@ type EventStore interface {
 	AppendWorkflowTaskCompletedWithEvents(runID, treeID, branchID string, closeEvent history.Event, commandEvents []history.Event) (WorkflowTaskCompletionResult, error)
 	// GetWorkflowTaskScheduledEvent 返回持久化的 WorkflowTaskScheduled 事件，供复用 open WFT 的调度读取 trace context。
 	GetWorkflowTaskScheduledEvent(runID string, scheduledEventID int64) (history.Event, bool, error)
+	// GetEventIDByDedupeKey 返回 Run 的 branch 上去重键（history.DedupeKey）为 dedupeKey 的事件 ID。
+	GetEventIDByDedupeKey(runID, branchID, dedupeKey string) (eventID int64, found bool, err error)
 }
 
 // StoreListFilter 的全部条件都由存储层在分页之前应用。
@@ -61,9 +66,9 @@ type StoreListFilter struct {
 	// 翻页期间离开或进入过滤条件的 Run 不会让后续页漂移。
 	After     *RunCursor
 	OrderDesc bool
-	Offset    int
 	Limit     int
-	// SkipTotal 为 true 时不计算 StoreListResult.Total（保持 0），按游标翻页的扫描用它省掉每页一次的计数。
+	// SkipTotal 为 true 时不计算 StoreListResult.Total（保持 0）：按游标翻页的扫描与只需要「是否有下一页」的
+	// 列表页用它省掉每页一次的计数。
 	SkipTotal bool
 }
 
@@ -78,10 +83,12 @@ func CursorOf(run *Run) RunCursor {
 	return RunCursor{CreatedAt: run.CreatedAt, RunID: run.ID}
 }
 
-// StoreListResult.Total 是满足全部过滤条件的 Run 总数，与分页无关。
+// StoreListResult.Total 是满足全部过滤条件的 Run 总数，与分页（After、Limit）无关（SkipTotal 时为 0）；HasMore 表示
+// 这一页之后还有满足条件的 Run。
 type StoreListResult struct {
-	Runs  []*Run
-	Total int
+	Runs    []*Run
+	Total   int
+	HasMore bool
 }
 
 // RunCount 是一组 (namespace, status) 下的 Run 数量。
@@ -89,6 +96,12 @@ type RunCount struct {
 	Namespace string
 	Status    history.Status
 	Count     int
+}
+
+// TargetWorker 是 Run 指定的 Activity Worker（Run.TargetWorkerIdentity）及其 namespace。
+type TargetWorker struct {
+	Namespace string
+	Identity  string
 }
 
 // Store 是 Run 的读取与少量单列写入。Run 的状态变更经 ExecutionTx.UpdateRun 与同一业务事实的 History、
@@ -100,8 +113,11 @@ type Store interface {
 	SetResetRunID(runID, resetRunID string) error
 	GetCurrentRunID(namespace, workflowID string) (string, error)
 	List(filter StoreListFilter) (StoreListResult, error)
-	// CountRuns 返回按 namespace 与 Run 行状态分组的 Run 数量。
-	CountRuns() ([]RunCount, error)
+	// CountRuns 返回按 namespace 与 Run 行状态分组的 Run 数量；namespace 非空时只统计这个 namespace。
+	CountRuns(namespace string) ([]RunCount, error)
+	// ListRunningTargetWorkers 返回 Running Run 指定的 Activity Worker（去重）：这些 Run 的 Activity 只投给这个
+	// Identity，它的登记即使已到期也要保留，Run 才能按它最后登记的队列排队。
+	ListRunningTargetWorkers() ([]TargetWorker, error)
 	// ListRecoveryRunIDs 返回周期补偿要处理的 Running Run 的 ID（去重、升序），即满足任一条件的 Run：
 	//   - Run 的执行截止时间或 Run 截止时间早于 dueBefore；
 	//   - 有 deadline 早于 dueBefore 的 Scheduled timer；
@@ -141,11 +157,17 @@ type ExecutionManager interface {
 	TimerStateStore
 	ChildWorkflowStateStore
 	WorkflowExecutionStateStore
+	// RunInTx 在一个事务里执行 fn。数据库因死锁回滚事务时，后端可以用新事务把 fn 整体再执行一次（MySQL 最多
+	// 3 次）：fn 只经 tx 读写，结果赋给外层变量，并在开头把这些变量重置为零值（重放可能走另一条分支，不能残留
+	// 上一次尝试的值）；提交后的副作用（调度、timer、通知）放在 RunInTx 返回之后。
 	RunInTx(fn func(tx ExecutionTx) error) error
 }
 
 type ExecutionTx interface {
 	AppendIdempotent(runID, treeID, branchID string, event history.Event) (eventID int64, inserted bool, err error)
+	// GetEventIDByDedupeKey 返回 Run 的 branch 上去重键（history.DedupeKey）为 dedupeKey 的事件 ID，包含本事务
+	// 写入的事件。MySQL 上加锁读取，与 AppendIdempotent 的去重判定一致。
+	GetEventIDByDedupeKey(runID, branchID, dedupeKey string) (eventID int64, found bool, err error)
 	Append(runID, treeID, branchID string, event history.Event) (eventID int64, err error)
 	AppendWorkflowTaskClosed(runID, treeID, branchID string, event history.Event) (eventID int64, inserted bool, err error)
 	AppendWorkflowTaskCompleted(runID, treeID, branchID string, closeEvent history.Event, commandEvents []history.Event) (WorkflowTaskCompletionResult, error)
@@ -162,6 +184,9 @@ type ExecutionTx interface {
 	// CloseScheduledTimers 把 Run 仍为 Scheduled 的 timer（含本事务写入的）置为 RunClosed，UpdatedAt 取存储的时钟；
 	// MySQL 上是一条 UPDATE。Run 结束的事务调用它。
 	CloseScheduledTimers(runID string) error
+	// CloseOpenActivities 把 Run 未结束的 Activity（Scheduled、Started，含本事务写入的）置为 RunClosed，
+	// UpdatedAt 取存储的时钟；MySQL 上是一条 UPDATE。Run 结束的事务调用它。
+	CloseOpenActivities(runID string) error
 	UpsertChildWorkflowState(state *ChildWorkflowState) error
 	GetChildWorkflowStateForUpdate(runID string, scheduledEventID int64) (*ChildWorkflowState, bool, error)
 	// CreateRun 在 Run ID 已存在时返回满足 errors.Is(err, ErrRunAlreadyExists) 的错误，

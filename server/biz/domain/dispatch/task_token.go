@@ -162,8 +162,13 @@ func (c *TaskTokenCodec) Attach(task protocol.Task) (protocol.Task, error) {
 	return task, nil
 }
 
+// normalizeTaskForToken 留下 token 签名的寻址与 fence 字段：载荷（Input、LastHeartbeatDetails）与 TraceContext
+// 不进 token，token 的大小与载荷无关。Worker 从投递的任务读载荷，Server 从 mutable state 读。
 func normalizeTaskForToken(task protocol.Task) protocol.Task {
 	task.TaskToken = ""
+	task.Input = nil
+	task.LastHeartbeatDetails = nil
+	task.TraceContext = nil
 	task.Namespace = protocol.NormalizeNamespace(task.Namespace)
 	if task.Type == protocol.TaskTypeActivity {
 		task.Attempt = max(task.Attempt, 1)

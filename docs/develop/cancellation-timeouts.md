@@ -32,7 +32,7 @@ if err := c.GetWorkflow(ctx, workflowID, runID).Get(ctx, nil); workflow.IsCancel
 ### 取消送达 Workflow 代码
 
 1. Server 在 History 写入 `WorkflowCancellationRequested` 并调度 Workflow Task。
-2. Worker 处理这个 Workflow Task 时，在协程推进之前取消 Workflow 的根 Context。送达点是这条事件，重放时在同一位置送达。
+2. Worker 处理这个 Workflow Task 时，在协程推进之前取消 Workflow 的根 Context。送达点是这条事件，重放时在同一位置送达。同一个 Workflow Task 看到的事件里，取消请求之前已有结果的 Activity、timer、子 Workflow 照常返回结果；取消请求之后才到的结果不改变已按取消返回的 Future（与 Temporal 按事件顺序处理相同）。
 3. Workflow 代码继续运行。在已取消的 Context 上：
    - `ExecuteActivity` 的 Activity 被请求取消（`RequestCancelActivity`），Future 返回取消错误；
    - `Sleep` 的 timer 被取消（`CancelTimer` → `TimerCancelled`），`Sleep` 返回取消错误；
@@ -132,7 +132,7 @@ Activity 支持四类超时，通过 `workflow.ActivityOptions` 配置：
 | `ScheduleToCloseTimeout` | 整个 Call，含重试 | 外部依赖持续失败 |
 | `HeartbeatTimeout` | 两次 Heartbeat 的间隔 | Worker 崩溃或网络中断 |
 
-超时产生 Activity 失败事件。`ScheduleToStartTimeout` 与 `ScheduleToCloseTimeout` 到期后 Call 直接失败；`StartToCloseTimeout` 与 `HeartbeatTimeout` 按 Retry Policy 决定下一次 Attempt。配置了 `StartToCloseTimeout` 时，Worker 给 Activity 的 `ctx` 设置相同的 deadline。详见 [Activity 执行生命周期](/develop/activity-execution)。
+超时产生 Activity 失败事件。`ScheduleToStartTimeout` 与 `ScheduleToCloseTimeout` 到期后 Call 直接失败；`StartToCloseTimeout` 与 `HeartbeatTimeout` 按 Retry Policy 决定下一次 Attempt。Worker 给 Activity 的 `ctx` 设置本次 Attempt 的 deadline：`StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个（同 Temporal Go SDK），只设 `ScheduleToCloseTimeout` 的调用同样有截止。Attempt 在 `ctx` 截止之后才返回时 Worker 不上报结果，由 Server 判定超时，Workflow 稳定收到超时错误。详见 [Activity 执行生命周期](/develop/activity-execution)。
 
 ## Workflow 级的等待上限
 
@@ -147,7 +147,7 @@ Workflow 内的业务时限用 Timer 表达：在一条协程里 `workflow.Sleep
 - Worker 在超时内没有执行完时上报超时。Worker 优雅停止的宽限期到期时放弃仍未完成的 Workflow Task、不上报，由 Server 的计时重新调度。
 - Worker 领取后崩溃或失联、没有在超时内关闭 Workflow Task 时，Server 到期自己记 `WorkflowTaskTimedOut`。
 
-两侧对同一个 Workflow Task 只写一次 `WorkflowTaskTimedOut`。超时后 Server 立即调度新的 Workflow Task，并结束该 Run 的 sticky 会话：新的 Workflow Task 进普通队列，任何 Worker 都能领取。Server 重启后按持久化的截止时间继续计时；多副本部署中，持有计时的副本下线后，其他副本的到期扫描在宽限期（30 秒）之后接管。Run 的 History 只多出超时事件，业务状态不受影响。
+两侧对同一个 Workflow Task 只写一次 `WorkflowTaskTimedOut`。超时后 Server 立即调度新的 Workflow Task，并结束该 Run 的 sticky 会话：新的 Workflow Task 进普通队列，任何 Worker 都能领取。超时与新 Workflow Task 的调度分两步提交，超时已提交、新任务还没调度时副本退出或写库失败，Run 仍记着待处理的事实，周期补偿与启动恢复补上调度。Server 重启后按持久化的截止时间继续计时；多副本部署中，持有计时的副本下线后，其他副本的到期扫描在宽限期（30 秒）之后接管。Run 的 History 只多出超时事件，业务状态不受影响。
 
 ## 组合场景
 

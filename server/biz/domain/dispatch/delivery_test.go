@@ -112,7 +112,7 @@ func TestServiceStampsEnqueueTimeFromClock(t *testing.T) {
 	}
 }
 
-// 已投递却没有被领取的记录：等待时长从 base 起按派发次数翻倍，最长 base 的 16 倍；其他状态不由它重投。
+// 已投递却没有被领取的记录：等待时长从 base 起按派发次数翻倍，最长 MaxRedeliveryWait；其他状态不由它重投。
 func TestRedeliveryDueBacksOffByDispatchCount(t *testing.T) {
 	base := 30 * time.Second
 	sent := time.Date(2026, 11, 12, 6, 19, 17, 0, time.UTC)
@@ -126,7 +126,10 @@ func TestRedeliveryDueBacksOffByDispatchCount(t *testing.T) {
 		{"first delivery after base", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 1, LastDispatchedAt: sent}, base + time.Millisecond, true},
 		{"third delivery waits 4x", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 3, LastDispatchedAt: sent}, 4 * base, false},
 		{"third delivery after 4x", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 3, LastDispatchedAt: sent}, 4*base + time.Millisecond, true},
-		{"wait is capped at 16x", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 40, LastDispatchedAt: sent}, 16*base + time.Millisecond, true},
+		{"seventh delivery still doubles past 16x", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 7, LastDispatchedAt: sent}, 64 * base, false},
+		{"sixth delivery after 32x", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 6, LastDispatchedAt: sent}, 32*base + time.Millisecond, true},
+		{"wait is capped at an hour", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 40, LastDispatchedAt: sent}, dispatch.MaxRedeliveryWait, false},
+		{"capped wait elapses", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 1 << 30, LastDispatchedAt: sent}, dispatch.MaxRedeliveryWait + time.Millisecond, true},
 		{"leased record is not redelivered here", dispatch.State{Status: dispatch.StatusLeased, Attempts: 1, LastDispatchedAt: sent}, time.Hour, false},
 		{"failed record is not redelivered here", dispatch.State{Status: dispatch.StatusFailed, Attempts: 1, LastDispatchedAt: sent}, time.Hour, false},
 		{"dispatched without a delivery time", dispatch.State{Status: dispatch.StatusDispatched, Attempts: 1}, time.Hour, false},

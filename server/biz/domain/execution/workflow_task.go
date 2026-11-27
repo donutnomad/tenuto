@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 )
 
@@ -43,8 +44,11 @@ func RecordWorkflowTaskFailure(tx ExecutionTx, run *Run, treeID, branchID string
 // CloseWorkflowTaskAtHistoryLimit keeps the task completion, the terminal
 // failure and the Run's failed status in one transaction.
 func CloseWorkflowTaskAtHistoryLimit(tx ExecutionTx, run *Run, treeID, branchID string, closeEvent history.Event, message, failureType string) (WorkflowTaskCompletionResult, error) {
-	result, err := tx.AppendWorkflowTaskCompleted(run.ID, treeID, branchID, closeEvent,
-		[]history.Event{history.NewWorkflowFailedEvent(message, failureType)})
+	failed, err := history.NewWorkflowFailedFailureEvent(protocol.Failure{Message: message, Type: failureType}, "")
+	if err != nil {
+		return WorkflowTaskCompletionResult{}, err
+	}
+	result, err := tx.AppendWorkflowTaskCompleted(run.ID, treeID, branchID, closeEvent, []history.Event{failed})
 	if err != nil || !result.ClosedInserted {
 		return result, err
 	}
@@ -55,8 +59,9 @@ func isWorkflowTaskLifecycleEvent(typ history.EventType) bool {
 	return typ == history.EventWorkflowTaskScheduled || typ == history.EventWorkflowTaskStarted || history.IsWorkflowTaskCloseEventType(typ)
 }
 
-// WorkflowTaskFailedCauseUnhandledEvents 表示 Workflow Task started 之后、完成之前有新事实落库。
-// Worker 的决策没有看到这些事实，本次完成不提交，立即重做；它不计入连续失败，也不产生退避。
+// WorkflowTaskFailedCauseUnhandledEvents 表示一批含终态命令（Complete、Fail、Cancel、ContinueAsNew）的完成
+// 遇到了 Worker 没有看到的新事实（对标 Temporal 的 UNHANDLED_COMMAND）。关闭 Workflow 会丢掉这些事实，本次完成
+// 不提交，立即重做；它不计入连续失败，也不产生退避。非终态的完成照常提交，新事实留给下一个 Workflow Task。
 const WorkflowTaskFailedCauseUnhandledEvents = "unhandled_events"
 
 func isWorkflowActivationEvent(typ history.EventType) bool {

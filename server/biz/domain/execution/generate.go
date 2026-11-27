@@ -26,6 +26,7 @@ type ActivityStatePatch struct {
 	StartedTime              mo.Option[*time.Time]
 	WorkerIdentity           mo.Option[string]
 	WorkerBuildID            mo.Option[string]
+	StartRequestID           mo.Option[string]
 	LastHeartbeat            mo.Option[map[string]any]
 	LastHeartbeatAt          mo.Option[*time.Time]
 	RetryLastFailure         mo.Option[string]
@@ -111,6 +112,11 @@ func (a *ActivityState) setWorkerIdentity(workerIdentity string) {
 func (a *ActivityState) setWorkerBuildID(workerBuildID string) {
 	a.WorkerBuildID = workerBuildID
 	a.patch.WorkerBuildID = mo.Some(workerBuildID)
+}
+
+func (a *ActivityState) setStartRequestID(startRequestID string) {
+	a.StartRequestID = startRequestID
+	a.patch.StartRequestID = mo.Some(startRequestID)
 }
 
 func (a *ActivityState) setLastHeartbeat(lastHeartbeat map[string]any) {

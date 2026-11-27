@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"reflect"
 	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
@@ -114,7 +115,9 @@ type RetryPolicy struct {
 	NonRetryableErrorTypes []string
 }
 
-// SignalFuture 是 WaitSignal 返回的句柄，Get 等到下一个同名 Signal。
+// SignalFuture 是 WaitSignal 返回的句柄。同名 Signal 是一个队列（同 Temporal 的 Signal Channel）：Future 第一次被
+// 消费（Get 返回，或 Selector 选中它并执行回调）时取走下一条未消费的同名 Signal，之后 Get 一直返回这一条；
+// 没被消费的 Future 不占 Signal。
 type SignalFuture struct{}
 
 // SideEffectFuture 是 SideEffect 与 MutableSideEffect 返回的结果句柄。
@@ -182,7 +185,8 @@ func (Selector) AddFuture(ctx Context, f ActivityFuture, cb func(f ActivityFutur
 	panic("workflow.Selector.AddFuture is a definition marker")
 }
 
-// AddSignalFuture 追加一个 signal future case：f（workflow.WaitSignal 的返回值）对应的 signal 到达时回调 cb(f)。
+// AddSignalFuture 追加一个 signal future case：有未消费的同名 Signal 时 f（workflow.WaitSignal 的返回值）ready；
+// 选中时 f 取走这条 Signal 并回调 cb(f)。没被选中的 f 不占 Signal。
 func (Selector) AddSignalFuture(ctx Context, f SignalFuture, cb func(f SignalFuture)) Selector {
 	panic("workflow.Selector.AddSignalFuture is a definition marker")
 }
@@ -214,7 +218,7 @@ func (ActivityFuture) Get(ctx Context, out any) error {
 	panic("workflow.ActivityFuture.Get is a definition marker")
 }
 
-// WaitSignal 声明 workflow 等待外部 Signal 写入事件历史。
+// WaitSignal 返回等待名为 name 的下一条 Signal 的 Future，调用本身不占 Signal，见 SignalFuture。
 func WaitSignal(ctx Context, name string) SignalFuture {
 	panic("workflow.WaitSignal is a definition marker")
 }
@@ -457,4 +461,29 @@ func (WaitGroup) Wait(ctx Context) {
 // `wg.Add(1); workflow.Go(ctx, func(ctx){ defer wg.Done(); f(ctx) })`。
 func (WaitGroup) Go(ctx Context, f func(ctx Context)) {
 	panic("workflow.WaitGroup.Go is a definition marker")
+}
+
+// Equal 按 Go 的 == 比较 a 与 b：动态类型与值都相等时为 true，动态类型不可比较时 panic。
+// 生成器把操作数含 any 的 == / != 与 any 上的 switch 改写成这个调用，Workflow 代码直接写运算符即可。
+func Equal(a, b any) bool {
+	return a == b
+}
+
+// SamePointer 报告指针 a 与 b 是否指向同一个对象，即 Go 的 a == b。
+// 生成器把两侧都是指向 struct 的指针的 == / != 改写成这个调用，Workflow 代码直接写运算符即可。
+func SamePointer(a, b any) bool {
+	return a == b
+}
+
+// IsNil 报告 v 是否为 nil 值：nil 接口，或 nil 的 slice、map、指针、函数。
+// 生成器把 slice、map 与 nil 的比较改写成这个调用；空 slice（[]T{}、make([]T, 0)）与空 map 不是 nil。
+func IsNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch value := reflect.ValueOf(v); value.Kind() {
+	case reflect.Slice, reflect.Map, reflect.Pointer, reflect.Func, reflect.Interface, reflect.Chan:
+		return value.IsNil()
+	}
+	return false
 }

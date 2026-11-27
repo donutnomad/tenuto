@@ -33,7 +33,7 @@ func (c *ActivityRuntimeHTTPClient) BeginActivityTask(ctx context.Context, task 
 	if err != nil {
 		return result, err
 	}
-	err = c.post(ctx, runtimeapi.ActivityRuntimeBeginPath, runtimeapi.ActivityRuntimeTaskRequest{TaskToken: token, Task: task}, &result)
+	err = c.post(ctx, runtimeapi.ActivityRuntimeBeginPath, runtimeapi.ActivityRuntimeBeginRequest{ActivityRuntimeTaskRequest: activityTaskRequest(token, task), RequestID: task.RequestID}, &result)
 	return result, err
 }
 
@@ -58,7 +58,7 @@ func (c *ActivityRuntimeHTTPClient) RecordActivityHeartbeat(ctx context.Context,
 	if err != nil {
 		return result, err
 	}
-	err = c.post(ctx, runtimeapi.ActivityRuntimeHeartbeatPath, runtimeapi.ActivityRuntimeHeartbeatRequest{TaskToken: token, Task: task, Details: details}, &result)
+	err = c.post(ctx, runtimeapi.ActivityRuntimeHeartbeatPath, runtimeapi.ActivityRuntimeHeartbeatRequest{ActivityRuntimeTaskRequest: activityTaskRequest(token, task), Details: details}, &result)
 	return result, err
 }
 
@@ -68,7 +68,7 @@ func (c *ActivityRuntimeHTTPClient) CheckActivityTaskCancellation(ctx context.Co
 	if err != nil {
 		return result, err
 	}
-	err = c.post(ctx, runtimeapi.ActivityRuntimeCancelPath, runtimeapi.ActivityRuntimeTaskRequest{TaskToken: token, Task: task}, &result)
+	err = c.post(ctx, runtimeapi.ActivityRuntimeCancelPath, activityTaskRequest(token, task), &result)
 	return result, err
 }
 
@@ -78,7 +78,7 @@ func (c *ActivityRuntimeHTTPClient) CompleteActivityTask(ctx context.Context, ta
 	if err != nil {
 		return err
 	}
-	return c.post(ctx, runtimeapi.ActivityRuntimeCompletePath, runtimeapi.ActivityRuntimeCompleteRequest{TaskToken: token, Task: task, Output: output, Failure: failure}, nil)
+	return c.post(ctx, runtimeapi.ActivityRuntimeCompletePath, runtimeapi.ActivityRuntimeCompleteRequest{ActivityRuntimeTaskRequest: activityTaskRequest(token, task), Output: output, Failure: failure}, nil)
 }
 
 func (c *ActivityRuntimeHTTPClient) FailActivityTask(ctx context.Context, task protocol.Task, failure protocol.Failure) error {
@@ -86,7 +86,7 @@ func (c *ActivityRuntimeHTTPClient) FailActivityTask(ctx context.Context, task p
 	if err != nil {
 		return err
 	}
-	return c.post(ctx, runtimeapi.ActivityRuntimeFailPath, runtimeapi.ActivityRuntimeFailRequest{TaskToken: token, Task: task, Failure: &failure}, nil)
+	return c.post(ctx, runtimeapi.ActivityRuntimeFailPath, runtimeapi.ActivityRuntimeFailRequest{ActivityRuntimeTaskRequest: activityTaskRequest(token, task), Failure: &failure}, nil)
 }
 
 // ReleaseActivityTask 交还因 Worker 停止而没有结果的 attempt，Server 以同一个 attempt 重新派发。
@@ -95,10 +95,15 @@ func (c *ActivityRuntimeHTTPClient) ReleaseActivityTask(ctx context.Context, tas
 	if err != nil {
 		return err
 	}
-	return c.post(ctx, runtimeapi.ActivityRuntimeReleasePath, runtimeapi.ActivityRuntimeTaskRequest{TaskToken: token, Task: task}, nil)
+	return c.post(ctx, runtimeapi.ActivityRuntimeReleasePath, activityTaskRequest(token, task), nil)
 }
 
 // post 发送 Activity 调用：都由 task token 定界（同一 attempt 的重复开始、心跳、完成由 Server 去重），按幂等调用重试。
 func (c *ActivityRuntimeHTTPClient) post(ctx context.Context, path string, req any, resp any) error {
 	return runtimePostRetrying(ctx, c.retry, retryIdempotent, c.client, c.baseURL, path, "activity runtime api", workerInfoHeaders(ctx), req, resp)
+}
+
+// activityTaskRequest 是 Activity 调用的寻址部分：token 与 Worker 身份，不附带任务载荷。
+func activityTaskRequest(token protocol.TaskToken, task protocol.Task) runtimeapi.ActivityRuntimeTaskRequest {
+	return runtimeapi.ActivityRuntimeTaskRequest{TaskToken: token, WorkerIdentity: task.WorkerIdentity, WorkerBuildID: task.WorkerBuildID}
 }

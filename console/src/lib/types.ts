@@ -86,7 +86,11 @@ export interface RunListItem {
 
 export interface RunListResult {
   items: RunListItem[]
+  // total 是满足条件的 Run 总数；请求带 skip_total 时为 0。
   total: number
+  has_more: boolean
+  // next_page_token 是下一页请求的 page_token；没有下一页时省略。
+  next_page_token?: string
 }
 
 export interface WorkflowConfigSummary {
@@ -289,6 +293,8 @@ export interface Event {
     error?: string
     retryState?: string
     failure?: Failure
+    // Workflow Reset 打断已开始的 Activity 时，原 Run 里这个 Activity 最后一次心跳的详情。
+    lastHeartbeatDetails?: Record<string, unknown>
   }
   activityCancelRequested?: { activityId?: string; scheduledEventId?: number }
   activityCancelled?: {
@@ -377,7 +383,8 @@ export interface ActivityState {
   startedEventId: number
   activityReset: boolean
   cancelRequested?: boolean
-  status: 'scheduled' | 'started' | 'completed' | 'failed' | 'timed_out' | 'cancelled'
+  // run_closed：Run 结束时仍未完成的 Activity 随 Run 关闭，不写事件。
+  status: 'scheduled' | 'started' | 'completed' | 'failed' | 'timed_out' | 'cancelled' | 'run_closed'
   startedTime?: string
   workerIdentity?: string
   workerBuildId?: string
@@ -472,10 +479,15 @@ export interface Schedule {
   input?: Record<string, unknown>
   paused: boolean
   overlap_policy?: string
+  // catchup_window 是纳秒；missed_catchup_window、buffer_dropped 与 start_failed 是跳过的到期点计数。
+  catchup_window: number
   last_run_at?: string
   next_run_at?: string
   last_run_id?: string
   run_count: number
+  missed_catchup_window: number
+  buffer_dropped: number
+  start_failed: number
   created_at: string
   updated_at: string
 }
@@ -494,6 +506,8 @@ export interface CreateScheduleRequest {
   input?: Record<string, unknown>
   overlap_policy?: string
   paused?: boolean
+  // catchup_window 是纳秒，省略时 Server 取 365 天。
+  catchup_window?: number
 }
 
 // --- Batch Operations ---

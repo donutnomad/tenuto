@@ -11,6 +11,7 @@ import (
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/sdk/activity"
 	"github.com/donutnomad/tenuto/sdk/apperror"
+	"github.com/google/uuid"
 )
 
 type ActivityRuntime interface {
@@ -69,10 +70,19 @@ func reportContext(ctx context.Context, deadline time.Time) (context.Context, co
 // the error's details; a result or another error is reported as usual. An
 // Activity whose heartbeat said nobody awaits its result reports nothing.
 //
+// The Activity's ctx expires at the attempt deadline, the earlier of
+// StartToClose and ScheduleToClose. An attempt that ends after its ctx expired
+// reports nothing: the Server's timeout decides the attempt, so the Workflow
+// receives a TimeoutError (Temporal Go SDK behaves the same).
+//
 // Heartbeats are throttled (see heartbeater). Results are reported within
 // min(the attempt's remaining time, 60s), at least 5s, so a Server restart
 // during that window does not drop them.
 func RunActivityTask(ctx context.Context, task protocol.Task, runtime ActivityRuntime, activities *activity.Registry, started func()) (outcome string, executionErr, reportErr error) {
+	if task.RequestID == "" {
+		// 每份投递一个 Begin 请求标识：应答丢失后的重发由 Server 认作同一次开始。
+		task.RequestID = uuid.NewString()
+	}
 	begin, err := runtime.BeginActivityTask(ctx, task)
 	if err != nil {
 		return "error", nil, err
@@ -92,9 +102,9 @@ func RunActivityTask(ctx context.Context, task protocol.Task, runtime ActivityRu
 		return "failed", err, runtime.FailActivityTask(reportCtx, task, activityFailure(err))
 	}
 
-	activityCtx, cancel := activityExecutionContext(ctx, task)
+	activityCtx, cancel := activityExecutionContext(ctx, info.Deadline)
 	defer cancel(nil)
-	heartbeats := newHeartbeater(activityCtx, cancel, runtime, task)
+	heartbeats := newHeartbeater(activityCtx, cancel, runtime, task, begin.PayloadSizeLimit)
 	activityCtx = runtimectx.WithHeartbeat(activityCtx, heartbeats.record)
 	if task.LastHeartbeatDetails != nil {
 		activityCtx = runtimectx.WithLastHeartbeat(activityCtx, task.LastHeartbeatDetails)
@@ -102,12 +112,31 @@ func RunActivityTask(ctx context.Context, task protocol.Task, runtime ActivityRu
 	activityCtx = runtimectx.WithActivityInfo(activityCtx, info)
 
 	output, err, panicked := invokeActivity(activityCtx, fn, task)
+	if errors.Is(activityCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		// attempt 已到截止时间：不上报结果，由 Server 的超时计时写 ActivityTimedOut，Workflow 稳定收到超时错误
+		// （对标 Temporal Go SDK 的 activityTaskHandlerImpl.Execute）。
+		heartbeats.stop()
+		return "timed_out", context.DeadlineExceeded, nil
+	}
 	reportCtx, cancelReport := reportContext(ctx, info.Deadline)
 	defer cancelReport()
 	if err == nil && panicked == nil {
 		// 完成结果取代心跳 details，窗口内未发出的心跳不再发出。
 		heartbeats.stop()
-		return "success", nil, runtime.CompleteActivityTask(reportCtx, task, output, nil)
+		if limitErr := protocol.CheckPayloadSize("activity result", output, begin.PayloadSizeLimit); limitErr != nil {
+			// 结果超过 Server 的载荷上限：上报不可重试的失败，不发送这个结果。
+			return "failed", limitErr, runtime.FailActivityTask(reportCtx, task, protocol.PayloadSizeLimitFailure(limitErr))
+		}
+		if err := runtime.CompleteActivityTask(reportCtx, task, output, nil); errors.Is(err, protocol.ErrInvalidRequest) {
+			// Server 以不可重试的 4xx 拒绝这个结果：改报一次不可重试的失败，attempt 不必等到 StartToClose 超时后
+			// 重跑同样的副作用。
+			return "failed", err, runtime.FailActivityTask(reportCtx, task, protocol.Failure{
+				Message: "activity result rejected by server: " + err.Error(), Type: protocol.FailureTypeActivityResultRejected, NonRetryable: true,
+			})
+		} else if err != nil {
+			return "success", nil, err
+		}
+		return "success", nil, nil
 	}
 	cause := context.Cause(activityCtx)
 	if errors.Is(cause, errActivityAbandoned) {
@@ -201,13 +230,15 @@ func invokeActivity(ctx context.Context, fn protocol.ActivityFunc, task protocol
 	return output, err, nil
 }
 
-func activityExecutionContext(ctx context.Context, task protocol.Task) (context.Context, context.CancelCauseFunc) {
+// activityExecutionContext 是 Activity 的 ctx：截止时间是 info.Deadline（StartToClose 与 ScheduleToClose 中先到的一个，
+// 对标 Temporal Go SDK），没有截止时间时只能被取消。
+func activityExecutionContext(ctx context.Context, deadline time.Time) (context.Context, context.CancelCauseFunc) {
 	ctx, cancel := context.WithCancelCause(ctx)
-	if task.StartToCloseTimeout <= 0 {
+	if deadline.IsZero() {
 		return ctx, cancel
 	}
-	ctx, stop := context.WithTimeout(ctx, task.StartToCloseTimeout)
-	// 先取消外层：取消原因经父 context 传给 timeout context，context.Cause 才读得到它。
+	ctx, stop := context.WithDeadline(ctx, deadline)
+	// 先取消外层：取消原因经父 context 传给 deadline context，context.Cause 才读得到它。
 	return ctx, func(cause error) {
 		cancel(cause)
 		stop()

@@ -111,7 +111,7 @@ type RetryPolicy struct {
 - **Activity 默认重试。** 缺省策略与 Temporal 相同，由 Server 补齐：零值 `RetryPolicy` 不限次数重试，部分设置的策略其余字段取缺省值；`ActivityScheduled` 事件记录补齐后的生效策略。只执行一次写 `RetryPolicy{MaxAttempts: 1}`。没有 `ScheduleToCloseTimeout` 也没有 `MaxAttempts` 的 Call 一直重试到成功或遇到不可重试的错误。
 - 退避：`interval(n) = min(InitialInterval × BackoffCoefficient^(n-1), MaxInterval)`。
 - `ScheduleToCloseTimeout` 到期，或下一次 Attempt 会落在它之后时，Call 直接失败（`retryState` 为 `Timeout`）；`ScheduleToStartTimeout` 到期同样直接失败；`StartToCloseTimeout` 与 `HeartbeatTimeout` 按 RetryPolicy 决定下一次 Attempt。
-- 配置了 `StartToCloseTimeout` 时，Activity 的 `ctx` 带同样的 deadline。
+- Activity 的 `ctx` 截止在本次 Attempt 的 deadline：`StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个（同 Temporal Go SDK）。Attempt 在 `ctx` 截止之后才返回时 Worker 不上报结果（成功或 `context deadline exceeded`），由 Server 判定超时，Workflow 稳定收到超时错误，`workflow.TimeoutTypeOf(err)` 返回对应种类。心跳应答明确答复 Attempt 已失效（Run 已结束、Activity 已关闭、Attempt 已过期，或 Run 不存在 `run_not_found`）时 Worker 取消 `ctx`、不上报，Activity 返回后执行槽位随即释放；心跳请求的其他错误（包括反向代理的 4xx）只算一次失败的心跳，继续执行。
 - Call 因超时最终失败时，`workflow.TimeoutTypeOf(err)` 返回超时种类（`workflow.TimeoutTypeStartToClose` 等），其他错误返回空串。
 
 停止重试的判定顺序（只看顶层失败；`fmt.Errorf("%w")` 包装后顶层 Type 与标记属于包装层）：
@@ -194,7 +194,7 @@ func Export(ctx context.Context, in ExportInput) (ExportOutput, error) {
 
 Worker 对心跳节流：两次心跳请求最小间隔为 `HeartbeatTimeout` 的 80%（未设置时 30s，上限 60s）；间隔外的调用立即同步发出，间隔内只保留最新 details、间隔结束时发出。Activity 成功时完成结果取代未发出的 details；失败、取消或 Worker 停止交还时先发出它们，供下一次 Attempt 恢复。设置了 `HeartbeatTimeout` 时，心跳请求连续失败超过它后 Worker 取消 `ctx`、不再上报结果。Activity 结束后结果上报在 min(Attempt 剩余时间, 60s)（至少 5s）内重试。
 
-Heartbeat 不写 History（与 Temporal 相同）：Server 只更新 Activity 状态的 `lastHeartbeat` / `lastHeartbeatAt`，Heartbeat 超时从 `lastHeartbeatAt` 起算。运行中的进度在 `activity-states`（Console Pending 页签）查看；Attempt 超时时最后一次详情写进 `ActivityTimedOut.lastHeartbeatDetails`。
+Heartbeat 不写 History（与 Temporal 相同）：Server 只更新 Activity 状态的 `lastHeartbeat` / `lastHeartbeatAt`，Heartbeat 超时从 `lastHeartbeatAt` 起算。运行中的进度在 `activity-states`（Console Pending 页签）查看；Attempt 超时时最后一次详情写进 `ActivityTimedOut.lastHeartbeatDetails`；已开始的 Activity 被 Workflow Reset 打断时，原 Run 的最新详情写进新 Run 的 `ActivityFailed.lastHeartbeatDetails`。Console 的 Attempt 详情把两者都显示为 Last Heartbeat。
 
 Workflow 取消 Activity 所在的 Context（Run 被取消时的根 Context，或 `workflow.WithCancel` 的作用域）后，正在执行的 Activity 在下一次 Heartbeat 时得到取消信号；Run 进入任一终态、这次 Attempt 已超时或被 Reset 取代时同样如此。**Activity 要可取消就必须 Heartbeat**：取消只经 `RecordHeartbeat` 的响应送达，没有其他通道；不 Heartbeat（或没有 `HeartbeatTimeout`）的 Activity 只在自己返回或超时时结束。收到 Workflow 的取消后返回 `ctx.Err()` 或 `apperror.NewCanceled(details...)` 确认取消（`ActivityCancelled`）；返回成功仍记为完成；返回其他错误记为失败且不再重试。长任务定期 Heartbeat（间隔小于 `HeartbeatTimeout`；取消延迟不超过一个节流间隔加上两次调用的间隔），在 `ctx.Done()` 后释放资源。规则表见 `cancellation-timeouts.md`。
 
@@ -246,7 +246,8 @@ curl --fail-with-body -sS "$TENUTO_URL/runtime/activity/complete" \
 ```
 
 - `failure` 为空表示成功，非空表示失败。
-- Token 是凭证：绑定 Run、Scheduled Event、Attempt 和 Stamp；加密存储。Activity Reset 后旧 Token 的完成请求按 stale 丢弃。
+- Token 是凭证：只签寻址与 fence 字段（Run、Scheduled Event、Attempt、Stamp、Activity ID / Type、Task Queue 等），不含 Activity 输入、心跳详情与 trace context，长度与输入大小无关；加密存储。Activity Reset 后旧 Token 的完成请求按 stale 丢弃。2026-11-26 之前签发的 Token 格式不同，不再有效。
+- 完成结果超过载荷上限（默认 2 MiB）时 Server 记为不可重试的 `PayloadSizeLimitExceeded` 失败。
 - 外部回调入口自己负责鉴权、签名验证和幂等；Runtime HTTP 端点只暴露在受信网络。
 - 给 pending Activity 配 `ScheduleToCloseTimeout`，外部系统失联时由超时推进恢复流程。
 

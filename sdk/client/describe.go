@@ -157,11 +157,15 @@ type ListWorkflowOptions struct {
 	Statuses []WorkflowExecutionStatus
 	// SearchAttributes 要求每个键的值完全相等。
 	SearchAttributes map[string]string
-	// Offset 与 Limit 分页；Limit 为 0 时用 Server 的缺省页大小 50，最大 1000，超出或 Offset 为负时 Server 返回 400。
-	Offset int
-	Limit  int
+	// Limit 是页大小；为 0 时用 Server 的缺省页大小 50，最大 1000，超出时 Server 返回 400。
+	Limit int
+	// NextPageToken 是上一页 ListWorkflowResult.NextPageToken，为空时从第一页开始；它绑定签发时的过滤条件（WorkflowID、
+	// Statuses、SearchAttributes、NewestFirst），条件变了再用返回 ErrInvalidArgument。
+	NextPageToken string
 	// NewestFirst 按启动时间倒序；缺省升序。
 	NewestFirst bool
+	// SkipTotal 为 true 时 Server 不计算满足条件的 Run 总数（Total 为 0），翻页看 NextPageToken；Run 很多时这一页更快。
+	SkipTotal bool
 }
 
 // WorkflowExecutionInfo 是 ListWorkflow 返回的一行。
@@ -179,10 +183,12 @@ type WorkflowExecutionInfo struct {
 	FailureReason string
 }
 
-// ListWorkflowResult 是一页结果；Total 是满足条件的 Run 总数。
+// ListWorkflowResult 是一页结果；Total 是满足条件的 Run 总数（SkipTotal 时为 0）。还有下一页时 NextPageToken 非空，
+// 放进 ListWorkflowOptions.NextPageToken 取下一页（同 Temporal ListWorkflow 的 next page token）。
 type ListWorkflowResult struct {
-	Executions []WorkflowExecutionInfo
-	Total      int
+	Executions    []WorkflowExecutionInfo
+	Total         int
+	NextPageToken string
 }
 
 func (c *workflowClient) ListWorkflow(ctx context.Context, options ListWorkflowOptions) (*ListWorkflowResult, error) {
@@ -193,12 +199,12 @@ func (c *workflowClient) ListWorkflow(ctx context.Context, options ListWorkflowO
 	result, err := c.workflows().ListRuns(ctx, runtimeapi.RunListFilter{
 		Namespace: c.namespace, WorkflowID: options.WorkflowID, Statuses: statuses,
 		SearchAttributes: options.SearchAttributes, IncludeTerminal: true,
-		Offset: options.Offset, Limit: options.Limit, OrderDesc: options.NewestFirst,
+		PageToken: options.NextPageToken, Limit: options.Limit, OrderDesc: options.NewestFirst, SkipTotal: options.SkipTotal,
 	})
 	if err != nil {
 		return nil, mapError(callOther, err)
 	}
-	out := &ListWorkflowResult{Total: result.Total, Executions: make([]WorkflowExecutionInfo, len(result.Items))}
+	out := &ListWorkflowResult{Total: result.Total, NextPageToken: result.NextPageToken, Executions: make([]WorkflowExecutionInfo, len(result.Items))}
 	for i, item := range result.Items {
 		out.Executions[i] = WorkflowExecutionInfo{
 			WorkflowID: item.WorkflowID, RunID: item.RunID, WorkflowType: item.WorkflowType,
@@ -232,6 +238,9 @@ type ResetWorkflowExecutionOptions struct {
 	EventID int64
 	// ReapplyExcludeTypes 是不重新应用到新 Run 的外部输入；缺省把分叉点之后的 Signal 与 Update 重新应用到新 Run。
 	ReapplyExcludeTypes []ResetReapplyExcludeType
+	// RequestID 是可选的幂等键：同一个 Run 上带同一个 RequestID 的 Reset 只生效一次，重复的调用返回第一次
+	// reset 出的 Run ID。为空时不去重。
+	RequestID string
 }
 
 // ResetReapplyExcludeType 是 Reset 时可以不重新应用的外部输入类型。
@@ -255,7 +264,7 @@ func (c *workflowClient) ResetWorkflowExecution(ctx context.Context, options Res
 	}
 	newRunID, err := c.workflows().ResetWorkflow(ctx, runtimeapi.WorkflowRuntimeResetRequest{
 		Namespace: c.namespace, RunID: runID, Reason: options.Reason, ResetType: string(options.ResetType),
-		ResetEventID: options.EventID, ReapplyExcludeTypes: exclude,
+		ResetEventID: options.EventID, ReapplyExcludeTypes: exclude, RequestID: options.RequestID,
 	})
 	return newRunID, mapError(callOther, err)
 }

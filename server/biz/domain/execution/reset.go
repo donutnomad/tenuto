@@ -2,6 +2,7 @@ package execution
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -87,17 +88,14 @@ type ResetPoint struct {
 }
 
 // PlanReset 按顺序校验 reset 请求并返回分叉位置：请求的位置要能解析到一个 Workflow Task 边界（ResolveResetNodeID），
-// 分叉点之前不能有尚未结束的 Activity 或 timer（CheckResetPendingEvents），也不能有尚未结束的子 Workflow
-// （CheckPendingChildWorkflows）。events 是 base Run 的 History，children 是它的子 Workflow 状态。
-func PlanReset(events []history.Event, children []*ChildWorkflowState, req ResetWorkflowRequest) (ResetPoint, error) {
+// 分叉点上不能有尚未结束的子 Workflow（CheckPendingChildWorkflows）。分叉点上未结束的 Activity 与 Timer 由
+// PlanResetPendingWork 带进新 Run。events 是 base Run 的完整 History（含 reset 继承的祖先分支前缀）。
+func PlanReset(events []history.Event, req ResetWorkflowRequest) (ResetPoint, error) {
 	nodeID, err := ResolveResetNodeID(events, req)
 	if err != nil {
 		return ResetPoint{}, err
 	}
-	if err := CheckResetPendingEvents(events, nodeID); err != nil {
-		return ResetPoint{}, err
-	}
-	if err := CheckPendingChildWorkflows(children, nodeID); err != nil {
+	if err := CheckPendingChildWorkflows(events, nodeID); err != nil {
 		return ResetPoint{}, err
 	}
 	point := ResetPoint{NodeID: nodeID}
@@ -109,12 +107,30 @@ func PlanReset(events []history.Event, children []*ChildWorkflowState, req Reset
 	return point, nil
 }
 
-// CheckPendingChildWorkflows 拒绝分叉点之前（含）启动、尚未结束的子 Workflow：reset 无法重建它们与新 Run 的关联。
-func CheckPendingChildWorkflows(states []*ChildWorkflowState, resetNodeID int64) error {
-	for _, state := range states {
-		if state.ScheduledEventID <= resetNodeID && !state.IsTerminal() {
-			return protocol.InvalidRequestf("cannot reset: pending child workflows exist at reset point")
+// CheckPendingChildWorkflows 拒绝分叉点上尚未结束的子 Workflow：保留的 History（截止 resetNodeID）里有
+// ChildWorkflowStarted、没有它的关闭事件。reset 无法重建它们与新 Run 的关联。按 History 判定，所以 reset 出来的
+// Run 再分叉到更早的位置时，祖先分支里启动的子 Workflow 同样被拦下；分叉点之后才关闭的也算未结束。
+func CheckPendingChildWorkflows(events []history.Event, resetNodeID int64) error {
+	open := map[int64]bool{}
+	for _, event := range events {
+		if event.ID > resetNodeID {
+			continue
 		}
+		switch {
+		case event.ChildWorkflowStarted != nil:
+			open[event.ID] = true
+		case event.ChildWorkflowCompleted != nil:
+			delete(open, event.ChildWorkflowCompleted.ScheduledEventID)
+		case event.ChildWorkflowFailed != nil:
+			delete(open, event.ChildWorkflowFailed.ScheduledEventID)
+		case event.ChildWorkflowCancelled != nil:
+			delete(open, event.ChildWorkflowCancelled.ScheduledEventID)
+		case event.ChildWorkflowTerminated != nil:
+			delete(open, event.ChildWorkflowTerminated.ScheduledEventID)
+		}
+	}
+	if len(open) > 0 {
+		return protocol.InvalidRequestf("cannot reset: pending child workflows exist at reset point")
 	}
 	return nil
 }
@@ -142,10 +158,17 @@ type ResetRunCommit struct {
 	NewRun          *Run
 	ExpectedCurrent string
 	BaseRunID       string
-	TreeID          string
-	BranchID        string
-	FailedEvent     history.Event
-	// ReapplyEvents 是 reset 点之后要搬到新 Run 的外部输入（见 ResetReapplyEvents），写在 reset 标记之后。
+	// ExpectedBaseResetRunID 是按 RequestID 去重时读到的 base Run 的 ResetRunID。FailedEvent 带 RequestID 时，
+	// 事务在 base 的行锁下比较它：期间另一次 reset 已提交（例如另一个副本上重叠的批量驱动）时返回
+	// ErrCurrentRunConflict，调用方重新按 RequestID 查找，不再 reset 第二次。
+	ExpectedBaseResetRunID string
+	TreeID                 string
+	BranchID               string
+	FailedEvent            history.Event
+	// Pending 是分叉点上未结束的 Activity 与 Timer（见 PlanResetPendingWork）：关闭事件写在 reset 标记之后，
+	// state 行建在新 Run 上。
+	Pending ResetPendingWork
+	// ReapplyEvents 是 reset 点之后要搬到新 Run 的外部输入（见 ResetReapplyEvents），写在 Pending 的事件之后。
 	ReapplyEvents []history.Event
 	// Terminate 是被新 Run 取代、仍在运行的 Run：被 reset 的 Run 与 reset 历史代时的 current。
 	Terminate []ResetTermination
@@ -162,9 +185,11 @@ type ResetTermination struct {
 const ResetTerminationReason = "reset"
 
 // CommitResetRun terminates the Runs the reset replaces, creates a forked Run,
-// moves current, records the reset link, writes the reset marker and the
-// reapplied external inputs, and points the parent's open child link at the
-// new Run, all in one transaction: a failed reset leaves the replaced Runs
+// moves current, records the reset link, writes the reset marker, the close
+// events of the Activities the reset interrupts and the reapplied external
+// inputs, creates the new Run's Activity and Timer states carried over from
+// the fork point, and points the parent's open child link at the new Run, all
+// in one transaction: a failed reset leaves the replaced Runs
 // running. The replaced Runs do not report ChildWorkflowTerminated to their
 // parent; the new Run takes over the parent's child link.
 //
@@ -189,6 +214,10 @@ func CommitResetRun(tx ExecutionTx, request ResetRunCommit) error {
 		}
 		locked[runID] = run
 	}
+	if request.FailedEvent.WorkflowTaskFailed != nil && request.FailedEvent.WorkflowTaskFailed.RequestID != "" &&
+		locked[request.BaseRunID].ResetRunID != request.ExpectedBaseResetRunID {
+		return ErrCurrentRunConflict
+	}
 	request.NewRun.inheritPolicy(locked[request.BaseRunID])
 	for _, replaced := range request.Terminate {
 		if _, err := Terminate(tx, locked[replaced.RunID], replaced.TreeID, replaced.BranchID, ResetTerminationReason); err != nil {
@@ -208,12 +237,33 @@ func CommitResetRun(tx ExecutionTx, request ResetRunCommit) error {
 	if err := tx.SetResetRunID(request.BaseRunID, request.NewRun.ID); err != nil {
 		return err
 	}
-	for _, event := range append([]history.Event{request.FailedEvent}, request.ReapplyEvents...) {
-		if _, err := tx.Append(request.NewRun.ID, request.TreeID, request.BranchID, event); err != nil {
+	// 与正常路径一样带去重键写入：搬运来的 UpdateAccepted 与带 RequestID 的 Signal 在新 Run 上按 Update ID 与
+	// RequestID 查得到，同一个 Update 不会被再接受一次。
+	events := append([]history.Event{request.FailedEvent}, request.Pending.Events...)
+	for _, event := range append(events, request.ReapplyEvents...) {
+		if _, _, err := tx.AppendIdempotent(request.NewRun.ID, request.TreeID, request.BranchID, event); err != nil {
+			return err
+		}
+	}
+	for _, state := range request.Pending.Activities {
+		if err := tx.UpsertActivityState(state); err != nil {
+			return err
+		}
+	}
+	for _, state := range request.Pending.Timers {
+		if err := tx.UpsertTimerState(state); err != nil {
 			return err
 		}
 	}
 	return repointChildLink(tx, request.NewRun, request.Now)
+}
+
+// ResetRequestDedupeKey 返回 reset 标记上 RequestID 的去重键（history.DedupeKey），在 reset 出的 Run 上按它查找。
+func ResetRequestDedupeKey(requestID string) string {
+	key, _ := history.DedupeKey(history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{
+		Cause: WorkflowTaskFailedCauseResetWorkflow, RequestID: requestID,
+	}))
+	return key
 }
 
 // repointChildLink 让父 Run 仍打开的子关联指向接替的子 Run：新 Run 结束时父 Run 收到的是它的结果。
@@ -244,39 +294,153 @@ func ResetReapplyEvents(events []history.Event, resetNodeID int64, excludeTypes 
 	return eligible
 }
 
-// CheckResetPendingEvents rejects a fork that would inherit work whose runtime
-// state cannot be reconstructed by Reset. Only events at the cutoff participate.
-func CheckResetPendingEvents(events []history.Event, cutoff int64) error {
-	pending := map[int64]string{}
-	for _, event := range events {
-		if event.ID > cutoff {
+// ResetPendingWork 是分叉点上未结束的 Activity 与 Timer 在新 Run 里的处理结果（对标 Temporal
+// workflow_resetter 的 prepareResetWorkflow 与 failInflightActivity）：
+//
+//   - 未开始的 Activity 以新 Run 的 state 行保留并重新派发：Attempt 从 1 开始，ScheduledTime 是 reset 时刻，
+//     Schedule-To-Start 与 Schedule-To-Close 都从这里重新起算。
+//   - 已开始的 Activity（保留的 History 里有当前 attempt 的 ActivityStarted）在分叉点之后写 ActivityFailed，
+//     failure 类型 ResetWorkflowError、不可重试，带上旧 Run 里最后一次心跳的详情。
+//   - 已请求取消、开始只是 transient 的 Activity 写 ActivityCancelled 结束，不再派发：Tenuto 里未开始的
+//     Activity 被取消时同事务结束，新 Run 按同一规则处理。
+//   - 未触发的 Timer 以新 Run 的 state 行保留，Deadline 不变（TimerScheduled 的时间 + 时长）；已过期的由引擎立即触发。
+type ResetPendingWork struct {
+	// Events 是写在 reset 标记之后、重新应用的外部输入之前的 Activity 关闭事件。
+	Events     []history.Event
+	Activities []*ActivityState
+	Timers     []*TimerState
+}
+
+// resetPendingActivity 是保留的 History 里一个未关闭 Activity 的位置。
+type resetPendingActivity struct {
+	scheduled       *history.Event // ActivityScheduled：静态字段的来源
+	started         *history.Event // 当前 attempt 的 ActivityStarted；被 AttemptFailed 或 ActivityReset 结束的 attempt 不算
+	cancelRequested int64          // ActivityCancelRequested 事件 ID
+	attempt         int            // 分叉点上的 attempt：上一次 AttemptFailed 之后的下一次，ActivityReset 归 1
+}
+
+// ResetPendingInput 是 PlanResetPendingWork 的输入。
+type ResetPendingInput struct {
+	// Events 是 base Run 的完整 History（含 reset 继承的祖先分支前缀），Cutoff 是分叉点。
+	Events []history.Event
+	Cutoff int64
+	// BaseActivities 是 base Run 的 Activity state，只用来取被打断的 Activity 最后一次心跳的详情：
+	// 在祖先 Run 里就已结束的 Activity 在 base Run 上没有 state 行，心跳详情留空。
+	BaseActivities []*ActivityState
+	NewRunID       string
+	// TargetWorkerIdentity 是 Run 的 Activity 路由快照，调度时写给 Activity，reset 链上不变。
+	TargetWorkerIdentity string
+	Reason               string
+	Now                  time.Time
+}
+
+// PlanResetPendingWork 按保留的 History（截止 Cutoff）找出未结束的 Activity 与 Timer，按 ResetPendingWork 的规则
+// 构造新 Run 的 state 与要补写的事件，与 Temporal 按 History 重建一致：Activity 的静态字段（类型、队列、输入、
+// Trace、超时、重试策略）取自 ActivityScheduled，Timer 的 Deadline 是 TimerScheduled 的时间加 DelayMs，
+// TimerID 与 Trace 取自同一事件；心跳详情取 base Run 的最新值（可能晚于分叉点）。
+func PlanResetPendingWork(in ResetPendingInput) ResetPendingWork {
+	activities := map[int64]*resetPendingActivity{}
+	timers := map[int64]*history.Event{}
+	for i := range in.Events {
+		event := &in.Events[i]
+		if event.ID > in.Cutoff {
 			continue
 		}
 		switch {
 		case event.ActivityScheduled != nil:
-			pending[event.ID] = "activity"
+			activities[event.ID] = &resetPendingActivity{scheduled: event, attempt: 1}
+		case event.ActivityStarted != nil:
+			if pending := activities[event.ActivityStarted.ScheduledEventID]; pending != nil {
+				pending.started = event
+			}
+		case event.ActivityAttemptFailed != nil:
+			if pending := activities[event.ActivityAttemptFailed.ScheduledEventID]; pending != nil {
+				pending.started = nil
+				pending.attempt = history.NormalizeActivityAttempt(event.ActivityAttemptFailed.Attempt) + 1
+			}
+		case event.ActivityReset != nil:
+			if pending := activities[event.ActivityReset.ScheduledEventID]; pending != nil {
+				pending.started = nil
+				pending.attempt = 1
+			}
+		case event.ActivityCancelRequested != nil:
+			if pending := activities[event.ActivityCancelRequested.ScheduledEventID]; pending != nil {
+				pending.cancelRequested = event.ID
+			}
 		case event.ActivityCompleted != nil:
-			delete(pending, event.ActivityCompleted.ScheduledEventID)
+			delete(activities, event.ActivityCompleted.ScheduledEventID)
 		case event.ActivityFailed != nil:
-			delete(pending, event.ActivityFailed.ScheduledEventID)
+			delete(activities, event.ActivityFailed.ScheduledEventID)
 		case event.ActivityCancelled != nil:
-			delete(pending, event.ActivityCancelled.ScheduledEventID)
+			delete(activities, event.ActivityCancelled.ScheduledEventID)
 		case event.TimerScheduled != nil:
-			pending[event.ID] = "timer"
+			timers[event.ID] = event
 		case event.TimerFired != nil:
-			delete(pending, event.TimerFired.ScheduledEventID)
+			delete(timers, event.TimerFired.ScheduledEventID)
 		case event.TimerCancelled != nil:
-			delete(pending, event.TimerCancelled.ScheduledEventID)
+			delete(timers, event.TimerCancelled.ScheduledEventID)
 		}
 	}
-	if len(pending) == 0 {
-		return nil
+
+	var work ResetPendingWork
+	heartbeats := make(map[int64]map[string]any, len(in.BaseActivities))
+	for _, state := range in.BaseActivities {
+		heartbeats[state.ScheduledEventID] = state.LastHeartbeat
 	}
-	ids := make([]int64, 0, len(pending))
-	for id := range pending {
-		ids = append(ids, id)
+	for _, id := range slices.Sorted(maps.Keys(activities)) {
+		pending := activities[id]
+		scheduled := pending.scheduled.ActivityScheduled
+		switch {
+		case pending.started != nil:
+			work.Events = append(work.Events, resetActivityFailedEvent(id, scheduled, pending.started, heartbeats[id], in.Reason))
+		case pending.cancelRequested > 0:
+			work.Events = append(work.Events, history.NewActivityCancelledEvent(history.ActivityCancelledEvent{
+				ActivityID: scheduled.ActivityID, ScheduledEventID: id, CancelRequestedEventID: pending.cancelRequested,
+				Attempt: pending.attempt, ActivityType: scheduled.ActivityType, TaskQueue: scheduled.TaskQueue,
+			}))
+		default:
+			work.Activities = append(work.Activities, &ActivityState{
+				RunID: in.NewRunID, ScheduledEventID: id,
+				ActivityID: scheduled.ActivityID, ActivityType: scheduled.ActivityType, TaskQueue: scheduled.TaskQueue,
+				TargetWorkerIdentity: in.TargetWorkerIdentity,
+				Attempt:              1, Stamp: 1, StartedEventID: EmptyEventID,
+				Status: ActivityStatusEnums.Scheduled, ScheduledTime: in.Now,
+				ScheduleToStartTimeoutMs: scheduled.ScheduleToStartTimeoutMs,
+				StartToCloseTimeoutMs:    scheduled.StartToCloseTimeoutMs,
+				ScheduleToCloseTimeoutMs: scheduled.ScheduleToCloseTimeoutMs,
+				HeartbeatTimeoutMs:       scheduled.HeartbeatTimeoutMs,
+				RetryPolicy:              scheduled.RetryPolicy,
+				Input:                    scheduled.Input,
+				TraceContext:             cloneStringMap(scheduled.TraceContext),
+				CreatedAt:                in.Now, UpdatedAt: in.Now,
+			})
+		}
 	}
-	slices.Sort(ids)
-	id := ids[0]
-	return protocol.InvalidRequestf("cannot reset at event %d: pending %s scheduled at event %d; choose a boundary before it was scheduled or after it completed", cutoff, pending[id], id)
+	for _, id := range slices.Sorted(maps.Keys(timers)) {
+		event := timers[id]
+		work.Timers = append(work.Timers, &TimerState{
+			RunID: in.NewRunID, ScheduledEventID: id, TimerID: event.TimerScheduled.TimerID, Kind: TimerKindEnums.UserTimer,
+			Deadline: event.Timestamp.Add(time.Duration(event.TimerScheduled.DelayMs) * time.Millisecond),
+			Status:   TimerStatusEnums.Scheduled, TraceContext: cloneStringMap(event.TimerScheduled.TraceContext),
+			CreatedAt: in.Now, UpdatedAt: in.Now,
+		})
+	}
+	return work
+}
+
+// resetActivityFailedEvent 是已开始的 Activity 被 reset 打断的终态失败（Temporal ResetWorkflowFailure）。
+func resetActivityFailedEvent(scheduledEventID int64, scheduled *history.ActivityScheduledEvent, started *history.Event, heartbeat map[string]any, reason string) history.Event {
+	message := reason
+	if message == "" {
+		message = "workflow reset"
+	}
+	failure := protocol.Failure{Message: message, Type: protocol.ResetWorkflowFailureType, NonRetryable: true}
+	return history.NewActivityFailedEvent(history.ActivityFailedEvent{
+		ActivityID: scheduled.ActivityID, ScheduledEventID: scheduledEventID,
+		StartedEventID: started.ID, Attempt: history.NormalizeActivityAttempt(started.ActivityStarted.Attempt),
+		ActivityType: scheduled.ActivityType, TaskQueue: scheduled.TaskQueue,
+		Identity: started.ActivityStarted.WorkerIdentity, Error: message,
+		RetryState: activityRetryStateNonRetryable, Failure: &failure,
+		LastHeartbeatDetails: heartbeat,
+	})
 }

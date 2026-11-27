@@ -192,6 +192,21 @@ c, err := client.Dial(client.Options{
 
 `client.Options.Telemetry` 覆盖 HTTP 传播与 Update spans；从这个 Client 创建的 Worker 在 `worker.Options.Telemetry` 留空时沿用它，覆盖 Worker spans、metrics 和 logs。Worker 的全部日志（每个任务的结束记录，以及 poll、ack/nack、路由登记与心跳、结果上报失败）都写入 `Telemetry.Logger`；没有配置 Logger 时写入 `slog.Default()`。
 
+## Server 拒绝上报时
+
+SDK 对连接错误与 502/503/504 按幂等调用重试（见 [Client](/sdk/client)）。Activity 的 `begin` 带一个每份投递生成一次的 `request_id`：应答在途中丢失后的重发由 Server 认作同一次开始，返回原来的开始时间，Activity 照常执行。
+
+Server 以不可重试的 4xx（400、404、409、413、422）拒绝时，重发得到同样的结果，Worker 不立即退回投递：
+
+| 被拒绝的调用 | Worker 的处理 | 日志 |
+| --- | --- | --- |
+| Activity `begin` | 按连续拒绝次数退避（1s 起翻倍，最长 1 分钟）后退回租约 | WARN `server rejected the activity begin request; returning the task after a backoff` |
+| Activity 结果 | 改报一次不可重试的失败，Type `ActivityResultRejected` | 任务结束记录 |
+| Workflow Task 提交，应答 413 | 改报 `WorkflowTaskFailed`（`payload_size_limit_exceeded`），Run Blocked 并退避重试；Worker 在提交前已检查命令总量（3.5 MiB），超限时同样改报、不发送 | 任务结束记录 |
+| Workflow Task 的其他上报 | 既不确认也不退回，投递留到队列的可见性超时；已开始的 Workflow Task 由 Server 超时重新调度 | ERROR `server rejected the workflow task report; leaving the delivery to the queue's visibility timeout` |
+
+Workflow 程序要求的能力超出 Worker 声明时，Workflow Task 照常立即退回，由具备能力的 Worker 领取。载荷上限见 [容量上限](/operations/capacity-limits#载荷大小)。
+
 ## 优雅退出
 
 `Stop()` 按顺序执行：
@@ -237,6 +252,8 @@ func Export(ctx context.Context, in ExportInput) (ExportOutput, error) {
 
 注销是尽力而为的一次调用，等待上限 3 秒；调用失败时只记日志。进程崩溃或被 `SIGKILL` 时没有机会注销，路由在心跳 TTL（默认 30s）之后到期；队列里的任务由同一队列上仍在 poll 的 Worker 领取，它已经开始的 Attempt 由 StartToClose 或心跳超时重试。
 
-注销只让路由到期，Worker 的登记记录保留：指定了 Target Worker 的 Workflow 仍然能找到这个离线 Worker 上次登记的队列，任务排队等这个 Identity 回来。
+注销只让路由到期，Worker 的登记记录保留：指定了 Target Worker 的 Workflow 仍然能找到这个离线 Worker 上次登记的队列，任务排队等这个 Identity 回来，受 `ScheduleToStartTimeout` 约束。Server 的周期全量补偿（`WORKFLOW_RECONCILE_FULL_SCAN_INTERVAL`）删除到期超过一天、且没有 Running Run 指定的登记，Identity 含 Pod 名等每次发布都变的部分时旧登记因此不会无限累积。
+
+Worker 是否在线只由它自己的心跳决定：网络分区或数据库故障让心跳失败超过上述期限、登记被删除后，下一次心跳得到 404，Worker 立即重新登记（失败时从 1 秒起加倍退避、不超过心跳间隔），重新进入选路。
 
 部署平台在 `SIGTERM` 后预留的终止宽限期大于 `GracefulStopTimeout` 加几秒注销时间，让 `Stop()` 走完（Kubernetes 缺省 30 秒）。

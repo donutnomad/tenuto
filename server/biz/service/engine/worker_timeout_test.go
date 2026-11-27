@@ -175,3 +175,5 @@ func (*timeoutWorkerAPI) ReleaseActivityAttempt(context.Context, *execution.Run,
 func (*timeoutWorkerAPI) RefuseIncompatibleActivityClaim(context.Context, protocol.Task, *execution.Run) (bool, error) {
 	return false, nil
 }
+
+func (a *timeoutWorkerAPI) PayloadSizeLimit() int { return 0 }

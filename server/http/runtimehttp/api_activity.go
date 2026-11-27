@@ -31,7 +31,7 @@ type ActivityRuntimeHTTPAPI interface {
 
 	// Begin 开始执行 Activity 任务
 	// @POST(/begin)
-	Begin(ctx *gin.Context, req runtimeapi.ActivityRuntimeTaskRequest) (protocol.ActivityTaskBeginResult, error)
+	Begin(ctx *gin.Context, req runtimeapi.ActivityRuntimeBeginRequest) (protocol.ActivityTaskBeginResult, error)
 
 	// Heartbeat 上报 Activity 心跳
 	// @POST(/heartbeat)
@@ -113,16 +113,17 @@ func (a *activityRuntimeHTTPAPI) Nack(ctx *gin.Context, req runtimeapi.ActivityR
 	return runtimeOK(a.runtime.NackActivityTask(ctx.Request.Context(), lease))
 }
 
-func (a *activityRuntimeHTTPAPI) Begin(ctx *gin.Context, req runtimeapi.ActivityRuntimeTaskRequest) (protocol.ActivityTaskBeginResult, error) {
-	task, err := activityRuntimeRequestTask(a.codec, req.TaskToken, req.Task)
+func (a *activityRuntimeHTTPAPI) Begin(ctx *gin.Context, req runtimeapi.ActivityRuntimeBeginRequest) (protocol.ActivityTaskBeginResult, error) {
+	task, err := activityRuntimeRequestTask(a.codec, req.ActivityRuntimeTaskRequest)
 	if err != nil {
 		return protocol.ActivityTaskBeginResult{}, err
 	}
+	task.RequestID = req.RequestID
 	return a.runtime.BeginActivityTask(ctx.Request.Context(), task)
 }
 
 func (a *activityRuntimeHTTPAPI) Heartbeat(ctx *gin.Context, req runtimeapi.ActivityRuntimeHeartbeatRequest) (protocol.ActivityHeartbeatResult, error) {
-	task, err := activityRuntimeRequestTask(a.codec, req.TaskToken, req.Task)
+	task, err := activityRuntimeRequestTask(a.codec, req.ActivityRuntimeTaskRequest)
 	if err != nil {
 		return protocol.ActivityHeartbeatResult{}, err
 	}
@@ -130,7 +131,7 @@ func (a *activityRuntimeHTTPAPI) Heartbeat(ctx *gin.Context, req runtimeapi.Acti
 }
 
 func (a *activityRuntimeHTTPAPI) Cancellation(ctx *gin.Context, req runtimeapi.ActivityRuntimeTaskRequest) (protocol.ActivityCancellationResult, error) {
-	task, err := activityRuntimeRequestTask(a.codec, req.TaskToken, req.Task)
+	task, err := activityRuntimeRequestTask(a.codec, req)
 	if err != nil {
 		return protocol.ActivityCancellationResult{}, err
 	}
@@ -138,7 +139,7 @@ func (a *activityRuntimeHTTPAPI) Cancellation(ctx *gin.Context, req runtimeapi.A
 }
 
 func (a *activityRuntimeHTTPAPI) Complete(ctx *gin.Context, req runtimeapi.ActivityRuntimeCompleteRequest) (runtimeapi.RuntimeOKResponse, error) {
-	task, err := activityRuntimeRequestTask(a.codec, req.TaskToken, req.Task)
+	task, err := activityRuntimeRequestTask(a.codec, req.ActivityRuntimeTaskRequest)
 	if err != nil {
 		return runtimeapi.RuntimeOKResponse{}, err
 	}
@@ -152,7 +153,7 @@ func (a *activityRuntimeHTTPAPI) Complete(ctx *gin.Context, req runtimeapi.Activ
 }
 
 func (a *activityRuntimeHTTPAPI) Fail(ctx *gin.Context, req runtimeapi.ActivityRuntimeFailRequest) (runtimeapi.RuntimeOKResponse, error) {
-	task, err := activityRuntimeRequestTask(a.codec, req.TaskToken, req.Task)
+	task, err := activityRuntimeRequestTask(a.codec, req.ActivityRuntimeTaskRequest)
 	if err != nil {
 		return runtimeapi.RuntimeOKResponse{}, err
 	}
@@ -163,7 +164,7 @@ func (a *activityRuntimeHTTPAPI) Fail(ctx *gin.Context, req runtimeapi.ActivityR
 }
 
 func (a *activityRuntimeHTTPAPI) Release(ctx *gin.Context, req runtimeapi.ActivityRuntimeTaskRequest) (runtimeapi.RuntimeOKResponse, error) {
-	task, err := activityRuntimeRequestTask(a.codec, req.TaskToken, req.Task)
+	task, err := activityRuntimeRequestTask(a.codec, req)
 	if err != nil {
 		return runtimeapi.RuntimeOKResponse{}, err
 	}
@@ -171,7 +172,8 @@ func (a *activityRuntimeHTTPAPI) Release(ctx *gin.Context, req runtimeapi.Activi
 }
 
 // activityRuntimeRequestTask 用 token 里签过名的 task 作为本次请求的任务，Worker 身份取自请求。
-func activityRuntimeRequestTask(codec *dispatch.TaskTokenCodec, token protocol.TaskToken, task protocol.Task) (protocol.Task, error) {
+func activityRuntimeRequestTask(codec *dispatch.TaskTokenCodec, req runtimeapi.ActivityRuntimeTaskRequest) (protocol.Task, error) {
+	token := req.TaskToken
 	if token == "" {
 		return protocol.Task{}, protocol.InvalidRequestf("activity runtime task token is empty")
 	}
@@ -183,7 +185,7 @@ func activityRuntimeRequestTask(codec *dispatch.TaskTokenCodec, token protocol.T
 		return protocol.Task{}, protocol.InvalidRequestf("task token type %s is invalid for activity task", decoded.Type)
 	}
 	decoded.TaskToken = token
-	decoded.WorkerIdentity = task.WorkerIdentity
-	decoded.WorkerBuildID = task.WorkerBuildID
+	decoded.WorkerIdentity = req.WorkerIdentity
+	decoded.WorkerBuildID = req.WorkerBuildID
 	return decoded, nil
 }

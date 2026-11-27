@@ -40,7 +40,7 @@ func TestPrepareWorkflowTaskPinsRoutesAndTargetVersions(t *testing.T) {
 		{Type: history.CmdStartChildWorkflow, ChildID: "child-1", WorkflowType: "child"},
 		{Type: history.CmdContinueAsNew, WorkflowType: "next"},
 	}
-	prepared, err := PrepareWorkflowTask("run-1", commands, map[string]string{"trace": "value"}, resolver)
+	prepared, err := PrepareWorkflowTask("run-1", commands, map[string]string{"trace": "value"}, 0, resolver)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,10 +71,10 @@ func TestPrepareWorkflowTaskValidatesScheduleActivityAttributes(t *testing.T) {
 		"no timeout":             {Type: history.CmdScheduleActivity, ActivityID: "charge", ActivityType: "charge"},
 		"only schedule-to-start": {Type: history.CmdScheduleActivity, ActivityID: "charge", ActivityType: "charge", ScheduleToStartTimeout: time.Second, HeartbeatTimeout: time.Second},
 		"empty activity id":      {Type: history.CmdScheduleActivity, ActivityType: "charge", StartToCloseTimeout: time.Second},
-		"activity id too long":   {Type: history.CmdScheduleActivity, ActivityID: strings.Repeat("界", MaxActivityIDLength+1), ActivityType: "charge", StartToCloseTimeout: time.Second},
+		"activity id too long":   {Type: history.CmdScheduleActivity, ActivityID: strings.Repeat("界", protocol.MaxActivityIDLength+1), ActivityType: "charge", StartToCloseTimeout: time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, &commandResolverStub{})
+			_, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, 0, &commandResolverStub{})
 			if !errors.Is(err, ErrBadScheduleActivityAttributes) {
 				t.Fatalf("err = %v, want ErrBadScheduleActivityAttributes", err)
 			}
@@ -83,10 +83,47 @@ func TestPrepareWorkflowTaskValidatesScheduleActivityAttributes(t *testing.T) {
 	for name, command := range map[string]history.Command{
 		"start-to-close":      {Type: history.CmdScheduleActivity, ActivityID: "charge", ActivityType: "charge", StartToCloseTimeout: time.Second},
 		"schedule-to-close":   {Type: history.CmdScheduleActivity, ActivityID: "charge", ActivityType: "charge", ScheduleToCloseTimeout: time.Minute},
-		"longest activity id": {Type: history.CmdScheduleActivity, ActivityID: strings.Repeat("界", MaxActivityIDLength), ActivityType: "charge", StartToCloseTimeout: time.Second},
+		"longest activity id": {Type: history.CmdScheduleActivity, ActivityID: strings.Repeat("界", protocol.MaxActivityIDLength), ActivityType: "charge", StartToCloseTimeout: time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, &commandResolverStub{}); err != nil {
+			if _, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, 0, &commandResolverStub{}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// 超过列宽的命令标识按命令类型得到各自的 WorkflowTaskFailed cause；恰好到上限的标识通过。
+func TestValidateWorkflowCommandChecksIdentifierLengths(t *testing.T) {
+	runID := "01a2185a-0000-7000-8000-000000000000"
+	childLimit := protocol.MaxWorkflowIDLength - len(runID) - 1
+	for name, tc := range map[string]struct {
+		command history.Command
+		cause   string
+	}{
+		"timer id":            {history.Command{Type: history.CmdScheduleTimer, TimerID: strings.Repeat("界", protocol.MaxTimerIDLength+1)}, WorkflowTaskFailedCauseBadStartTimerAttributes},
+		"child id":            {history.Command{Type: history.CmdStartChildWorkflow, ChildID: strings.Repeat("c", childLimit+1), WorkflowType: "flow"}, WorkflowTaskFailedCauseBadStartChildWorkflowAttributes},
+		"child workflow type": {history.Command{Type: history.CmdStartChildWorkflow, ChildID: "c", WorkflowType: strings.Repeat("t", protocol.MaxWorkflowTypeLength+1)}, WorkflowTaskFailedCauseBadStartChildWorkflowAttributes},
+		"activity type":       {history.Command{Type: history.CmdScheduleActivity, ActivityID: "a", ActivityType: strings.Repeat("t", protocol.MaxActivityTypeLength+1), StartToCloseTimeout: time.Second}, WorkflowTaskFailedCauseBadScheduleActivityAttributes},
+		"task queue":          {history.Command{Type: history.CmdScheduleActivity, ActivityID: "a", ActivityType: "t", TaskQueue: strings.Repeat("q", protocol.MaxTaskQueueLength+1), StartToCloseTimeout: time.Second}, WorkflowTaskFailedCauseBadScheduleActivityAttributes},
+		"marker name":         {history.Command{Type: history.CmdRecordMarker, MarkerName: strings.Repeat("n", protocol.MaxMarkerNameLength+1), MarkerID: "1"}, WorkflowTaskFailedCauseBadRecordMarkerAttributes},
+		"marker id":           {history.Command{Type: history.CmdRecordMarker, MarkerName: "SideEffect", MarkerID: strings.Repeat("界", protocol.MaxMarkerIDLength+1)}, WorkflowTaskFailedCauseBadRecordMarkerAttributes},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cause, ok := BadCommandAttributesCause(ValidateWorkflowCommand(runID, tc.command))
+			if !ok || cause != tc.cause {
+				t.Fatalf("cause = %q, %v, want %q", cause, ok, tc.cause)
+			}
+		})
+	}
+	for name, command := range map[string]history.Command{
+		"longest timer id":   {Type: history.CmdScheduleTimer, TimerID: strings.Repeat("界", protocol.MaxTimerIDLength)},
+		"longest child id":   {Type: history.CmdStartChildWorkflow, ChildID: strings.Repeat("c", childLimit), WorkflowType: "flow"},
+		"longest task queue": {Type: history.CmdScheduleActivity, ActivityID: "a", ActivityType: "t", TaskQueue: strings.Repeat("q", protocol.MaxTaskQueueLength), StartToCloseTimeout: time.Second},
+		"longest marker":     {Type: history.CmdRecordMarker, MarkerName: strings.Repeat("n", protocol.MaxMarkerNameLength), MarkerID: strings.Repeat("界", protocol.MaxMarkerIDLength)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateWorkflowCommand(runID, command); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -104,7 +141,7 @@ func TestPrepareWorkflowTaskRecordsEffectiveRetryPolicy(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			command := history.Command{Type: history.CmdScheduleActivity, ActivityID: "#a1", ActivityType: "charge", StartToCloseTimeout: time.Minute, RetryPolicy: tc.policy}
-			prepared, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, &commandResolverStub{})
+			prepared, err := PrepareWorkflowTask("run-1", []history.Command{command}, nil, 0, &commandResolverStub{})
 			if err != nil {
 				t.Fatal(err)
 			}

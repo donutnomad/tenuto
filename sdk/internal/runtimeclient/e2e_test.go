@@ -144,7 +144,7 @@ func TestWorkflowRuntimeHTTPClientRoundTripsUpdatePayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome := protocol.UpdateOutcome{Success: &resultPayload}
-	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, workflowTaskID), runID, workflowTaskID, []historypkg.Command{{
+	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, mgr, runID, workflowTaskID), runID, workflowTaskID, []historypkg.Command{{
 		Type: historypkg.CmdCompleteWorkflowUpdate, Name: "create", UpdateID: accepted.UpdateID, UpdateOutcome: &outcome,
 	}}, ""); err != nil {
 		t.Fatal(err)
@@ -291,8 +291,32 @@ func startedRunID(run *execution.Run, err error) (string, error) {
 	return run.ID, nil
 }
 
-func workflowTaskContext(t testing.TB, ctx context.Context, server *engine.Server, runID string, scheduledEventID int64) context.Context {
+// workflowTaskContext 代替 Worker poll：像 poll 一样先写下 WorkflowTaskStarted（Server 以它为 Worker 看到的边界），
+// 再签发 token。
+func workflowTaskContext(t testing.TB, ctx context.Context, server *engine.Server, mgr execution.ExecutionManager, runID string, scheduledEventID int64) context.Context {
 	t.Helper()
+	run, err := mgr.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, err := execution.DeserializeBranchToken(run.BranchToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error {
+		state, err := tx.GetWorkflowExecutionStateForUpdate(runID)
+		if err != nil {
+			return err
+		}
+		_, err = execution.StartWorkflowTask(tx, execution.WorkflowTaskStart{
+			RunID: runID, TreeID: branch.TreeID, BranchID: branch.BranchID, ScheduledEventID: scheduledEventID,
+			ExecutionGeneration: state.ExecutionGeneration, StickyGeneration: state.StickyGeneration,
+			ProgramVersion: run.WorkflowConfigVersion, Now: time.Now(),
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	state, err := server.GetWorkflowExecutionState(runID)
 	if err != nil {
 		t.Fatal(err)

@@ -94,9 +94,10 @@ export const api = {
     search_attributes?: Record<string, string>
     include_terminal?: boolean
     blocked_only?: boolean
-    offset?: number
+    page_token?: string
     limit?: number
     order_desc?: boolean
+    skip_total?: boolean
   }) => post<RunListResult>('/list', { filter }),
 
   // 后端 get-run 返回 { run, blocked, terminal_failure } 包装（后两者是响应层派生字段）。

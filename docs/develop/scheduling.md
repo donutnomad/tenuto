@@ -40,6 +40,7 @@ scheduleID := handle.GetID() // 由 Server 生成
 | `Args` | 否 | 至多一个，编码成 JSON 对象作为每次启动的 Workflow 输入 |
 | `OverlapPolicy` | 否 | `ScheduleOverlapPolicySkip`（`SKIP`，缺省）或 `ScheduleOverlapPolicyAllowAll`（`ALLOW_ALL`）；其他值创建失败 |
 | `Paused` | 否 | 创建后处于暂停状态 |
+| `CatchupWindow` | 否 | 到期点之后仍会补触发的最长延迟（HTTP 字段 `catchup_window`，纳秒）；0 取 365 天，小于 10 秒创建失败。见[触发流程与错过触发](#触发流程与错过触发) |
 | `Description` | 否 | 说明文字 |
 
 Schedule 与它启动的 Run 在 Client 的 Namespace 里。
@@ -52,7 +53,13 @@ Schedule 与它启动的 Run 在 Client 的 Namespace 里。
 分钟(0-59) 小时(0-23) 日(1-31) 月(1-12) 星期(0-6，0 为周日)
 ```
 
-每段支持 `*`、`*/N`、单个数值 `N`、范围 `N-M` 和逗号分隔的组合。最小粒度是分钟。日与星期两段都以 `*` 开头之外的写法限定时，满足其中任意一段的日期即触发（`0 0 13 * 5` 是每月 13 日和每个周五）；只限定其中一段时按该段匹配。段数不是 5 或数值越界时创建失败并返回 `invalid cron_expression`。
+每段支持 `*`、`*/N`、单个数值 `N`、范围 `N-M` 和逗号分隔的组合。最小粒度是分钟。日与星期两段都以 `*` 开头之外的写法限定时，满足其中任意一段的日期即触发（`0 0 13 * 5` 是每月 13 日和每个周五）；只限定其中一段时按该段匹配。段数不是 5、数值越界，或永远不会匹配（如 `0 0 31 2 *`、`0 0 31 4,6,9,11 *`，所列月份里没有所列的日）时，创建与更新返回 `invalid cron_expression`（HTTP 400）。
+
+表达式按 `TimeZone` 的墙上时间匹配。夏令时切换日：
+
+- 前拨（例如美东 3 月 02:00 跳到 03:00）：当天不存在的时刻不触发，`30 2 * * *` 那一天跳过，次日照常。
+- 回拨（例如美东 11 月 02:00 回到 01:00，01:00–01:59 出现两次）：重复的时刻只在第一次出现时触发一次，`30 1 * * *` 当天在夏令时的 01:30 触发，标准时间的 01:30 不再触发。与 Vixie cron 相同；Temporal Schedule 在两次出现时都触发，这一点不同。
+- 半小时的切换（如 `Australia/Lord_Howe` 回拨 30 分钟）按同样的规则处理。
 
 | 表达式 | 含义 |
 | --- | --- |
@@ -140,18 +147,22 @@ err = handle.Delete(ctx)
 | `Trigger` | 立即启动一次并返回它的 `WorkflowRun`，同样遵守 Overlap Policy：`SKIP` 下上一次触发的 Run 仍在运行时返回 `ErrConflict`（`previous scheduled run is still running`，HTTP 409）；启动失败时返回错误，下一次执行时间保持原值 |
 | `Delete` | 删除 Schedule |
 
-`Describe` 返回的 `ScheduleDescription` 包含 `NextRunAt`、`LastRunAt`、`LastRunID` 和 `RunCount`，用于观察执行情况。
+`Describe` 返回的 `ScheduleDescription` 包含 `NextRunAt`、`LastRunAt`、`LastRunID`、`RunCount` 与跳过计数 `MissedCatchupWindow`、`BufferDropped`、`StartFailed`，用于观察执行情况。
 
 ## 触发流程与错过触发
 
 调度器处理到期的 Schedule：
 
-1. 到期点落后当前时间超过 1 小时：跳过触发，只把下一次执行时间推进到未来。
-2. 用 CAS 推进下一次执行时间；多个 Server 副本中只有一个推进成功并继续。
-3. `SKIP` 策略下检查上一次触发的执行链是否仍在运行，仍在运行就跳过这个到期点。
-4. 启动 Workflow，记录 `LastRunAt`、`LastRunID`、`RunCount`。启动失败时把下一次执行时间恢复为本次到期点，调度器在下一轮扫描重试这一次触发；这个到期点的 Run 已经在运行时（上一次启动其实已提交）不再重试。
+1. 到期点落后当前时间超过 `CatchupWindow`：不触发，计入 `MissedCatchupWindow`，处理下一个到期点。
+2. `SKIP` 策略下检查上一次触发的执行链是否仍在运行，仍在运行就跳过这个到期点，推进下一次执行时间。
+3. 以这个到期点的 Workflow ID（`schedule-<Schedule ID>-<到期点>`）启动 Workflow。这个 Workflow ID 的 Run 已在运行时（上一次启动其实已提交，或另一个副本刚启动了它）不再启动第二个，直接推进下一次执行时间。启动失败的处理见下文。
+4. 用 CAS 把下一次执行时间推进到这个到期点之后的下一个 cron 时刻（错过的后续到期点接着处理）；多个 Server 副本同时触发同一个到期点时只有一个推进成功，由它记录 `LastRunAt`、`LastRunID`、`RunCount`。
 
-Server 停机或数据库不可用期间错过的到期点，恢复后最多补触发一次（落在 1 小时窗口内的那一次），更早的到期点不补跑。需要补齐每个周期的业务在 Workflow 输入或业务数据库里记录处理进度，由 Workflow 自己计算要处理的区间。
+先启动再推进：两步之间进程退出时，下一次执行时间仍是这个到期点，下一轮以同一个 Workflow ID 重新启动，得到已启动的那个 Run，不会重复执行。
+
+启动失败分两类处理（同 Temporal scheduler）：Workflow 类型没有部署、输入不合法、载荷超限这类配置或请求错误不重试，这个到期点直接丢弃；存储或网络暂时不可用等其他错误按退避（1 秒起翻倍，最长 60 秒）重试，重试期限从到期点起算，取 min(`catchup_window`, 1 小时)（同 Temporal 启动 Workflow 的本地 Activity：`ScheduleToCloseTimeout` 取 catchup 截止时间，上限 1 小时）。到期点之后 1 小时仍没有启动成功的丢弃并计入 `start_failed`；`catchup_window` 小于 1 小时时，重试先超过 catchup window，这个到期点计入 `missed_catchup_window`。丢弃之前 Server 按到期点的 Workflow ID 确认一次：启动其实已经提交（提交之后入队失败或应答丢失）时按启动成功记录，不计入 `start_failed`。丢弃或跳过之后下一次执行时间推进到它之后的到期点，后面的到期点照常处理。因此启动持续失败时下一次执行时间最多落后当前时间 1 小时，修好之后只补出这 1 小时内的到期点（按 Overlap Policy）。补触发时已落后 1 小时以上的到期点只尝试一次。重试状态保存在 leader 的内存里，leader 切换后从新的一次尝试开始退避。`Describe` 返回的 `StartFailed` 是累计丢弃的到期点数，Server 每次丢弃记 ERROR `schedule driver: start workflow failed, dropping this fire time`（`config_error` 区分两类），每次重试前记 WARN `schedule driver: start workflow failed, will retry`。
+
+Server 停机或数据库不可用期间错过的到期点在恢复后补触发。错过的到期点逐个判定（同 Temporal）：落后当前时间超过 `catchup_window`（缺省 365 天，最小 10 秒）的到期点不触发，计入 `missed_catchup_window`；窗口内的每个到期点按 Overlap Policy 处理，`ALLOW_ALL` 逐个补启动，`SKIP` 在补启动的 Run 仍在运行时跳过后面的到期点。窗口内待补的到期点超过 1000 个（Temporal 的 buffer 上限）时，同 Temporal 保留最早的 1000 个，buffer 满之后到达的到期点（到当前时刻为止）计入 `buffer_dropped`；保留的处理完后从当前时刻之后的到期点继续，buffer 没满时 `buffer_dropped` 不增长。超出窗口的那一段只计数，不逐个处理，长期停机后第一轮扫描不会变慢。补触发分批进行，每轮扫描一个 Schedule 最多处理 100 个到期点，每个 Run 的启动是独立的事务。 不希望停机后补跑的 Schedule 把 `CatchupWindow` 设小（例如 `time.Minute`）；`Describe` 返回的 `MissedCatchupWindow` 与 `BufferDropped` 是累计跳过的到期点数。需要补齐每个周期的业务在 Workflow 输入或业务数据库里记录处理进度，由 Workflow 自己计算要处理的区间。
 
 ## 周期任务设计
 

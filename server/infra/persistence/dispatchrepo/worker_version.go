@@ -147,7 +147,7 @@ func (s *Repository) HeartbeatActivityWorkerVersionInNamespace(namespace, identi
 			return err
 		}
 		if len(ttls) == 0 {
-			return protocol.InvalidRequestf("activity worker version %s/%s/%s is not registered", namespace, identity, buildID)
+			return fmt.Errorf("%w: %s/%s/%s", protocol.ErrActivityWorkerVersionNotRegistered, namespace, identity, buildID)
 		}
 		for _, rowTTL := range ttls {
 			effectiveTTL, err := dispatch.ResolveHeartbeatTTL(*rowTTL, ttl)
@@ -184,6 +184,38 @@ func (s *Repository) DeregisterActivityWorkerVersionInNamespace(namespace, ident
 			"expires_at": now,
 			"updated_at": now,
 		}).Error
+}
+
+type workerIdentityRow struct {
+	Namespace string
+	Identity  string
+}
+
+// DeleteExpiredActivityWorkerVersions 先读出有到期行的 (namespace, identity)，再逐个删除 keep 之外的：每轮补偿
+// 涉及的 Worker 数与这段时间下线的 Worker 数相当。
+func (s *Repository) DeleteExpiredActivityWorkerVersions(before time.Time, keep func(namespace, identity string) bool) (int64, error) {
+	expired := ActivityWorkerVersionSchema.ExpiresAt.Lt(before)
+	workers, err := infradb.Find(s.db, gsql.SelectG[workerIdentityRow](ActivityWorkerVersionSchema.Namespace, ActivityWorkerVersionSchema.Identity).
+		From(ActivityWorkerVersionSchema).
+		Where(expired).
+		Distinct())
+	if err != nil {
+		return 0, err
+	}
+	var deleted int64
+	for _, worker := range workers {
+		if keep(worker.Namespace, worker.Identity) {
+			continue
+		}
+		result := gsql.From[ActivityWorkerVersionPO](ActivityWorkerVersionSchema).
+			Where(ActivityWorkerVersionSchema.Namespace.Eq(worker.Namespace), ActivityWorkerVersionSchema.Identity.Eq(worker.Identity), expired).
+			Delete(s.db)
+		if result.Error != nil {
+			return deleted, result.Error
+		}
+		deleted += result.RowsAffected
+	}
+	return deleted, nil
 }
 
 func (s *Repository) ListActiveActivityWorkerVersions(now time.Time) ([]protocol.ActivityWorkerVersion, error) {

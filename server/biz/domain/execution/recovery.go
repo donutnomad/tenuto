@@ -56,6 +56,9 @@ func ActivityRecoveryFor(state *ActivityState, now time.Time) ActivityRecoveryDi
 
 const activityRetryStateTimeout = "Timeout"
 
+// activityRetryStateNonRetryable 是失败不可重试时 Activity 停止重试的原因。
+const activityRetryStateNonRetryable = "NonRetryableFailure"
+
 // activityTimeoutTypes lists every timeout type in reporting priority order.
 var activityTimeoutTypes = []protocol.TimeoutType{
 	protocol.TimeoutTypeScheduleToClose,

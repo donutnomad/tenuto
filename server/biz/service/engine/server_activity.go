@@ -72,12 +72,12 @@ func (s *Server) startActivityAttempt(task protocol.Task, branch runBranch, star
 	now := s.clock.Now()
 	tid, bid := branch.treeID, branch.branchID
 	txCtx := s.telemetry.extract(context.Background(), task.TraceContext)
-	if err := s.telemetry.runInTx(txCtx, "start_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(txCtx, "start_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		started, err = execution.StartActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
 			ScheduledEventID: scheduledEventID, Attempt: attempt, Stamp: task.Stamp, Now: now,
-		}, task.WorkerIdentity, task.WorkerBuildID)
+		}, task.WorkerIdentity, task.WorkerBuildID, task.RequestID)
 		return err
 	}); err != nil {
 		return time.Time{}, false, err
@@ -117,6 +117,10 @@ func (s *Server) CompleteActivityAttempt(ctx context.Context, run *execution.Run
 }
 
 func (s *Server) completeActivityAttempt(ctx context.Context, runID string, branch runBranch, scheduledEventID int64, attempt int, stamp int64, output map[string]any) (err error) {
+	if limitErr := protocol.CheckPayloadSize("activity result", output, s.payloadSizeLimit); limitErr != nil {
+		// 结果超过载荷上限：照 Temporal RespondActivityTaskCompleted，改记为不可重试的失败。
+		return s.failActivityAttempt(ctx, runID, branch, scheduledEventID, attempt, stamp, protocol.PayloadSizeLimitFailure(limitErr))
+	}
 	ctx, span := s.telemetry.start(ctx, "CompleteActivity",
 		attribute.String(tenutotel.AttrWorkflowRunID, runID),
 		attribute.Int64(tenutotel.AttrScheduledEventID, scheduledEventID),
@@ -137,7 +141,7 @@ func (s *Server) completeActivityAttempt(ctx context.Context, runID string, bran
 		return err
 	}
 	// 事务内读取并更新同一条 ActivityState，提交后才推进下一轮。
-	if err := s.telemetry.runInTx(ctx, "complete_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "complete_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		completed, err = execution.CompleteActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
@@ -152,7 +156,7 @@ func (s *Server) completeActivityAttempt(ctx context.Context, runID string, bran
 	}
 	s.stopActivityTimers(runID, scheduledEventID) // 终态后停内存 timer（事务外，无锁交叉）
 	postCommitCtx := context.WithoutCancel(ctx)
-	return s.scheduleWorkflowTaskIfRunning(postCommitCtx, runID)
+	return s.scheduleWorkflowTask(postCommitCtx, runID)
 }
 
 // ActivityTaskToken 是异步完成时外部系统交回的 Activity Task Token。
@@ -247,7 +251,7 @@ func (s *Server) failActivityAttempt(ctx context.Context, runID string, branch r
 	}
 	// 事务返回的新状态用于提交后安装内存 retry timer。
 	var result execution.ActivityFailureResult
-	if err := s.telemetry.runInTx(ctx, "fail_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "fail_activity", func(tx execution.ExecutionTx) error {
 		var txErr error
 		result, txErr = execution.FailActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
@@ -269,7 +273,7 @@ func (s *Server) settleActivityFailure(ctx context.Context, runID string, schedu
 	if failure.Terminal {
 		s.stopActivityTimers(runID, scheduledEventID)
 		postCommitCtx := context.WithoutCancel(ctx)
-		return s.scheduleWorkflowTaskIfRunning(postCommitCtx, runID)
+		return s.scheduleWorkflowTask(postCommitCtx, runID)
 	}
 	return nil
 }
@@ -313,7 +317,7 @@ func (s *Server) ResetActivity(namespace, runID, activityID string, opts executi
 		return err
 	}
 	// 状态校验、reset 事件和 stamp 更新在同一事务内完成。
-	if err := s.telemetry.runInTx(context.Background(), "reset_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(context.Background(), "reset_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		newState, err = execution.ResetActivity(tx, execution.ActivityReset{
 			ActivityTransition: execution.ActivityTransition{
@@ -361,7 +365,7 @@ func (s *Server) releaseActivityAttempt(ctx context.Context, runID string, branc
 		return err
 	}
 	var release execution.ActivityRelease
-	if err := s.telemetry.runInTx(ctx, "release_activity", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "release_activity", func(tx execution.ExecutionTx) error {
 		var err error
 		release, err = execution.ReleaseActivity(tx, execution.ActivityTransition{
 			RunID: runID, TreeID: tid, BranchID: bid,
@@ -373,7 +377,7 @@ func (s *Server) releaseActivityAttempt(ctx context.Context, runID string, branc
 	}
 	if release.Cancelled {
 		s.stopActivityTimers(runID, scheduledEventID)
-		return s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID)
+		return s.scheduleWorkflowTask(context.WithoutCancel(ctx), runID)
 	}
 	released := release.Redispatch
 	if released == nil {
@@ -435,9 +439,14 @@ func (s *Server) HandleActivityHeartbeat(runID string, scheduledEventID int64, a
 	} else if terminated {
 		return nil
 	}
+	if limitErr := protocol.CheckPayloadSize("activity heartbeat details", details, s.payloadSizeLimit); limitErr != nil {
+		// 心跳详情超过载荷上限：照 Temporal RecordActivityTaskHeartbeat，以不可重试的失败结束这次 attempt；
+		// 之后的取消检查告诉 Worker 结果不再有接收方。
+		return s.HandleActivityFailed(context.Background(), runID, scheduledEventID, attempt, stamp, protocol.PayloadSizeLimitFailure(limitErr))
+	}
 	now := s.clock.Now()
 	var st *execution.ActivityState
-	if err := s.telemetry.runInTx(context.Background(), "record_activity_heartbeat", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(context.Background(), "record_activity_heartbeat", func(tx execution.ExecutionTx) error {
 		var err error
 		st, err = execution.RecordActivityHeartbeat(tx, execution.ActivityTransition{
 			RunID: runID, ScheduledEventID: scheduledEventID,
@@ -458,3 +467,6 @@ func (s *Server) HandleActivityHeartbeat(runID string, scheduledEventID int64, a
 func (s *Server) GetActivityState(runID string, scheduledEventID int64) (*execution.ActivityState, bool, error) {
 	return s.mgr.GetActivityState(runID, scheduledEventID)
 }
+
+// PayloadSizeLimit 是单个载荷的字节上限，见 WithPayloadSizeLimit。
+func (s *Server) PayloadSizeLimit() int { return s.payloadSizeLimit }

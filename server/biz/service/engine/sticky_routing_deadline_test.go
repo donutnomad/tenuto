@@ -127,7 +127,7 @@ func (m *stickyDeadlineTestManager) ListExpiredStickyExecutions(now time.Time, _
 	return []*execution.WorkflowExecutionState{execution.CloneWorkflowExecutionState(m.state)}, nil
 }
 
-func (m *stickyDeadlineTestManager) AssignStickyExecution(_ string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt time.Time) (int64, bool, error) {
+func (m *stickyDeadlineTestManager) AssignStickyExecution(_ string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string) (int64, bool, error) {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 	if m.state.ExecutionGeneration != executionGeneration || m.state.StickyGeneration != expectedStickyGeneration {
@@ -135,7 +135,6 @@ func (m *stickyDeadlineTestManager) AssignStickyExecution(_ string, executionGen
 	}
 	m.state.StickyWorkerIdentity = workerIdentity
 	m.state.StickyWorkerBuildID = workerBuildID
-	m.state.StickyExpiresAt = &expiresAt
 	return m.state.StickyGeneration, true, nil
 }
 

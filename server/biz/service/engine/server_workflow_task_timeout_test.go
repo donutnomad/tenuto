@@ -107,7 +107,7 @@ func TestServerTimesOutStartedWorkflowTaskWhenWorkerVanishes(t *testing.T) {
 		t.Fatalf("WorkflowTaskStarted must record the worker's timeout: %+v", started)
 	}
 	state, _ := mgr.GetWorkflowExecutionState(runID)
-	if _, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-1", clk.Now().Add(time.Hour)); err != nil || !assigned {
+	if _, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-1"); err != nil || !assigned {
 		t.Fatalf("assign sticky: assigned=%v err=%v", assigned, err)
 	}
 
@@ -204,7 +204,7 @@ func TestWorkflowTaskTimeoutSurvivesServerRestart(t *testing.T) {
 	deps.WorkflowQueue = &ackRecordingQueue{}
 	restarted := NewServer(deps)
 	t.Cleanup(restarted.Stop)
-	if err := restarted.RecoverRunningWorkflows(context.Background()); err != nil {
+	if err := restarted.RecoverRunningWorkflows(context.Background(), DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	if got, armed := restarted.timers.Deadline(workflowTaskTimeoutRef(runID, lease.Task.ScheduledEventID)); !armed || !got.Equal(deadline) {

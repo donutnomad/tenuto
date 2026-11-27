@@ -38,6 +38,9 @@ type WorkerVersionRepository interface {
 	// ListActivityWorkerVersionsOfWorker 返回 namespace 内 identity 的全部路由（含已过期的），排序同上。
 	// 指定了目标 Worker 的 Run 按它解析路由：Worker 下线后任务仍投到它最后登记的队列与 build。
 	ListActivityWorkerVersionsOfWorker(namespace, identity string) ([]protocol.ActivityWorkerVersion, error)
+	// DeleteExpiredActivityWorkerVersions 删除在 before 之前已经到期的路由，keep 返回 true 的 (namespace, identity)
+	// 保留全部行；返回删除的行数。
+	DeleteExpiredActivityWorkerVersions(before time.Time, keep func(namespace, identity string) bool) (int64, error)
 }
 
 // TaskQueue 是 Workflow 任务队列端口。

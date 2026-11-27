@@ -307,7 +307,7 @@ func TestParentClosePolicyRecoveredAfterCrash(t *testing.T) {
 	tree.assertRunning(t, terminateRunID, false)
 	tree.assertRunning(t, cancelRunID, false)
 
-	if err := tree.srv.RecoverRunningWorkflows(context.Background()); err != nil {
+	if err := tree.srv.RecoverRunningWorkflows(context.Background(), DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 
@@ -315,7 +315,7 @@ func TestParentClosePolicyRecoveredAfterCrash(t *testing.T) {
 	tree.assertRunning(t, cancelRunID, true)
 	tree.assertRunning(t, abandonRunID, false)
 	// 补做幂等：再扫一轮不追加取消请求。
-	if err := tree.srv.RecoverRunningWorkflows(context.Background()); err != nil {
+	if err := tree.srv.RecoverRunningWorkflows(context.Background(), DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	events, _ := tree.mgr.GetEvents(cancelRunID)

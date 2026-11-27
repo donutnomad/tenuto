@@ -215,6 +215,10 @@ func (m *ExecutionManager) GetEventsRange(runID string, afterExclusive, throughI
 	return m.EventStore.getEventsRange(runID, afterExclusive, throughInclusive), nil
 }
 
+func (m *ExecutionManager) GetEventsByDedupeKeys(runID string, keys []string) ([]history.Event, error) {
+	return m.EventStore.eventsByDedupeKeys(runID, keys), nil
+}
+
 func (m *ExecutionManager) GetEventPage(request execution.HistoryPageRequest) (execution.HistoryPage, error) {
 	request, err := execution.NormalizeHistoryPageRequest(request)
 	if err != nil {
@@ -222,6 +226,7 @@ func (m *ExecutionManager) GetEventPage(request execution.HistoryPageRequest) (e
 	}
 	fingerprint := execution.HistoryBranchFingerprint(nil, request.RunID)
 	snapshotMax, cursorID := int64(0), int64(0)
+	var count, size int64
 	if request.PageToken != "" {
 		cursor, err := execution.DecodeHistoryPageToken(m.historyTokenKey, request.PageToken, m.clock.Now())
 		if err != nil {
@@ -231,21 +236,13 @@ func (m *ExecutionManager) GetEventPage(request execution.HistoryPageRequest) (e
 			return execution.HistoryPage{}, execution.ErrInvalidHistoryPageToken
 		}
 		snapshotMax, cursorID = cursor.SnapshotUpperBounds[0], cursor.NodeID
+		count, size = cursor.HistoryEventCount, cursor.HistorySizeBytes
 	}
 	pageEvents, snapshotMax := m.EventStore.getEventWindow(request.RunID, snapshotMax, cursorID, request.Direction, request.PageSize+1)
-	// 快照的事件数与字节数每页按快照上界计算，与 gorm 后端一致。
-	var count, size int64
-	if state, err := m.GetWorkflowExecutionState(request.RunID); err == nil && state.LastEventID == snapshotMax {
-		count, size = state.HistoryEventCount, state.HistorySizeBytes
-	} else {
-		visible := m.EventStore.getEventsRange(request.RunID, 0, snapshotMax)
-		count = int64(len(visible))
-		for _, event := range visible {
-			eventSize, err := history.CanonicalEventSize(event)
-			if err != nil {
-				return execution.HistoryPage{}, err
-			}
-			size += eventSize
+	// 快照的事件数与字节数在首页按快照上界计算，后续页沿用分页令牌里的值，与 gorm 后端一致。
+	if request.PageToken == "" {
+		if count, size, err = m.snapshotMetrics(request.RunID, snapshotMax); err != nil {
+			return execution.HistoryPage{}, err
 		}
 	}
 	var nextToken string
@@ -254,13 +251,30 @@ func (m *ExecutionManager) GetEventPage(request execution.HistoryPageRequest) (e
 		now := m.clock.Now()
 		nextToken, err = execution.EncodeHistoryPageToken(m.historyTokenKey, execution.HistoryPageCursor{
 			Version: 1, RunID: request.RunID, BranchFingerprint: fingerprint, Direction: request.Direction,
-			RangeOrdinal: 0, NodeID: pageEvents[len(pageEvents)-1].ID, SnapshotUpperBounds: []int64{snapshotMax}, IssuedAtUnix: now.Unix(), ExpiresAtUnix: now.Add(15 * time.Minute).Unix(),
+			RangeOrdinal: 0, NodeID: pageEvents[len(pageEvents)-1].ID, SnapshotUpperBounds: []int64{snapshotMax},
+			HistoryEventCount: count, HistorySizeBytes: size, IssuedAtUnix: now.Unix(), ExpiresAtUnix: now.Add(15 * time.Minute).Unix(),
 		})
 		if err != nil {
 			return execution.HistoryPage{}, err
 		}
 	}
 	return execution.HistoryPage{Events: pageEvents, NextPageToken: nextToken, SnapshotMaxEventID: snapshotMax, HistoryEventCount: count, HistorySizeBytes: size}, nil
+}
+
+// snapshotMetrics 返回 Run 在快照上界 snapshotMax 之内的事件数与字节数；快照覆盖全部事件时直接取 execution state。
+func (m *ExecutionManager) snapshotMetrics(runID string, snapshotMax int64) (count, size int64, err error) {
+	if state, err := m.GetWorkflowExecutionState(runID); err == nil && state.LastEventID == snapshotMax {
+		return state.HistoryEventCount, state.HistorySizeBytes, nil
+	}
+	visible := m.EventStore.getEventsRange(runID, 0, snapshotMax)
+	for _, event := range visible {
+		eventSize, err := history.CanonicalEventSize(event)
+		if err != nil {
+			return 0, 0, err
+		}
+		size += eventSize
+	}
+	return int64(len(visible)), size, nil
 }
 
 // ForkBranch 与 gorm 后端产出同样的 branch token；源 Run 不存在时返回 execution.ErrRunNotFound。
@@ -316,17 +330,18 @@ type memExecutionTx struct {
 	historyLimits   history.HistoryLimits
 	clock           clock.Clock
 
-	pendingEvents       []pendingEvent
-	pendingStates       []*execution.ActivityState
-	pendingTimers       []*execution.TimerState
-	pendingTimerCloses  []string
-	pendingChildStates  []*execution.ChildWorkflowState
-	pendingRuns         []*execution.Run
-	pendingRunUpdates   []*execution.Run
-	pendingAttrSyncs    []string
-	pendingResetRunIDs  []pendingResetRunID
-	pendingCurrentCASes []pendingCurrentRunCAS
-	pendingActivations  []pendingActivation
+	pendingEvents         []pendingEvent
+	pendingStates         []*execution.ActivityState
+	pendingTimers         []*execution.TimerState
+	pendingTimerCloses    []string
+	pendingActivityCloses []string
+	pendingChildStates    []*execution.ChildWorkflowState
+	pendingRuns           []*execution.Run
+	pendingRunUpdates     []*execution.Run
+	pendingAttrSyncs      []string
+	pendingResetRunIDs    []pendingResetRunID
+	pendingCurrentCASes   []pendingCurrentRunCAS
+	pendingActivations    []pendingActivation
 }
 
 // pendingActivation 是事务内开始的一次 Workflow Task 激活，先于同一事务追加的事件应用。
@@ -367,6 +382,22 @@ func (t *memExecutionTx) prepareEvent(event history.Event) (history.Event, error
 	return normalized, nil
 }
 
+// GetEventIDByDedupeKey 先看本 Run branch 上已提交的事件，再看本事务缓冲。
+func (t *memExecutionTx) GetEventIDByDedupeKey(runID, _, dedupeKey string) (int64, bool, error) {
+	if id, found := t.events.findDedupe(runID, dedupeKey); found {
+		return id, true, nil
+	}
+	for _, pe := range t.pendingEvents {
+		if pe.runID != runID {
+			continue
+		}
+		if k, ok := history.DedupeKey(pe.event); ok && k == dedupeKey {
+			return pe.event.ID, true, nil
+		}
+	}
+	return 0, false, nil
+}
+
 func (t *memExecutionTx) AppendIdempotent(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
 	if err := t.requireRun(runID); err != nil {
 		return 0, false, err
@@ -376,18 +407,9 @@ func (t *memExecutionTx) AppendIdempotent(runID, treeID, branchID string, event 
 		return 0, false, err
 	}
 	event = normalized
-	// 去重：先看本 Run branch 上已提交的事件，再看本事务缓冲。
 	if key, ok := history.DedupeKey(event); ok {
-		if id, found := t.events.findDedupe(runID, key); found {
+		if id, found, _ := t.GetEventIDByDedupeKey(runID, branchID, key); found {
 			return id, false, nil
-		}
-		for _, pe := range t.pendingEvents {
-			if pe.runID != runID {
-				continue
-			}
-			if k, exok := history.DedupeKey(pe.event); exok && k == key {
-				return pe.event.ID, false, nil
-			}
 		}
 	}
 	if err := t.checkOpen(runID, event); err != nil {
@@ -573,7 +595,7 @@ func (t *memExecutionTx) checkHistoryBudget(runID string, eventSizes []int64, se
 			metrics.SizeBytes += pending.size
 		}
 	}
-	return history.CheckHistoryBudget(metrics, eventSizes, t.historyLimits, serverClose)
+	return history.CheckHistoryBudget(runID, metrics, eventSizes, t.historyLimits, serverClose)
 }
 
 // committedHistoryMetrics 读取 runID 已提交的 history 计数/字节数。缺少 execution state
@@ -653,6 +675,12 @@ func (t *memExecutionTx) UpdateTimerState(state *execution.TimerState) error {
 // CloseScheduledTimers 在提交时关闭 runID 仍为 Scheduled 的 timer，排在本事务的 timer 写入之后。
 func (t *memExecutionTx) CloseScheduledTimers(runID string) error {
 	t.pendingTimerCloses = append(t.pendingTimerCloses, runID)
+	return nil
+}
+
+// CloseOpenActivities 在提交时关闭 runID 仍为 Scheduled 或 Started 的 Activity，排在本事务的 Activity 写入之后。
+func (t *memExecutionTx) CloseOpenActivities(runID string) error {
+	t.pendingActivityCloses = append(t.pendingActivityCloses, runID)
 	return nil
 }
 
@@ -948,6 +976,9 @@ func (t *memExecutionTx) commit() error {
 	}
 	for _, runID := range t.pendingTimerCloses {
 		t.timers.closeScheduled(runID, t.clock.Now())
+	}
+	for _, runID := range t.pendingActivityCloses {
+		t.states.closeOpen(runID, t.clock.Now())
 	}
 	for _, st := range t.pendingChildStates {
 		if err := t.children.UpsertChildWorkflowState(st); err != nil {

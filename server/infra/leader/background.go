@@ -28,25 +28,34 @@ const (
 //
 // 用 dbleader 选主而非行锁抢占（SELECT ... FOR UPDATE SKIP LOCKED）：GC 是低频后台清理，
 // 不需要多副本并行度，单一 leader 更简单。
-func StartRetentionGC(task leader.LeaderTask, db db.DB, nodeAddr string) (*leader.Manager, error) {
+func StartRetentionGC(task leader.LeaderTask, db db.DB, nodeAddr string) (*Manager, error) {
 	return startLeaderTask(retentionGCLeaderLockName, task, db, nodeAddr, retentionGCLeaseTTL, retentionGCHeartbeat)
 }
 
 // StartReconciler 启动周期补偿（仅 gorm 模式调用）：只有 leader 实例运行 task。
-func StartReconciler(task leader.LeaderTask, db db.DB, nodeAddr string) (*leader.Manager, error) {
+func StartReconciler(task leader.LeaderTask, db db.DB, nodeAddr string) (*Manager, error) {
 	return startLeaderTask(reconcilerLeaderLockName, task, db, nodeAddr, reconcilerLeaseTTL, reconcilerHeartbeat)
 }
 
 // StartBatchDriver 启动批量操作驱动（仅 gorm 模式调用）：只有 leader 实例处理批量操作。
 // 租约切换瞬间可能有两个 leader，批量操作记录的 version 乐观锁让落后的一方在保存进度时停下。
-func StartBatchDriver(task leader.LeaderTask, db db.DB, nodeAddr string) (*leader.Manager, error) {
+func StartBatchDriver(task leader.LeaderTask, db db.DB, nodeAddr string) (*Manager, error) {
 	return startLeaderTask(batchDriverLeaderLockName, task, db, nodeAddr, batchDriverLeaseTTL, batchDriverHeartbeat)
 }
 
-// startLeaderTask 以 lockName 选主并启动 task，返回已 Start() 的 *leader.Manager。调用方在停止 Server 之前
-// 调用它的 Stop()：释放 leader 锁，其他节点不必等锁的 TTL 到期。
+// Manager 是一个已启动的 leader 任务。
+type Manager struct{ *leader.Manager }
+
+// Stop 先停止 task 并等它退出，再释放 leader 锁（dbleader 的 Stop 只取消选主循环，锁要等 TTL 到期）。
+// 锁在 task 退出之后释放，接任方开始运行时旧 task 已经停下。
+func (m *Manager) Stop() {
+	m.Manager.Stop()
+	m.Offline()
+}
+
+// startLeaderTask 以 lockName 选主并启动 task。调用方在停止 Server 之前调用返回值的 Stop()。
 // nodeAddr 是本节点唯一的 host:port；空串会让多个实例的 CAS 无法区分彼此。
-func startLeaderTask(lockName string, task leader.LeaderTask, db db.DB, nodeAddr string, leaseTTL, heartbeat time.Duration) (*leader.Manager, error) {
+func startLeaderTask(lockName string, task leader.LeaderTask, db db.DB, nodeAddr string, leaseTTL, heartbeat time.Duration) (*Manager, error) {
 	if nodeAddr == "" {
 		return nil, fmt.Errorf("%s: node address must be a unique host:port", lockName)
 	}
@@ -54,5 +63,5 @@ func startLeaderTask(lockName string, task leader.LeaderTask, db db.DB, nodeAddr
 	mgr := leader.NewManager(lockStore, lockName, nodeAddr, []leader.LeaderTask{task},
 		leader.WithLeaseTTL(leaseTTL), leader.WithHeartbeat(heartbeat))
 	mgr.Start()
-	return mgr, nil
+	return &Manager{Manager: mgr}, nil
 }

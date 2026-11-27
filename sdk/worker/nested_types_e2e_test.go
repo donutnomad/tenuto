@@ -18,7 +18,7 @@ import (
 )
 
 // nestedParentSrc 的每个 struct 类型只出现在一处 Workflow 边界：子 Workflow 输入、Activity 输入、Activity 结果、
-// Signal 载荷、Update 参数与结果、Query 结果、continue-as-new 参数。嵌套混合 struct、slice、map、指针与 array，
+// Signal 载荷、Update 参数与结果、Query 结果、continue-as-new 参数。嵌套混合 struct、slice、map、指针，
 // 含递归类型。
 const nestedParentSrc = `package nest
 
@@ -41,7 +41,7 @@ type Level1 struct {
 }
 
 type Level2 struct {
-	Grid  [2]Level3 ` + "`json:\"grid\"`" + `
+	Grid  []Level3 ` + "`json:\"grid\"`" + `
 	Items []Level3  ` + "`json:\"items\"`" + `
 }
 
@@ -52,7 +52,7 @@ type Level3 struct {
 
 type Level4 struct {
 	Note  string  ` + "`json:\"note\"`" + `
-	Flags [2]bool ` + "`json:\"flags\"`" + `
+	Flags []bool ` + "`json:\"flags\"`" + `
 }
 
 type ActIn struct {
@@ -65,7 +65,7 @@ type Packet struct {
 }
 
 type Part struct {
-	Sizes    [3]int64 ` + "`json:\"sizes\"`" + `
+	Sizes    []int64 ` + "`json:\"sizes\"`" + `
 	Sub      *Part    ` + "`json:\"sub\"`" + `
 	Children []Part   ` + "`json:\"children\"`" + `
 }
@@ -80,7 +80,7 @@ type PacketOut struct {
 }
 
 type PartOut struct {
-	Sizes    [3]int64  ` + "`json:\"sizes\"`" + `
+	Sizes    []int64  ` + "`json:\"sizes\"`" + `
 	Sub      *PartOut  ` + "`json:\"sub\"`" + `
 	Children []PartOut ` + "`json:\"children\"`" + `
 }
@@ -155,7 +155,7 @@ func Parent(ctx workflow.Context, input map[string]any) (map[string]any, error) 
 
 	var act ActOut
 	if err := workflow.ExecuteActivity(ctx, nest.Echo, ActIn{Batch: []Packet{
-		{ID: "p1", Parts: map[string]Part{"x": {Sizes: [3]int64{1, 2, 3}, Children: []Part{{Sizes: [3]int64{4, 5, 6}}}}}},
+		{ID: "p1", Parts: map[string]Part{"x": {Sizes: []int64{1, 2, 3}, Children: []Part{{Sizes: []int64{4, 5, 6}}}}}},
 		{ID: "p2"},
 	}}, workflow.ActivityOptions{StartToCloseTimeout: time.Minute}).Get(ctx, &act); err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func Parent(ctx workflow.Context, input map[string]any) (map[string]any, error) 
 		Levels: []Level1{{
 			Name: "l1",
 			ByKey: map[string]Level2{"k": {
-				Grid:  [2]Level3{{Tags: map[string][]string{"t": []string{"x", "y"}}}, {}},
+				Grid:  []Level3{{Tags: map[string][]string{"t": []string{"x", "y"}}}, {}},
 				Items: []Level3{{Tags: map[string][]string{"empty": nil}}},
 			}},
 		}},

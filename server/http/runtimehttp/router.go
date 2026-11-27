@@ -99,17 +99,19 @@ func abortText(c *gin.Context, status int, text string) error {
 	return errSkipResponse
 }
 
-// maxRuntimeRequestBody 限制请求体大小，防止大 body 造成 OOM。
-const maxRuntimeRequestBody = 4 * 1024 * 1024 // 4MB
-
-// onGinBind 由生成的路由包装调用：解码 JSON 请求体，失败时应答 400。
+// onGinBind 由生成的路由包装调用：解码 JSON 请求体，失败时应答 400；请求体超过 protocol.MaxRuntimeRequestBody
+// （防止大 body 造成 OOM）时应答 413，Worker 据此把 Workflow Task 记为 payload_size_limit_exceeded 失败。
 //
 // 用户载荷（start / signal / query / update / schedule 的 input、Activity 的输出与心跳详情、Workflow 命令的
 // 输入输出）里的数字先解码成 json.Number，再归一化成引擎的数值表示：整数是 int64（超过 int64 的是 uint64），
 // 带小数的是 float64。超过 2^53 的整数因此原样保留。
 func onGinBind(c *gin.Context, val any, _ string) bool {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRuntimeRequestBody)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, protocol.MaxRuntimeRequestBody)
 	if err := jsonvalue.Decode(c.Request.Body, val); err != nil {
+		if maxBytes := (*http.MaxBytesError)(nil); errors.As(err, &maxBytes) {
+			http.Error(c.Writer, fmt.Sprintf("request body exceeds %d bytes", protocol.MaxRuntimeRequestBody), http.StatusRequestEntityTooLarge)
+			return false
+		}
 		http.Error(c.Writer, fmt.Sprintf("decode request: %v", err), http.StatusBadRequest)
 		return false
 	}
@@ -147,14 +149,20 @@ func onGinResponse[T any](c *gin.Context, data T, err error) {
 }
 
 // writeRuntimeError 写出失败应答。4xx 与 504 的响应体是错误文本；服务端故障（5xx）只返回固定文本，
-// 真实错误记入日志。请求方已经断开时不写应答。
+// 真实错误记入日志。
+//
+// context.Canceled 一律应答 503 与 Retry-After：引擎只在提交之前响应取消（等 keyed lock、读 Run），提交之后的
+// 动作不随请求取消，所以这个错误表示请求没有生效。请求方已经断开时这次写入无害。
 func writeRuntimeError(c *gin.Context, err error) {
-	if errors.Is(err, context.Canceled) && c.Request.Context().Err() != nil {
-		return
-	}
 	logger := c.MustGet(loggerKey).(*slog.Logger)
 	transientValue, _ := c.Get(transientKey)
 	transient, _ := transientValue.(func(error) bool)
+	if errors.Is(err, context.Canceled) {
+		logger.Info("runtime http request cancelled before taking effect", "method", c.Request.Method, "path", c.Request.URL.Path, "err", err)
+		c.Header("Retry-After", retryAfterSeconds)
+		http.Error(c.Writer, "request cancelled before taking effect; retry", http.StatusServiceUnavailable)
+		return
+	}
 	switch code := runtimeErrorStatus(c.Request.URL.Path, err, transient); code {
 	case http.StatusServiceUnavailable:
 		logger.Warn("runtime http request failed: dependency temporarily unavailable", "method", c.Request.Method, "path", c.Request.URL.Path, "err", err)
@@ -175,14 +183,15 @@ func writeRuntimeError(c *gin.Context, err error) {
 const retryAfterSeconds = "1"
 
 // runtimeErrorStatus 是错误到 HTTP 状态码的唯一映射：
-// 目标不存在为 404，与已有记录或并发写入冲突为 409，请求本身的问题为 400，等待超时为 504；
+// 目标不存在为 404，与已有记录或并发写入冲突为 409，请求本身的问题为 400，等待超时为 504，Server 没有余量处理
+// （protocol.ErrResourceExhausted）为 503；
 // 数据库或任务队列暂时不可用（transient 命中、gRPC Unavailable）在幂等端点上为 503，在重发会再执行一次的端点
 // （runtimeapi.IsIdempotent 为 false）上为 502：这类失败不说明请求有没有部分生效，503 会让客户端重发；
 // 其余错误属于服务端故障，为 500。transient 可为 nil。
 func runtimeErrorStatus(path string, err error, transient func(error) bool) int {
 	switch {
 	case isAny(err, execution.ErrRunNotFound, execution.ErrNoCurrentRun, batch.ErrNotFound,
-		definition.ErrWorkflowConfigNotFound, schedule.ErrNotFound):
+		definition.ErrWorkflowConfigNotFound, schedule.ErrNotFound, protocol.ErrActivityWorkerVersionNotRegistered):
 		return http.StatusNotFound
 	case isAny(err, execution.ErrCurrentRunConflict, execution.ErrRunAlreadyExists, schedule.ErrAlreadyExists, schedule.ErrConcurrentUpdate,
 		schedule.ErrOverlapSkipped, batch.ErrAlreadyExists, batch.ErrConcurrentUpdate,
@@ -193,6 +202,9 @@ func runtimeErrorStatus(path string, err error, transient func(error) bool) int 
 		return http.StatusBadRequest
 	case errors.Is(err, context.DeadlineExceeded):
 		return http.StatusGatewayTimeout
+	case errors.Is(err, protocol.ErrResourceExhausted):
+		// 请求没有生效，任何端点上都可以重发。
+		return http.StatusServiceUnavailable
 	case (transient != nil && transient(err)) || grpcUnavailable(err):
 		if runtimeapi.IsIdempotent(path) {
 			return http.StatusServiceUnavailable
@@ -232,18 +244,22 @@ func runtimePollContext(parent context.Context, timeoutMillis int64) (context.Co
 	return context.WithTimeout(parent, time.Duration(timeoutMillis)*time.Millisecond)
 }
 
-// runtimePollError 落实长轮询的 wire 语义：服务端超时应答 204 且无 body，
+// runtimePollError 落实长轮询的 wire 语义：服务端超时与停机（Server.StopLongPolls）应答 204 且无 body，
 // 客户端已取消时不写应答，其余错误交给统一映射。
 func runtimePollError(c *gin.Context, err error) error {
-	requestCtx := c.Request.Context()
-	if errors.Is(err, protocol.ErrTaskPollTimeout) || (errors.Is(err, context.DeadlineExceeded) && requestCtx.Err() == nil) {
+	if errors.Is(err, protocol.ErrTaskPollTimeout) || longPollEnded(c, err) {
 		c.Status(http.StatusNoContent)
 		return errSkipResponse
 	}
-	if errors.Is(err, context.Canceled) && requestCtx.Err() != nil {
+	if errors.Is(err, context.Canceled) && c.Request.Context().Err() != nil {
 		return errSkipResponse
 	}
 	return err
+}
+
+// longPollEnded 报告长轮询因服务端的期限或停机结束，而请求方仍在等待。
+func longPollEnded(c *gin.Context, err error) bool {
+	return c.Request.Context().Err() == nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled))
 }
 
 // signRuntimeTaskLease 把绑定队列租约的 task token 写入租约的任务。
@@ -268,6 +284,8 @@ func verifyRuntimeTaskLease(codec *dispatch.TaskTokenCodec, lease protocol.TaskL
 	if task.Type != expectedType {
 		return protocol.TaskLease{}, protocol.InvalidRequestf("task token type %s is invalid for %s lease", task.Type, expectedType)
 	}
+	// 任务只取 token 签名的字段；Worker 交回的载荷（Input、心跳详情、TraceContext）不被采用，队列按租约
+	// token 重投自己保存的任务。
 	task.TaskToken = token
 	lease.Task = task
 	return lease, nil

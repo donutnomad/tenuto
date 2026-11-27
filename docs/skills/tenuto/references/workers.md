@@ -109,7 +109,9 @@ func run(ctx context.Context, url, namespace string) error {
 4. 到期后取消仍在运行的任务的 `ctx` 并等它们返回。因停止而结束的 Activity（宽限期内返回 `activity.ErrWorkerStopping`，或 `ctx` 被取消后返回）不上报失败，Worker 调 `POST /runtime/activity/release` 交还 Attempt，Server 以同一序号立即重新派发、不消耗重试次数；未完成的 Workflow Task 不上报，由 Server 的 Workflow Task 超时重新调度。
 5. 向 Server 注销本 Worker 的 Activity 路由（这个 build 立刻退出选路；尽力而为，上限 3 秒），关闭 Execution Cache。
 
-`Stop` 可重复、并发调用，都在停止完成后返回；没有在途任务时立即返回；忽略 `ctx` 的 Activity 会让它一直等。部署平台在 `SIGTERM` 后留出大于 `GracefulStopTimeout` 的终止宽限期。进程崩溃时路由靠心跳 TTL 到期，已开始的 Attempt 靠 StartToClose 或 Heartbeat 超时重试。
+`Stop` 可重复、并发调用，都在停止完成后返回；没有在途任务时立即返回；忽略 `ctx` 的 Activity 会让它一直等。部署平台在 `SIGTERM` 后留出大于 `GracefulStopTimeout` 的终止宽限期。进程崩溃时路由靠心跳 TTL 到期，已开始的 Attempt 靠 StartToClose 或 Heartbeat 超时重试。到期的登记保留：指定 Target Worker 的 Run 仍按它最后登记的队列排队，受 `ScheduleToStartTimeout` 约束。Server 的全量补偿删除到期超过一天、且没有 Running Run 指定的登记；仍在运行的 Worker 的登记被删除后，下一次心跳得到 404，Worker 立即重新登记（退避重试）。
+
+Server 以不可重试的 4xx（400、404、409、413、422）拒绝时 Worker 不立即退回投递：`begin` 按连续拒绝次数退避（1s 起翻倍，最长 1 分钟）后退回；Activity 结果被拒绝时改报不可重试的 `ActivityResultRejected` 失败；Workflow Task 提交被 413 拒绝（或提交前算出命令合计超过 3.5 MiB）时改报 `payload_size_limit_exceeded` 失败，其他上报被拒绝时投递留到队列可见性超时，已开始的 Workflow Task 由 Server 超时重新调度。程序要求的能力超出 Worker 声明时 Workflow Task 照常立即退回。`begin` 应答丢失后的重发带同一个 `request_id`，Server 返回原来的开始结果。
 
 定义经 Worker 所用 Client 的连接登记到它的 Namespace。
 
@@ -134,7 +136,7 @@ WORKFLOW_BACKEND=memory WORKFLOW_HTTP_ADDR=127.0.0.1:7400 go run ./server/cmd/te
 
 - Runtime HTTP 缺省 `:7400`，Console 缺省 `7401`；仓库里 `make dev` 启动完整的本地环境。
 - 健康检查：`GET /health/live`、`GET /health/ready`。
-- 持久化后端只有 MySQL（`WORKFLOW_BACKEND=mysql-taskq`）。Server 启动时不建表也不改表：首次部署与每次升级都先执行 `tenuto-server migrate`（或 `make migrate`），它只读 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN`（两者的 `parseTime=true`、`loc=UTC`、`interpolateParams=true` 由 Server 设置，字符集用 `utf8mb4`），在 Workflow 库执行 Tenuto 的迁移、在 TaskQ 库执行 TaskQ 的迁移，记录写在 `tenuto_schema_migrations`。迁移只向前、幂等，多个进程同时执行时由 MySQL `GET_LOCK` 依次进行；某条语句失败时报出迁移名与语句序号，排除原因后重新执行从该语句继续。
+- 持久化后端只有 MySQL（`WORKFLOW_BACKEND=mysql-taskq`）。Server 启动时不建表也不改表：首次部署与每次升级都先执行 `tenuto-server migrate`（或 `make migrate`），它只读 `WORKFLOW_DB_DSN` 与 `TASKQ_DB_DSN`（两者的 `parseTime=true`、`loc=UTC`、`interpolateParams=true`、`clientFoundRows=false` 由 Server 设置，字符集用 `utf8mb4`），在 Workflow 库执行 Tenuto 的迁移、在 TaskQ 库执行 TaskQ 的迁移，记录写在 `tenuto_schema_migrations`。迁移只向前、幂等，多个进程同时执行时由 MySQL `GET_LOCK` 依次进行；某条语句失败时报出迁移名与语句序号，排除原因后重新执行从该语句继续。
 - Server 启动时检查 schema 版本：库落后（无迁移记录、有未执行或中途失败的迁移）或已执行迁移的 checksum 不一致时启动失败并提示运行 `tenuto-server migrate`；库比二进制新时记警告 `database schema is newer than this binary` 并启动（迁移保持上一个版本可用，滚动升级与回滚期间旧副本可以重启）。
 - 改表（贡献者）：在 `server/infra/sql/migrations/` 新增下一个编号的迁移文件，同步更新 `schema.sql`、PO 与 `MysqlCreateTable()`，在 `server/infra/sql/migrate_test.go` 的 `appliedChecksums` 登记新迁移的 checksum。已发布的迁移不再修改。守卫：`schema_guard_test.go`、`migrate_test.go`，MySQL 上的 `TestTenutoMigrationsBuildSchemaSQL`（迁移与 `schema.sql` 的 `SHOW CREATE TABLE` 逐表相同）与 `TestTaskQMigrationsBuildTaskQSchemaSQL`。
 - 持久化后端的完整配置项见站点文档 `docs/deploy/server.md`、`docs/reference/configuration.md`。

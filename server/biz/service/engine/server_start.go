@@ -74,7 +74,7 @@ func (s *Server) commitStart(ctx context.Context, plan *startPlan, with func(tx 
 	ctx, span := s.telemetry.start(ctx, "StartWorkflow", workflowSpanAttributes(run.Namespace, run.WorkflowID, run.ID, run.WorkflowType)...)
 	defer func() { tenutotel.FinishSpan(span, err) }()
 	// CreateRun + Append 同事务原子提交（崩溃在两步之间不再产生"有 run 无 started 事件"的不一致）。
-	if err := s.telemetry.runInTx(ctx, "create_started_run", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "create_started_run", func(tx execution.ExecutionTx) error {
 		if err := execution.CommitStartedRun(tx, run, plan.expectedCurrent, plan.treeID, plan.branchID, plan.started); err != nil {
 			return err
 		}
@@ -155,7 +155,6 @@ func (s *Server) startWorkflow(ctx context.Context, req startRequest) (*executio
 }
 
 // runStartedByRequest 在 requestID 非空、且 workflowID 的 current Run 属于它启动的 Run 链时返回这个 Run；否则返回 nil。
-// 只读 current Run 的第一个事件（WorkflowStarted）：失败重试与 continue-as-new 派生的 Run 继承链首的 RequestID。
 func (s *Server) runStartedByRequest(namespace, workflowID, requestID string) (*execution.Run, error) {
 	if requestID == "" {
 		return nil, nil
@@ -167,14 +166,71 @@ func (s *Server) runStartedByRequest(namespace, workflowID, requestID string) (*
 	if err != nil {
 		return nil, err
 	}
-	events, err := s.mgr.GetEventsRange(currentID, 0, 1)
-	if err != nil {
+	if started, err := s.startedByRequest(currentID, requestID); err != nil || !started {
 		return nil, err
 	}
-	if len(events) == 0 || events[0].WorkflowStarted == nil || events[0].WorkflowStarted.RequestID != requestID {
-		return nil, nil
-	}
 	return s.mgr.Get(currentID)
+}
+
+// startedByRequest 报告 Run 的 WorkflowStarted 记录的 RequestID 是 requestID。只读第一个事件：失败重试与
+// continue-as-new 派生的 Run 继承链首的 RequestID。
+func (s *Server) startedByRequest(runID, requestID string) (bool, error) {
+	events, err := s.mgr.GetEventsRange(runID, 0, 1)
+	if err != nil {
+		return false, err
+	}
+	return len(events) > 0 && events[0].WorkflowStarted != nil && events[0].WorkflowStarted.RequestID == requestID, nil
+}
+
+// signalWithStartByRequest 找出 requestID 已经生效的 SignalWithStart，返回记下这条 Signal 的 Run 与事件 ID；
+// 没有时 runID 为空。与 Temporal 的 dedupSignalWithStartRequest 对齐：
+//   - workflowID 的 current Run（运行中或已结束）记过这个 requestID 的 Signal；
+//   - current Run 的链由这个 requestID 启动（continue-as-new 与失败重试的后续代继承 WorkflowStarted.RequestID），
+//     Signal 记在链首的 Run 上。
+func (s *Server) signalWithStartByRequest(namespace, workflowID, requestID string) (runID string, eventID int64, err error) {
+	if requestID == "" {
+		return "", 0, nil
+	}
+	currentID, err := s.mgr.GetCurrentRunID(namespace, workflowID)
+	if errors.Is(err, execution.ErrNoCurrentRun) {
+		return "", 0, nil
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	current, err := s.mgr.Get(currentID)
+	if err != nil {
+		return "", 0, err
+	}
+	if eventID, found, err := s.signalEventByRequest(current, requestID); err != nil || found {
+		return current.ID, eventID, err
+	}
+	if current.FirstRunID == "" || current.FirstRunID == current.ID {
+		return "", 0, nil
+	}
+	if started, err := s.startedByRequest(current.ID, requestID); err != nil || !started {
+		return "", 0, err
+	}
+	first, err := s.mgr.Get(current.FirstRunID)
+	if err != nil {
+		return "", 0, err
+	}
+	if eventID, found, err := s.signalEventByRequest(first, requestID); err != nil || found {
+		return first.ID, eventID, err
+	}
+	return "", 0, nil
+}
+
+// signalEventByRequest 返回 Run 上 RequestID 为 requestID 的 WorkflowSignaled 事件 ID。
+func (s *Server) signalEventByRequest(run *execution.Run, requestID string) (int64, bool, error) {
+	_, branchID, err := runBranchInfoFromRun(run)
+	if err != nil {
+		return 0, false, err
+	}
+	signaled := history.NewWorkflowSignaledEvent("", nil)
+	signaled.WorkflowSignaled.RequestID = requestID
+	key, _ := history.DedupeKey(signaled)
+	return s.mgr.GetEventIDByDedupeKey(run.ID, branchID, key)
 }
 
 // StartWorkflowVersion 按指定配置版本启动 Run 并返回它；workflowID 为空时服务端生成。
@@ -196,6 +252,16 @@ func (s *Server) StartWorkflowForCron(ctx context.Context, namespace, workflowTy
 		initiator: execution.InitiatorEnums.Cron, requestID: workflowID, searchAttributes: searchAttributes,
 	})
 	if err != nil {
+		return "", err
+	}
+	return run.ID, nil
+}
+
+// CronRunStarted 返回 workflowID 的 current Run 由 StartWorkflowForCron(workflowID) 启动时的 Run ID（requestID 即
+// workflowID），没有时返回空串。
+func (s *Server) CronRunStarted(namespace, workflowID string) (string, error) {
+	run, err := s.runStartedByRequest(protocol.NormalizeNamespace(namespace), workflowID, workflowID)
+	if err != nil || run == nil {
 		return "", err
 	}
 	return run.ID, nil
@@ -231,6 +297,9 @@ func (s *Server) startWorkflowVersion(ctx context.Context, configRef definition.
 }
 
 func (s *Server) newWorkflowVersionRun(workflowID string, configRef definition.WorkflowConfigRef, input map[string]any, initiator string) (*execution.Run, error) {
+	if err := protocol.CheckPayloadSize("workflow input", input, s.payloadSizeLimit); err != nil {
+		return nil, protocol.InvalidRequestf("%w", err)
+	}
 	return execution.NewWorkflowVersionRun(execution.WorkflowStartOptions{
 		Namespace: configRef.Namespace, WorkflowID: workflowID,
 		WorkflowType: configRef.WorkflowType, ProgramVersion: configRef.Version,

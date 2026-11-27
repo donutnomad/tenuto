@@ -12,15 +12,15 @@ import (
 func TestCheckHistoryBudget_ExactBoundaries(t *testing.T) {
 	// Edge Case: 普通事件可用区间扣除 close reserve，服务端 close 可消费完整 hard budget。
 	limits := history.HistoryLimits{WarningEvents: 5, WarningBytes: 50, HardEvents: 10, HardBytes: 100, ReservedCloseEvents: 2, ReservedCloseBytes: 20}
-	if err := history.CheckHistoryBudget(history.HistoryMetrics{EventCount: 4, SizeBytes: 40}, []int64{10}, limits, false); err != nil {
+	if err := history.CheckHistoryBudget("run-1", history.HistoryMetrics{EventCount: 4, SizeBytes: 40}, []int64{10}, limits, false); err != nil {
 		t.Fatal(err)
 	}
-	err := history.CheckHistoryBudget(history.HistoryMetrics{EventCount: 8, SizeBytes: 80}, []int64{1}, limits, false)
+	err := history.CheckHistoryBudget("run-1", history.HistoryMetrics{EventCount: 8, SizeBytes: 80}, []int64{1}, limits, false)
 	var exceeded *history.HistoryLimitExceededError
-	if !errors.As(err, &exceeded) || exceeded.Metric != history.ContinueAsNewReasonHistoryEventCount {
+	if !errors.As(err, &exceeded) || exceeded.Metric != history.ContinueAsNewReasonHistoryEventCount || exceeded.RunID != "run-1" {
 		t.Fatalf("expected event limit error, got %v", err)
 	}
-	if err := history.CheckHistoryBudget(history.HistoryMetrics{EventCount: 8, SizeBytes: 80}, []int64{20, 0}, limits, true); err != nil {
+	if err := history.CheckHistoryBudget("run-1", history.HistoryMetrics{EventCount: 8, SizeBytes: 80}, []int64{20, 0}, limits, true); err != nil {
 		t.Fatalf("server close should consume reserve: %v", err)
 	}
 }

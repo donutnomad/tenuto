@@ -16,6 +16,8 @@ import (
 const (
 	// DefaultOverdueTimerGrace 是到期扫描接管定时器前的等待时长，让持有内存定时器的存活副本优先触发。
 	DefaultOverdueTimerGrace = 30 * time.Second
+	// DefaultReconcileLookahead 是默认周期补偿间隔下的 lookahead（见 Reconciler.Lookahead）。
+	DefaultReconcileLookahead = 2 * DefaultReconcileInterval
 	// runScanPageSize 是全量扫描 Running Run 时每页的 Run 数（见 forEachRunningRunPage）。
 	runScanPageSize = 200
 )
@@ -66,18 +68,20 @@ func (s *Server) FireOverdueTimers(ctx context.Context, grace time.Duration) (Ov
 // 至少被一轮挂上，下线副本持有的定时器仍按原截止时间触发。
 //
 // 没有到期索引的崩溃窗口（子 Run 补建、终态写回、父关闭策略、子 Run 取消请求补发）不在这里处理，
-// 由低频的全量补偿 DispatchPendingTasks 兜底。
+// 由低频的全量补偿 DispatchPendingTasks 兜底。Run 截止时间、timer 与 Activity 超时在进入 lookahead 时由这里挂到
+// 本进程，启动恢复不挂更晚到期的定时器。
 func (s *Server) Reconcile(ctx context.Context, grace, lookahead time.Duration) (dispatch.WorkflowDispatchResult, OverdueTimerResult, error) {
 	var dispatched dispatch.WorkflowDispatchResult
 	var overdue OverdueTimerResult
-	runIDs, err := s.mgr.ListRecoveryRunIDs(s.clock.Now().Add(lookahead))
+	horizon := s.clock.Now().Add(lookahead)
+	runIDs, err := s.mgr.ListRecoveryRunIDs(horizon)
 	errs := []error{err}
 	for _, runID := range runIDs {
 		if err := ctx.Err(); err != nil {
 			errs = append(errs, err)
 			break
 		}
-		result, err := s.reconcileRun(ctx, runID, false)
+		result, err := s.reconcileRun(ctx, runID, false, horizon)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("reconcile run %s: %w", runID, err))
 		}
@@ -202,17 +206,10 @@ func (s *Server) redeliverUnclaimedTask(ctx context.Context, task protocol.Task,
 // fireOverdueWorkflowTask 重调度退避已到期的失败 WFT。这类 Run 没有 open WFT，DispatchPendingTasks
 // 不会补投，延迟 timer 丢失时由这里接管。是否 blocked、失败时间与退避档位都读 execution state。
 func (s *Server) fireOverdueWorkflowTask(ctx context.Context, runID string, state *execution.WorkflowExecutionState, cutoff time.Time, result *OverdueTimerResult) error {
-	if !state.Blocked.Blocked {
-		return nil
-	}
-	var failedAt time.Time
-	if state.WorkflowTask.LastFailedAt != nil {
-		failedAt = *state.WorkflowTask.LastFailedAt
-	}
-	if !failedAt.Add(state.WorkflowTaskFailureBackoff(s.wftBackoffBase, s.wftBackoffCap)).Before(cutoff) {
+	if retryAt, blocked := state.BlockedRetryAt(s.wftBackoffBase, s.wftBackoffCap); !blocked || !retryAt.Before(cutoff) {
 		return nil
 	}
 	result.WorkflowTasks++
 	ctx = s.telemetry.extract(context.WithoutCancel(ctx), state.WorkflowTask.LastFailureTraceContext)
-	return s.scheduleWorkflowTaskIfRunning(ctx, runID)
+	return s.resumeWorkflowTask(ctx, runID)
 }

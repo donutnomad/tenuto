@@ -53,7 +53,8 @@ func (s *Server) propagateChildWorkflowClose(ctx context.Context, childRunID, pa
 	}
 	now := s.clock.Now()
 	propagated := false
-	if txErr := s.telemetry.runInTx(ctx, "propagate_child_close", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "propagate_child_close", func(tx execution.ExecutionTx) error {
+		propagated = false // 死锁重放时上一次尝试的结果作废。
 		child, err := tx.GetRunForUpdate(childRunID)
 		if err != nil || child.ParentScheduledEventID == 0 {
 			return err
@@ -70,7 +71,7 @@ func (s *Server) propagateChildWorkflowClose(ctx context.Context, childRunID, pa
 		return nil // 已终态，无新进展
 	}
 	postCommitCtx := context.WithoutCancel(ctx)
-	return s.scheduleWorkflowTaskIfRunning(postCommitCtx, parentRunID)
+	return s.scheduleWorkflowTask(postCommitCtx, parentRunID)
 }
 
 // enforceParentClosePolicy 对已关闭的父 Run 仍在运行的子 Workflow 执行各自的父关闭策略。子关联读持久化的
@@ -175,12 +176,24 @@ func (s *Server) recoverParentClosePolicy(ctx context.Context, run *execution.Ru
 	if err != nil || !found {
 		return false, err
 	}
-	if !parent.IsTerminal() {
-		state, err := s.mgr.GetWorkflowExecutionState(run.ID)
-		if err != nil || !execution.ChildCancelPending(link, state) {
+	var state *execution.WorkflowExecutionState
+	if !parent.IsTerminal() && link.CancelRequested {
+		if state, err = s.mgr.GetWorkflowExecutionState(run.ID); err != nil {
 			return false, err
 		}
+	}
+	return s.recoverParentLink(ctx, run, state, parent, link)
+}
+
+// recoverParentLink 按父 Run 的 execution state 与子关联补做子 Run run 的父侧处理，state 是 run 自己的 execution state
+// （父 Run 仍在运行且 link.CancelRequested 时才用到）。逐个恢复与全量补偿的批量读取共用它。
+func (s *Server) recoverParentLink(ctx context.Context, run *execution.Run, state, parent *execution.WorkflowExecutionState,
+	link *execution.ChildWorkflowState) (terminated bool, err error) {
+	if parent.IsTerminal() {
+		return s.applyParentClosePolicy(ctx, parent, link, refOf(run))
+	}
+	if execution.ChildCancelPending(link, state) {
 		return false, s.cancelRun(run.ID, ChildCancelReason)
 	}
-	return s.applyParentClosePolicy(ctx, parent, link, refOf(run))
+	return false, nil
 }

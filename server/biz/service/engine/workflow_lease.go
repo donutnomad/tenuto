@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
@@ -12,6 +13,9 @@ import (
 // fn 只描述意图，由骨架在事务外、锁内统一执行——保持 fn 体纯业务。
 type LeaseAction struct {
 	ScheduleWFT bool // 需要调度一次 WorkflowTask（仅当 run 仍 Running）
+	// AfterSignal 表示这次调度由 Signal 触发：重试 Run 仍在首个 Workflow Task 的退避期内时不调度，
+	// 见 scheduleWorkflowTaskAfterSignal。
+	AfterSignal bool
 }
 
 // resolveRun 加载请求寻址的 Run，规则见 execution.ResolveRun。它在事务之外读取，只供读路径使用；写路径经
@@ -63,6 +67,14 @@ func (s *Server) lockRunWorkflow(ctx context.Context, runID string) (runRef, fun
 	return ref, release, nil
 }
 
+// maxCurrentRunLeaseAttempts 是按 Workflow ID 寻址的写请求在 current Run 换掉之后重新解析的总次数上限
+// （对标 Temporal consistency_checker 的 getCurrentWorkflowLease）。
+const maxCurrentRunLeaseAttempts = 3
+
+// errLeasedCurrentRunClosed 表示按 Workflow ID 解析出的 Run 在事务内读到时已经结束：另一个副本在解析之后提交了
+// continue-as-new、失败重试或 reset。事务回滚，调用方在事务外重新解析 current。
+var errLeasedCurrentRunClosed = errors.New("leased current run is closed")
+
 // withWorkflowLease 是写操作的统一骨架（对标 Temporal GetAndUpdateWorkflowWithNew）。
 //
 // 流程：拿 per-(namespace, workflowID) 锁 → 锁内解析 current（runID=="" 时，防解析后漂移）→ 在 RunInTx 内用
@@ -76,6 +88,10 @@ func (s *Server) lockRunWorkflow(ctx context.Context, runID string) (runRef, fun
 // Run 按 resolveRun 的规则寻址：不属于请求 namespace（或给出的 workflowID）的 Run 与不存在一样。调用方给出
 // runID 时，锁 key 取这个 Run 自己的 (namespace, workflowID)：只带 runID 的请求与同一 Workflow 的其它写操作
 // 因此争同一把锁。
+//
+// keyed lock 只在本进程内互斥。没给 runID 时，事务内读到的 Run 已经结束，说明另一个副本在解析之后关闭了它：
+// 在事务外重新解析 current，换成另一个 Run 时重试整个 lease（最多 maxCurrentRunLeaseAttempts 次）；current 没变
+// 时 fn 照常处理这个已结束的 Run。
 func (s *Server) withWorkflowLease(ctx context.Context, namespace, workflowID, runID string,
 	fn func(tx execution.ExecutionTx, run *execution.Run) (LeaseAction, error)) error {
 	if runID != "" {
@@ -98,20 +114,43 @@ func (s *Server) withWorkflowLease(ctx context.Context, namespace, workflowID, r
 	}
 
 	var act LeaseAction
-	if txErr := s.telemetry.runInTx(ctx, "workflow_lease", s.mgr, func(tx execution.ExecutionTx) error {
-		run, e := tx.GetRunForUpdate(ref.ID)
+	for attempt := 1; ; attempt++ {
+		checkCurrent := runID == "" && attempt <= maxCurrentRunLeaseAttempts
+		txErr := s.runInTx(ctx, "workflow_lease", func(tx execution.ExecutionTx) error {
+			act = LeaseAction{} // 死锁重放与换 current 重试时上一次尝试的结果作废。
+			run, e := tx.GetRunForUpdate(ref.ID)
+			if e != nil {
+				return e
+			}
+			if checkCurrent && history.IsTerminalStatus(run.Status) {
+				return errLeasedCurrentRunClosed
+			}
+			act, e = fn(tx, run)
+			return e
+		})
+		if !errors.Is(txErr, errLeasedCurrentRunClosed) {
+			if txErr != nil {
+				return txErr
+			}
+			break
+		}
+		current, e := s.resolveRunRef(namespace, workflowID, "")
 		if e != nil {
 			return e
 		}
-		act, e = fn(tx, run)
-		return e
-	}); txErr != nil {
-		return txErr
+		if current.ID == ref.ID {
+			// current 没变：按现状处理这个已结束的 Run。
+			attempt = maxCurrentRunLeaseAttempts
+		}
+		ref = current
 	}
 
 	if act.ScheduleWFT { // 锁内、事务外调度
 		postCommitCtx := context.WithoutCancel(ctx)
-		return s.scheduleWorkflowTaskIfRunning(postCommitCtx, ref.ID)
+		if act.AfterSignal {
+			return s.scheduleWorkflowTaskAfterSignal(postCommitCtx, ref.ID)
+		}
+		return s.scheduleWorkflowTask(postCommitCtx, ref.ID)
 	}
 	return nil
 }
@@ -136,6 +175,26 @@ func (s *Server) ensureStartedThenAcceptUpdate(
 	}
 	defer release()
 
+	for attempt := 1; ; attempt++ {
+		runID, err = s.startOrAcceptUpdate(ctx, namespace, workflowType, workflowID, startInput, updateName, updateID, args,
+			existing, hasExisting, result, attempt < maxCurrentRunLeaseAttempts)
+		if !errors.Is(err, errLeasedCurrentRunClosed) {
+			return runID, err
+		}
+	}
+}
+
+// startOrAcceptUpdate 是 ensureStartedThenAcceptUpdate 的一次尝试。checkCurrent 时复用的 Run 在事务内已经结束
+// （另一个副本在解析之后关闭了它）返回 errLeasedCurrentRunClosed，调用方重新解析 current。
+func (s *Server) startOrAcceptUpdate(
+	ctx context.Context, namespace, workflowType, workflowID string,
+	startInput map[string]any,
+	updateName, updateID string,
+	args protocol.Payloads,
+	existing history.WorkflowUpdateRecord, hasExisting bool,
+	result *protocol.WorkflowUpdateResult,
+	checkCurrent bool,
+) (string, error) {
 	plan, currentID, err := s.planStart(namespace, workflowType, workflowID, startInput, execution.InitiatorEnums.Workflow)
 	if err != nil {
 		return "", err
@@ -156,10 +215,17 @@ func (s *Server) ensureStartedThenAcceptUpdate(
 	}
 
 	var scheduled bool
-	if txErr := s.telemetry.runInTx(ctx, "workflow_lease", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "workflow_lease", func(tx execution.ExecutionTx) error {
+		scheduled = false // 死锁重放时上一次尝试的结果作废。
 		current, e := tx.GetRunForUpdate(currentID)
 		if e != nil {
 			return e
+		}
+		if e := execution.RequireCurrentRunOf(current, namespace, workflowID); e != nil {
+			return e
+		}
+		if checkCurrent && history.IsTerminalStatus(current.Status) {
+			return errLeasedCurrentRunClosed
 		}
 		if e := requireWorkflowType(current, workflowType); e != nil {
 			return e
@@ -179,7 +245,7 @@ func (s *Server) ensureStartedThenAcceptUpdate(
 		return "", txErr
 	}
 	if scheduled {
-		if e := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), currentID); e != nil {
+		if e := s.scheduleWorkflowTask(context.WithoutCancel(ctx), currentID); e != nil {
 			return "", e
 		}
 	}
@@ -187,10 +253,13 @@ func (s *Server) ensureStartedThenAcceptUpdate(
 }
 
 // ensureStartedThenSignal 是 SignalWithStart 的原子内核。在 per-(namespace, workflowID) keyed lock 内：
-//   - 该 Workflow ID 没有进行中的 Run → 新 Run、current CAS、WorkflowStarted 与 WorkflowSignaled 写入同一个事务；
-//   - 已有进行中的 Run → 复用它，只写 WorkflowSignaled。
+//   - requestID 已经生效（见 signalWithStartByRequest）→ 返回第一次的 Run 与 Signal 事件 ID，不启动、不再记 Signal；
+//   - 该 Workflow ID 没有进行中的 Run → 新 Run、current CAS、WorkflowStarted（记下 requestID）与 WorkflowSignaled
+//     写入同一个事务；
+//   - 已有进行中的 Run → 复用它，只写 WorkflowSignaled，并调度 Workflow Task（重试 Run 的退避期内也立即调度）。
 //
-// requestID 非空时是 Signal 的幂等键（见 execution.RecordSignal）；为空时调用方重试会多记一条 WorkflowSignaled。
+// requestID 非空时是启动与 Signal 的幂等键（Signal 一侧见 execution.RecordSignal）；为空时调用方重试会多记一条
+// WorkflowSignaled，Run 已结束时还会启动新 Run。
 func (s *Server) ensureStartedThenSignal(
 	ctx context.Context, namespace, workflowType, workflowID string,
 	startInput map[string]any,
@@ -202,11 +271,31 @@ func (s *Server) ensureStartedThenSignal(
 	}
 	defer release()
 
+	if runID, eventID, err := s.signalWithStartByRequest(namespace, workflowID, requestID); err != nil || runID != "" {
+		return runID, eventID, err
+	}
+	for attempt := 1; ; attempt++ {
+		runID, eventID, err = s.startOrSignal(ctx, namespace, workflowType, workflowID, startInput, signalName, requestID, signalInput,
+			attempt < maxCurrentRunLeaseAttempts)
+		if !errors.Is(err, errLeasedCurrentRunClosed) {
+			return runID, eventID, err
+		}
+	}
+}
+
+// startOrSignal 是 ensureStartedThenSignal 的一次尝试，checkCurrent 的含义同 startOrAcceptUpdate。
+func (s *Server) startOrSignal(
+	ctx context.Context, namespace, workflowType, workflowID string,
+	startInput map[string]any,
+	signalName, requestID string, signalInput map[string]any,
+	checkCurrent bool,
+) (runID string, eventID int64, err error) {
 	plan, currentID, err := s.planStart(namespace, workflowType, workflowID, startInput, execution.InitiatorEnums.Workflow)
 	if err != nil {
 		return "", 0, err
 	}
 	if plan != nil {
+		plan.started.WorkflowStarted.RequestID = requestID
 		if err := s.commitStart(ctx, plan, func(tx execution.ExecutionTx) error {
 			id, e := execution.RecordSignal(tx, plan.run, plan.treeID, plan.branchID, signalName, requestID, signalInput)
 			eventID = id
@@ -217,10 +306,17 @@ func (s *Server) ensureStartedThenSignal(
 		return plan.run.ID, eventID, nil
 	}
 
-	if txErr := s.telemetry.runInTx(ctx, "signal_with_start", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "signal_with_start", func(tx execution.ExecutionTx) error {
+		eventID = 0 // 死锁重放时上一次尝试的结果作废。
 		current, e := tx.GetRunForUpdate(currentID)
 		if e != nil {
 			return e
+		}
+		if e := execution.RequireCurrentRunOf(current, namespace, workflowID); e != nil {
+			return e
+		}
+		if checkCurrent && history.IsTerminalStatus(current.Status) {
+			return errLeasedCurrentRunClosed
 		}
 		if e := requireWorkflowType(current, workflowType); e != nil {
 			return e
@@ -235,8 +331,9 @@ func (s *Server) ensureStartedThenSignal(
 	}); txErr != nil {
 		return "", 0, txErr
 	}
-	// 锁内、事务外调度（幂等：已有 open WFT 则 no-op）。
-	if e := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), currentID); e != nil {
+	// 锁内、事务外调度（幂等：已有 open WFT 则 no-op）。重试 Run 的退避期内也立即调度：同 Temporal
+	// signalwithstartworkflow 在 EnableSignalWithStartWorkflowTaskBackoff 默认关闭时的行为，与普通 Signal 不同。
+	if e := s.scheduleWorkflowTask(context.WithoutCancel(ctx), currentID); e != nil {
 		return "", 0, e
 	}
 	return currentID, eventID, nil

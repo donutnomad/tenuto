@@ -25,6 +25,7 @@ type ActivityStateSchemaType struct {
 	CancelRequested          gsql.IntField      // bool
 	WorkerIdentity           gsql.StringField   // string
 	WorkerBuildID            gsql.StringField   // string
+	StartRequestID           gsql.StringField   // string
 	LastHeartbeatJSON        gsql.StringField   // []byte
 	LastHeartbeatAt          gsql.DateTimeField // *time.Time
 	RetryLastFailure         gsql.StringField   // string
@@ -70,6 +71,7 @@ func (t *ActivityStateSchemaType) WithTable(tableName string) {
 	t.CancelRequested = t.CancelRequested.WithTable(&tn)
 	t.WorkerIdentity = t.WorkerIdentity.WithTable(&tn)
 	t.WorkerBuildID = t.WorkerBuildID.WithTable(&tn)
+	t.StartRequestID = t.StartRequestID.WithTable(&tn)
 	t.LastHeartbeatJSON = t.LastHeartbeatJSON.WithTable(&tn)
 	t.LastHeartbeatAt = t.LastHeartbeatAt.WithTable(&tn)
 	t.RetryLastFailure = t.RetryLastFailure.WithTable(&tn)
@@ -119,6 +121,7 @@ func (t ActivityStateSchemaType) AllFields() field.BaseFields {
 		t.CancelRequested,
 		t.WorkerIdentity,
 		t.WorkerBuildID,
+		t.StartRequestID,
 		t.LastHeartbeatJSON,
 		t.LastHeartbeatAt,
 		t.RetryLastFailure,
@@ -161,6 +164,7 @@ var ActivityStateSchema = ActivityStateSchemaType{
 	CancelRequested:          gsql.IntFieldOf[bool]("tenuto_activity_states", "cancel_requested"),
 	WorkerIdentity:           gsql.StringFieldOf[string]("tenuto_activity_states", "worker_identity"),
 	WorkerBuildID:            gsql.StringFieldOf[string]("tenuto_activity_states", "worker_build_id"),
+	StartRequestID:           gsql.StringFieldOf[string]("tenuto_activity_states", "start_request_id"),
 	LastHeartbeatJSON:        gsql.StringFieldOf[[]byte]("tenuto_activity_states", "last_heartbeat_json"),
 	LastHeartbeatAt:          gsql.DateTimeFieldOf[*time.Time]("tenuto_activity_states", "last_heartbeat_at"),
 	RetryLastFailure:         gsql.StringFieldOf[string]("tenuto_activity_states", "retry_last_failure"),
@@ -695,6 +699,72 @@ var RunSchema = RunSchemaType{
 	fieldType:              RunPO{},
 }
 
+type RunSearchAttributeSchemaType struct {
+	RunID     gsql.StringField   // string
+	AttrHash  gsql.StringField   // []byte
+	Namespace gsql.StringField   // string
+	CreatedAt gsql.DateTimeField // time.Time
+	fieldType RunSearchAttributePO
+	alias     string
+	tableName string
+}
+
+func (t RunSearchAttributeSchemaType) TableName() string {
+	return t.tableName
+}
+
+func (t RunSearchAttributeSchemaType) Alias() string {
+	return t.alias
+}
+
+func (t *RunSearchAttributeSchemaType) WithTable(tableName string) {
+	tn := gsql.TN(tableName)
+	t.RunID = t.RunID.WithTable(&tn)
+	t.AttrHash = t.AttrHash.WithTable(&tn)
+	t.Namespace = t.Namespace.WithTable(&tn)
+	t.CreatedAt = t.CreatedAt.WithTable(&tn)
+}
+
+func (t RunSearchAttributeSchemaType) As(alias string) RunSearchAttributeSchemaType {
+	var ret = t
+	ret.alias = alias
+	ret.WithTable(alias)
+	return ret
+}
+
+func (t RunSearchAttributeSchemaType) ModelType() *RunSearchAttributePO {
+	return &t.fieldType
+}
+
+func (t RunSearchAttributeSchemaType) ModelTypeAny() any {
+	return &t.fieldType
+}
+
+func (t RunSearchAttributeSchemaType) AllFields() field.BaseFields {
+	return field.BaseFields{
+		t.RunID,
+		t.AttrHash,
+		t.Namespace,
+		t.CreatedAt,
+	}
+}
+
+func (t RunSearchAttributeSchemaType) Star() field.IField {
+	if t.alias != "" {
+		return gsql.StarWith(t.alias)
+	}
+	return gsql.StarWith(t.tableName)
+}
+
+var RunSearchAttributeSchema = RunSearchAttributeSchemaType{
+	tableName: "tenuto_run_search_attributes",
+	RunID:     gsql.StringFieldOf[string]("tenuto_run_search_attributes", "run_id"),
+	AttrHash:  gsql.StringFieldOf[[]byte]("tenuto_run_search_attributes", "attr_hash"),
+	Namespace: gsql.StringFieldOf[string]("tenuto_run_search_attributes", "namespace"),
+	CreatedAt: gsql.DateTimeFieldOf[time.Time]("tenuto_run_search_attributes", "created_at"),
+	fieldType: RunSearchAttributePO{},
+}
+
 type TimerStateSchemaType struct {
 	RunID            gsql.StringField   // string
 	ScheduledEventID gsql.IntField      // int64
@@ -937,7 +1007,7 @@ var WorkflowExecutionStateSchema = WorkflowExecutionStateSchemaType{
 func (a *ActivityStatePO) ToPatch(input *execution.ActivityState) map[string]any {
 	b := a.ToPO(input)
 	fields := input.ExportPatch()
-	values := make(map[string]any, 25)
+	values := make(map[string]any, 26)
 	if fields.TargetWorkerIdentity.IsPresent() {
 		values["target_worker_identity"] = b.TargetWorkerIdentity
 	}
@@ -976,6 +1046,9 @@ func (a *ActivityStatePO) ToPatch(input *execution.ActivityState) map[string]any
 	}
 	if fields.WorkerBuildID.IsPresent() {
 		values["worker_build_id"] = b.WorkerBuildID
+	}
+	if fields.StartRequestID.IsPresent() {
+		values["start_request_id"] = b.StartRequestID
 	}
 	if fields.LastHeartbeatAt.IsPresent() {
 		values["last_heartbeat_at"] = b.LastHeartbeatAt

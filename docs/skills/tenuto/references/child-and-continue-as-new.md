@@ -116,7 +116,7 @@ func Processor(ctx workflow.Context, state LoopState) error {
 - `workflowType` 是下一代 Run 使用的 Workflow Type，通常与当前 Workflow 相同。
 - `input` 成为下一代 Run 的输入。
 - 调用后当前协程立即结束，后面的语句不再执行。当前 Run 状态变为 `continued_as_new`，新 Run 从 `WorkflowStarted` 开始，有新的 Run ID 与独立的 History；Workflow ID 不变。
-- 按 Workflow ID 发送的 Signal、Query、Update 解析到 current Run，即最新一段。上一段的终态事件、关闭状态与下一段 Run 同事务提交，按 Workflow ID 的请求不会落到已关闭的上一段；发给已结束 Run 的 Signal、Update、取消返回 `ErrInvalidArgument`。
+- 按 Workflow ID 发送的 Signal、Query、Update 解析到 current Run，即最新一段。上一段的终态事件、关闭状态与下一段 Run 同事务提交，按 Workflow ID 的请求不会落到已关闭的上一段（另一个副本正在提交 Continue-As-New 时，Server 读到上一段已关闭后重新解析 current Run 并重试，最多 3 次）；发给已结束 Run 的 Signal、Update、取消返回 `ErrInvalidArgument`。
 
 ### 按 History 建议切换
 
@@ -148,7 +148,7 @@ History 缺省限制：
 ### 切换前的收尾
 
 - 先等待本 Run 启动的协程、Activity 与子 Workflow 完成（`wg.Wait`、`Get`），把需要延续的结果写进下一代输入。仍在运行的子 Workflow 在切换时按父关闭策略处理（默认终止）。
-- 已接受、Handler 尚未完成的 Update 在切换时以 `AcceptedUpdateCompletedWorkflow` 失败结束。
+- 已接受、Handler 尚未完成的 Update 在切换时以 `AcceptedUpdateCompletedWorkflow` 失败结束。切换前用 `workflow.Await` 等 Handler 全部结束（Handler 里计数，见 `messaging.md` 的 Handler 调度）：同一批到达的 Update 先于主流程计入。
 - 持续接收 Signal 的 Workflow 在切换点前处理完已到达的消息，把去重所需的状态放进输入。
 - Update Handler 与 Query Handler 在新 Run 的函数开头重新注册（同一个函数，自然满足）。
 - 下一代输入只带继续执行所需的紧凑状态（cursor、聚合值、待处理标识）；明细放在业务数据库，由 Activity 按需读取。

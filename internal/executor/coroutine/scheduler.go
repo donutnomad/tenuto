@@ -37,6 +37,8 @@ type Scheduler struct {
 	// newEagerCoroutines 暂存迭代中新起的 eager 协程。
 	// RunBatch 迭代体末尾用 slices.Insert 把它们插到当前协程之后，使其当轮就被后续 i++ 遍历到。
 	newEagerCoroutines []*Coroutine
+	// newPriorityCoroutines 暂存批间新起的高优先级协程。下一次 RunBatch 开始时按产生顺序插到协程表最前。
+	newPriorityCoroutines []*Coroutine
 	// current 是 RunBatch 当前正在 resume 的协程。协作式单线程下 resume 与 <-yieldCh 之间只有它在跑，
 	// 故它就是「当前执行线」的协程——挂起原语（executor 侧 Get/Wait 命中）经 Unblocked() 定位到它清 keptBlocked。
 	// 仅 RunBatch 写，Unblocked() 读。
@@ -79,18 +81,24 @@ func NewScheduler() *Scheduler {
 
 // Spawn 注册一个协程函数入普通 coroutines 队列，启动 goroutine 但立刻挂起等待调度。
 func (s *Scheduler) Spawn(name string, fn func(yield func())) {
-	s.newState(name, fn, false)
+	s.coroutines = append(s.coroutines, s.newState(name, fn))
 }
 
 // SpawnEager 注册一个 eager 协程入 newEagerCoroutines 暂存区。
 // 迭代中新起的 eager 协程会被 RunBatch 的 slices.Insert 插到当前协程之后，当轮即被调度。
 func (s *Scheduler) SpawnEager(name string, fn func(yield func())) {
-	s.newState(name, fn, true)
+	s.newEagerCoroutines = append(s.newEagerCoroutines, s.newState(name, fn))
 }
 
-// newState 建 Coroutine、sequence 自增，按 eager 入 newEagerCoroutines 或 coroutines，
-// 启动 goroutine 但立刻挂起等待调度。
-func (s *Scheduler) newState(name string, fn func(yield func()), eager bool) {
+// SpawnPriority 在批间注册一个高优先级协程：下一次 RunBatch 开始时插到协程表最前，先于 main 与已有协程运行；
+// 同一批里多个高优先级协程按注册顺序运行。对标 Temporal Go SDK 以 highPriority 起 update handler 协程
+// （SDKPriorityUpdateHandling）。
+func (s *Scheduler) SpawnPriority(name string, fn func(yield func())) {
+	s.newPriorityCoroutines = append(s.newPriorityCoroutines, s.newState(name, fn))
+}
+
+// newState 建 Coroutine、sequence 自增，启动 goroutine 但立刻挂起等待调度；调用方把它放进对应队列。
+func (s *Scheduler) newState(name string, fn func(yield func())) *Coroutine {
 	c := &Coroutine{
 		id:       uint64(s.sequence),
 		name:     name,
@@ -117,11 +125,6 @@ func (s *Scheduler) newState(name string, fn func(yield func()), eager bool) {
 		}
 	}
 	s.sequence++
-	if eager {
-		s.newEagerCoroutines = append(s.newEagerCoroutines, c)
-	} else {
-		s.coroutines = append(s.coroutines, c)
-	}
 
 	go func() {
 		// done-defer 必须在任何挂起点（含初始点）之前注册：初始点的 runtime.Goexit() 若在 defer
@@ -147,11 +150,16 @@ func (s *Scheduler) newState(name string, fn func(yield func()), eager bool) {
 		}
 		fn(c.yield)
 	}()
+	return c
 }
 
 // RunBatch 轮转推进所有协程，直到全部稳定 blocked（allBlocked 收敛）。收敛后不回收：协程栈跨批存活，
 // 每批 History 事件应用完后再调一次 RunBatch 唤醒推进。
 func (s *Scheduler) RunBatch() {
+	if len(s.newPriorityCoroutines) > 0 {
+		s.coroutines = append(s.newPriorityCoroutines, s.coroutines...)
+		s.newPriorityCoroutines = nil
+	}
 	for {
 		// 假设全部 block，任一协程本轮取得进展（done 或 keptBlocked=false）则拉低。
 		allBlocked := true
@@ -208,7 +216,7 @@ func (s *Scheduler) RunBatch() {
 // 触碰共享的 WLang Executor 内部状态（InvokeClosure 非并发安全）→ data race。串行回收使每条 lane 的展开
 // 跑完再唤醒下一条，维持「一次只一条协程动 wlExec」的协作式单线程不变式（与调度器轮转期一致）。
 func (s *Scheduler) Reclaim() {
-	for _, c := range s.coroutines {
+	for _, c := range slices.Concat(s.coroutines, s.newEagerCoroutines, s.newPriorityCoroutines) {
 		close(c.cancelCh)
 		<-c.doneCh
 	}
@@ -216,5 +224,5 @@ func (s *Scheduler) Reclaim() {
 
 // RoutineCount returns the number of scheduler-owned coroutine stacks.
 func (s *Scheduler) RoutineCount() int {
-	return len(s.coroutines) + len(s.newEagerCoroutines)
+	return len(s.coroutines) + len(s.newEagerCoroutines) + len(s.newPriorityCoroutines)
 }

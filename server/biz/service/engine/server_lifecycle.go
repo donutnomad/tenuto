@@ -20,7 +20,7 @@ func (s *Server) cancelRun(runID, reason string) error {
 	if already {
 		return nil
 	}
-	if err := s.telemetry.runInTx(context.Background(), "request_cancellation", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(context.Background(), "request_cancellation", func(tx execution.ExecutionTx) error {
 		run, err := tx.GetRunForUpdate(runID)
 		if err != nil {
 			return err
@@ -98,6 +98,8 @@ func (s *Server) terminateRun(ctx context.Context, namespace, workflowID, runID,
 		runToClose *execution.Run
 	)
 	err := s.withWorkflowLease(ctx, namespace, workflowID, runID, func(tx execution.ExecutionTx, run *execution.Run) (LeaseAction, error) {
+		// fn 可能被重放（死锁、换 current 重试）：上一次尝试的结果作废，Run 已结束的分支不残留 inserted。
+		inserted, runToClose = false, nil
 		if err := execution.EnsureTerminable(run); err != nil {
 			if strict {
 				return LeaseAction{}, err
@@ -165,7 +167,7 @@ func (s *Server) failWorkflow(runID string, failure protocol.Failure, timeoutTyp
 	}
 	if retryRunID == "" {
 		inserted := false
-		if err := s.telemetry.runInTx(ctx, "fail_workflow", s.mgr, func(tx execution.ExecutionTx) error {
+		if err := s.runInTx(ctx, "fail_workflow", func(tx execution.ExecutionTx) error {
 			var err error
 			inserted, err = appendFailed(tx)
 			return err
@@ -180,7 +182,7 @@ func (s *Server) failWorkflow(runID string, failure protocol.Failure, timeoutTyp
 	}
 	// 并发幂等：WorkflowFailed 终态事件先到先得，只有插入成功的一方建重试 run。
 	inserted := false
-	if err := s.telemetry.runInTx(ctx, "start_retry_run", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "start_retry_run", func(tx execution.ExecutionTx) error {
 		var err error
 		if inserted, err = appendFailed(tx); err != nil || !inserted {
 			return err

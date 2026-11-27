@@ -42,7 +42,7 @@ ScheduleTimer Command
   → Workflow 从 Sleep 后继续
 ```
 
-Timer ID 由协程路径和该协程内的 Timer 序号生成，例如主协程的第一个 Timer 是 `#t1`。Server 启动恢复时读取 open Timer 状态，已到期的 Timer 立即补写 `TimerFired`。
+Timer ID 由协程路径和该协程内的 Timer 序号生成，例如主协程的第一个 Timer 是 `#t1`。Server 启动恢复时读取近期到期（两个补偿周期内）的 open Timer 状态，已到期的 Timer 立即补写 `TimerFired`；更晚到期的 Timer 由周期补偿在到期前挂上，按原截止时间触发。
 
 ## 并发中的 Timer
 
@@ -75,7 +75,7 @@ Workflow 中的当前时间使用 `workflow.Now(ctx)`：
 now := workflow.Now(ctx)
 ```
 
-`Now` 返回最近一条已应用 Event 的时间戳，同一份 History 的每次重放得到相同的值。返回的 `time.Time` 可以调用 `Add`、`Sub`、`Before`、`After`、`Equal`、`Unix`、`UnixMilli`、`Format`、`String`，其他方法生成期报错。`time.Now()`、`time.Since`、`time.Sleep` 在 Workflow 里生成期报错。`time.Now()` 读取 Worker 的系统时钟，属于 Activity 的职责。Activity 内部可以使用标准时间 API，结果通过 Activity 输出进入 History。
+`Now` 返回本次 Workflow Task 的 `WorkflowTaskStarted` 事件时间戳，live 执行、sticky 增量与冷重放读到同一个值。返回的 `time.Time` 可以调用 `Add`、`Sub`、`Before`、`After`、`Equal`、`Unix`、`UnixMilli`、`Format`、`String`，其他方法生成期报错。`time.Now()`、`time.Since`、`time.Sleep` 在 Workflow 里生成期报错。`time.Now()` 读取 Worker 的系统时钟，属于 Activity 的职责。Activity 内部可以使用标准时间 API，结果通过 Activity 输出进入 History。
 
 基于 `workflow.Now` 的加减、比较和格式化直接写在 Workflow 里：
 

@@ -117,7 +117,7 @@ func testRestartDoesNotDuplicateQueuedTasks(t *testing.T) {
 	// 重启时 Workflow Task 仍在队列里。
 	second := newLeaseTestServer(t, h, store)
 	registerActivityRoutes(t, second, "capture")
-	if err := second.RecoverRunningWorkflows(ctx); err != nil {
+	if err := second.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	if rows := persistedTaskQRows(t, h, "workflow-tasks"); len(rows) != 1 {
@@ -134,7 +134,7 @@ func testRestartDoesNotDuplicateQueuedTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	wftID := openWorkflowTaskID(t, second, runID)
-	if err := second.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, second, runID, wftID), runID, wftID, []historypkg.Command{{
+	if err := second.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, second, store.Executions, runID, wftID), runID, wftID, []historypkg.Command{{
 		Type: historypkg.CmdScheduleActivity, ActivityID: "#a1", ActivityType: "capture", StartToCloseTimeout: 30 * time.Second,
 	}}, ""); err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func testRestartDoesNotDuplicateQueuedTasks(t *testing.T) {
 
 	third := newLeaseTestServer(t, h, store)
 	defer third.Stop()
-	if err := third.RecoverRunningWorkflows(ctx); err != nil {
+	if err := third.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	if count := activityRowCount(t, h); count != 1 {
@@ -207,7 +207,7 @@ func testVanishedWorkerAttemptRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	wftID := openWorkflowTaskID(t, server, runID)
-	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, wftID), runID, wftID, []historypkg.Command{{
+	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, store.Executions, runID, wftID), runID, wftID, []historypkg.Command{{
 		Type: historypkg.CmdScheduleActivity, ActivityID: "#a1", ActivityType: "charge",
 		StartToCloseTimeout: time.Second,
 		RetryPolicy:         &protocol.ParsedRetryPolicy{MaxAttempts: 2, InitialInterval: 10 * time.Millisecond, BackoffCoefficient: 1},

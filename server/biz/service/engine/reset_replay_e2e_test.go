@@ -3,7 +3,6 @@ package engine_test
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -137,7 +136,9 @@ func TestResetReplaysSelectedTaskPreservingPriorActivity(t *testing.T) {
 	}
 }
 
-func TestResetPendingWorkPreservesCurrentRun(t *testing.T) {
+// Happy Path: 分叉点上未结束的 Activity / Timer 不阻止 reset：已关闭的 Activity 不带入新 Run，
+// 未开始的 Activity 与未触发的 Timer 以新 Run 的 state 行保留，原 Run 被终止。
+func TestResetCarriesPendingWorkIntoNewRun(t *testing.T) {
 	for _, kind := range []string{"activity", "timer"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
@@ -159,26 +160,42 @@ func TestResetPendingWorkPreservesCurrentRun(t *testing.T) {
 				}
 				return id
 			}
+			now := time.Now()
+			var pendingID int64
 			if kind == "activity" {
 				a := appendEvent(historypkg.NewActivityScheduledEvent(historypkg.ActivityScheduledEvent{ActivityID: "A", ActivityType: "probe"}))
-				appendEvent(historypkg.NewActivityScheduledEvent(historypkg.ActivityScheduledEvent{ActivityID: "B", ActivityType: "probe"}))
+				pendingID = appendEvent(historypkg.NewActivityScheduledEvent(historypkg.ActivityScheduledEvent{ActivityID: "B", ActivityType: "probe"}))
 				appendEvent(historypkg.Event{ActivityCompleted: &historypkg.ActivityCompletedEvent{ScheduledEventID: a}})
+				for id, activityID := range map[int64]string{a: "A", pendingID: "B"} {
+					if err := mgr.UpsertActivityState(&execution.ActivityState{RunID: base, ScheduledEventID: id, ActivityID: activityID, ActivityType: "probe",
+						Attempt: 1, Stamp: 1, Status: execution.ActivityStatusEnums.Scheduled, ScheduledTime: now, CreatedAt: now, UpdatedAt: now}); err != nil {
+						t.Fatal(err)
+					}
+				}
 			} else {
-				appendEvent(historypkg.Event{TimerScheduled: &historypkg.TimerScheduledEvent{TimerID: "waiting"}})
+				timer := historypkg.NewTimerScheduledEvent("waiting", nil, int64(time.Hour/time.Millisecond))
+				timer.Timestamp = now
+				pendingID = appendEvent(timer)
 			}
 			scheduled := appendEvent(historypkg.NewWorkflowTaskScheduledEvent(0))
 			boundary := appendEvent(historypkg.NewWorkflowTaskStartedEvent(scheduled, "workflow", "", 0))
-			_, err = server.ResetWorkflow(ctx, execution.ResetWorkflowRequest{RunID: base, ResetEventID: boundary})
-			if err == nil || !strings.Contains(err.Error(), "pending "+kind) {
+			newRunID, err := server.ResetWorkflow(ctx, execution.ResetWorkflowRequest{RunID: base, ResetEventID: boundary})
+			if err != nil {
 				t.Fatalf("reset error=%v", err)
 			}
-			status, err := server.GetRunStatus(base)
-			if err != nil || status != historypkg.StatusRunning {
-				t.Fatalf("status=%v err=%v", status, err)
+			if status, err := server.GetRunStatus(base); err != nil || status != historypkg.StatusTerminated {
+				t.Fatalf("base status=%v err=%v, want terminated", status, err)
 			}
-			original, err := mgr.Get(base)
-			if err != nil || original.ResetRunID != "" {
-				t.Fatalf("reset link=%+v err=%v", original, err)
+			if kind == "activity" {
+				states, err := mgr.ListActivityStates(newRunID)
+				if err != nil || len(states) != 1 || states[0].ScheduledEventID != pendingID || states[0].ActivityID != "B" || !states[0].IsScheduled() {
+					t.Fatalf("new run activity states=%+v err=%v, want only B scheduled", states, err)
+				}
+				return
+			}
+			timer, found, err := mgr.GetTimerState(newRunID, pendingID)
+			if err != nil || !found || !timer.IsScheduled() || !timer.Deadline.Equal(now.Add(time.Hour)) {
+				t.Fatalf("new run timer=%+v found=%v err=%v, want the original deadline", timer, found, err)
 			}
 		})
 	}

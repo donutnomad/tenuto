@@ -46,7 +46,7 @@ func TestActivityRuntimeHTTPPreservesUint64Output(t *testing.T) {
 	}
 	task.TaskToken = token
 	if err := wirePost(context.Background(), server.URL, runtimeapi.ActivityRuntimeCompletePath, runtimeapi.ActivityRuntimeCompleteRequest{
-		TaskToken: task.TaskToken, Task: task, Output: map[string]any{"maximum": ^uint64(0)},
+		ActivityRuntimeTaskRequest: runtimeapi.ActivityRuntimeTaskRequest{TaskToken: task.TaskToken}, Output: map[string]any{"maximum": ^uint64(0)},
 	}, nil); err != nil {
 		t.Fatal(err)
 	}

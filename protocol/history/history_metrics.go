@@ -110,6 +110,8 @@ func PopulateWorkflowTaskStartedHistoryInfo(event *Event, nextEventID int64, cur
 }
 
 type HistoryLimitExceededError struct {
+	// RunID 是 History 超限的 Run。
+	RunID     string
 	Metric    ContinueAsNewReason
 	Projected int64
 	Limit     int64
@@ -133,9 +135,9 @@ func CanonicalEventSize(event Event) (int64, error) {
 	return int64(len(data)), err
 }
 
-// CheckHistoryBudget 报告在 current 之上追加 eventSizes 这些事件是否超过硬上限：普通事件不能用掉为关闭事件预留的余量，
-// serverClose 为 true 的关闭事件可以用到完整的硬上限。
-func CheckHistoryBudget(current HistoryMetrics, eventSizes []int64, limits HistoryLimits, serverClose bool) error {
+// CheckHistoryBudget 报告在 runID 的 current 之上追加 eventSizes 这些事件是否超过硬上限：普通事件不能用掉为关闭事件
+// 预留的余量，serverClose 为 true 的关闭事件可以用到完整的硬上限。
+func CheckHistoryBudget(runID string, current HistoryMetrics, eventSizes []int64, limits HistoryLimits, serverClose bool) error {
 	if err := limits.Validate(); err != nil {
 		return err
 	}
@@ -152,10 +154,10 @@ func CheckHistoryBudget(current HistoryMetrics, eventSizes []int64, limits Histo
 		eventLimit, byteLimit = limits.HardEvents, limits.HardBytes
 	}
 	if projected.EventCount > eventLimit {
-		return &HistoryLimitExceededError{Metric: ContinueAsNewReasonHistoryEventCount, Projected: projected.EventCount, Limit: eventLimit}
+		return &HistoryLimitExceededError{RunID: runID, Metric: ContinueAsNewReasonHistoryEventCount, Projected: projected.EventCount, Limit: eventLimit}
 	}
 	if projected.SizeBytes > byteLimit {
-		return &HistoryLimitExceededError{Metric: ContinueAsNewReasonHistorySizeBytes, Projected: projected.SizeBytes, Limit: byteLimit}
+		return &HistoryLimitExceededError{RunID: runID, Metric: ContinueAsNewReasonHistorySizeBytes, Projected: projected.SizeBytes, Limit: byteLimit}
 	}
 	return nil
 }

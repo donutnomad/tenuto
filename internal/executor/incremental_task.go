@@ -120,10 +120,10 @@ func RunIncrementalTask(ctx, runtimeCtx context.Context, task protocol.Task, opt
 		if readErr != nil {
 			return IncrementalTaskResult{Failure: IncrementalTaskReadFailure, Err: readErr}
 		}
-		restoreEvents, activationEvents := SplitColdRestoreHistory(events)
+		restoreEvents, activationEvents, live := SplitColdRestoreHistory(events)
 		// 归批规则以 SplitBatches 为准。命令事件与它的 WorkflowTaskCompleted 之间隔着外部事件时，
 		// 连续切分得到的 activation 比最后一批多出这些命令事件；这种 history 交给 full-history 路径。
-		if batches := SplitBatches(events); len(batches[len(batches)-1]) != len(activationEvents) {
+		if batches := SplitBatches(events); len(batches[len(batches)-1]) != len(live) {
 			return IncrementalTaskResult{Failure: IncrementalTaskNotSelected, Err: ErrIncrementalNotSelected}
 		}
 		session = opts.NewSession(context.Background(), workflow, generation)
@@ -156,7 +156,11 @@ func RunIncrementalTask(ctx, runtimeCtx context.Context, task protocol.Task, opt
 		}
 		return IncrementalTaskResult{Failure: sessionFailureKind(err), Err: err}
 	}
-	ack, err := opts.Complete(runtimeCtx, task, result)
+	err = protocol.CheckWorkflowTaskCommandsSize(result.Commands)
+	var ack history.WorkflowTaskCompletionAck
+	if err == nil {
+		ack, err = opts.Complete(runtimeCtx, task, result)
+	}
 	if err != nil {
 		_ = session.Close()
 		evict(protocol.ExecutionCacheEvictionInvalid)
@@ -201,11 +205,14 @@ func sessionFailureKind(err error) IncrementalTaskFailure {
 }
 
 // SplitColdRestoreHistory 把完整历史切成 cold restore 的两段输入：最后一个已完成 Workflow Task
-// 及紧随其后的命令事件为止是已提交前缀（交给 Restore），其余是本次 activation。
+// 及紧随其后的命令事件为止是已提交前缀（交给 Restore），activation 是 Restore 之后游标后面的全部事件。
 // 两段各自保持 Event ID 连续，这是 Restore / Activate 的输入要求。
-// 命令事件紧跟各自的 WorkflowTaskCompleted 时，这个切分与 SplitBatches 的最后一批一致；
-// RunIncrementalTask 只在两者一致时使用它。
-func SplitColdRestoreHistory(events []history.Event) (restore []history.Event, activation []history.Event) {
+//
+// 最后一个 Workflow Task 进行期间落库的事实排在它的 WorkflowTaskCompleted 之前、ID 大于 SeenThroughEventID：
+// 它们属于下一批，Restore 的游标停在它们之前，activation 从它们开始，包含 Restore 已灌入的 WorkflowTaskCompleted
+// 与命令事件，session 激活时跳过这一段。live 是去掉这一段之后 session 实际执行的事件；
+// 命令事件紧跟各自的 WorkflowTaskCompleted 时，它与 SplitBatches 的最后一批一致，RunIncrementalTask 只在两者一致时使用这个切分。
+func SplitColdRestoreHistory(events []history.Event) (restore, activation, live []history.Event) {
 	lastCompleted := -1
 	for index, event := range events {
 		if event.WorkflowTaskCompleted != nil {
@@ -213,11 +220,25 @@ func SplitColdRestoreHistory(events []history.Event) (restore []history.Event, a
 		}
 	}
 	if lastCompleted < 0 {
-		return nil, append([]history.Event(nil), events...)
+		all := append([]history.Event(nil), events...)
+		return nil, all, all
 	}
 	boundary := lastCompleted + 1
 	for boundary < len(events) && IsCommandEvent(events[boundary]) {
 		boundary++
 	}
-	return append([]history.Event(nil), events[:boundary]...), append([]history.Event(nil), events[boundary:]...)
+	start := lastCompleted
+	if seen := events[lastCompleted].WorkflowTaskCompleted.SeenThroughEventID; seen > 0 {
+		for start > 0 && events[start-1].ID > seen {
+			start--
+		}
+	}
+	restore = append([]history.Event(nil), events[:boundary]...)
+	if start == lastCompleted {
+		activation = append([]history.Event(nil), events[boundary:]...)
+		return restore, activation, activation
+	}
+	activation = append([]history.Event(nil), events[start:]...)
+	live = append(append([]history.Event(nil), events[start:lastCompleted]...), events[boundary:]...)
+	return restore, activation, live
 }

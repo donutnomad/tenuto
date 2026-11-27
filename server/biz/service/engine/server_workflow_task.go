@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"time"
@@ -45,6 +46,23 @@ type openWorkflowTask struct {
 	branch           runBranch
 	state            *execution.WorkflowExecutionState
 	scheduledEventID int64
+}
+
+// seenThroughEventID 返回 Worker 做这次决策时看到的最后一个事件 ID。增量激活路径由 Worker 报告；
+// 全量路径的 Worker 只执行到本次 WFT 的 WorkflowTaskStarted（executor.RunWorkflowTask），取它的事件 ID。
+// WFT 已关闭（scheduledEventID 为 0）时提交是空操作，返回 0。open 的 WFT 没有 started 记录时无法确定 Worker
+// 看到的边界，返回错误。
+func (o openWorkflowTask) seenThroughEventID(ctx context.Context) (int64, error) {
+	if seen := activatedThroughEventID(ctx); seen > 0 {
+		return seen, nil
+	}
+	if o.scheduledEventID == 0 {
+		return 0, nil
+	}
+	if started := o.state.WorkflowTaskStartedEventID(o.scheduledEventID); started > 0 {
+		return started, nil
+	}
+	return 0, fmt.Errorf("workflow task %d of run %s has no WorkflowTaskStarted; the events its worker saw are unknown", o.scheduledEventID, o.ref.ID)
 }
 
 // programVersion 返回本次 Workflow Task 在 started 时选中的 Program 版本。
@@ -116,14 +134,19 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	runID, workflowTaskScheduledID := open.ref.ID, open.scheduledEventID
 	traceContext := s.telemetry.inject(ctx)
 	programVersion := open.programVersion()
-	prepared, err := execution.PrepareWorkflowTask(runID, commands, traceContext, workflowCommandResolver{server: s, programVersion: programVersion})
+	prepared, err := execution.PrepareWorkflowTask(runID, commands, traceContext, s.payloadSizeLimit, workflowCommandResolver{server: s, programVersion: programVersion})
 	if errors.Is(err, dispatch.ErrActivityRouteUnavailable) {
 		// Activity Worker 尚未上线：关闭本次 WFT 并退避重试，Run 显示为 Blocked。
 		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, WorkflowTaskFailedCauseActivityRouteUnavailable, err.Error())
 	}
-	if errors.Is(err, execution.ErrBadScheduleActivityAttributes) {
+	if cause, ok := execution.BadCommandAttributesCause(err); ok {
 		// Workflow 代码的确定性错误：关闭本次 WFT 并退避重试，Run 显示为 Blocked，修复代码后恢复。
-		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, execution.WorkflowTaskFailedCauseBadScheduleActivityAttributes, err.Error())
+		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, cause, err.Error())
+	}
+	if errors.Is(err, protocol.ErrPayloadTooLarge) {
+		// 与 ErrBadScheduleActivityAttributes 同类：同样的命令重放只会再次超限。关闭本次 WFT 并退避重试，
+		// Run 显示为 Blocked，修复代码后恢复。
+		return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, history.WorkflowTaskFailedCausePayloadSizeLimitExceeded, err.Error())
 	}
 	if err != nil {
 		return err
@@ -136,6 +159,11 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	}
 	treeID, branchID := open.branch.treeID, open.branch.branchID
 	closeEvent := history.NewWorkflowTaskCompletedEvent(workflowTaskScheduledID, workerIdentity)
+	seen, err := open.seenThroughEventID(ctx)
+	if err != nil {
+		return err
+	}
+	closeEvent.WorkflowTaskCompleted.SeenThroughEventID = seen
 
 	// 终态命令派生的接续 Run 在事务外备好，与终态事件、旧 Run 的终态状态、current 切换同事务提交：
 	// History 写下终态之后，同 Workflow ID 的启动、Signal 与 Update 看到的只有接续 Run。
@@ -173,7 +201,10 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 		continuedInserted      bool
 		workflowFailedInserted bool
 	)
+	// 超限走 closeWorkflowForHistoryLimit（保留本次完成事件），不用 s.runInTx 的通用超限关闭。
 	if txErr := s.telemetry.runInTx(ctx, "complete_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+		// 死锁重放时上一次尝试的结果作废。
+		run, promoted, result, continuedInserted, workflowFailedInserted = nil, false, execution.WorkflowTaskCompletionResult{}, false, false
 		// 锁下读取 Run：提交用它把 current 提升到本次采用的 Program 版本，终态命令在它上面关闭 Run。
 		var err error
 		if run, err = tx.GetRunForUpdate(runID); err != nil {
@@ -184,8 +215,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 			Run: run, TreeID: treeID, BranchID: branchID,
 			CloseEvent: closeEvent, CommandEvents: commandEvents, Commands: commands,
 			ChildTargets: prepared.ChildTargets, TraceContext: traceContext,
-			SeenThroughEventID: activatedThroughEventID(ctx),
-			ProgramVersion:     programVersion, Now: now,
+			ProgramVersion: programVersion, Now: now,
 		})
 		if err != nil || !result.ClosedInserted {
 			return err
@@ -211,7 +241,7 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 			return s.closeWorkflowForHistoryLimit(ctx, runID, treeID, branchID, closeEvent, limitErr)
 		}
 		if errors.Is(txErr, execution.ErrScheduleActivityDuplicateID) {
-			// 与 ErrBadScheduleActivityAttributes 同类的确定性错误：关闭本次 WFT 并退避重试，Run 显示为 Blocked。
+			// 与 BadCommandAttributesCause 同类的确定性错误：关闭本次 WFT 并退避重试，Run 显示为 Blocked。
 			return s.recordWorkflowTaskFailure(ctx, runID, workflowTaskScheduledID, execution.WorkflowTaskFailedCauseScheduleActivityDuplicateID, txErr.Error())
 		}
 		return txErr
@@ -219,12 +249,13 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	if result.Superseded {
 		// started 之后有新事实：本次完成没有提交，立即重做。调度失败由 reconcileRun 按 ActivationPending 补上。
 		s.stopWorkflowTaskTimeout(runID, workflowTaskScheduledID)
-		return s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID)
+		return s.scheduleWorkflowTask(context.WithoutCancel(ctx), runID)
 	}
 	if !result.ClosedInserted {
 		return nil
 	}
 	s.stopWorkflowTaskTimeout(runID, workflowTaskScheduledID)
+
 	// current 的提升与 UpgradeError 的清除已随 WFT 完成同事务提交。
 	if promoted {
 		s.logger.Info("workflow content upgraded at workflow task boundary",
@@ -240,7 +271,39 @@ func (s *Server) completeWorkflowTaskWithStore(ctx context.Context, open openWor
 	if err := s.runWorkflowTaskPostCommit(context.WithoutCancel(ctx), run, commands, result, prepared, traceContext, workflowFailedInserted, continued, retry, now); err != nil {
 		return err
 	}
-	return s.captureWorkflowTaskCompletion(ctx, result, closeEvent, commandEvents, commands)
+	if err := s.captureWorkflowTaskCompletion(ctx, result, closeEvent, commandEvents, commands); err != nil {
+		return err
+	}
+	if !completionAssignsSticky(ctx) && !hasTerminalCommand(commands) {
+		s.clearStickyAfterFullCompletion(open)
+	}
+	if result.UnseenFacts {
+		// 进行期间到达的事实没有被这次决策看到，留给下一个 WFT。它在回执分配 sticky 之后调度，仍交给这个 Worker；
+		// 完成已提交，调度失败不能报成完成失败（Worker 会因此逐出 session）：记日志，由 reconcileRun 按
+		// ActivationPending 补上。
+		if err := s.scheduleWorkflowTask(context.WithoutCancel(ctx), runID); err != nil {
+			s.logger.Error("post-commit workflow task schedule for unseen facts failed; reconciler will schedule it",
+				slog.String("run_id", runID),
+				slog.Any("err", err),
+			)
+		}
+	}
+	return nil
+}
+
+// clearStickyAfterFullCompletion 在不分配 sticky 的完成（全量路径）之后清除 sticky 绑定，对标 Temporal 完成请求不带
+// StickyAttributes 时的 ClearStickyTaskQueue：之后的 WFT 走普通队列，不再先投给上一个增量 Worker。代数取自取锁之后
+// 读到的 execution state，期间 sticky 已被改过时不清除。sticky 只是路由优化，清除失败只记日志。终态完成随终态事件清除。
+func (s *Server) clearStickyAfterFullCompletion(open openWorkflowTask) {
+	if open.state.StickyWorkerIdentity == "" {
+		return
+	}
+	if _, _, err := s.mgr.ClearStickyExecution(open.ref.ID, open.state.ExecutionGeneration, open.state.StickyGeneration); err != nil {
+		s.logger.Warn("clear sticky execution after full-history completion failed",
+			slog.String("run_id", open.ref.ID),
+			slog.Any("err", err),
+		)
+	}
 }
 
 // continueAsNewInserted 报告本次提交是否插入了 CmdContinueAsNew 的 WorkflowContinuedAsNew 事件。终态事件先到先得，
@@ -408,7 +471,7 @@ func (s *Server) runWorkflowTaskPostCommit(
 		}
 	}
 	if scheduleNextWorkflowTask {
-		return s.scheduleWorkflowTaskIfRunning(postCommitCtx, runID)
+		return s.scheduleWorkflowTask(postCommitCtx, runID)
 	}
 	return nil
 }
@@ -458,7 +521,7 @@ func (s *Server) recordWorkflowTaskFailure(ctx context.Context, runID string, wo
 	// set-policy/signal 即可继续推进。
 	inserted := false
 	var state *execution.WorkflowExecutionState
-	if err := s.telemetry.runInTx(ctx, "fail_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "fail_workflow_task", func(tx execution.ExecutionTx) error {
 		run, err := tx.GetRunForUpdate(runID)
 		if err != nil {
 			return err
@@ -483,7 +546,7 @@ func (s *Server) recordWorkflowTaskFailure(ctx context.Context, runID string, wo
 // 进程重启丢失的 timer 由 recoverWorkflowActivation 与 FireOverdueTimers 兜底。
 func (s *Server) scheduleWorkflowTaskAfter(ctx context.Context, runID string, delay time.Duration) {
 	if delay <= 0 {
-		if err := s.scheduleWorkflowTaskIfRunning(context.WithoutCancel(ctx), runID); err != nil {
+		if err := s.resumeWorkflowTask(context.WithoutCancel(ctx), runID); err != nil {
 			s.logger.Error("reschedule workflow task after workflow task failure failed", "run_id", runID, "err", err)
 		}
 		return

@@ -43,7 +43,7 @@ func (s *Server) handleWorkflowTaskTimeoutFired(ctx context.Context, runID strin
 	}
 	defer release()
 	if err := s.timeoutWorkflowTask(ctx, runID, scheduledEventID, workflowTaskTimeoutMessage, true); err != nil {
-		s.logger.Error("time out workflow task failed; the overdue scan retries",
+		s.logger.Error("time out workflow task failed; the overdue scan times it out again",
 			slog.String("run_id", runID),
 			slog.Int64("scheduled_event_id", scheduledEventID),
 			slog.Any("err", err),
@@ -53,13 +53,15 @@ func (s *Server) handleWorkflowTaskTimeoutFired(ctx context.Context, runID strin
 
 // timeoutWorkflowTask 记 WorkflowTaskTimedOut 并立即调度下一个 WFT，Worker 上报的超时与 Server 计时到期
 // 共用这一条路径。调用方持有 workflow 的 keyed lock。两条路径对同一个 WFT 只有一方写入关闭事件。
+// WorkflowTaskTimedOut 让 ActivationPending 保持为 true：提交之后调度失败（或进程退出）时只记日志，
+// 由周期补偿与启动恢复按 NeedsWorkflowTask 补上调度，不把已提交的超时报成失败。
 func (s *Server) timeoutWorkflowTask(ctx context.Context, runID string, scheduledEventID int64, message string, serverTimer bool) error {
 	treeID, branchID, err := s.runBranchInfo(runID)
 	if err != nil {
 		return err
 	}
 	var result execution.WorkflowTaskCloseResult
-	if err := s.telemetry.runInTx(ctx, "timeout_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "timeout_workflow_task", func(tx execution.ExecutionTx) error {
 		var err error
 		result, err = execution.TimeoutWorkflowTask(tx, execution.WorkflowTaskTimeout{
 			RunID: runID, TreeID: treeID, BranchID: branchID, ScheduledEventID: scheduledEventID,
@@ -70,5 +72,12 @@ func (s *Server) timeoutWorkflowTask(ctx context.Context, runID string, schedule
 		return err
 	}
 	s.stopWorkflowTaskTimeout(runID, scheduledEventID)
-	return s.scheduleWorkflowTask(context.WithoutCancel(ctx), runID)
+	if err := s.scheduleWorkflowTask(context.WithoutCancel(ctx), runID); err != nil {
+		s.logger.Error("schedule workflow task after timeout failed; reconcile schedules it",
+			slog.String("run_id", runID),
+			slog.Int64("scheduled_event_id", scheduledEventID),
+			slog.Any("err", err),
+		)
+	}
+	return nil
 }

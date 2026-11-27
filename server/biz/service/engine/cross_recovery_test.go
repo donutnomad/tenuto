@@ -95,10 +95,10 @@ func TestCrossRecoveryRebuildsAllStatesFromDB(t *testing.T) {
 	t.Cleanup(srv2.Stop)
 	callsBeforeRecovery := mgr.getEventsCalls.Load()
 
-	if _, err := srv2.recoverActivityRetries(context.Background(), runID, true); err != nil {
+	if _, err := srv2.recoverActivityRetries(context.Background(), runID, true, testRecoveryHorizon); err != nil {
 		t.Fatalf("recoverActivityRetries: %v", err)
 	}
-	if err := srv2.recoverDurableTimers(context.Background(), runID, true); err != nil {
+	if err := srv2.recoverDurableTimers(context.Background(), runID, true, testRecoveryHorizon); err != nil {
 		t.Fatalf("recoverDurableTimers: %v", err)
 	}
 	if err := srv2.recoverChildWorkflows(context.Background(), runID); err != nil {

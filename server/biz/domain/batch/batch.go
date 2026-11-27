@@ -2,6 +2,7 @@
 package batch
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -91,6 +92,12 @@ type Operation struct {
 	patch      OperationPatch
 }
 
+// ResetRequestID 返回这个批量操作 reset runID 时使用的确定性 Reset 幂等键（对标 Temporal batcher 的
+// deterministicRequestID）：重做同一页或两个重叠的驱动处理同一页时，对同一个 Run 的 Reset 只生效一次。
+func (o *Operation) ResetRequestID(runID string) string {
+	return "batch-reset:" + o.ID + ":" + runID
+}
+
 type NewParams struct {
 	Namespace string
 	Type      Type
@@ -99,7 +106,7 @@ type NewParams struct {
 	Reason    string
 }
 
-// New 校验参数并创建 pending 的批量操作。Filter 的 Offset 与 Limit 不参与：批量操作覆盖全部匹配的 Run；
+// New 校验参数并创建 pending 的批量操作。Filter 的 PageToken、Limit 与 OrderDesc 不参与：批量操作覆盖全部匹配的 Run；
 // 显式给出 RunIDs 时已结束的 Run 也在选择之内。
 func New(id string, params NewParams, now time.Time) (*Operation, error) {
 	switch params.Type {
@@ -111,10 +118,16 @@ func New(id string, params NewParams, now time.Time) (*Operation, error) {
 	default:
 		return nil, protocol.InvalidRequestf("unknown batch operation type: %q", params.Type)
 	}
+	if err := errors.Join(
+		protocol.CheckLength("namespace", params.Namespace, protocol.MaxNamespaceLength),
+		protocol.CheckLength("reason", params.Reason, protocol.MaxBatchReasonLength),
+	); err != nil {
+		return nil, err
+	}
 	namespace := protocol.NormalizeNamespace(params.Namespace)
 	filter := params.Filter
 	filter.Namespace = namespace
-	filter.Offset, filter.Limit, filter.OrderDesc = 0, 0, false
+	filter.PageToken, filter.Limit, filter.OrderDesc = "", 0, false
 	if len(filter.RunIDs) > 0 {
 		filter.IncludeTerminal = true
 	}

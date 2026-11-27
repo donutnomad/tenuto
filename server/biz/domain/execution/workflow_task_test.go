@@ -26,6 +26,9 @@ func (t *workflowTaskTestTx) AppendWorkflowTaskClosed(_ string, _, _ string, eve
 func (t *workflowTaskTestTx) AppendIdempotent(string, string, string, history.Event) (int64, bool, error) {
 	return 0, false, nil
 }
+func (t *workflowTaskTestTx) GetEventIDByDedupeKey(string, string, string) (int64, bool, error) {
+	return 0, false, nil
+}
 func (t *workflowTaskTestTx) Append(string, string, string, history.Event) (int64, error) {
 	return 0, nil
 }
@@ -40,6 +43,7 @@ func (t *workflowTaskTestTx) GetActivityStateForUpdate(string, int64) (*Activity
 func (t *workflowTaskTestTx) UpsertTimerState(*TimerState) error { return nil }
 func (t *workflowTaskTestTx) UpdateTimerState(*TimerState) error { return nil }
 func (t *workflowTaskTestTx) CloseScheduledTimers(string) error  { return nil }
+func (t *workflowTaskTestTx) CloseOpenActivities(string) error   { return nil }
 func (t *workflowTaskTestTx) GetTimerStateForUpdate(string, int64) (*TimerState, bool, error) {
 	return nil, false, nil
 }
@@ -234,5 +238,30 @@ func TestCurrentWaitingIsTheLatestOpenWait(t *testing.T) {
 	ApplyEventToExecutionState(state, fired, size)
 	if state.CurrentWaiting.Type != WaitingChildWorkflow || state.CurrentWaiting.ScheduledEventID != 3 {
 		t.Fatalf("current waiting after the timer fired = %+v, want the child started at 3", state.CurrentWaiting)
+	}
+}
+
+// WFT 完成时，Worker 没看到的事实（ID 大于 SeenThroughEventID）仍待处理：Run 需要下一个 WFT。
+func TestWorkflowTaskCompletedKeepsUnseenFactsPending(t *testing.T) {
+	events := []history.Event{
+		{ID: 1, WorkflowStarted: &history.WorkflowStartedEvent{}},
+		{ID: 2, WorkflowTaskScheduled: &history.WorkflowTaskScheduledEvent{}},
+		{ID: 3, WorkflowTaskStarted: &history.WorkflowTaskStartedEvent{ScheduledEventID: 2}},
+		{ID: 4, WorkflowSignaled: &history.WorkflowSignaledEvent{Name: "late"}},
+	}
+	state := projectTestState(t, events...)
+	if got := state.WorkflowTaskStartedEventID(2); got != 3 {
+		t.Fatalf("started event = %d, want 3", got)
+	}
+	if !state.UnseenFacts(3) || state.UnseenFacts(4) {
+		t.Fatal("unseen facts disagree with the signal at event 4")
+	}
+	seenAll := projectTestState(t, append(events, history.Event{ID: 5, WorkflowTaskCompleted: &history.WorkflowTaskCompletedEvent{ScheduledEventID: 2, SeenThroughEventID: 4}})...)
+	if seenAll.NeedsWorkflowTask() {
+		t.Fatal("a completion that saw the signal must not ask for another workflow task")
+	}
+	unseen := projectTestState(t, append(events, history.Event{ID: 5, WorkflowTaskCompleted: &history.WorkflowTaskCompletedEvent{ScheduledEventID: 2, SeenThroughEventID: 3}})...)
+	if !unseen.NeedsWorkflowTask() {
+		t.Fatal("the signal the completion did not see must still need a workflow task")
 	}
 }

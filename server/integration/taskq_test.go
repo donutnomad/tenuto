@@ -419,7 +419,7 @@ func TestTaskQRetryContinuesAfterServerWorkerRestart(t *testing.T) {
 		return m{"ok": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	secondWorker := assembly.NewWorker(secondServer, secondRegistry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -458,7 +458,7 @@ func TestTaskQScheduledActivityKeepsRetryPolicyAfterServerRestart(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := firstServer.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, firstServer, runID, openWorkflowTaskID(t, firstServer, runID)), runID, openWorkflowTaskID(t, firstServer, runID), []historypkg.Command{{
+	if err := firstServer.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, firstServer, workflowStore.Executions, runID, openWorkflowTaskID(t, firstServer, runID)), runID, openWorkflowTaskID(t, firstServer, runID), []historypkg.Command{{
 		StartToCloseTimeout: time.Minute,
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
@@ -486,7 +486,7 @@ func TestTaskQScheduledActivityKeepsRetryPolicyAfterServerRestart(t *testing.T) 
 		return m{"ok": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	worker := assembly.NewWorker(secondServer, registry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -553,7 +553,7 @@ func TestTaskQRecoversOpenWorkflowTaskWhoseDispatchFailed(t *testing.T) {
 		return m{"ok": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	worker := assembly.NewWorker(secondServer, registry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -609,7 +609,7 @@ func TestTaskQRecoversOpenActivityWhoseDispatchFailed(t *testing.T) {
 	if err := workflowQueue.Ack(ctx, initialWorkflowLease); err != nil {
 		t.Fatal(err)
 	}
-	if err := firstServer.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, firstServer, runID, openWorkflowTaskID(t, firstServer, runID)), runID, openWorkflowTaskID(t, firstServer, runID), []historypkg.Command{{
+	if err := firstServer.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, firstServer, workflowStore.Executions, runID, openWorkflowTaskID(t, firstServer, runID)), runID, openWorkflowTaskID(t, firstServer, runID), []historypkg.Command{{
 		StartToCloseTimeout: time.Minute,
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
@@ -640,7 +640,7 @@ func TestTaskQRecoversOpenActivityWhoseDispatchFailed(t *testing.T) {
 		return m{"ok": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	worker := assembly.NewWorker(secondServer, registry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -696,7 +696,7 @@ func TestTaskQCompensationContinuesAfterServerWorkerRestart(t *testing.T) {
 	if err := workflowQueue.Ack(ctx, initialWorkflowLease); err != nil {
 		t.Fatal(err)
 	}
-	if err := firstServer.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, firstServer, runID, openWorkflowTaskID(t, firstServer, runID)), runID, openWorkflowTaskID(t, firstServer, runID), []historypkg.Command{{
+	if err := firstServer.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, firstServer, workflowStore.Executions, runID, openWorkflowTaskID(t, firstServer, runID)), runID, openWorkflowTaskID(t, firstServer, runID), []historypkg.Command{{
 		StartToCloseTimeout: time.Minute,
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
@@ -728,7 +728,7 @@ func TestTaskQCompensationContinuesAfterServerWorkerRestart(t *testing.T) {
 		return m{"refunded": true}, nil
 	})
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	worker := assembly.NewWorker(secondServer, registry, worker.WorkerOptions{WorkflowConcurrency: 1, ActivityConcurrency: 1})
@@ -787,7 +787,7 @@ func TestTaskQSkipsQueuedActivityAfterWorkflowTerminated(t *testing.T) {
 	if err := workflowQueue.Ack(ctx, initialWorkflowLease); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
+	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, workflowStore.Executions, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
 		StartToCloseTimeout: time.Minute,
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
@@ -849,7 +849,7 @@ func TestTaskQSkipsClosedActivityDuplicateByEventHistory(t *testing.T) {
 	if err := workflowQueue.Ack(ctx, initialWorkflowLease); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
+	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, workflowStore.Executions, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
 		StartToCloseTimeout: time.Minute,
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
@@ -925,7 +925,7 @@ func TestTaskQSkipsStartedActivityDuplicate(t *testing.T) {
 	if err := workflowQueue.Ack(ctx, initialWorkflowLease); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
+	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, workflowStore.Executions, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
 		StartToCloseTimeout: time.Minute,
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
@@ -1094,7 +1094,7 @@ func TestTaskQWorkflowTaskTimeoutRequeuesAndCompletesWithNewWorker(t *testing.T)
 	firstServer.Stop()
 
 	secondServer := assembly.NewServer(assembly.Options{Stores: assembly.Persistent(workflowStore), WorkflowQueue: taskq.NewQueue(h.frontend(t, "workflow-tasks")), ActivityRouter: h.activityRouter(t, nil)})
-	if err := secondServer.RecoverRunningWorkflows(ctx); err != nil {
+	if err := secondServer.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	secondWorker := assembly.NewWorker(secondServer, wfsdk.NewRegistry(), worker.WorkerOptions{
@@ -1459,9 +1459,12 @@ func openWorkflowTaskID(t testing.TB, server *engine.Server, runID string) int64
 	return state.CurrentWorkflowTaskScheduledEventID()
 }
 
-// workflowTaskContext 给直接提交 Workflow Task 的用例签发 token，代替 Worker poll 拿到的 token。
-func workflowTaskContext(t testing.TB, ctx context.Context, server *engine.Server, runID string, scheduledEventID int64) context.Context {
+// workflowTaskContext 代替 Worker poll 给直接提交 Workflow Task 的用例准备上下文：像 poll 一样先记下
+// WorkflowTaskStarted（已 started 时跳过），再签发 token。Server 以 Started 为 Worker 看到的边界，没有 Started 的
+// 完成会被拒绝。
+func workflowTaskContext(t testing.TB, ctx context.Context, server *engine.Server, mgr execution.ExecutionManager, runID string, scheduledEventID int64) context.Context {
 	t.Helper()
+	startWorkflowTaskLikePoll(t, mgr, runID, scheduledEventID)
 	state, err := server.GetWorkflowExecutionState(runID)
 	if err != nil {
 		t.Errorf("read execution state of %s: %v", runID, err)
@@ -1476,6 +1479,39 @@ func workflowTaskContext(t testing.TB, ctx context.Context, server *engine.Serve
 		return ctx
 	}
 	return protocol.WithWorkflowTaskToken(ctx, token)
+}
+
+// startWorkflowTaskLikePoll 在 open、尚未 started 的 Workflow Task 上写入 WorkflowTaskStarted，与 poll 领取时相同。
+func startWorkflowTaskLikePoll(t testing.TB, mgr execution.ExecutionManager, runID string, scheduledEventID int64) {
+	t.Helper()
+	state, err := mgr.GetWorkflowExecutionState(runID)
+	if err != nil {
+		t.Errorf("read execution state of %s: %v", runID, err)
+		return
+	}
+	if !state.WorkflowTaskOpen(scheduledEventID) || state.WorkflowTask.StartedScheduledEventID == scheduledEventID {
+		return
+	}
+	run, err := mgr.Get(runID)
+	if err != nil {
+		t.Errorf("read run %s: %v", runID, err)
+		return
+	}
+	branch, err := execution.DeserializeBranchToken(run.BranchToken)
+	if err != nil {
+		t.Errorf("run %s branch: %v", runID, err)
+		return
+	}
+	if err := mgr.RunInTx(func(tx execution.ExecutionTx) error {
+		_, err := execution.StartWorkflowTask(tx, execution.WorkflowTaskStart{
+			RunID: runID, TreeID: branch.TreeID, BranchID: branch.BranchID, ScheduledEventID: scheduledEventID,
+			ExecutionGeneration: state.ExecutionGeneration, StickyGeneration: state.StickyGeneration,
+			ProgramVersion: run.WorkflowConfigVersion, Now: time.Now(),
+		})
+		return err
+	}); err != nil {
+		t.Errorf("start workflow task %d of %s: %v", scheduledEventID, runID, err)
+	}
 }
 
 // firstWorkflowTaskScheduledID 返回 history 里第一个 Workflow Task 的 scheduled 事件 ID。

@@ -39,6 +39,10 @@ func (startFunc) CurrentRunStatus(string) (history.Status, error) {
 	return "", execution.ErrRunNotFound
 }
 
+func (startFunc) CronRunStarted(string, string) (string, error) {
+	return "", nil
+}
+
 func TestScheduleUpdateWithoutChangesIsNoOp(t *testing.T) {
 	// Integration: 没有经领域方法改动的 UpdateSchedule 不写库，也不撤销随后的 CAS 推进。
 	store := newTestStore(t)
@@ -51,7 +55,7 @@ func TestScheduleUpdateWithoutChangesIsNoOp(t *testing.T) {
 
 	advancer, err := store.Schedules.GetSchedule(entity.Namespace, entity.ID)
 	require.NoError(t, err)
-	previous := advancer.AdvanceNextRunAt(advancer.NextRunAt.Add(time.Hour))
+	previous := advancer.AdvanceNextRunAt(advancer.NextRunAt.Add(time.Hour), advancer.NextRunAt.Add(time.Hour))
 	advanced, err := store.Schedules.UpdateScheduleNextRunAtCAS(advancer, previous)
 	require.NoError(t, err)
 	require.True(t, advanced)

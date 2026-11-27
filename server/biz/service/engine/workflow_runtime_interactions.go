@@ -60,6 +60,9 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 	if err := execution.ValidateRequestID(requestID); err != nil {
 		return 0, err
 	}
+	if err := protocol.CheckPayloadSize("signal input", input, s.payloadSizeLimit); err != nil {
+		return 0, protocol.InvalidRequestf("%w", err)
+	}
 	if name == "" {
 		return 0, protocol.InvalidRequestf("workflow interaction name is empty")
 	}
@@ -67,7 +70,7 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 		return 0, protocol.InvalidRequestf("workflow run id is empty")
 	}
 	// 给了 runID 时在 lease 外校验 Run 未结束。只给 workflowID 时 current 在 lease 内解析，终态判定用
-	// run.Status（RunInTx 内不重入 mgr.GetEvents/Update，避免死锁），scheduleWorkflowTaskIfRunning 不为终态 Run 调度。
+	// run.Status（RunInTx 内不重入 mgr.GetEvents/Update，避免死锁），scheduleWorkflowTask 不为终态 Run 调度。
 	if runID != "" {
 		if err := s.validateInteraction(namespace, workflowID, runID, name); err != nil {
 			return 0, err
@@ -75,6 +78,7 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 	}
 	var eventID int64
 	err := s.withWorkflowLease(ctx, namespace, workflowID, runID, func(tx execution.ExecutionTx, current *execution.Run) (LeaseAction, error) {
+		eventID = 0 // fn 可能被重放：上一次尝试的结果作废。
 		// runBranchInfoFromRun 是纯内存版（不走 mgr.Get），避免在 RunInTx 内重入存储导致死锁。
 		tid, bid, err := runBranchInfoFromRun(current)
 		if err != nil {
@@ -85,7 +89,7 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 			return LeaseAction{}, e
 		}
 		eventID = id // 闭包捕获传出（fn 只返回 LeaseAction）
-		return LeaseAction{ScheduleWFT: true}, nil
+		return LeaseAction{ScheduleWFT: true, AfterSignal: true}, nil
 	})
 	if err != nil {
 		return 0, err
@@ -94,11 +98,21 @@ func (s *Server) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 }
 
 func (s *Server) QueryWorkflow(ctx context.Context, namespace, workflowID, runID, name string, input map[string]any) (execution.WorkflowQueryResult, error) {
+	// 重放求值的 Query 先占一个并发名额，再读 Run、execution state 与 History：同时驻留内存的 History 与重放的 CPU
+	// 都受上限约束，state 与 History 在拿到名额之后相继读出，来自同一时刻。
+	if name != "" && name != stackTraceQueryType {
+		release, err := s.acquireQuerySlot()
+		if err != nil {
+			return execution.WorkflowQueryResult{}, err
+		}
+		defer release()
+	}
 	workflowRun, state, err := s.view.GetRunWithState(namespace, workflowID, runID)
 	if err != nil {
 		return execution.WorkflowQueryResult{}, err
 	}
 	runID = workflowRun.ID
+	// History 只读一次：历史投影、__stack_trace 与重放求值共用这一份。
 	events, err := s.GetEvents(runID)
 	if err != nil {
 		return execution.WorkflowQueryResult{}, err
@@ -114,6 +128,17 @@ func (s *Server) QueryWorkflow(ctx context.Context, namespace, workflowID, runID
 		result.QueryError = qerr
 	}
 	return result, nil
+}
+
+// acquireQuerySlot 占一个 Query 重放名额，返回的 release 归还它。名额已满时不排队，立即返回
+// protocol.ErrResourceExhausted（对标 Temporal 的 RESOURCE_EXHAUSTED）：HTTP 应答 503 与 Retry-After，SDK 退避重发。
+func (s *Server) acquireQuerySlot() (func(), error) {
+	select {
+	case s.querySlots <- struct{}{}:
+		return func() { <-s.querySlots }, nil
+	default:
+		return nil, fmt.Errorf("query replay concurrency limit %d reached: %w", cap(s.querySlots), protocol.ErrResourceExhausted)
+	}
 }
 
 // evaluateQuery 就地构造 query 专用只读 executor、ReplayForQuery 重放到最新态、按 name 求值 query
@@ -148,6 +173,9 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 	if err != nil {
 		return protocol.WorkflowUpdateResult{}, err
 	}
+	if err := protocol.CheckPayloadBytes("update arguments", args.DataSize(), s.payloadSizeLimit); err != nil {
+		return protocol.WorkflowUpdateResult{}, protocol.InvalidRequestf("%w", err)
+	}
 	if name == "" {
 		return protocol.WorkflowUpdateResult{}, protocol.InvalidRequestf("workflow interaction name is empty")
 	}
@@ -161,6 +189,9 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 	if updateID == "" {
 		updateID = uuid.NewString()
 	}
+	if err := protocol.CheckLength("update id", updateID, protocol.MaxUpdateIDLength); err != nil {
+		return protocol.WorkflowUpdateResult{}, err
+	}
 	// 无状态 args 校验：在 Register waiter、进 lease 之前。拒绝时零 history、不注册 waiter、不 ScheduleWFT，
 	// 直接返回 error（对标 Temporal reject）。只看 name+args，不读 workflow 状态 → 无副作用泄漏、无需 replay。
 	if v, ok := s.lookupUpdateValidator(name); ok {
@@ -168,11 +199,11 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 			return protocol.WorkflowUpdateResult{}, newUpdateRejectedError(err)
 		}
 	}
-	// ① updateID 幂等——lease 前预取历史快照（锁外，可安全调 GetEvents，绝不在 RunInTx 内重入）。
-	//    ExecutionTx 无"读本 run 全部事件"的方法，无法在 lease 内去重，故走"lease 前快照 + lease 内判定"。
+	// ① updateID 幂等——lease 前按 update ID 的去重键索引读取已有记录（锁外，绝不在 RunInTx 内重入），
+	//    lease 内按这份快照判定；快照之后并发写入的 accepted 由存储层的去重键兜底。
 	//    C2 边界（诚实标注）：本引擎无 rejected 事件，被拒的 updateID 不落任何历史，因此对被拒 update
 	//    没有幂等——重复请求会被当作全新 update 重新走一遍。此处不引入"负 registry"存被拒记录（避免负债）。
-	existing, hasExisting := s.lookupUpdateFromHistory(namespace, workflowID, runID, updateID)
+	existing, hasExisting := s.lookupUpdate(namespace, workflowID, runID, updateID)
 
 	// 已记录的 Update 在 Run 结束之后仍返回记录的结果；新的 Update 要求 Run 未结束。
 	// runID 非空：lease 外读 execution state 判终态。runID 空（按 workflowID 解析 current）：
@@ -187,6 +218,7 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 	var result protocol.WorkflowUpdateResult
 	var updateRunID string
 	err = s.withWorkflowLease(ctx, namespace, workflowID, runID, func(tx execution.ExecutionTx, current *execution.Run) (LeaseAction, error) {
+		result, updateRunID = protocol.WorkflowUpdateResult{}, "" // fn 可能被重放：上一次尝试的结果作废。
 		tid, bid, err := runBranchInfoFromRun(current)
 		if err != nil {
 			return LeaseAction{}, err
@@ -217,22 +249,40 @@ func (s *Server) UpdateWorkflow(ctx context.Context, namespace, workflowID, runI
 	return s.awaitUpdateResult(ctx, namespace, updateRunID, updateID, result), nil
 }
 
-// awaitUpdateResult 等待 runID 上已接受的 Update 完成，结果总从 History 读取：Update 完成时是 handler 的结果，
-// Run 先结束时是 History 里记下的失败终态（见 execution.UpdateRecordsFromEvents）。
-// 每一轮先读 Run 的 NextEventID 再读 History，未完成时经 runWatch 等 Run 变化，Run 在哪个副本上变化都会唤醒。
-// 软超时时仍未完成则返回 Accepted，不报错，让 client 再来（对标 Temporal）。
+// awaitUpdateResult 等待 runID 上已接受的 Update 完成：Update 完成时是 handler 的结果，Run 先结束时是
+// AcceptedUpdateCompletedWorkflow 失败（与 execution.UpdateRecordsFromEvents 的投影一致）。
+// 第一轮按 update ID 的去重键索引查找，之后每轮先读 execution state，再只读上一轮之后新增的事件；未完成时经 runWatch
+// 等 Run 变化，Run 在哪个副本上变化都会唤醒。读取量与等待期间新增的事件数成正比，与 History 长度无关。
+// 软超时、ctx 结束或 StopLongPolls 时仍未完成则返回 Accepted，不报错，让 client 再来（对标 Temporal）。
+// 进入等待前归还请求的在途名额（WithLongWaitRelease）。
 func (s *Server) awaitUpdateResult(ctx context.Context, namespace, runID, updateID string, result protocol.WorkflowUpdateResult) protocol.WorkflowUpdateResult {
+	releaseBeforeLongWait(ctx)
+	ctx, cancel := s.longPollContext(ctx)
+	defer cancel()
 	deadline := s.clock.Now().Add(s.updateSoftTimeout)
-	for {
+	var cursor int64
+	for first := true; ; first = false {
 		state, err := s.mgr.GetWorkflowExecutionState(runID)
 		if err != nil {
 			return result
 		}
-		if rec, ok := s.lookupUpdateFromHistory(namespace, "", runID, updateID); ok && rec.CompletedEventID != 0 {
-			return execution.CompleteUpdateResult(result, rec.Outcome)
+		if first {
+			if rec, ok := s.lookupUpdate(namespace, "", runID, updateID); ok && rec.CompletedEventID != 0 {
+				return execution.CompleteUpdateResult(result, rec.Outcome)
+			}
+		} else {
+			events, err := s.mgr.GetEventsRange(runID, cursor, state.LastEventID)
+			if err != nil {
+				return result
+			}
+			if outcome, ok := execution.UpdateCompletedIn(updateID, events); ok {
+				return execution.CompleteUpdateResult(result, outcome)
+			}
 		}
+		cursor = state.LastEventID
 		if history.IsTerminalStatus(state.Status) {
-			return result
+			// 终态之前没有 completed：Run 结束了这个 Update。
+			return execution.CompleteUpdateResult(result, protocol.WorkflowClosedUpdateOutcome())
 		}
 		remaining := deadline.Sub(s.clock.Now())
 		if remaining <= 0 || !s.runWatch.Wait(ctx, runID, state.NextEventID, remaining) {
@@ -259,6 +309,9 @@ func (s *Server) UpdateWithStart(
 	if err != nil {
 		return "", protocol.WorkflowUpdateResult{}, err
 	}
+	if err := protocol.CheckPayloadBytes("update arguments", args.DataSize(), s.payloadSizeLimit); err != nil {
+		return "", protocol.WorkflowUpdateResult{}, protocol.InvalidRequestf("%w", err)
+	}
 	if updateName == "" {
 		return "", protocol.WorkflowUpdateResult{}, protocol.InvalidRequestf("workflow interaction name is empty")
 	}
@@ -272,6 +325,9 @@ func (s *Server) UpdateWithStart(
 	if updateID == "" {
 		updateID = uuid.NewString()
 	}
+	if err := protocol.CheckLength("update id", updateID, protocol.MaxUpdateIDLength); err != nil {
+		return "", protocol.WorkflowUpdateResult{}, err
+	}
 	stage, err = protocol.NormalizeUpdateWaitStage(stage)
 	if err != nil {
 		return "", protocol.WorkflowUpdateResult{}, err
@@ -283,9 +339,9 @@ func (s *Server) UpdateWithStart(
 		}
 	}
 
-	// updateID 幂等——lease 前预取历史快照（锁外，可安全调 GetEvents）。workflow 不存在时解析失败返回
+	// updateID 幂等——lease 前按去重键索引读取已有记录（锁外）。workflow 不存在时解析失败返回
 	// (_, false)，即无既有 update（首次 start 场景）；已存在则可命中已 accepted/completed 的快照。
-	existing, hasExisting := s.lookupUpdateFromHistory(namespace, workflowID, "", updateID)
+	existing, hasExisting := s.lookupUpdate(namespace, workflowID, "", updateID)
 
 	// start + accept 在同一 keyed lock 内原子完成（ensureStartedThenAcceptUpdate）。
 	runID, err = s.ensureStartedThenAcceptUpdate(
@@ -306,14 +362,18 @@ func (s *Server) UpdateWithStart(
 }
 
 // SignalWithStart 原子地「确保该 Workflow ID 有进行中的 Run」+「发送 Signal」。启动判定与 UpdateWithStart
-// 相同；Signal 发出即返回，返回 Signal 的 eventID。requestID 是 Signal 的幂等键，语义同 SignalWorkflow：
-// 重发的请求落到第一次启动或找到的运行中 Run 上时不再多记 Signal。
+// 相同；Signal 发出即返回，返回 Signal 的 eventID。requestID 是启动与 Signal 的幂等键：启动时记进
+// WorkflowStarted.RequestID；重发时 current Run（含已结束）或它的链首已记过这个 requestID 的 Signal，
+// 返回那个 Run 与第一次的事件 ID，不启动新 Run、不再记 Signal。
 func (s *Server) SignalWithStart(
 	ctx context.Context, namespace, workflowType, workflowID string,
 	startInput map[string]any, signalName, requestID string, signalInput map[string]any,
 ) (runID string, eventID int64, err error) {
 	if err := execution.ValidateRequestID(requestID); err != nil {
 		return "", 0, err
+	}
+	if err := protocol.CheckPayloadSize("signal input", signalInput, s.payloadSizeLimit); err != nil {
+		return "", 0, protocol.InvalidRequestf("%w", err)
 	}
 	if signalName == "" {
 		return "", 0, protocol.InvalidRequestf("workflow interaction name is empty")
@@ -340,23 +400,19 @@ func normalizeUpdateArgs(args protocol.Payloads) (protocol.Payloads, error) {
 	return args, nil
 }
 
-// lookupUpdateFromHistory 从该 run 历史查指定 updateID 的 update 记录。
-// 复用 updateRecordsFromEvents 的组装逻辑，不复制代码。
-func (s *Server) lookupUpdateFromHistory(namespace, workflowID, runID, updateID string) (history.WorkflowUpdateRecord, bool) {
+// lookupUpdate 按去重键索引一次读取这个 Update 的事件与 Run 的终态事件，不读整份 History，也不另读 execution state：
+// 同批提交的 WorkflowUpdateCompleted 与终态事件在同一次读取里要么都在、要么都不在，已接受、未完成的 Update 只在读到
+// 终态事件时按 Run 结束失败。
+func (s *Server) lookupUpdate(namespace, workflowID, runID, updateID string) (history.WorkflowUpdateRecord, bool) {
 	run, err := s.resolveRun(namespace, workflowID, runID)
 	if err != nil {
 		return history.WorkflowUpdateRecord{}, false
 	}
-	events, err := s.GetEvents(run.ID)
+	events, err := s.mgr.GetEventsByDedupeKeys(run.ID, execution.UpdateDedupeKeys(updateID))
 	if err != nil {
 		return history.WorkflowUpdateRecord{}, false
 	}
-	for _, rec := range execution.UpdateRecordsFromEvents(events) {
-		if rec.UpdateID == updateID {
-			return rec, true
-		}
-	}
-	return history.WorkflowUpdateRecord{}, false
+	return execution.UpdateRecordFromEvents(updateID, events)
 }
 
 // validateInteraction 要求请求寻址的 Run 存在且未结束。
@@ -378,13 +434,13 @@ func (s *Server) validateInteraction(namespace, workflowID, runID, name string) 
 	return nil
 }
 
-// closeEventScan 是读取结束事件时向前查看的事件数：结束事件之后不再追加事件，留出余量即可。
-const closeEventScan = 8
-
-// WaitRunClosed 等待请求寻址的 Run 结束，返回结束后的 Run 与它的结束事件；ctx 先结束时返回 ctx 的错误。
+// WaitRunClosed 等待请求寻址的 Run 结束，返回结束后的 Run 与它的结束事件；ctx 先结束或 StopLongPolls 时返回
+// context 的错误。
 // 每一轮先读 Run 的 execution state，未结束时经 runWatch 等 Run 变化：Run 在哪个副本上结束都会唤醒。
 // 只等这一个 Run，continue-as-new 与重试产生的下一个 Run 由调用方按结束事件跟随。
 func (s *Server) WaitRunClosed(ctx context.Context, namespace, workflowID, runID string) (*execution.Run, history.Event, error) {
+	ctx, cancel := s.longPollContext(ctx)
+	defer cancel()
 	ref, err := s.resolveRunRef(namespace, workflowID, runID)
 	if err != nil {
 		return nil, history.Event{}, err
@@ -409,7 +465,7 @@ func (s *Server) closedRun(runID string, lastEventID int64) (*execution.Run, his
 	if err != nil {
 		return nil, history.Event{}, err
 	}
-	events, err := s.mgr.GetEventsRange(runID, max(0, lastEventID-closeEventScan), lastEventID)
+	events, err := s.mgr.GetEventsRange(runID, max(0, lastEventID-execution.CloseEventScan), lastEventID)
 	if err != nil {
 		return nil, history.Event{}, err
 	}
@@ -418,5 +474,5 @@ func (s *Server) closedRun(runID string, lastEventID int64) (*execution.Run, his
 			return run, events[i], nil
 		}
 	}
-	return nil, history.Event{}, fmt.Errorf("run %s is %s but its last %d events have no closing event", runID, run.Status, closeEventScan)
+	return nil, history.Event{}, fmt.Errorf("run %s is %s but its last %d events have no closing event", runID, run.Status, execution.CloseEventScan)
 }

@@ -72,7 +72,7 @@ func TestStickyDeliveryOfOpenWorkflowTaskSurvivesStickyClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stickyGeneration, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-1", time.Now().Add(time.Hour))
+	stickyGeneration, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-1")
 	if err != nil || !assigned {
 		t.Fatalf("assign sticky: assigned=%v err=%v", assigned, err)
 	}
@@ -217,7 +217,7 @@ func TestStickyClearedBetweenPrepareAndStartRequeuesDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stickyGeneration, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-1", time.Now().Add(time.Hour))
+	stickyGeneration, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-1")
 	if err != nil || !assigned {
 		t.Fatalf("assign sticky: assigned=%v err=%v", assigned, err)
 	}
@@ -292,7 +292,7 @@ func TestPollDeadlineAfterDequeueStillRequeuesDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stickyGeneration, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-1", time.Now().Add(time.Hour))
+	stickyGeneration, assigned, err := mgr.AssignStickyExecution(runID, state.ExecutionGeneration, state.StickyGeneration, "worker-a", "build-1")
 	if err != nil || !assigned {
 		t.Fatalf("assign sticky: assigned=%v err=%v", assigned, err)
 	}

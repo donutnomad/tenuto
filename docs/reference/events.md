@@ -30,7 +30,7 @@ Event 是已经发生并提交的事实。每个 Run/Branch 的 Event ID 从 1 �
 | `WorkflowTaskStarted` | scheduledEventId、workerIdentity、workerBuildId、timeoutMs（Server 计时的 start-to-close 超时）、History 指标 |
 | `WorkflowTaskCompleted` | scheduledEventId、workerIdentity |
 | `WorkflowTaskTimedOut` | scheduledEventId、error |
-| `WorkflowTaskFailed` | cause、baseRunId、resetRunId、reason |
+| `WorkflowTaskFailed` | cause、baseRunId、resetRunId、requestId（只在带 `request_id` 的 reset 标记上）、reason |
 
 ## Activity
 
@@ -50,7 +50,7 @@ Heartbeat 不写 History（与 Temporal 相同）：最后一次心跳的详情�
 
 ## Timer 与 Child
 
-Timer 使用 `TimerScheduled`、`TimerFired`、`TimerCancelled`（Workflow 取消尚未触发的 timer，命令事件）。Child 使用 `ChildWorkflowStarted`、`Completed`、`Failed`、`Cancelled`、`Terminated` 与 `ChildWorkflowCancelRequested`（Workflow 请求取消子 Workflow，命令事件，带子 Run ID），并保存 Child ID、Child Run ID 与父侧 Scheduled Event ID。`ChildWorkflowStarted` 的 `parentClosePolicy` 记录子 Workflow 的[父关闭策略](/develop/child-workflows#父关闭策略)（`terminate`、`request_cancel`、`abandon`，未指定时记为 `terminate`）。父 Run 关闭之后结束的子 Workflow 不再向父 History 追加事件。Run 结束时仍未触发的 timer 不写事件（与 Temporal 相同），它的 Timer State 置为 `run_closed`，不再触发。
+Timer 使用 `TimerScheduled`、`TimerFired`、`TimerCancelled`（Workflow 取消尚未触发的 timer，命令事件）。Child 使用 `ChildWorkflowStarted`、`Completed`、`Failed`、`Cancelled`、`Terminated` 与 `ChildWorkflowCancelRequested`（Workflow 请求取消子 Workflow，命令事件，带子 Run ID），并保存 Child ID、Child Run ID 与父侧 Scheduled Event ID。`ChildWorkflowStarted` 的 `parentClosePolicy` 记录子 Workflow 的[父关闭策略](/develop/child-workflows#父关闭策略)（`terminate`、`request_cancel`、`abandon`，未指定时记为 `terminate`）。父 Run 关闭之后结束的子 Workflow 不再向父 History 追加事件。Run 结束时仍未触发的 timer 不写事件（与 Temporal 相同），它的 Timer State 置为 `run_closed`，不再触发。仍未结束（scheduled、started）的 Activity 同样不写事件，Activity State（`activity-states` 的 `status`）置为 `run_closed`，不再超时、重试或派发。
 
 ## 消息与 Marker
 

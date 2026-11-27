@@ -230,3 +230,21 @@ func TestClientErrorsAreNotRetried(t *testing.T) {
 		t.Fatalf("signal attempts = %d, want 1", got)
 	}
 }
+
+// Query 遇到 503（Server 的 Query 重放名额已满，或网关不可用）时 SDK 退避重发，第二次到达 Server 并得到应答。
+func TestQueryWorkflowRetriesUnavailable(t *testing.T) {
+	f := newFaultyServer(t)
+	run, err := f.client.ExecuteWorkflow(context.Background(), client.StartWorkflowOptions{ID: "query-unavailable"}, "waiting")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.inject(runtimeapi.WorkflowRuntimeQueryPath, unavailable)
+	before := f.attemptsOf(runtimeapi.WorkflowRuntimeQueryPath)
+	_, err = f.client.QueryWorkflow(context.Background(), run.GetID(), run.GetRunID(), "__stack_trace")
+	if errors.Is(err, client.ErrUnavailable) {
+		t.Fatalf("query was not retried after 503: %v", err)
+	}
+	if got := f.attemptsOf(runtimeapi.WorkflowRuntimeQueryPath) - before; got != 2 {
+		t.Fatalf("query attempts = %d, want 2", got)
+	}
+}

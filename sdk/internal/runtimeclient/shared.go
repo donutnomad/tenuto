@@ -72,6 +72,23 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("%s %s: %s", e.API, e.Status, e.Body)
 }
 
+// Is 让由请求本身引起、重发也不会成功的应答（400、404、409、413、422）满足 errors.Is(err, protocol.ErrInvalidRequest)，
+// 与进程内调用的错误一致：Worker 据此不立即退回这份投递。413 另外满足 protocol.ErrPayloadTooLarge：Workflow Task
+// 的提交因此记为 payload_size_limit_exceeded 失败。
+func (e *StatusError) Is(target error) bool {
+	if target == protocol.ErrPayloadTooLarge {
+		return e.Code == http.StatusRequestEntityTooLarge
+	}
+	if target != protocol.ErrInvalidRequest {
+		return false
+	}
+	switch e.Code {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return true
+	}
+	return false
+}
+
 // workerInfoHeaders 把 ctx 携带的 Worker 信息写进请求头；ctx 没有 Worker 信息时返回 nil。
 func workerInfoHeaders(ctx context.Context) func(*http.Request) {
 	info, ok := protocol.WorkerInfoFrom(ctx)
@@ -118,7 +135,7 @@ func runtimePostRetrying(ctx context.Context, retry RetryPolicy, mode retryMode,
 }
 
 // runtimePost 发一次 JSON POST。apiName 前缀非 2xx 的错误文本；applyHeaders 可以为 nil，非 nil 时写入额外的请求头
-// （Worker 信息）。连接失败、连接中断与读应答体失败包成 *transportError，供重试判定。
+// （Worker 信息）。连接失败、连接中断、读应答体失败与 2xx 空 body 包成 *transportError，供重试判定。
 func runtimePost(ctx context.Context, client *http.Client, baseURL, path, apiName string, applyHeaders func(*http.Request), req, resp any) error {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -158,6 +175,11 @@ func runtimePost(ctx context.Context, client *http.Client, baseURL, path, apiNam
 			return err
 		}
 		return &transportError{err: err}
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		// 每个成功应答都带 JSON body（204 已在上面处理）；空 body 的 2xx 说明应答没有完整送达或 Server 没有处理请求，
+		// 不能当作成功。
+		return &transportError{err: fmt.Errorf("%s: HTTP %d with empty body: %w", apiName, httpResp.StatusCode, io.ErrUnexpectedEOF)}
 	}
 	if resp == nil {
 		return nil

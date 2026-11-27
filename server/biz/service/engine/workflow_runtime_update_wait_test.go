@@ -293,7 +293,7 @@ func TestUpdateWorkflow_SignalWakeMatchesHistory(t *testing.T) {
 }
 
 // TestUpdateWorkflow_WaitCompleted_SoftTimeoutFallsBackToPoll
-// Edge Case: completed 直接写入历史、没有唤醒任何等待方时，等待方读取的数据源（lookupUpdateFromHistory）
+// Edge Case: completed 直接写入历史、没有唤醒任何等待方时，等待方读取的数据源（lookupUpdate）
 // 给出完成的结果。
 func TestUpdateWorkflow_WaitCompleted_SoftTimeoutFallsBackToPoll(t *testing.T) {
 	env := newUpdateWaitTestEnv(t, "run-poll-fallback")
@@ -316,9 +316,9 @@ func TestUpdateWorkflow_WaitCompleted_SoftTimeoutFallsBackToPoll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// lookupUpdateFromHistory 直接验证等待方的数据源正确（复用 QueryWorkflow 组装逻辑）：
+	// lookupUpdate 直接验证等待方的数据源正确（复用 QueryWorkflow 组装逻辑）：
 	// CompletedEventID>0 的完成历史必须带 Outcome。
-	rec, ok := env.runtime.lookupUpdateFromHistory("", env.run.WorkflowID, env.run.ID, updateID)
+	rec, ok := env.runtime.lookupUpdate("", env.run.WorkflowID, env.run.ID, updateID)
 	if !ok || rec.CompletedEventID == 0 || rec.Outcome == nil || rec.Outcome.Success == nil {
 		t.Fatalf("poll fallback source wrong: ok=%v rec=%+v", ok, rec)
 	}
@@ -365,6 +365,45 @@ func TestUpdateWorkflow_WaitCompleted_TimeoutReturnsAcceptedStage(t *testing.T) 
 	if env.server.runWatch.EntryCount() != 0 {
 		t.Fatalf("waiter must be released after timeout, count=%d", env.server.runWatch.EntryCount())
 	}
+}
+
+// Update 在写入 UpdateAccepted 之后、进入等结果的长等待之前调用 WithLongWaitRelease 的回调：入口的在途名额
+// 只覆盖拿锁与写库阶段。
+func TestUpdateWorkflow_ReleasesInFlightSlotBeforeWaiting(t *testing.T) {
+	env := newUpdateWaitTestEnv(t, "run-release-slot")
+	released := make(chan int, 1)
+	ctx := WithLongWaitRelease(context.Background(), func() {
+		events, err := env.server.mgr.GetEvents(env.run.ID)
+		if err != nil {
+			t.Error(err)
+		}
+		accepted := 0
+		for _, event := range events {
+			if event.WorkflowUpdateAccepted != nil {
+				accepted++
+			}
+		}
+		released <- accepted
+	})
+	returned := make(chan struct{}, 1)
+	go func() {
+		_, _ = env.runtime.UpdateWorkflow(ctx, "", env.run.WorkflowID, env.run.ID, "set_priority", "", protocol.UpdateWaitStageEnums.Completed, updateArgs(map[string]any{"priority": "high"}))
+		returned <- struct{}{}
+	}()
+	select {
+	case accepted := <-released:
+		if accepted != 1 {
+			t.Fatalf("slot released with %d UpdateAccepted events, want the update written first", accepted)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("update did not release its in-flight slot before waiting")
+	}
+	select {
+	case <-returned:
+		t.Fatal("update returned before its soft timeout")
+	default:
+	}
+	advanceUntilReturned(t, env.clk, env.server.updateSoftTimeout, returned)
 }
 
 // TestUpdateWaiter_DeadlockRegression

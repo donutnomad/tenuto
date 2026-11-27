@@ -1,11 +1,26 @@
 package execution
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/donutnomad/tenuto/protocol/history"
 )
+
+// lockExecutionState 在事务内取 Run 的 execution state 行锁。修改 activity 或 timer state 行的事务先取这把锁再锁
+// state 行（README 不变式 2）；MySQL 上同一事务之后的追加复用这次加锁读，不多一条语句。Run 已不存在（retention GC
+// 删除）时报告 false，迟到的回调与找不到 state 行时一样不做任何事。
+func lockExecutionState(tx ExecutionTx, runID string) (bool, error) {
+	if _, err := tx.GetWorkflowExecutionStateForUpdate(runID); err != nil {
+		if errors.Is(err, ErrRunNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
 
 // eventTime 返回事件时间的副本，供 state 的时间指针字段使用。
 func eventTime(event history.Event) *time.Time {
@@ -47,7 +62,9 @@ type WorkflowExecutionState struct {
 	StickyWorkerIdentity     string            `json:"sticky_worker_identity,omitempty"`
 	StickyWorkerBuildID      string            `json:"sticky_worker_build_id,omitempty"`
 	StickyGeneration         int64             `json:"sticky_generation"`
-	// StickyExpiresAt 用指针：nil 表示"无 sticky 会话"。
+	// StickyExpiresAt 是投给 sticky Worker 的 open WFT 的 sticky schedule-to-start 期限：WFT 调度时设为调度时刻加
+	// StickyScheduleToStartTimeout，WFT started 时清空。sticky 绑定（StickyWorkerIdentity）本身不随时间失效，
+	// 保留到 WFT 超时或失败（Temporal ClearStickyTaskQueue）。nil 表示当前没有待领取的 sticky 投递。
 	// 非指针 time.Time 的零值落 MySQL 会写成 '0000-00-00'，而 MySQL 8 默认 sql_mode 含
 	// NO_ZERO_DATE + STRICT_TRANS_TABLES，会直接报 Error 1292 拒绝写入（即使列 nullable）。
 	// 用指针后清 sticky 写的是 SQL NULL，这是"无值"的正确表达。
@@ -68,7 +85,8 @@ type WorkflowExecutionState struct {
 
 // WorkflowTaskProjection 记录调度与恢复 WFT 所需的当前事实。
 type WorkflowTaskProjection struct {
-	// StartedScheduledEventID 与 StartedProgramVersion 取自最近一次 WorkflowTaskStarted。
+	// StartedEventID、StartedScheduledEventID 与 StartedProgramVersion 取自最近一次 WorkflowTaskStarted。
+	StartedEventID          int64  `json:"started_event_id,omitempty"`
 	StartedScheduledEventID int64  `json:"started_scheduled_event_id,omitempty"`
 	StartedProgramVersion   string `json:"started_program_version,omitempty"`
 	// StartToCloseDeadline 是已 started 且仍 open 的 WFT 的超时时刻，取自 WorkflowTaskStarted 的时间与 TimeoutMs；
@@ -77,18 +95,25 @@ type WorkflowTaskProjection struct {
 	// LastFailedAt 与 LastFailureTraceContext 取自当前连续失败串里最近一次 WorkflowTaskFailed。
 	LastFailedAt            *time.Time        `json:"last_failed_at,omitempty"`
 	LastFailureTraceContext map[string]string `json:"last_failure_trace_context,omitempty"`
-	// ActivationPending 表示最近一次 WFT 生命周期事件之后出现了需要 Workflow 处理的新事实。
+	// ActivationPending 表示有需要 Workflow 处理、还没有被任何已完成的 WFT 看到的事实。
 	ActivationPending bool `json:"activation_pending,omitempty"`
+	// LastActivationEventID 是最近一个需要 Workflow 处理的事实的事件 ID。WFT 完成时与 Worker 看到的位置
+	// （WorkflowTaskCompleted.SeenThroughEventID）比较，得出进行期间是否到达了 Worker 没有看到的事实。
+	LastActivationEventID int64 `json:"last_activation_event_id,omitempty"`
+	// CloseAttempted 表示最近关闭的 WFT 带着结束 Run 的命令、因 unhandled_events 作废：Run 正在关闭。
+	// 下一个 WFT 关闭时清除。
+	CloseAttempted bool `json:"close_attempted,omitempty"`
 }
 
 // WorkflowExecutionStateStore 读写 execution state。Run 不存在时各方法返回 ErrRunNotFound。
 type WorkflowExecutionStateStore interface {
 	GetWorkflowExecutionState(runID string) (*WorkflowExecutionState, error)
 	ListWorkflowExecutionStates(runIDs []string) (map[string]*WorkflowExecutionState, error)
-	// ListExpiredStickyExecutions 返回 sticky 已过期且仍有 open WFT 的 execution state，判据是
-	// StickyWorkerIdentity != "" && !StickyValidAt(now) && OpenWorkflowTaskEventID != 0；limit > 0 时封顶。
+	// ListExpiredStickyExecutions 返回运行中、sticky schedule-to-start 期限已过且仍有 open WFT 的 execution state，判据是
+	// Status == Running && StickyWorkerIdentity != "" && StickyExpiresAt != nil && !StickyValidAt(now) && OpenWorkflowTaskEventID != 0；
+	// limit > 0 时封顶。
 	ListExpiredStickyExecutions(now time.Time, limit int) ([]*WorkflowExecutionState, error)
-	AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt time.Time) (int64, bool, error)
+	AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string) (int64, bool, error)
 	ClearStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64) (int64, bool, error)
 }
 
@@ -181,7 +206,8 @@ func (s *WorkflowExecutionState) BeginActivation(scheduledEventID, executionGene
 }
 
 // AssignSticky 把 sticky 会话交给 Worker；换了 Worker 或 build 时 sticky 代数加一。代数已变时返回 false，状态不变。
-func (s *WorkflowExecutionState) AssignSticky(executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt, now time.Time) bool {
+// 绑定不带期限：下一个 WFT 调度时才开始计 sticky schedule-to-start（见 StickyExpiresAt）。
+func (s *WorkflowExecutionState) AssignSticky(executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, now time.Time) bool {
 	if !s.sessionMatches(executionGeneration, expectedStickyGeneration) {
 		return false
 	}
@@ -190,7 +216,6 @@ func (s *WorkflowExecutionState) AssignSticky(executionGeneration, expectedStick
 	}
 	s.setStickyWorkerIdentity(workerIdentity)
 	s.setStickyWorkerBuildID(workerBuildID)
-	s.setStickyExpiresAt(&expiresAt)
 	s.setStateVersion(s.StateVersion + 1)
 	s.setUpdatedAt(now)
 	return true
@@ -232,11 +257,26 @@ func (s *WorkflowExecutionState) WorkflowTaskProgramVersion(scheduledEventID int
 	return s.WorkflowTask.StartedProgramVersion
 }
 
-// WorkflowTaskSuperseded 报告 scheduledEventID 对应的 open WFT 在 started 之后是否出现了新事实。
-func (s *WorkflowExecutionState) WorkflowTaskSuperseded(scheduledEventID int64) bool {
-	return s.WorkflowTaskOpen(scheduledEventID) &&
-		s.WorkflowTask.StartedScheduledEventID == scheduledEventID &&
-		s.WorkflowTask.ActivationPending
+// WorkflowTaskStartedEventID 返回 scheduledEventID 对应 WFT 的 WorkflowTaskStarted 事件 ID；它不是最近一次
+// started 的 WFT 时返回 0。
+func (s *WorkflowExecutionState) WorkflowTaskStartedEventID(scheduledEventID int64) int64 {
+	if s.WorkflowTask.StartedScheduledEventID != scheduledEventID {
+		return 0
+	}
+	return s.WorkflowTask.StartedEventID
+}
+
+// UnseenFacts 报告 open WFT 的 Worker 看到 seenThroughEventID 为止之后，是否还落库了需要 Workflow 处理的事实。
+func (s *WorkflowExecutionState) UnseenFacts(seenThroughEventID int64) bool {
+	return s.WorkflowTask.LastActivationEventID > seenThroughEventID
+}
+
+// WorkflowClosing 报告 Run 是否正在关闭：上一个 WFT 带着结束 Run 的命令作废，重做的 WFT 已 started、尚未关闭。
+// 这期间新的 Signal 与 Update 以 ErrWorkflowClosing 拒绝，重做的关闭命令不会再被它们作废
+// （对标 Temporal 的 IsWorkflowCloseAttempted() && HasStartedWorkflowTask()）。
+func (s *WorkflowExecutionState) WorkflowClosing() bool {
+	return s.WorkflowTask.CloseAttempted && s.OpenWorkflowTaskEventID != 0 &&
+		s.WorkflowTask.StartedScheduledEventID == s.OpenWorkflowTaskEventID
 }
 
 // WorkflowTaskTimeoutDeadline 返回已 started 且仍 open 的 WFT 的调度事件 ID 与 start-to-close 超时时刻。
@@ -259,6 +299,25 @@ func (s *WorkflowExecutionState) NeedsWorkflowTask() bool {
 	return s.OpenWorkflowTaskEventID == 0 && s.WorkflowTask.ActivationPending
 }
 
+// HadOrHasWorkflowTask 报告 Run 调度过 Workflow Task：现在有 open 的，或有过 started 的。
+func (s *WorkflowExecutionState) HadOrHasWorkflowTask() bool {
+	return s.OpenWorkflowTaskEventID != 0 || s.WorkflowTask.StartedScheduledEventID != 0
+}
+
+// PendingOnWorkflowTaskBackoff 报告重试 Run 仍在等首个 Workflow Task 的退避：RetryBackoff timer 未结束，
+// 且 Run 还没有调度过 Workflow Task。对应 Temporal 的 IsWorkflowPendingOnWorkflowTaskBackoff。
+func (s *WorkflowExecutionState) PendingOnWorkflowTaskBackoff(timers []*TimerState) bool {
+	if s.HadOrHasWorkflowTask() {
+		return false
+	}
+	for _, timer := range timers {
+		if timer.Kind == TimerKindEnums.RetryBackoff && !timer.IsTerminal() {
+			return true
+		}
+	}
+	return false
+}
+
 // BlockedInfo 返回对外展示的 blocked 描述：只有处于 blocked 时才带失败次数与原因。
 func (s *WorkflowExecutionState) BlockedInfo() BlockedInfo {
 	if !s.Blocked.Blocked {
@@ -270,6 +329,18 @@ func (s *WorkflowExecutionState) BlockedInfo() BlockedInfo {
 // WorkflowTaskFailureBackoff 返回当前连续失败次数对应的退避时长。
 func (s *WorkflowExecutionState) WorkflowTaskFailureBackoff(base, cap time.Duration) time.Duration {
 	return WorkflowTaskFailureBackoff(s.Blocked.ConsecutiveFailures, base, cap)
+}
+
+// BlockedRetryAt 返回 blocked 的 Run 重试 Workflow Task 的时刻：最近一次 WorkflowTaskFailed 加当前档位的退避。
+// Run 不在 blocked 时 blocked 为 false。退避到期之前到达的事实只写入 History，由这次重试一并处理。
+func (s *WorkflowExecutionState) BlockedRetryAt(base, cap time.Duration) (retryAt time.Time, blocked bool) {
+	if !s.Blocked.Blocked {
+		return time.Time{}, false
+	}
+	if s.WorkflowTask.LastFailedAt != nil {
+		retryAt = *s.WorkflowTask.LastFailedAt
+	}
+	return retryAt.Add(s.WorkflowTaskFailureBackoff(base, cap)), true
 }
 
 func ApplyEventToExecutionState(state *WorkflowExecutionState, event history.Event, eventSize int64) {
@@ -321,9 +392,28 @@ func ApplyEventToExecutionState(state *WorkflowExecutionState, event history.Eve
 		state.setSearchAttributes(state.SearchAttributes)
 	case event.ActivityReset != nil:
 		invalidateExecutionSession(state)
+	case event.WorkflowTaskScheduled != nil:
+		// sticky schedule-to-start 从 WFT 调度时起算（Temporal GenerateScheduleWorkflowTaskTasks）。
+		if state.StickyWorkerIdentity != "" {
+			deadline := event.Timestamp.Add(StickyScheduleToStartTimeout)
+			state.setStickyExpiresAt(&deadline)
+		}
+	case event.WorkflowTaskStarted != nil:
+		// 已被领取：这份 sticky 投递不再有 schedule-to-start 期限，绑定保留。
+		if state.StickyExpiresAt != nil {
+			state.setStickyExpiresAt(nil)
+		}
 	case event.WorkflowTaskTimedOut != nil:
 		// 超时的 WFT 不再交给原 sticky Worker：下一个 WFT 走普通队列，任何 Worker 都能领取。sticky 代数不变，
 		// 原 Worker 迟到的上报仍能通过代数校验，按已关闭的 WFT 处理。
+		clearStickyRoute(state)
+	case event.WorkflowTaskFailed != nil && !isRedoWorkflowTaskFailure(event.WorkflowTaskFailed.Cause):
+		// 失败的 WFT 同样清除 sticky 绑定（Temporal failWorkflowTask 的 ClearStickyTaskQueue）：重试走普通队列。
+		// 由新事实或恢复触发的重做不是 Worker 的失败，绑定保留。
+		clearStickyRoute(state)
+	}
+	if history.IsWorkflowTerminalEventType(event.EventType()) {
+		// 已结束的 Run 不再有 Workflow Task：sticky 会话随之结束，sticky 回落扫描不再选中它。
 		clearStickyRoute(state)
 	}
 
@@ -367,6 +457,9 @@ func applyWaitingEvent(state *WorkflowExecutionState, event history.Event) {
 		delete(state.OpenWaits, event.ChildWorkflowCancelled.ScheduledEventID)
 	case event.ChildWorkflowTerminated != nil:
 		delete(state.OpenWaits, event.ChildWorkflowTerminated.ScheduledEventID)
+	case history.IsWorkflowTerminalEventType(event.EventType()):
+		// 结束时仍 open 的 Workflow Task 随 Run 关闭，不再出现在 open WFT 投影里。
+		maps.DeleteFunc(state.OpenWaits, func(_ int64, waiting WaitingState) bool { return waiting.Type == WaitingWorkflowTask })
 	}
 	state.setOpenWaits(state.OpenWaits)
 	state.setOpenWorkflowTaskEventID(latestWorkflowTaskWaiting(state.OpenWaits))
@@ -409,6 +502,11 @@ func applyBlockedEvent(state *WorkflowExecutionState, event history.Event) {
 func applyWorkflowTaskEvent(state *WorkflowExecutionState, event history.Event) {
 	task := state.WorkflowTask
 	typ := event.EventType()
+	// 带结束 Run 命令的决策因 unhandled_events 作废时进入正在关闭状态（对标 Temporal 的 workflowCloseAttempted），
+	// 其余 WFT 关闭清除它。
+	if history.IsWorkflowTaskCloseEventType(typ) {
+		task.CloseAttempted = typ == history.EventWorkflowTaskFailed && event.WorkflowTaskFailed.Cause == WorkflowTaskFailedCauseUnhandledEvents
+	}
 	// 被新事实取代或被恢复关闭的 WFT：待处理的事实仍在，ActivationPending 为 true，也不记失败时间。
 	if typ == history.EventWorkflowTaskFailed && isRedoWorkflowTaskFailure(event.WorkflowTaskFailed.Cause) {
 		task.ActivationPending = true
@@ -419,6 +517,15 @@ func applyWorkflowTaskEvent(state *WorkflowExecutionState, event history.Event) 
 	switch {
 	case isWorkflowActivationEvent(typ):
 		task.ActivationPending = true
+		task.LastActivationEventID = event.ID
+	case typ == history.EventWorkflowTaskCompleted:
+		// 完成的 WFT 看到 SeenThroughEventID 为止的事实；进行期间到达的事实仍待处理，由下一个 WFT 看到。
+		seen := event.WorkflowTaskCompleted.SeenThroughEventID
+		task.ActivationPending = seen > 0 && task.LastActivationEventID > seen
+	case typ == history.EventWorkflowTaskTimedOut:
+		// 超时的 WFT 没有提交任何决策，Run 仍需要一个 WFT：超时提交之后、下一个 WFT 调度之前的崩溃或写库失败
+		// 由 NeedsWorkflowTask 的恢复补上调度。
+		task.ActivationPending = true
 	case isWorkflowTaskLifecycleEvent(typ):
 		task.ActivationPending = false
 	default:
@@ -426,6 +533,7 @@ func applyWorkflowTaskEvent(state *WorkflowExecutionState, event history.Event) 
 	}
 	switch typ {
 	case history.EventWorkflowTaskStarted:
+		task.StartedEventID = event.ID
 		task.StartedScheduledEventID = event.WorkflowTaskStarted.ScheduledEventID
 		task.StartedProgramVersion = event.WorkflowTaskStarted.ProgramVersion
 		task.StartToCloseDeadline = nil
@@ -454,6 +562,10 @@ func invalidateExecutionSession(state *WorkflowExecutionState) {
 	clearStickyRoute(state)
 }
 
+// StickyScheduleToStartTimeout 是 sticky 投递等待 sticky Worker 领取的时长，与 Temporal 的缺省值相同：到期后
+// sticky 绑定被清除，WFT 改投普通队列。
+const StickyScheduleToStartTimeout = 5 * time.Second
+
 // clearStickyRoute 结束 sticky 会话，之后的 WFT 走普通队列。
 func clearStickyRoute(state *WorkflowExecutionState) {
 	state.setStickyWorkerIdentity("")
@@ -461,9 +573,8 @@ func clearStickyRoute(state *WorkflowExecutionState) {
 	state.setStickyExpiresAt(nil)
 }
 
-// StickyValidAt 报告 sticky 会话在 now 时刻是否仍然有效。
-// 集中处理 nil（无 sticky 会话）：nil 一律视为已失效，等价于原先零值 time.Time
-// 的 .After(now) 恒为 false 的行为，故调用方语义不变。
+// StickyValidAt 报告 open WFT 在 now 时刻是否仍可投给 sticky Worker：sticky schedule-to-start 期限存在且未到。
+// nil（没有待领取的 sticky 投递）视为不可投递，派发走普通队列。
 func (s *WorkflowExecutionState) StickyValidAt(now time.Time) bool {
 	return s.StickyExpiresAt != nil && s.StickyExpiresAt.After(now)
 }

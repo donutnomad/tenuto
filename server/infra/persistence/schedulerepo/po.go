@@ -19,8 +19,15 @@ type SchedulePO struct {
 	NextRunAt      *time.Time `gorm:"column:next_run_at"`
 	LastRunID      string     `gorm:"column:last_run_id"`
 	RunCount       int        `gorm:"column:run_count"`
-	CreatedAt      time.Time  `gorm:"column:created_at"`
-	UpdatedAt      time.Time  `gorm:"column:updated_at"`
+	// CatchupWindow 以纳秒保存。
+	CatchupWindow       time.Duration `gorm:"column:catchup_window_ns"`
+	MissedCatchupWindow int64         `gorm:"column:missed_catchup_window"`
+	BufferDropped       int64         `gorm:"column:buffer_dropped"`
+	StartFailed         int64         `gorm:"column:start_failed"`
+	BufferDropFrom      *time.Time    `gorm:"column:buffer_drop_from"`
+	BufferDropUntil     *time.Time    `gorm:"column:buffer_drop_until"`
+	CreatedAt           time.Time     `gorm:"column:created_at"`
+	UpdatedAt           time.Time     `gorm:"column:updated_at"`
 }
 
 func (SchedulePO) TableName() string { return "tenuto_schedules" }
@@ -45,10 +52,18 @@ CREATE TABLE IF NOT EXISTS tenuto_schedules (
   next_run_at     DATETIME(3),
   last_run_id     VARCHAR(191) NOT NULL DEFAULT '',
   run_count       INT          NOT NULL DEFAULT 0,
+  -- catchup_window_ns 是补触发窗口（纳秒）；missed_catchup_window、buffer_dropped 与 start_failed 是跳过的到期点计数。
+  catchup_window_ns     BIGINT NOT NULL,
+  missed_catchup_window BIGINT NOT NULL DEFAULT 0,
+  buffer_dropped        BIGINT NOT NULL DEFAULT 0,
+  start_failed          BIGINT NOT NULL DEFAULT 0,
+  -- buffer_drop_from / buffer_drop_until 是 buffer 满时丢弃的到期点区间，处理完保留的到期点后跳过它；没有时为 NULL。
+  buffer_drop_from      DATETIME(3),
+  buffer_drop_until     DATETIME(3),
   created_at      DATETIME(3)  NOT NULL,
   updated_at      DATETIME(3)  NOT NULL,
   PRIMARY KEY (namespace, id),
   INDEX idx_workflow_schedules_next_run_at (next_run_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }

@@ -104,9 +104,9 @@ func (m countingExecutions) AppendWorkflowTaskScheduled(runID, treeID, branchID 
 	return m.ExecutionManager.AppendWorkflowTaskScheduled(runID, treeID, branchID, event)
 }
 
-func (m countingExecutions) AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt time.Time) (int64, bool, error) {
+func (m countingExecutions) AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string) (int64, bool, error) {
 	m.calls.add("tx")
-	return m.ExecutionManager.AssignStickyExecution(runID, executionGeneration, expectedStickyGeneration, workerIdentity, workerBuildID, expiresAt)
+	return m.ExecutionManager.AssignStickyExecution(runID, executionGeneration, expectedStickyGeneration, workerIdentity, workerBuildID)
 }
 
 func (m countingExecutions) RunInTx(fn func(tx execution.ExecutionTx) error) error {

@@ -13,7 +13,6 @@ import (
 
 	"github.com/donutnomad/taskq/membership"
 	infradb "github.com/donutnomad/tenuto/server/infra/db"
-	"github.com/donutnomad/tenuto/server/infra/persistence"
 	"github.com/donutnomad/tenuto/server/infra/persistence/mysqltest"
 	"github.com/donutnomad/tenuto/telemetry"
 	"gorm.io/driver/mysql"
@@ -104,19 +103,12 @@ func TestCloseKeepsInjectedDatabaseOpen(t *testing.T) {
 // 与上一条对偶：本进程自行拨号建立的连接池必须在关停时释放，否则每次重启都泄漏。
 // 这条不变式此前无人覆盖，Store.Close 的所有权守卫才得以静默吞掉默认部署的关闭。
 func TestSelfDialedDatabasesAreClosed(t *testing.T) {
-	workflowDB, workflowSQL := newSelfDialedDB(t)
+	_, workflowSQL := newSelfDialedDB(t)
 	_, taskQSQL := newSelfDialedDB(t)
-	store, err := persistence.New(workflowDB, persistence.Config{
-		HistoryPageTokenKey: make([]byte, 32),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	app := &application{
 		telemetry:      telemetry.NoopProviders(),
 		health:         &healthState{},
-		workflowStore:  store,
 		workflowDB:     workflowSQL,
 		taskQDB:        taskQSQL,
 		ownsWorkflowDB: true,

@@ -140,8 +140,9 @@ func (s *Repository) ListWorkflowExecutionStates(runIDs []string) (map[string]*e
 //
 //	StickyWorkerIdentity != ""   →  sticky_worker_identity <> ''
 //	OpenWorkflowTaskEventID != 0 →  open_workflow_task_event_id > 0
-//	!StickyValidAt(now)          →  sticky_expires_at IS NULL OR sticky_expires_at <= ?
-//	                                （StickyValidAt = StickyExpiresAt != nil && After(now)）
+//	StickyExpiresAt != nil && !StickyValidAt(now)
+//	                             →  sticky_expires_at <= ?（NULL 不满足比较）
+//	                                （StickyExpiresAt 是 open WFT 的 sticky schedule-to-start 期限，started 后清空）
 //
 // 索引 idx_wf_exec_states_sticky_fallback (sticky_worker_identity, sticky_expires_at)：
 // 前缀列绝大多数行是 ”（无 sticky），选择性良好。
@@ -149,11 +150,9 @@ func (s *Repository) ListExpiredStickyExecutions(now time.Time, limit int) ([]*e
 	query := gsql.From[WorkflowExecutionStatePO](WorkflowExecutionStateSchema).
 		Where(
 			WorkflowExecutionStateSchema.StickyWorkerIdentity.Not(""),
+			WorkflowExecutionStateSchema.Status.Eq(string(history.StatusRunning)),
 			WorkflowExecutionStateSchema.OpenWorkflowTaskEventID.Gt(0),
-			gsql.Or(
-				WorkflowExecutionStateSchema.StickyExpiresAt.IsNull(),
-				WorkflowExecutionStateSchema.StickyExpiresAt.Lte(&now),
-			),
+			WorkflowExecutionStateSchema.StickyExpiresAt.Lte(&now),
 		).
 		// 稳定顺序：避免多轮扫描在 LIMIT 截断处反复取到同一批之外的随机子集。
 		Order(WorkflowExecutionStateSchema.RunID)
@@ -175,13 +174,13 @@ func (s *Repository) ListExpiredStickyExecutions(now time.Time, limit int) ([]*e
 	return states, nil
 }
 
-func (s *Repository) AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string, expiresAt time.Time) (generation int64, assigned bool, err error) {
+func (s *Repository) AssignStickyExecution(runID string, executionGeneration, expectedStickyGeneration int64, workerIdentity, workerBuildID string) (generation int64, assigned bool, err error) {
 	err = s.inTx(func(tx *gormExecutionTx) error {
 		state, stateErr := tx.lockedState(runID)
 		if stateErr != nil {
 			return stateErr
 		}
-		assigned = state.AssignSticky(executionGeneration, expectedStickyGeneration, workerIdentity, workerBuildID, expiresAt, s.clock.Now())
+		assigned = state.AssignSticky(executionGeneration, expectedStickyGeneration, workerIdentity, workerBuildID, s.clock.Now())
 		generation = state.StickyGeneration
 		return nil
 	})
@@ -214,9 +213,9 @@ func createExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) 
 	return nil
 }
 
-// updateExecutionState 把 state 经 setter 改过的字段写回，没有改动时不写库。
+// updateExecutionState 把 state 经 setter 改过的字段写回，没有改动时不写库；搜索属性改过时同时改写 tenuto_run_search_attributes。
 // blocked_json 由四个投影字段合成，其中任何一个改过就重写这一列；needs_workflow_task 随 WFT 状态与 open WFT 重算。
-func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) error {
+func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState, storedAttributes map[string]string) error {
 	row, err := executionStateToRow(state)
 	if err != nil {
 		return err
@@ -245,6 +244,12 @@ func updateExecutionState(db *gorm.DB, state *execution.WorkflowExecutionState) 
 		Where(WorkflowExecutionStateSchema.RunID.Eq(state.RunID)).
 		Update(db, patch).Error; err != nil {
 		return err
+	}
+	// 搜索属性的索引行与投影同事务改写。
+	if changed.SearchAttributes.IsPresent() {
+		if err := updateRunSearchAttributes(db, state.RunID, storedAttributes, state.SearchAttributes); err != nil {
+			return err
+		}
 	}
 	state.ClearPatch()
 	return nil
@@ -281,15 +286,18 @@ func (t *gormExecutionTx) lockedState(runID string) (*execution.WorkflowExecutio
 func (t *gormExecutionTx) keepState(state *execution.WorkflowExecutionState) {
 	if t.states == nil {
 		t.states = make(map[string]*execution.WorkflowExecutionState)
+		t.storedAttributes = make(map[string]map[string]string)
 	}
 	t.states[state.RunID] = state
+	// 投影会原地改 SearchAttributes，留一份副本作为 tenuto_run_search_attributes 现有行的依据。
+	t.storedAttributes[state.RunID] = maps.Clone(state.SearchAttributes)
 }
 
 // flushStates 把本事务改过的 execution state 各写回一次（每个 Run 一条 UPDATE，没有改动的不写），在提交前调用。
 // 行锁都已持有，写回顺序不影响加锁顺序。
 func (t *gormExecutionTx) flushStates() error {
 	for _, runID := range slices.Sorted(maps.Keys(t.states)) {
-		if err := updateExecutionState(t.db, t.states[runID]); err != nil {
+		if err := updateExecutionState(t.db, t.states[runID], t.storedAttributes[runID]); err != nil {
 			return err
 		}
 	}
@@ -324,7 +332,7 @@ func (t *gormExecutionTx) appendEvent(runID, treeID, branchID string, event hist
 		return 0, false, err
 	}
 	size := int64(len(eventJSON))
-	if err := history.CheckHistoryBudget(history.HistoryMetrics{EventCount: state.HistoryEventCount, SizeBytes: state.HistorySizeBytes}, []int64{size}, s.historyLimits, history.UsesReservedHistoryCloseBudget(event)); err != nil {
+	if err := history.CheckHistoryBudget(runID, history.HistoryMetrics{EventCount: state.HistoryEventCount, SizeBytes: state.HistorySizeBytes}, []int64{size}, s.historyLimits, history.UsesReservedHistoryCloseBudget(event)); err != nil {
 		return 0, false, err
 	}
 	row := eventToRow(runID, treeID, branchID, event, eventJSON, dedupeKey)
@@ -374,6 +382,10 @@ func runNamespace(db *gorm.DB, runID string) (string, error) {
 		return "", err
 	}
 	return row.Namespace, nil
+}
+
+func (t *gormExecutionTx) GetEventIDByDedupeKey(_, branchID, dedupeKey string) (int64, bool, error) {
+	return findDedupedEventID(t.db, branchID, dedupeKey)
 }
 
 // dedupedEventID 返回 branch 上已有的同 dedupe key 事件的 node_id。加锁读取最新已提交的行，

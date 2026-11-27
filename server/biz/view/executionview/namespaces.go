@@ -32,7 +32,7 @@ func (v *View) ListNamespaces() (NamespaceListResult, error) {
 		}
 		return info
 	}
-	counts, err := v.runs.CountRuns()
+	counts, err := v.runs.CountRuns("")
 	if err != nil {
 		return NamespaceListResult{}, err
 	}

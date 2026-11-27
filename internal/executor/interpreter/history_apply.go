@@ -1,9 +1,12 @@
 package interpreter
 
 import (
+	"cmp"
 	"fmt"
+	"time"
 
 	"github.com/donutnomad/tenuto/internal/executor"
+	"github.com/donutnomad/tenuto/program"
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/sdk/apperror"
@@ -13,6 +16,7 @@ import (
 
 // applyBatch 把一批事件灌入事实表。它只更新事实，协程由调用方推进。
 // 每遇到一个 WorkflowTaskStarted 就固定一次 GetInfo 快照（见 snapshotActivationInfo）。
+// workflow.Now 的取值不在这里更新：它属于决策批，由 runDecisionBatch 设定（见 batchTime）。
 func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 	for _, event := range events {
 		e.unmeasuredEvents = append(e.unmeasuredEvents, event)
@@ -21,9 +25,6 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 		}
 	}
 	for _, event := range events {
-		if !event.Timestamp.IsZero() {
-			e.currentTime = event.Timestamp
-		}
 		if event.WorkflowCompleted != nil || event.WorkflowFailed != nil ||
 			event.WorkflowCancelled != nil || event.WorkflowTerminated != nil {
 			e.terminated = true
@@ -34,7 +35,7 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 		if ev := event.WorkflowStarted; ev != nil {
 			e.input = ev.Input
 		} else if ev := event.WorkflowSignaled; ev != nil {
-			e.signals[ev.Name] = append(e.signals[ev.Name], ev.Input)
+			e.signals[ev.Name] = append(e.signals[ev.Name], e.normalizePayload(program.PayloadSignal, ev.Name, ev.Input))
 		} else if ev := event.WorkflowUpdateAccepted; ev != nil {
 			e.updateAccepted[ev.Name] = append(e.updateAccepted[ev.Name], history.WorkflowUpdateRecord{
 				UpdateID:        ev.UpdateID,
@@ -60,7 +61,11 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 		} else if ev := event.ChildWorkflowStarted; ev != nil {
 			e.childStarted[ev.ChildID] = event
 		} else if ev := event.ChildWorkflowCompleted; ev != nil {
-			e.childCompleted[ev.ChildID] = ev.Output
+			childType := ""
+			if started := e.childStarted[ev.ChildID].ChildWorkflowStarted; started != nil {
+				childType = started.Name
+			}
+			e.childCompleted[ev.ChildID] = e.normalizePayload(program.PayloadChildResult, childType, ev.Output)
 			delete(e.childStarted, ev.ChildID)
 			delete(e.childFailures, ev.ChildID)
 		} else if ev := event.ChildWorkflowFailed; ev != nil {
@@ -83,8 +88,9 @@ func (e *WorkflowExecutor) applyBatch(events []history.Event) {
 			delete(e.childStarted, ev.ChildID)
 		} else if ev := event.ActivityScheduled; ev != nil {
 			e.bindActivityScheduled(ev.ActivityID, event.ID)
+			e.activityTypes[event.ID] = ev.ActivityType
 		} else if ev := event.ActivityCompleted; ev != nil {
-			e.completed[ev.ScheduledEventID] = ev.Output
+			e.completed[ev.ScheduledEventID] = e.normalizePayload(program.PayloadActivityResult, cmp.Or(ev.ActivityType, e.activityTypes[ev.ScheduledEventID]), ev.Output)
 			delete(e.failed, ev.ScheduledEventID)
 		} else if ev := event.ActivityCancelled; ev != nil {
 			// 取消确认是 Activity 的终态结果，与失败走同一张事实表：Future 返回取消错误。
@@ -142,6 +148,27 @@ func (e *WorkflowExecutor) setActivationInfo(metrics history.HistoryMetrics, rea
 		CurrentHistorySize:   metrics.SizeBytes,
 		ContinueAsNewReasons: append([]workflow.ContinueAsNewReason(nil), reasons...),
 	}
+}
+
+// batchTime 返回一个决策批里 workflow.Now 的取值：批内最后一个 WorkflowTaskStarted 的时间戳，与 Temporal
+// 取 WorkflowTaskStarted 时间一致。live 执行时批尾就是这个事件；同一个批提交之后多出的 WorkflowTaskCompleted
+// 与命令事件（时间是提交时刻）排在它后面，重放时不影响取值，所以 live 与重放读到同一个值。
+// 没有 WorkflowTaskStarted 的批（裸历史）取批内最后一个带时间戳的事件。ok 为 false 时批内没有时间戳，沿用原值。
+func batchTime(batch []history.Event) (time.Time, bool) {
+	var last time.Time
+	for i := len(batch) - 1; i >= 0; i-- {
+		event := batch[i]
+		if event.Timestamp.IsZero() {
+			continue
+		}
+		if event.WorkflowTaskStarted != nil {
+			return event.Timestamp, true
+		}
+		if last.IsZero() {
+			last = event.Timestamp
+		}
+	}
+	return last, !last.IsZero()
 }
 
 func (e *WorkflowExecutor) marker(name, id string) (map[string]any, bool) {

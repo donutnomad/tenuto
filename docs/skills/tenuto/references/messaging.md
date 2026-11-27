@@ -23,7 +23,7 @@ if err := workflow.WaitSignal(ctx, "approval-result").Get(ctx, &decision); err !
 
 - `Get` 的目标是 `*map[string]any`，内容是调用端发送的 JSON object。
 - Signal 可以先于等待点到达：它保存在 History 里，Workflow 走到 `WaitSignal` 时立即取得。
-- 按名称计数消费：对同一名称的第 N 次 `WaitSignal` 对应 History 里该名称的第 N 条 Signal。
+- 同名 Signal 是队列（同 Temporal Signal Channel）：`SignalFuture` 第一次被消费（`Get` 返回或 Selector 回调执行）时取走下一条未消费的同名 Signal，之后 `Get` 返回同一条；`WaitSignal` 调用本身与没被选中的 Future 都不占 Signal。多个同名 Future 按消费先后分配。Selector 只在 Future 此刻能取走一条 Signal 时选中它：两个同名 Future 只到一条 Signal 时只选中一个，另一个的 `Select` 等下一条。Selector 循环里每轮内联 `WaitSignal` 不会漏 Signal。Query handler 里让还没取到 Signal 的 `SignalFuture` 取 Signal（`Get` 或 `Select`）被拒：`query handler must not consume a Signal`。
 - `map[string]any` 的元素是 `any`，在 Workflow 里直接与字面量比较恒为 `false`；需要按 Signal 内容分支时把 map 交给 Activity 处理并返回 struct。
 
 循环接收（长期接收的 Workflow 用 Continue-As-New 控制 History 长度）：
@@ -87,7 +87,8 @@ run, err := c.SignalWithStartWorkflow(ctx, workflowID, "approval-requested",
 - `runID` 为空时按 Namespace + Workflow ID 解析 current Run。Signal 参数是 JSON object，可以为 nil。
 - 交付是业务层 at-least-once：调用超时可能发生在事件已提交之后，重试形成第二条 Signal。payload 带稳定的 `message_id`，由处理它的 Activity 去重。
 - 目标 Run 已终态时返回 `client.ErrInvalidArgument`；Workflow 不再等待该名称时 Signal 留在 History 无人消费。
-- `SignalWithStartWorkflow`：该 Workflow ID 存在运行中的 Run 时向它写 Signal；没有 Run 或 current Run 已结束时按 Workflow Type 启动新 Run，启动与 Signal 在一个事务里提交。`workflowID` 留空时 SDK 生成，等同于每次都启动新 Run。
+- `SignalWithStartWorkflow`：该 Workflow ID 存在运行中的 Run 时向它写 Signal；没有 Run 或 current Run 已结束时按 Workflow Type 启动新 Run，启动与 Signal 在一个事务里提交。`workflowID` 留空时 SDK 生成，等同于每次都启动新 Run。SDK 以同一个 request ID 重发时，current Run（含已结束）或它的链首（continue-as-new、失败重试）记过这条 Signal 就返回第一次的 Run 与事件 ID，不启动第二个 Run（同 Temporal）。
+- 重试 Run 在 Workflow 重试的退避期内收到 Signal：写入 History，不提前开始，退避到期一并处理；SignalWithStart、取消请求与 Update 让它立即开始（同 Temporal 默认行为）。
 
 ## Query
 
@@ -136,7 +137,7 @@ err = value.Get(&progress)
 | 重放遇到确定性失配 | `*client.QueryFailedError`，`Message` 含重放失败原因 |
 | Run 已终态 | 重放终态 History 后执行 Handler |
 
-Query 读到的是最后一个已完成 Workflow Task 之后的状态；其后到达的 Signal、Activity 结果在下一个 Workflow Task 完成后才体现。
+Query 读到的是最后一个已完成 Workflow Task 之后的状态；它没有看到的 Signal、Activity 结果（完成之后或执行期间到达的）在下一个 Workflow Task 完成后才体现。Server 为每个 Query 读一次 History 并在进程内重放，同时重放的 Query 数受 `WORKFLOW_QUERY_CONCURRENCY`（默认 8）限制，超出的立即应答 503 与 `Retry-After`，SDK 退避重发。
 
 ## Update
 
@@ -169,7 +170,9 @@ if err != nil {
 - 签名：`func(workflow.Context, ...Args) error` 或 `func(workflow.Context, ...Args) (Result, error)`。内联函数，业务参数个数固定（不支持 `...T`）。
 - 参数与 `Result` 用 struct、标量、切片或 map，嵌套深度不限。
 - Handler 属于 Workflow 代码，遵守全部确定性规则；可以用 `Await`、桥、Activity Future、Timer、Channel、Selector、`workflow.Go`。
-- Handler 在 `update:<UpdateID>` 协程里执行，多个 Update 按 Accepted 事件顺序执行。
+- Handler 在 `update:<UpdateID>` 协程里执行。调度同 Temporal Go SDK 的 `SDKPriorityUpdateHandling`：同一个 Workflow Task 里到达的 Update，Handler 先于主流程与 `workflow.Go` 协程运行（到第一个阻塞点）；多个 Update 按 Accepted 事件顺序执行；Signal 没有 Handler 协程，同批 Signal 由等待它的协程之后取走。冷重放、sticky 与 Query 顺序相同。
+- 所以“Handler 里 `inflight++`、主流程 `Await(inflight == 0)` 后 Continue-As-New / 返回”成立：同批到达的 Update 在主流程检查条件前已计入。
+- Update 到达时 Handler 未注册：排队，主流程在同一个 Workflow Task 里注册时立即执行；这个 Workflow Task 结束仍未注册则以 `UnknownUpdate` 失败。
 - `SetUpdateHandler` 是处理 Update 的唯一方式。
 
 等待主流程推进后再返回（Update-With-Start 的典型用法）：
@@ -214,7 +217,7 @@ func ApprovalWorkflow(ctx workflow.Context, input CreateInput) error {
 | --- | --- | --- |
 | Handler 成功 | Accepted + Completed success | `handle.Get` 解码强类型结果 |
 | Handler 返回错误 | Accepted + Completed failure | `*apperror.Error` |
-| 没有同名 Handler（主协程第一次阻塞或返回时仍未注册） | Accepted + Completed failure | `*apperror.Error`，`Type() == "UnknownUpdate"`，message `no update handler registered for "<name>"` |
+| 没有同名 Handler（到达的 Workflow Task 里所有协程阻塞或主协程返回时仍未注册） | Accepted + Completed failure | `*apperror.Error`，`Type() == "UnknownUpdate"`，message `no update handler registered for "<name>"` |
 | 参数无法解码 | Accepted + Completed failure | Type `DataConversionError` |
 | Handler 的 `Await` 尚未满足 | Accepted | Handle 保持可等待 |
 | 同一 Update ID 重试或并发发送 | 复用已有记录 | 相同阶段或结果 |
@@ -249,8 +252,9 @@ Update-With-Start 见 `client-api.md`。
 ### 跨副本等待
 
 - 等 `Completed` 的请求在 Server 上最多等 20s，到期应答 `Accepted`，`handle.Get` 以同一 Update ID 重发（幂等，不重复执行 Handler）。
-- 受理请求的副本与完成 Update 的副本可以不同。等待方先读 Run 的 `next_event_id` 再读 History，未完成时等 Run 变化：本副本的提交立即唤醒；有等待者期间副本每 100ms 用一条批量查询读取被等待 Run 的 `next_event_id`，变大就唤醒重读。其他副本完成的 Update 最多晚 100ms 返回。`run.Get` 的 `wait-closed` 用同一机制。
-- 代价：没有等待者时不读库；有等待者时每副本每秒 10 条批量读取（每 500 个 Run 一条），与等待者数量无关；Run 每变化一次，它的每个 Update 等待者重读一次 execution state 与 History。
+- Run Blocked 时 Update 照常被接受，Handler 等失败退避到期的那次重试执行；`handle.Get` 在 `ctx` 结束时返回，用带截止时间的 `ctx` 限定等待。
+- 受理请求的副本与完成 Update 的副本可以不同。等待方第一次按 Update ID 的索引读取这个 Update 的事件，之后每轮先读 Run 的 execution state，再只读上一轮之后新增的事件，未完成时等 Run 变化：本副本的提交立即唤醒；有等待者期间副本每 100ms 用一条批量查询读取被等待 Run 的 `next_event_id`，变大就唤醒重读。其他副本完成的 Update 最多晚 100ms 返回。`run.Get` 的 `wait-closed` 用同一机制。
+- 代价：没有等待者时不读库；有等待者时每副本每秒 10 条批量读取（每 500 个 Run 一条），与等待者数量无关；Run 每变化一次，它的每个 Update 等待者读一次 execution state 与新增的事件，读取量与 History 长度无关。
 - 等待者只在受理请求的副本内存里：副本重启时等待中的 `handle.Get` / `run.Get` 返回连接错误，对同一个句柄再调用一次。
 
 ## 持久化契约

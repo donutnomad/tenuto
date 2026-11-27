@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/history"
@@ -77,6 +78,11 @@ func (s *EventStore) branchEvents(runID string) []history.Event {
 	return events
 }
 
+func (s *EventStore) GetEventIDByDedupeKey(runID, _, dedupeKey string) (int64, bool, error) {
+	id, found := s.findDedupe(runID, dedupeKey)
+	return id, found, nil
+}
+
 // findDedupe 在 runID 自己 branch 上已提交的事件里找去重键为 key 的事件。
 func (s *EventStore) findDedupe(runID, key string) (int64, bool) {
 	s.mu.RLock()
@@ -92,6 +98,20 @@ func (s *EventStore) findDedupe(runID, key string) (int64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// eventsByDedupeKeys 返回 Run 全部可见事件（含祖先前缀）里去重键属于 keys 的事件。内存实现按事件扫描，与 gorm 后端
+// 走 (branch_id, dedupe_key) 索引的结果一致。
+func (s *EventStore) eventsByDedupeKeys(runID string, keys []string) []history.Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []history.Event
+	for _, event := range s.events[runID] {
+		if key, ok := history.DedupeKey(event); ok && slices.Contains(keys, key) {
+			result = append(result, event)
+		}
+	}
+	return result
 }
 
 func (s *EventStore) getEventsRange(runID string, afterExclusive, throughInclusive int64) []history.Event {
@@ -355,12 +375,6 @@ func (s *RunStore) list(filter execution.StoreListFilter, projection func(run *e
 		if filter.CreatedBefore != nil && !run.CreatedAt.Before(*filter.CreatedBefore) {
 			continue
 		}
-		if filter.After != nil {
-			order := cmp.Or(run.CreatedAt.Compare(filter.After.CreatedAt), strings.Compare(run.ID, filter.After.RunID))
-			if filter.OrderDesc && order >= 0 || !filter.OrderDesc && order <= 0 {
-				continue
-			}
-		}
 		if len(filter.SearchAttributes) > 0 || filter.BlockedOnly {
 			attrs, blocked, ok := projection(run)
 			if !ok || filter.BlockedOnly && !blocked || !execution.MatchSearchAttributes(attrs, filter.SearchAttributes) {
@@ -379,26 +393,32 @@ func (s *RunStore) list(filter execution.StoreListFilter, projection func(run *e
 		return order
 	})
 
+	// Total 不受游标影响；页从游标之后开始。
 	total := len(filtered)
+	start := 0
+	if after := filter.After; after != nil {
+		start = len(filtered)
+		for i, run := range filtered {
+			order := cmp.Or(run.CreatedAt.Compare(after.CreatedAt), strings.Compare(run.ID, after.RunID))
+			if filter.OrderDesc && order < 0 || !filter.OrderDesc && order > 0 {
+				start = i
+				break
+			}
+		}
+	}
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	offset := filter.Offset
-	if offset > total {
-		offset = total
-	}
-	end := offset + limit
-	if end > total {
-		end = total
-	}
+	end := min(start+limit, len(filtered))
+	hasMore := end < len(filtered)
 	if filter.SkipTotal {
 		total = 0
 	}
-	return execution.StoreListResult{Runs: filtered[offset:end], Total: total}, nil
+	return execution.StoreListResult{Runs: filtered[start:end], Total: total, HasMore: hasMore}, nil
 }
 
-func (s *RunStore) CountRuns() ([]execution.RunCount, error) {
+func (s *RunStore) CountRuns(namespace string) ([]execution.RunCount, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -408,13 +428,35 @@ func (s *RunStore) CountRuns() ([]execution.RunCount, error) {
 	}
 	grouped := make(map[key]int)
 	for _, run := range s.runs {
-		grouped[key{protocol.NormalizeNamespace(run.Namespace), run.Status}]++
+		runNamespace := protocol.NormalizeNamespace(run.Namespace)
+		if namespace != "" && runNamespace != namespace {
+			continue
+		}
+		grouped[key{runNamespace, run.Status}]++
 	}
 	counts := make([]execution.RunCount, 0, len(grouped))
 	for group, count := range grouped {
 		counts = append(counts, execution.RunCount{Namespace: group.namespace, Status: group.status, Count: count})
 	}
 	return counts, nil
+}
+
+func (s *RunStore) ListRunningTargetWorkers() ([]execution.TargetWorker, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := make(map[execution.TargetWorker]bool)
+	var targets []execution.TargetWorker
+	for _, run := range s.runs {
+		if run.Status != history.StatusRunning || run.TargetWorkerIdentity == "" {
+			continue
+		}
+		target := execution.TargetWorker{Namespace: protocol.NormalizeNamespace(run.Namespace), Identity: run.TargetWorkerIdentity}
+		if !seen[target] {
+			seen[target] = true
+			targets = append(targets, target)
+		}
+	}
+	return targets, nil
 }
 
 // snapshots 返回全部已提交 Run 的寻址与 current 标记。
@@ -498,6 +540,16 @@ func cloneStringMap(in map[string]string) map[string]string {
 	return out
 }
 
+// taskLeaseTimeout 是内存队列保存已出队任务的期限，与 TaskQ 默认的 visibility timeout（60s）一致。到期的副本
+// 直接丢弃、不重投：Worker 崩溃、应答丢失或派发出错留下的任务由 reconciler 补投新的投递。
+const taskLeaseTimeout = 60 * time.Second
+
+// leasedTask 是一个租约出队时的任务及其到期时间。
+type leasedTask struct {
+	task    protocol.Task
+	expires time.Time
+}
+
 // TaskQueue 是内存 Workflow 任务队列：一份按入队顺序排列的待领任务，各个出队入口按任务自带的路由字段挑选。
 //
 //   - Dequeue 取没有定向的任务。
@@ -505,6 +557,12 @@ func cloneStringMap(in map[string]string) map[string]string {
 type TaskQueue struct {
 	mu      sync.Mutex
 	pending []protocol.TaskLease
+	// leased 按租约 token 保存已出队、尚未确认或退回的任务。Nack 重投这里的副本，不采用调用方交回的
+	// lease.Task：Worker 交回的载荷没有签名，不能改写下一次投递（与 TaskQ 重投数据库里的行相同）。
+	// 副本在 taskLeaseTimeout 后到期，下一次出队时清理；到期后的 Ack 与 Nack 什么也不做。
+	leased    map[string]leasedTask
+	nextLease uint64
+	now       func() time.Time
 	// changed 在 pending 变化时关闭并换新，唤醒等待中的入队与出队。
 	changed chan struct{}
 	size    int
@@ -514,7 +572,7 @@ func NewTaskQueue(size int) *TaskQueue {
 	if size <= 0 {
 		size = 100
 	}
-	return &TaskQueue{changed: make(chan struct{}), size: size}
+	return &TaskQueue{changed: make(chan struct{}), size: size, leased: make(map[string]leasedTask), now: time.Now}
 }
 
 func (q *TaskQueue) Enqueue(ctx context.Context, task protocol.Task) error {
@@ -544,6 +602,8 @@ func (q *TaskQueue) take(ctx context.Context, prefer, accept func(protocol.Task)
 			return protocol.TaskLease{}, err
 		}
 		q.mu.Lock()
+		now := q.now()
+		q.dropExpiredLeasesLocked(now)
 		index := -1
 		if prefer != nil {
 			index = slices.IndexFunc(q.pending, func(lease protocol.TaskLease) bool { return prefer(lease.Task) })
@@ -554,6 +614,9 @@ func (q *TaskQueue) take(ctx context.Context, prefer, accept func(protocol.Task)
 		if index >= 0 {
 			lease := q.pending[index]
 			q.pending = slices.Delete(q.pending, index, index+1)
+			q.nextLease++
+			lease.Token = fmt.Sprintf("memory-lease-%d", q.nextLease)
+			q.leased[lease.Token] = leasedTask{task: lease.Task, expires: now.Add(taskLeaseTimeout)}
 			q.notifyLocked()
 			q.mu.Unlock()
 			return lease, nil
@@ -564,6 +627,14 @@ func (q *TaskQueue) take(ctx context.Context, prefer, accept func(protocol.Task)
 		case <-changed:
 		case <-ctx.Done():
 			return protocol.TaskLease{}, ctx.Err()
+		}
+	}
+}
+
+func (q *TaskQueue) dropExpiredLeasesLocked(now time.Time) {
+	for token, leased := range q.leased {
+		if !now.Before(leased.expires) {
+			delete(q.leased, token)
 		}
 	}
 }
@@ -607,12 +678,24 @@ func (q *TaskQueue) HandlesStickyRoutingDeadline() bool { return false }
 func (q *TaskQueue) Durable() bool { return false }
 
 func (q *TaskQueue) Ack(ctx context.Context, lease protocol.TaskLease) error {
+	q.mu.Lock()
+	delete(q.leased, lease.Token)
+	q.mu.Unlock()
 	return nil
 }
 
-// Nack 把任务放回队尾；路由字段在任务上，重新投递沿用原来的路由。
+// Nack 把这个租约出队时的任务放回队尾；路由字段在任务上，重新投递沿用原来的路由。已确认、已退回或未知的
+// 租约与已到期的租约什么也不做。
 func (q *TaskQueue) Nack(ctx context.Context, lease protocol.TaskLease) error {
-	return q.Enqueue(ctx, lease.Task)
+	q.mu.Lock()
+	leased, ok := q.leased[lease.Token]
+	delete(q.leased, lease.Token)
+	expired := ok && !q.now().Before(leased.expires)
+	q.mu.Unlock()
+	if !ok || expired {
+		return nil
+	}
+	return q.Enqueue(ctx, leased.task)
 }
 
 func engineKey(namespace, id string) string {

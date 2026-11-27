@@ -18,6 +18,10 @@ const queryBeforeFirstWorkflowTaskMessage = "workflow has not completed its firs
 // goroutine 上对重放后的只读现场求值一次，没有协程可以挂起或推进。
 var errQueryHandlerBlocked = errors.New("query handler must not block or start coroutines (Await, Sleep, Future.Get, channel, Selector, WaitGroup.Wait, workflow.Go)")
 
+// errQueryHandlerConsumesSignal 是 query handler 让 SignalFuture 取走 Signal（Get 或 Selector 选中）时的拒绝原因：
+// query 只读，不能改变 Signal 的消费顺序。
+var errQueryHandlerConsumesSignal = errors.New("query handler must not consume a Signal (SignalFuture.Get or Selector on a SignalFuture that has not received one)")
+
 // QueryEvaluator 实现服务端的 executions.QueryEvaluator 端口。
 type QueryEvaluator struct{}
 
@@ -40,8 +44,9 @@ func (QueryEvaluator) EvaluateQuery(ctx context.Context, wf *program.WorkflowCon
 		return nil, true, "unknown queryType: " + name
 	}
 	interpreter.queryHandler = true
+	interpreter.batchSteps = 0
 	ctxValue := wltypes.NewValue("workflow.Context", workflowContext{lanePath: "query:" + name, scope: interpreter.rootScope})
-	inputValue := wltypes.NewValue("map<string,any>", input)
+	inputValue := wltypes.NewValue("map<string,any>", executor.GoJSONNumbers(input))
 	output, err := wlExec.InvokeClosure(handler, []wltypes.Value{ctxValue, inputValue})
 	if err != nil {
 		return nil, true, err.Error()

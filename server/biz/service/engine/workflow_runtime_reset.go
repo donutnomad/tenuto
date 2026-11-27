@@ -34,15 +34,29 @@ func (s *Server) ResetWorkflow(ctx context.Context, req execution.ResetWorkflowR
 	}
 	defer release()
 
-	commit, err := s.prepareReset(req)
-	if err != nil {
-		return "", err
+	// 带 RequestID 的 reset 在事务里比较 base 的 ResetRunID：另一个副本在准备与提交之间提交了 reset 时重来一次，
+	// 重来时按 RequestID 认出同一个请求的那次 reset 并返回它。
+	for attempt := 0; ; attempt++ {
+		newRunID, err := s.resetOnce(ctx, req)
+		if errors.Is(err, execution.ErrCurrentRunConflict) && req.RequestID != "" && attempt == 0 {
+			continue
+		}
+		return newRunID, err
+	}
+}
+
+// resetOnce 执行一次 reset。调用方持有 workflow 的 keyed lock。
+func (s *Server) resetOnce(ctx context.Context, req execution.ResetWorkflowRequest) (string, error) {
+	commit, duplicateOf, err := s.prepareReset(req)
+	if err != nil || duplicateOf != "" {
+		return duplicateOf, err
 	}
 	// 核心原子化：终止被取代的 run + 建新 run + 切 current 到新 run + 改旧 run reset_run_id + 落 reset marker +
+	// 分叉点上未结束的 Activity / Timer（关闭被打断的 Activity，在新 run 上建保留项的 state）+
 	// 搬运 reset 点之后的外部输入（Signal / Update-Accepted，ReapplyExcludeTypes 排除指定类型）+
 	// 把父 run 的子关联改指新 run，在同一事务内，任一步失败整体回滚。scheduleWorkflowTask（含队列入队）
 	// 留事务外。对标 startRetryRun。
-	if txErr := s.telemetry.runInTx(ctx, "reset_workflow", s.mgr, func(tx execution.ExecutionTx) error {
+	if txErr := s.runInTx(ctx, "reset_workflow", func(tx execution.ExecutionTx) error {
 		return execution.CommitResetRun(tx, commit)
 	}); txErr != nil {
 		return "", txErr
@@ -53,6 +67,7 @@ func (s *Server) ResetWorkflow(ctx context.Context, req execution.ResetWorkflowR
 	}
 
 	s.armRunTimers(commit.NewRun)
+	s.startResetPendingWork(ctx, commit.Pending)
 
 	postCommitCtx := context.WithoutCancel(ctx)
 	if err := s.scheduleWorkflowTask(postCommitCtx, commit.NewRun.ID); err != nil {
@@ -62,33 +77,71 @@ func (s *Server) ResetWorkflow(ctx context.Context, req execution.ResetWorkflowR
 	return commit.NewRun.ID, nil
 }
 
+// resetDuplicateOf 返回 base 最近一次 reset 出的 Run，当且仅当那次 reset 来自同一个 RequestID 的请求；否则返回空。
+// 去重键写在 reset 出的 Run 的 reset 标记上（见 execution.ResetRequestDedupeKey），只在这个 Run 自己的 branch 上
+// 查找：reset 出的 Run 再被 reset 时，新 Run fork 来的祖先前缀里带着上一代的 reset 标记，不能算作新 Run 的创建请求
+// （对齐 Temporal 只比较 current Run 的 CreateRequestId）。
+func (s *Server) resetDuplicateOf(base *execution.Run, requestID string) (string, error) {
+	if requestID == "" || base.ResetRunID == "" {
+		return "", nil
+	}
+	reset, err := s.mgr.Get(base.ResetRunID)
+	if err != nil {
+		return "", err
+	}
+	_, branchID, err := runBranchInfoFromRun(reset)
+	if err != nil {
+		return "", err
+	}
+	_, found, err := s.mgr.GetEventIDByDedupeKey(reset.ID, branchID, execution.ResetRequestDedupeKey(requestID))
+	if err != nil || !found {
+		return "", err
+	}
+	return reset.ID, nil
+}
+
 // prepareReset 在事务之外完成 reset 的全部校验与 History 分支的 fork，构造新 Run 与提交内容：被拒绝的 reset
 // 不改动原 run。新 Run 按事务外读到的 base run 构造；CommitResetRun 在锁下重读 base 与被取代的 run。
-func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.ResetRunCommit, error) {
+// base 已被同一个 RequestID 的请求 reset 过时不 fork，duplicateOf 返回那次 reset 出的 Run。
+func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (commit execution.ResetRunCommit, duplicateOf string, err error) {
 	oldRun, err := s.mgr.Get(req.RunID)
 	if err != nil {
-		return execution.ResetRunCommit{}, err
+		return execution.ResetRunCommit{}, "", err
+	}
+	if duplicateOf, err := s.resetDuplicateOf(oldRun, req.RequestID); err != nil || duplicateOf != "" {
+		return execution.ResetRunCommit{}, duplicateOf, err
 	}
 	events, err := s.mgr.GetEvents(req.RunID)
 	if err != nil {
-		return execution.ResetRunCommit{}, err
+		return execution.ResetRunCommit{}, "", err
 	}
-	children, err := s.mgr.ListChildWorkflowStates(req.RunID)
+	point, err := execution.PlanReset(events, req)
 	if err != nil {
-		return execution.ResetRunCommit{}, err
-	}
-	point, err := execution.PlanReset(events, children, req)
-	if err != nil {
-		return execution.ResetRunCommit{}, err
+		return execution.ResetRunCommit{}, "", err
 	}
 	resetNodeID := point.NodeID
 	status, err := s.GetRunStatus(oldRun.ID)
 	if err != nil {
-		return execution.ResetRunCommit{}, err
+		return execution.ResetRunCommit{}, "", err
 	}
 
 	newRunID := execution.NewID()
 	newBranchID := newRunID
+	now := s.clock.Now()
+	// 新 run 的搜索属性与分叉点上未结束的 Activity / Timer 按 History 求出（base run 的 state 行只提供心跳详情），
+	// 在 fork 之前完成：读取或校验失败时不留下孤儿分支。
+	baseActivities, err := s.mgr.ListActivityStates(req.RunID)
+	if err != nil {
+		return execution.ResetRunCommit{}, "", err
+	}
+	searchAttributes, err := execution.SearchAttributesAtEvent(events, resetNodeID)
+	if err != nil {
+		return execution.ResetRunCommit{}, "", err
+	}
+	pending := execution.PlanResetPendingWork(execution.ResetPendingInput{
+		Events: events, Cutoff: resetNodeID, BaseActivities: baseActivities,
+		NewRunID: newRunID, TargetWorkerIdentity: oldRun.TargetWorkerIdentity, Reason: req.Reason, Now: now,
+	})
 
 	forkResp, err := s.mgr.ForkBranch(execution.ForkBranchRequest{
 		SourceRunID: req.RunID,
@@ -98,15 +151,11 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 		Info:        oldRun.WorkflowID,
 	})
 	if err != nil {
-		return execution.ResetRunCommit{}, fmt.Errorf("fork branch: %w", err)
+		return execution.ResetRunCommit{}, "", fmt.Errorf("fork branch: %w", err)
 	}
 
-	now := s.clock.Now()
 	newRun := execution.NewResetRun(oldRun, newRunID, req.RunID, forkResp.BranchToken, now)
-	newRun.SearchAttributes, err = execution.SearchAttributesAtEvent(events, resetNodeID)
-	if err != nil {
-		return execution.ResetRunCommit{}, err
-	}
+	newRun.SearchAttributes = searchAttributes
 	// 新 run 继承 execution deadline，run deadline 从 reset 起算，随新 run 写入。配置读不到时 reset 照常
 	// 进行，新 run 不设截止时间。
 	if wf, err := s.workflowConfigs.GetWorkflowConfig(definition.WorkflowConfigRef{Namespace: newRun.Namespace, WorkflowType: newRun.WorkflowType, Version: newRun.WorkflowConfigVersion}); err == nil {
@@ -117,7 +166,7 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 	// 进事务前构造好 newTreeID/newBranchIDVal/wftFailedEvent（gorm 单连接：事务内不能再开非事务读，会死锁）。
 	newTreeID, newBranchIDVal, err := runBranchInfoFromRun(newRun)
 	if err != nil {
-		return execution.ResetRunCommit{}, err
+		return execution.ResetRunCommit{}, "", err
 	}
 	wftFailedEvent := history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{
 		ScheduledEventID: point.ScheduledEventID,
@@ -125,6 +174,7 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 		Cause:            execution.WorkflowTaskFailedCauseResetWorkflow,
 		BaseRunID:        req.RunID,
 		ResetRunID:       newRunID,
+		RequestID:        req.RequestID,
 		Reason:           req.Reason,
 	})
 
@@ -133,24 +183,24 @@ func (s *Server) prepareReset(req execution.ResetWorkflowRequest) (execution.Res
 	if status == history.StatusRunning {
 		replaced, err := resetTermination(oldRun)
 		if err != nil {
-			return execution.ResetRunCommit{}, err
+			return execution.ResetRunCommit{}, "", err
 		}
 		terminate = append(terminate, replaced)
 	}
 	expectedCurrent, replacedCurrent, err := s.takeOverCurrentForReset(refOf(oldRun))
 	if err != nil {
-		return execution.ResetRunCommit{}, err
+		return execution.ResetRunCommit{}, "", err
 	}
 	if replacedCurrent != nil {
 		terminate = append(terminate, *replacedCurrent)
 	}
 	return execution.ResetRunCommit{
-		NewRun: newRun, ExpectedCurrent: expectedCurrent, BaseRunID: req.RunID,
-		TreeID: newTreeID, BranchID: newBranchIDVal, FailedEvent: wftFailedEvent,
+		NewRun: newRun, ExpectedCurrent: expectedCurrent, BaseRunID: req.RunID, ExpectedBaseResetRunID: oldRun.ResetRunID,
+		TreeID: newTreeID, BranchID: newBranchIDVal, FailedEvent: wftFailedEvent, Pending: pending,
 		ReapplyEvents: execution.ResetReapplyEvents(events, resetNodeID, req.ReapplyExcludeTypes),
 		Terminate:     terminate,
 		Now:           now,
-	}, nil
+	}, "", nil
 }
 
 // takeOverCurrentForReset 返回 reset 切代时 current CAS 的 expectedOld，以及需要随 reset 一起终止的实际 current。
@@ -194,4 +244,21 @@ func resetTermination(run *execution.Run) (execution.ResetTermination, error) {
 		return execution.ResetTermination{}, err
 	}
 	return execution.ResetTermination{RunID: run.ID, TreeID: treeID, BranchID: branchID}, nil
+}
+
+// startResetPendingWork 在 reset 提交之后派发新 Run 保留的 Activity、挂上超时与 Timer。Activity 的
+// Schedule-To-Start 与 Schedule-To-Close 从 reset 时刻起算；已过期的 Timer 立即触发。派发失败时 state 已落库，
+// 由 reconciler 重投，只记日志。
+func (s *Server) startResetPendingWork(ctx context.Context, pending execution.ResetPendingWork) {
+	postCommitCtx := context.WithoutCancel(ctx)
+	for _, st := range pending.Activities {
+		s.armActivityTimeouts(st, true)
+		if _, err := s.dispatchActivityTask(postCommitCtx, s.activityTaskFromState(st)); err != nil {
+			s.logger.Error("post-commit reset activity dispatch failed; reconciler will redispatch",
+				"run_id", st.RunID, "scheduled_event_id", st.ScheduledEventID, "err", err)
+		}
+	}
+	for _, st := range pending.Timers {
+		s.startDurableTimer(st.RunID, st.ScheduledEventID, st.Deadline)
+	}
 }

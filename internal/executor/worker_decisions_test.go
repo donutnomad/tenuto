@@ -35,7 +35,7 @@ func TestIncrementalFailureReportsBlockedExecution(t *testing.T) {
 	want := errors.New("non-deterministic command")
 	result := reportIncrementalTaskResult(context.Background(), context.Background(), protocol.Task{RunID: "run-1", ScheduledEventID: 12}, backend,
 		IncrementalTaskResult{Failure: IncrementalTaskExecutionFailure, Err: want}, WorkflowTaskOptions{
-			BlocksOnError: func(err error) bool { return errors.Is(err, want) }, BlockedCause: "non_deterministic_error",
+			BlockedCause: func(err error) string { return map[bool]string{true: "non_deterministic_error"}[errors.Is(err, want)] },
 		})
 	if result.Outcome != "failed" || !errors.Is(result.Error, want) || result.ReportErr != nil || backend.failedCause != "non_deterministic_error" {
 		t.Fatalf("result=%+v cause=%q", result, backend.failedCause)

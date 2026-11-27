@@ -27,11 +27,11 @@ Reset 面板只列出 Workflow Task 边界。选择边界后预览：
 
 ## Activity Reset
 
-在 Activity Call 上选择 Reset，查看全部 Attempts、最后 Heartbeat（运行中取自 Activity 状态，超时的 Attempt 取自 `ActivityTimedOut`）和外部幂等键。Reset 后 Attempt 从 1 开始，旧 Token 和旧 Worker 回报由 Stamp 隔离。
+在 Activity Call 上选择 Reset，查看全部 Attempts、最后 Heartbeat（运行中取自 Activity 状态，超时的 Attempt 取自 `ActivityTimedOut`，被 Workflow Reset 打断的 Attempt 取自新 Run 的 `ActivityFailed`）和外部幂等键。Reset 后 Attempt 从 1 开始，旧 Token 和旧 Worker 回报由 Stamp 隔离。
 
 ## Schedule
 
-Schedule 页面支持 Create、Pause、Resume、Trigger 和 Delete。每次操作的结果显示在列表上方：失败时显示 Server 返回的错误，Trigger 成功时显示新 Run ID 并链接到 Run Detail。Delete 先弹出确认框。列表按 Workflow Type（精确匹配）和 Active / Paused 状态在 Server 侧筛选，Overlap Policy 列显示每个 Schedule 的 `SKIP` 或 `ALLOW_ALL`。Run Count 链接到 Runs 列表，只列这个 Schedule 启动的 Run（按搜索属性 `TemporalScheduledById` 过滤，含 Continue-As-New 与重试产生的 Run）。
+Schedule 页面支持 Create、Pause、Resume、Trigger 和 Delete。每次操作的结果显示在列表上方：失败时显示 Server 返回的错误，Trigger 成功时显示新 Run ID 并链接到 Run Detail。Delete 先弹出确认框。列表按 Workflow Type（精确匹配）和 Active / Paused 状态在 Server 侧筛选，Overlap Policy 列显示每个 Schedule 的 `SKIP` 或 `ALLOW_ALL`，Catch-up 列显示补触发窗口，有跳过的到期点时附带 `missed`（超出窗口）、`dropped`（超出 1000 个的 buffer 上限）与 `failed`（启动失败而丢弃）计数。Create 对话框的 Catch-up Window 接受 `90s`、`30m`、`1h`、`7d`，留空取 365 天，小于 `10s` 时提示错误。Run Count 链接到 Runs 列表，只列这个 Schedule 启动的 Run（按搜索属性 `TemporalScheduledById` 过滤，含 Continue-As-New 与重试产生的 Run）。
 
 ## Batch
 

@@ -20,7 +20,7 @@ HTTP：`POST /runtime/workflow/cancel`，body `{"namespace","workflow_id","run_i
 ### 送达与终态
 
 1. Server 写入 `WorkflowCancellationRequested` 并调度 Workflow Task。
-2. Worker 在这条事件之后、协程推进之前取消根 Context；重放时在同一位置送达。
+2. Worker 在这条事件之后、协程推进之前取消根 Context；重放时在同一位置送达。同一个 Workflow Task 看到的事件里，取消请求之前已有结果的 Activity、timer、子 Workflow 照常返回结果；取消请求之后才到的结果不改变已按取消返回的 Future（与 Temporal 按事件顺序处理相同）。
 3. Workflow 代码继续运行。已取消 Context 上的操作：`ExecuteActivity` → 请求取消 Activity；`Sleep` → 取消 timer（`TimerCancelled`），立即返回取消错误；`ExecuteChildWorkflow` → 子 Run 收到取消请求；`Await` → 条件不满足时返回取消错误；`ctx.Done()` 已关闭，`ctx.Err()` 返回 `workflow.ErrCanceled`。`WaitSignal`、Channel、`Select` 不受影响，要同时等取消就把 `ctx.Done()` 放进 Selector。
 4. 返回值决定终态：取消错误（`workflow.IsCanceledError` 为 true）→ `cancelled`（`WorkflowCancelled.details` 来自该错误）；`nil` → `completed`；其他错误 → `failed`。没有取消请求时返回取消错误也是 `cancelled`。
 
@@ -83,7 +83,7 @@ cancel() // 只取消 cctx 里的 Activity / timer / 子 Workflow
 - 取消中的 Activity 仍可能完成一次外部调用，用幂等键保护写入。
 - 不等子 Workflow（`WaitForCancellation: false`）的父 Run 关闭后，仍在运行的子 Run 按父关闭策略处理：默认终止，`ParentClosePolicyRequestCancel` 不重复请求，`ParentClosePolicyAbandon` 继续运行（见 `child-and-continue-as-new.md`）。
 - 已接受未完成的 Update 在 Run 以 `cancelled` 关闭时以 `AcceptedUpdateCompletedWorkflow` 失败结束。
-- Run 以任何方式结束（完成、失败、取消、终止、超时、continue-as-new）时，仍未触发的 timer（例如 Signal 先到、被放弃的等待超时 timer）在同一事务里置为 `run_closed`：不写 `TimerCancelled`（同 Temporal），到期也不再触发。
+- Run 以任何方式结束（完成、失败、取消、终止、超时、continue-as-new）时，仍未触发的 timer（例如 Signal 先到、被放弃的等待超时 timer）在同一事务里置为 `run_closed`：不写 `TimerCancelled`（同 Temporal），到期也不再触发。仍未结束的 Activity 同样置为 `run_closed`，不写事件，不再超时或重试；Worker 之后的心跳收到 Run 已结束。
 
 ## 终止
 
@@ -108,7 +108,7 @@ HTTP：`POST /runtime/workflow/terminate`，body 同取消。终止立即结束 
 | `HeartbeatTimeout` | 两次 Heartbeat 的间隔 | Worker 崩溃、网络中断 |
 
 - `ScheduleToStartTimeout` 与 `ScheduleToCloseTimeout` 到期后 Call 直接失败；`StartToCloseTimeout` 与 `HeartbeatTimeout` 按 RetryPolicy 决定下一次 Attempt。
-- 配置了 `StartToCloseTimeout` 时，Activity 的 `ctx` 带同样的 deadline。
+- Activity 的 `ctx` 截止在本次 Attempt 的 deadline：`StartToCloseTimeout` 与 `ScheduleToCloseTimeout` 剩余时间中先到的一个（同 Temporal Go SDK）。Attempt 在 `ctx` 截止之后才返回时 Worker 不上报结果（成功或 `context deadline exceeded`），由 Server 判定超时，Workflow 稳定收到超时错误，`workflow.TimeoutTypeOf(err)` 返回对应种类。心跳应答明确答复 Attempt 已失效（Run 已结束、Activity 已关闭、Attempt 已过期，或 Run 不存在 `run_not_found`）时 Worker 取消 `ctx`、不上报，Activity 返回后执行槽位随即释放；心跳请求的其他错误（包括反向代理的 4xx）只算一次失败的心跳，继续执行。
 - 每个调用至少设置 `StartToCloseTimeout` 或 `ScheduleToCloseTimeout`：Attempt 开始后它的存活只由超时判定。
 - 超时后旧 Attempt 的回报按 Task Token 校验，过期回报不推进状态。
 - 每次超时写一条 `ActivityTimedOut`，`timeoutType` 是超时种类（`ScheduleToStart`、`StartToClose`、`ScheduleToClose`、`Heartbeat`），`failure.message` 是说明，`lastHeartbeatDetails` 是超时时最后一次心跳的详情（心跳本身不写 History）。Call 因超时最终失败时，`workflow.TimeoutTypeOf(err)` 返回超时种类，不是超时错误时为空串。
@@ -122,7 +122,7 @@ Workflow 级的等待上限用 Timer 表达：一条协程 `workflow.Sleep`，�
 单个 Workflow Task 的执行上限由 `worker.Options.WorkflowTaskTimeout` 控制，缺省 10 秒。Worker 领取时把它报给 Server，Server 记在 `WorkflowTaskStarted.timeoutMs` 并从领取时刻计时：
 
 - Worker 超时内没执行完时自己上报超时；Worker 领取后崩溃或失联时，Server 到期记 `WorkflowTaskTimedOut`。同一个 Workflow Task 只记一次。
-- 超时后 Server 立即调度新的 Workflow Task 并结束 sticky 会话，新任务进普通队列，任何 Worker 都能领取。
+- 超时后 Server 立即调度新的 Workflow Task 并结束 sticky 会话，新任务进普通队列，任何 Worker 都能领取。超时已提交、新任务还没调度时副本退出或写库失败，周期补偿与启动恢复补上调度。
 - 计时持久化：Server 重启后继续计时；持有计时的副本下线后，其他副本的到期扫描在 30 秒宽限期后接管。
 
 Workflow 函数体里的纯计算受执行预算约束（见 `go-subset.md`）；耗时计算放进 Activity。

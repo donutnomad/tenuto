@@ -26,10 +26,10 @@ type workflowTaskContextReader interface {
 }
 
 type WorkflowTaskOptions struct {
-	Capabilities  []string
-	Execute       func(context.Context, *program.WorkflowConfig, []history.Event) ([]history.Command, error)
-	BlocksOnError func(error) bool
-	BlockedCause  string
+	Capabilities []string
+	Execute      func(context.Context, *program.WorkflowConfig, []history.Event) ([]history.Command, error)
+	// BlockedCause 返回让 Workflow Task 失败（Run 保持 Running）的执行错误的 cause；返回空串的错误让 Workflow 失败。
+	BlockedCause func(error) string
 }
 
 type WorkflowTaskResult struct {
@@ -54,6 +54,7 @@ func RunWorkflowTask(taskCtx, runtimeCtx context.Context, task protocol.Task, ba
 	if workflowTaskClosed(events, task.ScheduledEventID) {
 		return WorkflowTaskResult{Outcome: "skipped"}
 	}
+	events = eventsThroughStarted(events, task.ScheduledEventID)
 	wfConfig, err := backend.GetWorkflowConfig(taskCtx, task.RunID, task.ProgramVersion)
 	if err != nil {
 		return workflowReadFailure(taskCtx, runtimeCtx, task, backend, err)
@@ -78,15 +79,21 @@ func RunWorkflowTask(taskCtx, runtimeCtx context.Context, task protocol.Task, ba
 			return reportWorkflowTimeout(taskCtx, runtimeCtx, task, backend, result.err)
 		}
 		if result.err != nil {
-			if opts.BlocksOnError != nil && opts.BlocksOnError(result.err) {
-				err = backend.HandleWorkflowTaskFailed(runtimeCtx, task.RunID, task.ScheduledEventID, opts.BlockedCause, result.err.Error())
+			if cause := opts.blockedCause(result.err); cause != "" {
+				err = backend.HandleWorkflowTaskFailed(runtimeCtx, task.RunID, task.ScheduledEventID, cause, result.err.Error())
 			} else {
 				err = backend.HandleWorkflowTaskCompleted(runtimeCtx, task.RunID, task.ScheduledEventID,
 					[]history.Command{{Type: history.CmdFailWorkflow, Error: result.err.Error()}}, task.WorkerIdentity)
 			}
 			return WorkflowTaskResult{Outcome: "failed", Error: result.err, ReportErr: err}
 		}
-		err = backend.HandleWorkflowTaskCompleted(runtimeCtx, task.RunID, task.ScheduledEventID, result.commands, task.WorkerIdentity)
+		err = protocol.CheckWorkflowTaskCommandsSize(result.commands)
+		if err == nil {
+			err = backend.HandleWorkflowTaskCompleted(runtimeCtx, task.RunID, task.ScheduledEventID, result.commands, task.WorkerIdentity)
+		}
+		if errors.Is(err, protocol.ErrPayloadTooLarge) {
+			return reportCommandsTooLarge(runtimeCtx, task, backend, err)
+		}
 		return WorkflowTaskResult{ReportErr: err}
 	case <-taskCtx.Done():
 		return reportWorkflowTimeout(taskCtx, runtimeCtx, task, backend, taskCtx.Err())
@@ -132,6 +139,18 @@ func workflowTaskClosed(events []history.Event, scheduledEventID int64) bool {
 	return false
 }
 
+// eventsThroughStarted 截到本次 Workflow Task 的 WorkflowTaskStarted 为止。全量路径的决策只看这个前缀，
+// Server 把这个事件 ID 记为 WorkflowTaskCompleted.SeenThroughEventID；读取时已在它之后落库的事实归下一个
+// Workflow Task，重放分批（SplitBatches）与这次决策看到的事件一致。没有找到时原样返回。
+func eventsThroughStarted(events []history.Event, scheduledEventID int64) []history.Event {
+	for i := len(events) - 1; i >= 0; i-- {
+		if started := events[i].WorkflowTaskStarted; started != nil && started.ScheduledEventID == scheduledEventID {
+			return events[:i+1]
+		}
+	}
+	return events
+}
+
 // ReadWorkflowEvents 读取 Run 的完整 History；backend 提供带 context 的读取时用它传递取消。
 func ReadWorkflowEvents(ctx context.Context, backend WorkflowTaskBackend, runID string) ([]history.Event, error) {
 	if reader, ok := backend.(workflowTaskContextReader); ok {
@@ -141,4 +160,20 @@ func ReadWorkflowEvents(ctx context.Context, backend WorkflowTaskBackend, runID 
 		return nil, err
 	}
 	return backend.GetEvents(runID)
+}
+
+// reportCommandsTooLarge 把超过大小上限的提交（Worker 提交前的总量检查，或 Server 应答 413）改报为
+// payload_size_limit_exceeded 失败：同样的命令重新提交只会再次超限，等 Workflow Task 超时只会无退避地循环。
+// Server 按 WFT 失败退避重试，Run 显示为 Blocked。
+func reportCommandsTooLarge(runtimeCtx context.Context, task protocol.Task, backend WorkflowTaskBackend, err error) WorkflowTaskResult {
+	reportErr := backend.HandleWorkflowTaskFailed(runtimeCtx, task.RunID, task.ScheduledEventID,
+		history.WorkflowTaskFailedCausePayloadSizeLimitExceeded, err.Error())
+	return WorkflowTaskResult{Outcome: "failed", Error: err, ReportErr: reportErr}
+}
+
+func (o WorkflowTaskOptions) blockedCause(err error) string {
+	if o.BlockedCause == nil {
+		return ""
+	}
+	return o.BlockedCause(err)
 }

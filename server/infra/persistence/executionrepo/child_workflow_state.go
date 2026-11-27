@@ -63,9 +63,58 @@ func (s *Repository) ListChildWorkflowStates(runID string) ([]*execution.ChildWo
 	if err != nil {
 		return nil, err
 	}
+	return childWorkflowStateRowsToStates(rows)
+}
+
+// ListOpenChildWorkflowStates 是一条按主键前缀 run_id 的范围查询，只取 initiated / started 的子关联。
+func (s *Repository) ListOpenChildWorkflowStates(runIDs []string) ([]*execution.ChildWorkflowState, error) {
+	if len(runIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := infradb.Find(s.db, gsql.From[ChildWorkflowStatePO](ChildWorkflowStateSchema).
+		Where(
+			ChildWorkflowStateSchema.RunID.In(runIDs...),
+			ChildWorkflowStateSchema.Status.In(
+				string(execution.ChildWorkflowStatusEnums.Initiated), string(execution.ChildWorkflowStatusEnums.Started)),
+		).
+		Order(ChildWorkflowStateSchema.RunID).Order(ChildWorkflowStateSchema.ScheduledEventID))
+	if err != nil {
+		return nil, err
+	}
+	return childWorkflowStateRowsToStates(rows)
+}
+
+// GetChildWorkflowStates 是一条按主键 (run_id, scheduled_event_id) 的多点查询。
+func (s *Repository) GetChildWorkflowStates(keys []execution.ChildWorkflowKey) (map[execution.ChildWorkflowKey]*execution.ChildWorkflowState, error) {
+	out := make(map[execution.ChildWorkflowKey]*execution.ChildWorkflowState, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+	conditions := make([]gsql.Expression, len(keys))
+	for i, key := range keys {
+		conditions[i] = gsql.And(
+			ChildWorkflowStateSchema.RunID.Eq(key.RunID),
+			ChildWorkflowStateSchema.ScheduledEventID.Eq(key.ScheduledEventID),
+		)
+	}
+	rows, err := infradb.Find(s.db, gsql.From[ChildWorkflowStatePO](ChildWorkflowStateSchema).Where(gsql.Or(conditions...)))
+	if err != nil {
+		return nil, err
+	}
+	states, err := childWorkflowStateRowsToStates(rows)
+	if err != nil {
+		return nil, err
+	}
+	for _, st := range states {
+		out[execution.ChildWorkflowKey{RunID: st.RunID, ScheduledEventID: st.ScheduledEventID}] = st
+	}
+	return out, nil
+}
+
+func childWorkflowStateRowsToStates(rows []*ChildWorkflowStatePO) ([]*execution.ChildWorkflowState, error) {
 	out := make([]*execution.ChildWorkflowState, 0, len(rows))
-	for i := range rows {
-		st, err := childWorkflowStateRowToState(rows[i])
+	for _, row := range rows {
+		st, err := childWorkflowStateRowToState(row)
 		if err != nil {
 			return nil, err
 		}

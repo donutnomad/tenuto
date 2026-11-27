@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/donutnomad/tenuto/protocol"
+	"github.com/donutnomad/tenuto/protocol/runtimeapi"
 	"github.com/donutnomad/tenuto/server/biz/domain/dispatch"
 )
 
@@ -33,7 +34,7 @@ func TestRuntimeLeaseUsesSignedTaskIdentity(t *testing.T) {
 }
 
 func TestRuntimeRequestsRequireTaskToken(t *testing.T) {
-	if _, err := activityRuntimeRequestTask(testTaskTokens(), "", protocol.Task{Type: protocol.TaskTypeActivity, RunID: "run-a", ScheduledEventID: 1}); err == nil {
+	if _, err := activityRuntimeRequestTask(testTaskTokens(), runtimeapi.ActivityRuntimeTaskRequest{WorkerIdentity: "worker-a"}); err == nil {
 		t.Fatal("accepted an activity request without a task token")
 	}
 	if _, _, err := workflowTaskRequestRef(testTaskTokens(), ""); err == nil {

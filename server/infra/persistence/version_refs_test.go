@@ -12,6 +12,7 @@ import (
 	"github.com/donutnomad/tenuto/protocol/history"
 	"github.com/donutnomad/tenuto/server/biz/domain/definition"
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
+	"github.com/donutnomad/tenuto/server/infra/persistence/executionrepo"
 	"github.com/donutnomad/tenuto/server/infra/persistence/mysqltest"
 	"gorm.io/gorm"
 )
@@ -40,7 +41,8 @@ func TestLatestWorkflowConfigRefErrorContract(t *testing.T) {
 
 func TestListAllReturnsDatabaseError(t *testing.T) {
 	db := newUnconnectedDB(t, &gorm.Config{TranslateError: true})
-	store, err := New(db, Config{})
+	// persistence.New 会在库上做一次探测，这里直接建仓储，句柄保持未连接。
+	runs, err := executionrepo.New(db, executionrepo.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +54,7 @@ func TestListAllReturnsDatabaseError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := store.Executions.CountRuns(); err == nil {
+	if _, err := runs.CountRuns(""); err == nil {
 		t.Fatal("CountRuns error = nil after the database connection was closed")
 	}
 }

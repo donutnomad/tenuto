@@ -44,7 +44,9 @@ CREATE TABLE `tenuto_runs` (
   -- 第二个置 current 写入相同 marker 会撞唯一约束失败，SetCurrentRunCAS 据此返回 false。
   `current_marker`            VARCHAR(383) DEFAULT NULL,
   PRIMARY KEY (`id`),
-  INDEX `idx_workflow_runs_namespace` (`namespace`),
+  -- Run 列表按 namespace（与状态）过滤、按 (created_at, id) 排序翻页；run-stats 按 namespace 分组计数。
+  INDEX `idx_workflow_runs_namespace` (`namespace`, `created_at`, `id`),
+  INDEX `idx_workflow_runs_namespace_status` (`namespace`, `status`, `created_at`, `id`),
   INDEX `idx_workflow_runs_workflow_id` (`workflow_id`),
   INDEX `idx_workflow_runs_workflow_type` (`workflow_type`),
   INDEX `idx_workflow_runs_parent_run_id` (`parent_run_id`),
@@ -56,7 +58,7 @@ CREATE TABLE `tenuto_runs` (
   INDEX `idx_workflow_runs_status_run_deadline` (`status`, `run_deadline_at`),
   INDEX `idx_workflow_runs_is_current` (`namespace`, `workflow_id`, `is_current`),
   UNIQUE INDEX `uniq_run_current_marker` (`current_marker`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE `tenuto_events` (
   `id`               BIGINT       NOT NULL AUTO_INCREMENT,
@@ -78,7 +80,7 @@ CREATE TABLE `tenuto_events` (
   -- dedupe 的范围是 branch：reset 出的 Run 不与 fork 来的祖先前缀去重。
   UNIQUE INDEX `idx_workflow_events_branch_node` (`branch_id`, `node_id`),
   UNIQUE INDEX `idx_workflow_events_branch_dedupe` (`branch_id`, `dedupe_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE `tenuto_execution_states` (
   `run_id`                         VARCHAR(191) NOT NULL,
@@ -117,7 +119,20 @@ CREATE TABLE `tenuto_execution_states` (
   -- 前缀列 sticky_worker_identity 绝大多数行是 ''（无 sticky），选择性良好；
   -- 第二列 sticky_expires_at 支撑过期范围扫描。
   INDEX `idx_wf_exec_states_sticky_fallback` (`sticky_worker_identity`, `sticky_expires_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
+
+-- tenuto_run_search_attributes 是搜索属性过滤的索引：每个 (Run, term) 一行，term 见 execution.SearchAttributeTerms
+-- （普通键是键与值，TemporalChangeVersion 按成员展开）。attr_hash = SHA-256(键 0x00 值)，键与值不限长度。
+-- 与 execution state 的 search_attributes_json 同事务维护，Run 删除时一起删除。namespace 与 created_at 抄自 Run，
+-- 按属性过滤的列表沿 (namespace, attr_hash, created_at, run_id) 的索引顺序读一页。
+CREATE TABLE `tenuto_run_search_attributes` (
+  `run_id`     VARCHAR(191) NOT NULL,
+  `attr_hash`  BINARY(32)   NOT NULL,
+  `namespace`  VARCHAR(191) NOT NULL,
+  `created_at` DATETIME(3)  NOT NULL,
+  PRIMARY KEY (`run_id`, `attr_hash`),
+  INDEX `idx_run_search_attributes_lookup` (`namespace`, `attr_hash`, `created_at`, `run_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- tenuto_history_tree 持久化 history branch 拓扑（fork/reset 的核心表）。
 CREATE TABLE `tenuto_history_tree` (
@@ -127,7 +142,7 @@ CREATE TABLE `tenuto_history_tree` (
   `info`       VARCHAR(191) NOT NULL DEFAULT '',
   `created_at` DATETIME(3)  NOT NULL,
   PRIMARY KEY (`tree_id`, `branch_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- workflow_child_workflow_states 持久化 child workflow 的调度/完成状态。
 -- 对应 ChildWorkflowStatePO；(run_id, scheduled_event_id) 复合主键。
@@ -152,7 +167,7 @@ CREATE TABLE `tenuto_child_workflow_states` (
   INDEX `idx_workflow_child_workflow_states_child_id` (`child_id`),
   INDEX `idx_workflow_child_workflow_states_child_run_id` (`child_run_id`),
   INDEX `idx_workflow_child_workflow_states_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE `tenuto_configs` (
   `namespace`     VARCHAR(191) NOT NULL DEFAULT 'default',
@@ -161,7 +176,7 @@ CREATE TABLE `tenuto_configs` (
   `config_json`   LONGBLOB     NOT NULL,
   `created_at`    DATETIME(3)  NOT NULL,
   PRIMARY KEY (`namespace`, `workflow_type`, `version`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE `tenuto_config_active` (
   `namespace`     VARCHAR(191) NOT NULL DEFAULT 'default',
@@ -169,7 +184,7 @@ CREATE TABLE `tenuto_config_active` (
   `version`       VARCHAR(64)  NOT NULL,
   `updated_at`    DATETIME(3)  NOT NULL,
   PRIMARY KEY (`namespace`, `workflow_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE `tenuto_task_dispatches` (
   `namespace`          VARCHAR(191) NOT NULL DEFAULT 'default',
@@ -195,7 +210,7 @@ CREATE TABLE `tenuto_task_dispatches` (
   INDEX `idx_task_dispatches_status` (`status`),
   INDEX `idx_task_dispatches_lease_id` (`lease_id`),
   INDEX `idx_task_dispatches_lease_expires_at` (`lease_expires_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE `tenuto_activity_states` (
   `run_id`                         VARCHAR(191) NOT NULL,
@@ -211,6 +226,7 @@ CREATE TABLE `tenuto_activity_states` (
   `cancel_requested`               BOOLEAN      NOT NULL DEFAULT FALSE,
   `worker_identity`                VARCHAR(191) NOT NULL DEFAULT '',
   `worker_build_id`                VARCHAR(191) NOT NULL DEFAULT '',
+  `start_request_id`               VARCHAR(128) NOT NULL DEFAULT '',
   `last_heartbeat_json`            LONGBLOB,
   `last_heartbeat_at`              DATETIME(3),
   `retry_last_failure`             LONGTEXT,
@@ -233,7 +249,7 @@ CREATE TABLE `tenuto_activity_states` (
   INDEX `idx_activity_states_run_id` (`run_id`),
   INDEX `idx_activity_states_activity_id` (`activity_id`),
   INDEX `idx_activity_states_status` (`status`, `timeout_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE `tenuto_timer_states` (
   `run_id`             VARCHAR(191) NOT NULL,
@@ -249,7 +265,7 @@ CREATE TABLE `tenuto_timer_states` (
   INDEX `idx_timer_states_run_id` (`run_id`),
   INDEX `idx_timer_states_timer_id` (`timer_id`),
   INDEX `idx_timer_states_status` (`status`, `deadline`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- ⚠️ 主键列宽受 InnoDB 索引键 3072 字节上限约束，改动前先算账。
 -- utf8mb4 每字符最多 4 字节，故 5 列复合主键的字节数 = (各列长度之和) × 4。
@@ -279,7 +295,7 @@ CREATE TABLE `tenuto_activity_worker_versions` (
   INDEX `idx_activity_worker_versions_build_id` (`build_id`),
   INDEX `idx_activity_worker_versions_task_queue` (`task_queue`),
   INDEX `idx_activity_worker_versions_expires_at` (`expires_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE IF NOT EXISTS `tenuto_schedules` (
   `id`              VARCHAR(191) NOT NULL,
@@ -299,11 +315,19 @@ CREATE TABLE IF NOT EXISTS `tenuto_schedules` (
   `next_run_at`     DATETIME(3),
   `last_run_id`     VARCHAR(191) NOT NULL DEFAULT '',
   `run_count`       INT          NOT NULL DEFAULT 0,
+  -- catchup_window_ns 是补触发窗口（纳秒）；missed_catchup_window、buffer_dropped 与 start_failed 是跳过的到期点计数。
+  `catchup_window_ns`     BIGINT NOT NULL,
+  `missed_catchup_window` BIGINT NOT NULL DEFAULT 0,
+  `buffer_dropped`        BIGINT NOT NULL DEFAULT 0,
+  `start_failed`          BIGINT NOT NULL DEFAULT 0,
+  -- buffer_drop_from / buffer_drop_until 是 buffer 满时丢弃的到期点区间，处理完保留的到期点后跳过它；没有时为 NULL。
+  `buffer_drop_from`      DATETIME(3),
+  `buffer_drop_until`     DATETIME(3),
   `created_at`      DATETIME(3)  NOT NULL,
   `updated_at`      DATETIME(3)  NOT NULL,
   PRIMARY KEY (`namespace`, `id`),
   INDEX `idx_workflow_schedules_next_run_at` (`next_run_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- tenuto_batch_operations 是批量操作（取消、终止、Reset）的持久化记录。HTTP 只写入 pending 记录，
 -- 后台驱动（leader 副本）按 (created_at, id) 游标分页处理选中的 Run，每页处理完后把计数与
@@ -331,7 +355,7 @@ CREATE TABLE IF NOT EXISTS `tenuto_batch_operations` (
   `updated_at`        DATETIME(3)   NOT NULL,
   PRIMARY KEY (`namespace`, `id`),
   INDEX `idx_tenuto_batch_operations_status` (`status`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 -- tenuto_deletion_tasks 是 retention GC 的投递载体：一行 = 「一棵 history tree 到期后整体删除」。
 --
@@ -354,7 +378,7 @@ CREATE TABLE `tenuto_deletion_tasks` (
   `updated_at` DATETIME(3)  NOT NULL,
   PRIMARY KEY (`tree_id`),
   INDEX `idx_deletion_tasks_fire_at` (`fire_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE IF NOT EXISTS `tenuto_leader_lock` (
   `lock_name`   VARCHAR(64)     NOT NULL COMMENT '锁名称/组件名',
@@ -362,7 +386,7 @@ CREATE TABLE IF NOT EXISTS `tenuto_leader_lock` (
   `expire_time` DATETIME(3)     NOT NULL COMMENT '锁的绝对过期时间',
   `version`     BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '每次易主 +1，Fencing Token',
   PRIMARY KEY (`lock_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE IF NOT EXISTS `tenuto_leader_lock_members` (
   `lock_name`       VARCHAR(64)  NOT NULL COMMENT '锁名称,与主锁表对应',
@@ -379,4 +403,4 @@ CREATE TABLE IF NOT EXISTS `tenuto_leader_lock_members` (
   `last_seen`       DATETIME(3)  NOT NULL COMMENT '最近一次心跳时间,leader 据此判活',
   PRIMARY KEY (`lock_name`, `instance_id`),
   KEY `idx_lock_lastseen` (`lock_name`, `last_seen`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;

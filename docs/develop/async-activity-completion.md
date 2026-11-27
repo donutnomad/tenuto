@@ -26,6 +26,8 @@ func WaitForPayment(ctx context.Context, in PaymentInput) (PaymentResult, error)
 
 Worker 识别 `activity.ErrPending` 后保留 Activity 的 open state，并确认当前任务租约。`activity.GetInfo(ctx).TaskToken` 是字符串形式的 Token，任务不带 Token 时为空字符串。
 
+Token 只含寻址与 fence 字段（Run、Scheduled Event、Attempt、Stamp、Activity ID 等），不含 Activity 输入：长度只随 ID 字段变化，与输入大小无关，适合存进外部系统。Token 的格式在 2026-11-26 变化，此前签发的 Token 不再有效。
+
 ## 外部完成
 
 完成入口有两个：Runtime HTTP 端点 `POST /runtime/activity/complete`，以及 Server 进程内的 `(*engine.Server).CompleteActivity`。
@@ -49,9 +51,9 @@ curl -sS -X POST http://127.0.0.1:7400/runtime/activity/complete \
 | 字段 | 含义 |
 | --- | --- |
 | `task_token` | 必填，`activity.GetInfo(ctx).TaskToken` 的值；为空时返回 `activity runtime task token is empty` |
-| `output` | 成功时的 Activity 输出，JSON object |
+| `output` | 成功时的 Activity 输出，JSON object；超过载荷上限（默认 2 MiB）时 Server 把这次完成记为不可重试的 `PayloadSizeLimitExceeded` 失败 |
 | `failure` | 省略表示成功；提供时表示失败，结构为 `{message, type, nonRetryable, details, cause}` |
-| `task` | 可选，只读取其中的 Worker Identity 与 Build ID 用于记录 |
+| `worker_identity`、`worker_build_id` | 可选，只用于记录 |
 
 成功响应为 `{"ok": true}`。Token 由 Server 验签，并且必须是 Activity Task 的 Token。这个端点属于 Runtime API，与其他端点一样受 `WORKFLOW_HTTP_AUTH_TOKEN` 与 mTLS 保护（开启时）；对外暴露给第三方回调时放在受保护的适配层之后，不要把 Server token 交给第三方。
 

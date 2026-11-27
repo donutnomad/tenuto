@@ -2,16 +2,20 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	taskqgormstore "github.com/donutnomad/taskq/store/gormstore"
+	"github.com/donutnomad/tenuto/protocol/runtimeapi"
+	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/http/runtimehttp"
 	"gorm.io/gorm"
 )
@@ -38,6 +42,32 @@ func newHTTPHandler(runtime http.Handler, health *healthState, partitions partit
 	mux.Handle("/admin/partitions", auth.require(health.requireReady(partitionHandler(partitions))))
 	return mux
 }
+
+// limitInFlight 限制同时处理的非长轮询请求数：超出 limit 时立即应答 503 与 Retry-After，请求没有被处理，
+// 客户端可以重发（含非幂等端点）。长轮询（runtimeapi.IsLongPoll）不计入；Update 在拿锁与写库阶段计入，
+// 进入等结果的长等待之前经 engine.WithLongWaitRelease 归还名额。
+func limitInFlight(next http.Handler, limit int) http.Handler {
+	slots := make(chan struct{}, limit)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if runtimeapi.IsLongPoll(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			var once sync.Once
+			release := func() { once.Do(func() { <-slots }) }
+			defer release()
+			next.ServeHTTP(w, r.WithContext(engine.WithLongWaitRelease(r.Context(), release)))
+		default:
+			w.Header().Set("Retry-After", inFlightRetryAfter)
+			http.Error(w, "too many requests in flight; retry", http.StatusServiceUnavailable)
+		}
+	})
+}
+
+// inFlightRetryAfter 是在途请求数超限时 503 应答的 Retry-After（秒）。
+const inFlightRetryAfter = "1"
 
 // mux 返回只含 /health/live 与 /health/ready 的路由。
 func (h *healthState) mux() *http.ServeMux {
@@ -94,6 +124,58 @@ func (h *healthState) readiness(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeHealth(w, http.StatusOK, "ok")
+}
+
+// dbProbe 用一条专用连接检查数据库可达。readiness 因此不在业务连接池上排队：池被业务请求占满时探针照常通过，
+// 不会让所有副本同时摘除；数据库失联时 Ping 失败。连接坏掉后丢弃，下一次检查重新取一条。
+// 它长期占用连接池的一个连接，所以连接池至少要有 minProbedPoolConns 条连接，见 newDBProbe。
+type dbProbe struct {
+	db   *sql.DB
+	mu   sync.Mutex
+	conn *sql.Conn
+}
+
+// minProbedPoolConns 是带 readiness 探针的连接池的最小连接数：探针占一条，业务至少还有一条。
+const minProbedPoolConns = 2
+
+// newDBProbe 为 pool 建探针。pool 的连接上限低于 minProbedPoolConns 时返回错误：探针占住唯一的连接后，
+// 业务查询在连接池上无限等待，而 readiness 照常通过。
+func newDBProbe(name string, pool *sql.DB) (*dbProbe, error) {
+	if limit := pool.Stats().MaxOpenConnections; limit > 0 && limit < minProbedPoolConns {
+		return nil, fmt.Errorf("%s database pool allows %d open connections, need at least %d: readiness holds one connection (WORKFLOW_DB_MAX_OPEN_CONNS)", name, limit, minProbedPoolConns)
+	}
+	return &dbProbe{db: pool}, nil
+}
+
+func (p *dbProbe) check(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn != nil {
+		if err := p.conn.PingContext(ctx); err == nil {
+			return nil
+		}
+		_ = p.conn.Close()
+		p.conn = nil
+	}
+	conn, err := p.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	if err := conn.PingContext(ctx); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	p.conn = conn
+	return nil
+}
+
+func (p *dbProbe) close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn != nil {
+		_ = p.conn.Close()
+		p.conn = nil
+	}
 }
 
 func (h *healthState) requireReady(next http.Handler) http.Handler {

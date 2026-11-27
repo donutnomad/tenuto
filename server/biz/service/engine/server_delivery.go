@@ -18,8 +18,10 @@ import (
 // PollWorkflowTask 取一个 workflow task lease。不再属于 open Workflow Task 的陈旧投递由 Server Ack 丢弃，
 // 继续下一轮 poll；用循环而非递归，队列里堆积大量陈旧投递时栈深度恒定。
 //
-// 取到 lease 之后的准备、领取与 Ack/Nack 不随 ctx 取消（见 pollWorkflowTaskOnce）。
+// 等待随 ctx 或 StopLongPolls 结束；取到 lease 之后的准备、领取与 Ack/Nack 不随它们取消（见 pollWorkflowTaskOnce）。
 func (s *Server) PollWorkflowTask(ctx context.Context) (protocol.TaskLease, error) {
+	ctx, cancel := s.longPollContext(ctx)
+	defer cancel()
 	for {
 		polled, matched, err := s.pollWorkflowTaskOnce(ctx)
 		if err != nil {
@@ -206,7 +208,7 @@ func (s *Server) startWorkflowTask(ctx context.Context, polled polledWorkflowTas
 	now := s.clock.Now()
 	var result execution.WorkflowTaskStartResult
 	// 选版、激活与 WorkflowTaskStarted 同一事务提交：两者要么都写入，要么都不写入。
-	if err := s.telemetry.runInTx(ctx, "start_workflow_task", s.mgr, func(tx execution.ExecutionTx) error {
+	if err := s.runInTx(ctx, "start_workflow_task", func(tx execution.ExecutionTx) error {
 		var err error
 		result, err = execution.StartWorkflowTask(tx, execution.WorkflowTaskStart{
 			RunID: lease.Task.RunID, TreeID: tid, BranchID: bid, ScheduledEventID: scheduledEventID,
@@ -279,7 +281,9 @@ func (s *Server) validateWorkflowTaskWorkerCapabilities(ctx context.Context, con
 }
 
 func (s *Server) PollActivityTask(ctx context.Context, taskQueue string) (protocol.TaskLease, error) {
-	lease, err := s.actQueue.Dequeue(ctx, taskQueue)
+	pollCtx, cancel := s.longPollContext(ctx)
+	defer cancel()
+	lease, err := s.actQueue.Dequeue(pollCtx, taskQueue)
 	if err != nil {
 		return protocol.TaskLease{}, err
 	}
@@ -367,17 +371,48 @@ func (s *Server) validateWorkflowTaskToken(ctx context.Context, run *execution.R
 	return dispatch.ValidateTaskNamespace(task, run.Namespace)
 }
 
-// DispatchPendingTasks 是全量补偿：对每个 Running 的 run 做一次补偿（见 reconcileRun 与 reconcileRunningRuns），
-// 返回本轮补投的任务数。单个 run 失败计入返回的 error，不影响其余 run。代价与 Running 的 run 数成正比，
-// reconciler 按 ReconcileFullScanInterval 低频调用，周期补偿走 Reconcile。
+// DispatchPendingTasks 是全量补偿：对 ListRecoveryRunIDs(now) 选出的 Run 补投任务（reconcileRun），再逐页做
+// 没有到期索引的兜底（reconcileRunningRuns），返回本轮补投的任务数。单个 run 失败计入返回的 error，不影响其余 run。
+// 每页 Running Run 是固定的几条批量查询，reconciler 按 ReconcileFullScanInterval 低频调用，周期补偿走 Reconcile。
 func (s *Server) DispatchPendingTasks(ctx context.Context) (dispatch.WorkflowDispatchResult, error) {
-	result, err := s.reconcileRunningRuns(ctx, false)
+	result, err := s.reconcileCandidates(ctx, s.clock.Now(), false)
+	err = errors.Join(err, s.reconcileRunningRuns(ctx))
 	// 在引擎层记录而非调用方：HTTP 触发与 reconciler 周期补投都经由此处。
 	s.telemetry.recordBacklog(ctx, result.WorkflowTasks, result.ActivityTasks)
 	return result, err
 }
 
+// scheduleWorkflowTask 在新事实写入之后调度 Workflow Task：Run 不在 Running 时不调度；Run 处于 WFT 失败退避期内
+// （blocked）时也不调度，事实留在 History 里（ActivationPending），由退避到期时的重试一并处理，与 Temporal 在
+// WFT 失败后保留 transient WFT、新事件并入下一次尝试一致。退避到期与显式恢复走 resumeWorkflowTask。
 func (s *Server) scheduleWorkflowTask(ctx context.Context, runID string) error {
+	state, err := s.mgr.GetWorkflowExecutionState(runID)
+	if err != nil {
+		return err
+	}
+	if state.Status != history.StatusRunning {
+		return nil
+	}
+	if retryAt, blocked := state.BlockedRetryAt(s.wftBackoffBase, s.wftBackoffCap); blocked && retryAt.After(s.clock.Now()) {
+		return nil
+	}
+	return s.appendWorkflowTask(ctx, runID)
+}
+
+// resumeWorkflowTask 在 WFT 失败退避到期或显式恢复（set-policy）时调度 Workflow Task，不看 blocked 退避。
+func (s *Server) resumeWorkflowTask(ctx context.Context, runID string) error {
+	status, err := s.GetRunStatus(runID)
+	if err != nil {
+		return err
+	}
+	if status != history.StatusRunning {
+		return nil
+	}
+	return s.appendWorkflowTask(ctx, runID)
+}
+
+// appendWorkflowTask 写入 WorkflowTaskScheduled（已有 open WFT 时复用它）并派发。
+func (s *Server) appendWorkflowTask(ctx context.Context, runID string) error {
 	// ConfigError 暂停推进：等待人工修复后显式 set-policy 恢复。期间到达的
 	// signal/activity 完成只留在 history，恢复后由新的 WFT 统一 replay。
 	// UpgradeError 不阻塞调度，失败重试由 WFT 退避机制负责重调度。
@@ -429,15 +464,31 @@ func (s *Server) scheduleWorkflowTask(ctx context.Context, runID string) error {
 	return nil
 }
 
-func (s *Server) scheduleWorkflowTaskIfRunning(ctx context.Context, runID string) error {
-	status, err := s.GetRunStatus(runID)
+// scheduleWorkflowTaskAfterSignal 在 Signal 写入之后调度 Workflow Task。重试 Run 仍在首个 Workflow Task 的退避期内时
+// 不调度：Signal 留在 History 里，由退避到期时的 Workflow Task 一并处理。与 Temporal signalworkflow 的
+// createWorkflowTask := !IsWorkflowPendingOnWorkflowTaskBackoff() 一致；取消请求、Update 与 SignalWithStart 不看退避，立即调度。
+func (s *Server) scheduleWorkflowTaskAfterSignal(ctx context.Context, runID string) error {
+	state, err := s.mgr.GetWorkflowExecutionState(runID)
 	if err != nil {
 		return err
 	}
-	if status != history.StatusRunning {
-		return nil
+	if pending, err := s.pendingOnWorkflowTaskBackoff(state); err != nil || pending {
+		return err
 	}
 	return s.scheduleWorkflowTask(ctx, runID)
+}
+
+// pendingOnWorkflowTaskBackoff 见 execution.WorkflowExecutionState.PendingOnWorkflowTaskBackoff；调度过
+// Workflow Task 的 Run 不读 timer。
+func (s *Server) pendingOnWorkflowTaskBackoff(state *execution.WorkflowExecutionState) (bool, error) {
+	if state.HadOrHasWorkflowTask() {
+		return false, nil
+	}
+	timers, err := s.mgr.ListTimerStates(state.RunID)
+	if err != nil {
+		return false, err
+	}
+	return state.PendingOnWorkflowTaskBackoff(timers), nil
 }
 
 func (s *Server) dispatchWorkflowTask(ctx context.Context, task protocol.Task) (dispatched bool, err error) {

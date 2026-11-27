@@ -35,16 +35,22 @@ type WorkflowExecutor struct {
 	// 事实表：由 applyBatch 从事件灌入，协程只读。Activity 的结果以调度事件 ID 为键。
 	completed map[int64]map[string]any
 	failed    map[int64]*protocol.Failure
+	// activityTypes 是调度事件 ID → Activity type，用于按 Program 的解码类型规范化结果（见 payloadNormalizer）。
+	activityTypes map[int64]string
+	// payloadNormalizer 在第一次灌入 Signal、Activity 或子 Workflow 结果时构造。
+	payloadNormalizer *payloadNormalizer
 	// unclaimedActivities 是历史里还没有对应调用的 ActivityScheduled（ActivityID → 调度事件 ID，按历史顺序）；
 	// awaitingActivities 是已发出调度命令、调度事件尚未到达的调用。二者把调度事件绑定到 ExecuteActivity
 	// 调用（见 activityCall）。
 	unclaimedActivities map[string][]int64
 	awaitingActivities  map[string]*activityCall
 	signals             map[string][]map[string]any
-	updateAccepted      map[string][]history.WorkflowUpdateRecord
-	updateCompleted     map[string]map[string]any
-	timersScheduled     map[string]history.Event
-	timersFired         map[string]bool
+	// signalsConsumed 是每个 Signal 名称已被 SignalFuture 消费的条数，见 SignalFuture。
+	signalsConsumed map[string]int
+	updateAccepted  map[string][]history.WorkflowUpdateRecord
+	updateCompleted map[string]map[string]any
+	timersScheduled map[string]history.Event
+	timersFired     map[string]bool
 	// rootScope 是根 Context 的取消作用域：WorkflowCancellationRequested 灌入后、本批协程推进前取消。
 	rootScope *cancelScope
 	// timerCanceled / childCanceled 记录 Workflow 代码一侧已按取消结束的操作：取消请求发出即返回的
@@ -82,7 +88,11 @@ type WorkflowExecutor struct {
 	replayBatchStart int
 	// spawnedUpdates 是已经起过 handler 协程的 UpdateID 集合，保证每个 update 只起一个协程。
 	spawnedUpdates map[string]bool
-	evalErr        error
+	// queuedUpdates 是本批到达、name 尚未登记 handler 的 update，按事件顺序排队；SetUpdateHandler 登记时立即起它们的
+	// handler 协程，本批收敛后仍未登记的以 UnknownUpdate 失败（对标 Temporal Go SDK 的 QueueUpdate 与
+	// DrainUnhandledUpdates）。
+	queuedUpdates []history.WorkflowUpdateRecord
+	evalErr       error
 	// workflowReturnErr 是 main body 返回非 nil error 时的错误消息。
 	workflowReturnErr string
 	// workflowReturnFailed 标记 body 返回了非 nil error。失败判定用它，
@@ -128,8 +138,10 @@ type WorkflowExecutor struct {
 	activeWLExec *wlruntime.Executor
 	// activeAPI 是当前 program 的 runtimeWorkflowAPI（executeWLang 注入）。update handler 协程
 	// 经它读 handler 注册表；协程可能早于 main 首次运行，此时为 nil。
-	activeAPI              *runtimeWorkflowAPI
-	stepHook               wlruntime.StepHook
+	activeAPI *runtimeWorkflowAPI
+	stepHook  wlruntime.StepHook
+	// batchSteps 是当前决策批已执行的 WLang 语句数，runDecisionBatch 开始时清零（见 workflowMaxBatchSteps）。
+	batchSteps             int64
 	debugEffectHook        executor.DebugEffectHook
 	debugWaitingActivities map[uint64]executor.DebugWaitingActivity
 	// debugActivities 按调用顺序记录调试回放里的每次 ExecuteActivity；为 nil 时不记录。
@@ -219,8 +231,10 @@ func NewWorkflowExecutorWithContext(ctx context.Context, workflow *program.Workf
 		completed:           make(map[int64]map[string]any),
 		failed:              make(map[int64]*protocol.Failure),
 		unclaimedActivities: make(map[string][]int64),
+		activityTypes:       make(map[int64]string),
 		awaitingActivities:  make(map[string]*activityCall),
 		signals:             make(map[string][]map[string]any),
+		signalsConsumed:     make(map[string]int),
 		updateAccepted:      make(map[string][]history.WorkflowUpdateRecord),
 		updateCompleted:     make(map[string]map[string]any),
 		timersScheduled:     make(map[string]history.Event),
@@ -335,7 +349,7 @@ func (e *WorkflowExecutor) startScheduler() {
 				if nd, ok := r.(executor.NonDeterministicError); ok {
 					e.execErr = nd
 				} else {
-					e.execErr = fmt.Errorf("workflow executor panic: %v", r)
+					e.execErr = executor.WorkflowPanicError{Value: r}
 				}
 			}
 		}()
@@ -345,27 +359,42 @@ func (e *WorkflowExecutor) startScheduler() {
 	})
 }
 
-// restore 重放已提交的决策批，并把重放产出的命令序列与这些批里的历史命令事件比对。
-// 每个批对应一个已完成的 Workflow Task：它看到的外部事件加上它产出的命令事件。
-// 调用前必须已 startScheduler。返回错误时 executor 不可继续使用。
+// restore 重放已提交的决策批，逐批把重放产出的命令与该批的历史命令事件比对。
+// 每个批对应一个已完成的 Workflow Task：它看到的外部事件、WorkflowTaskCompleted 与它产出的命令事件。
+// 按批比对对标 Temporal SDK 按 Workflow Task 处理命令事件：命令挪到另一个 Workflow Task 时，即使命令的
+// 总顺序不变也报非确定性。调用前必须已 startScheduler。返回错误时 executor 不可继续使用。
 func (e *WorkflowExecutor) restore(committed [][]history.Event) error {
-	var historyCommands []history.Event
-	for _, batch := range committed {
+	for index, batch := range committed {
 		e.runDecisionBatch(batch, true)
 		if err := e.executionError(); err != nil {
 			return err
 		}
+		// 重放中执行到 ContinueAsNew 的 Run 已经结束，本批及之后的命令不参与比对。
+		if e.canInReplay() {
+			return nil
+		}
+		var historyCommands []history.Event
 		for _, event := range batch {
 			if executor.IsCommandEvent(event) {
 				historyCommands = append(historyCommands, event)
 			}
 		}
+		if err := executor.MatchReplayWithHistory(e.replayCommands[e.replayBatchStart:], historyCommands); err != nil {
+			return executor.NewNonDeterministicError(fmt.Sprintf("%s in Workflow Task %d (completed at event %d)",
+				err.Error(), index+1, batchCompletedEventID(batch)))
+		}
 	}
-	// 重放中执行到 ContinueAsNew 的 Run 已经结束，其后的命令序列不参与比对。
-	if e.canInReplay() {
-		return nil
+	return nil
+}
+
+// batchCompletedEventID 返回已提交批的 WorkflowTaskCompleted 事件 ID。
+func batchCompletedEventID(batch []history.Event) int64 {
+	for _, event := range batch {
+		if event.WorkflowTaskCompleted != nil {
+			return event.ID
+		}
 	}
-	return executor.MatchReplayWithHistory(e.replayCommands, historyCommands)
+	return 0
 }
 
 // activate 执行 live 决策批并在 e.commands 中留下本次 Workflow Task 的命令。
@@ -379,6 +408,18 @@ func (e *WorkflowExecutor) activate(batch []history.Event) error {
 	if !e.terminated {
 		e.emitConvergedCommand()
 	}
+	// ContinueAsNew 在调用时立即入批，同一批里其他协程（例如 update handler）随后产出的命令排在它后面。
+	// 结束 Run 的命令移到本批末尾，其余命令保持产出顺序（对标 Temporal SDK 在批末追加关闭命令）：
+	// Server 按顺序写入，终态事件之后不再接受事件。
+	var closing []history.Command
+	e.commands = slices.DeleteFunc(e.commands, func(command history.Command) bool {
+		if command.Type.ClosesWorkflow() {
+			closing = append(closing, command)
+			return true
+		}
+		return false
+	})
+	e.commands = append(e.commands, closing...)
 	return nil
 }
 
@@ -389,10 +430,28 @@ func (e *WorkflowExecutor) activate(batch []history.Event) error {
 // 取消请求的送达点固定在这里：本批灌入 WorkflowCancellationRequested 之后、协程推进之前取消根作用域，
 // 对标 Temporal 处理 WorkflowExecutionCancelRequested 事件时调用 cancelHandler。取消产生的命令
 // 排在本批其余命令之前，重放同一批时在同一位置产生。
+//
+// 取消按事件顺序送达（对标 Temporal 按序处理事件）：本批先灌入取消请求及之前的事件，取消根作用域，再灌入其余事件。
+// 取消请求之后才完成的 Activity、触发的 timer、关闭的子 Workflow 在取消时仍算未结束，按取消处理；
+// 不等待取消的 Future 以取消错误返回，之后到达的结果不改变它。
 func (e *WorkflowExecutor) runDecisionBatch(batch []history.Event, replay bool) {
 	e.isReplay = replay
 	e.replayBatchStart = len(e.replayCommands)
-	e.applyBatch(batch)
+	e.batchSteps = 0
+	cut := len(batch)
+	if !e.cancellationRequested {
+		if i := slices.IndexFunc(batch, func(event history.Event) bool { return event.WorkflowCancellationRequested != nil }); i >= 0 {
+			cut = i + 1
+		}
+	}
+	e.applyBatch(batch[:cut])
+	if e.cancellationRequested && (replay || !e.terminated) {
+		e.rootScope.cancel()
+	}
+	e.applyBatch(batch[cut:])
+	if now, ok := batchTime(batch); ok {
+		e.currentTime = now
+	}
 	// 没有 WorkflowTaskStarted 的批（裸历史、空的 live 末批）在批尾取 GetInfo 快照。
 	if !slices.ContainsFunc(batch, func(event history.Event) bool { return event.WorkflowTaskStarted != nil }) {
 		e.captureActivationInfo()
@@ -400,12 +459,16 @@ func (e *WorkflowExecutor) runDecisionBatch(batch []history.Event, replay bool) 
 	if !replay && e.terminated {
 		return
 	}
-	if e.cancellationRequested {
-		e.rootScope.cancel()
-	}
 	e.flushFutureBridges()
 	e.spawnUpdateHandlers()
 	e.sched.RunBatch()
+	if len(e.queuedUpdates) > 0 {
+		for _, rec := range e.queuedUpdates {
+			e.sched.Spawn("update:"+rec.UpdateID, e.updateHandlerCoroutine(rec))
+		}
+		e.queuedUpdates = nil
+		e.sched.RunBatch()
+	}
 }
 
 func (e *WorkflowExecutor) executionError() error {
@@ -472,7 +535,7 @@ func (e *WorkflowExecutor) recordCoroutinePanic(r any) {
 	if nd, ok := r.(executor.NonDeterministicError); ok {
 		e.evalErr = nd
 	} else {
-		e.evalErr = fmt.Errorf("workflow coroutine panic: %v", r)
+		e.evalErr = executor.WorkflowPanicError{Value: r}
 	}
 }
 

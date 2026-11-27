@@ -32,6 +32,16 @@
           "do": [
             {
               "let": {
+                "zzLoopStep1": {
+                  "literal": {
+                    "type": "int64",
+                    "value": "0"
+                  }
+                }
+              }
+            },
+            {
+              "let": {
                 "out": {
                   "zero": "steps.StepOutput"
                 }

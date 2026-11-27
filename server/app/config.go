@@ -15,8 +15,10 @@ import (
 	"github.com/donutnomad/tenuto/server/infra/persistence/executionrepo"
 
 	"github.com/donutnomad/tenuto/internal/worker"
+	"github.com/donutnomad/tenuto/protocol"
 	"github.com/donutnomad/tenuto/protocol/runtimeapi"
 	"github.com/donutnomad/tenuto/server/biz/domain/dispatch"
+	"github.com/donutnomad/tenuto/server/biz/service/engine"
 	"github.com/donutnomad/tenuto/server/biz/usecase/retention"
 	"github.com/donutnomad/tenuto/telemetry"
 )
@@ -53,9 +55,15 @@ const (
 	defaultMembershipPollInterval    = 3 * time.Second
 	defaultMembershipReplicaPoints   = 200
 	defaultDatabaseMaxOpenConns      = 50
-	defaultDatabaseMaxIdleConns      = 10
-	defaultDatabaseConnMaxLifetime   = 30 * time.Minute
-	defaultDatabaseConnMaxIdleTime   = 5 * time.Minute
+	// defaultDatabaseReadTimeout 大于 InnoDB 行锁等待的缺省上限（innodb_lock_wait_timeout = 50s），
+	// 锁等待仍以 MySQL 1205 返回，不被当成连接失败。
+	defaultDatabaseReadTimeout  = 60 * time.Second
+	defaultDatabaseWriteTimeout = 30 * time.Second
+	// defaultMaxInFlightPerConn 是 WORKFLOW_HTTP_MAX_IN_FLIGHT 缺省值相对 Workflow 连接池大小的倍数。
+	defaultMaxInFlightPerConn      = 4
+	defaultDatabaseMaxIdleConns    = 10
+	defaultDatabaseConnMaxLifetime = 30 * time.Minute
+	defaultDatabaseConnMaxIdleTime = 5 * time.Minute
 	// memory 后端未设 WORKFLOW_TASK_TOKEN_SECRET 时使用的开发密钥。
 	defaultDevelopmentTokenSecret = "workflow-task-token-development-secret"
 	defaultOTELServiceName        = "tenuto-server"
@@ -98,6 +106,12 @@ type Config struct {
 	Artifacts ArtifactConfig
 	// WorkflowWorker 控制本进程内执行 Workflow Task 的 worker。
 	WorkflowWorker WorkflowWorkerConfig
+	// QueryConcurrency 是同时在本进程重放 History 求值 Query 的上限（WORKFLOW_QUERY_CONCURRENCY）；<=0 取引擎默认值。
+	QueryConcurrency int
+	// PayloadSizeLimit 是单个载荷（Workflow 输入与结果、Activity 输入、输出与心跳详情等）JSON 编码后的字节上限
+	// （WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES）。<=0 取 protocol.DefaultPayloadSizeLimit，上限
+	// protocol.MaxPayloadSizeLimit。
+	PayloadSizeLimit int
 	// PprofAddr 非空时在这个地址上提供 net/http/pprof（WORKFLOW_PPROF_ADDR），缺省关闭。调试用，不鉴权，
 	// 只绑定本机或内网地址。
 	PprofAddr string
@@ -194,6 +208,10 @@ type HTTPConfig struct {
 	// （runtimehttp.MaxRuntimePollTimeout），否则正常的长轮询会被 server 掐断。
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+	// MaxInFlight 是 /runtime/* 上同时处理的非长轮询请求数上限（WORKFLOW_HTTP_MAX_IN_FLIGHT），超出时应答 503 与
+	// Retry-After。缺省为 WORKFLOW_DB_MAX_OPEN_CONNS 的 defaultMaxInFlightPerConn 倍：请求在连接池上排队的深度
+	// 有界，数据库变慢时积压不会无限增长。长轮询（领取 Task、wait-closed、Update）不计入。
+	MaxInFlight int
 }
 
 type DatabaseConfig struct {
@@ -203,6 +221,10 @@ type DatabaseConfig struct {
 	MaxIdleConns        int
 	ConnMaxLifetime     time.Duration
 	ConnMaxIdleTime     time.Duration
+	// ReadTimeout / WriteTimeout 是 DSN 没有给出 readTimeout / writeTimeout 时使用的连接 I/O 超时：数据库失联或
+	// 主从切换时，挂在连接上的读写在这个期限内以连接错误返回，不无限期占住连接与请求。0 表示不设。
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
 }
 
 type TaskQConfig struct {
@@ -324,6 +346,8 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 			MaxIdleConns:        defaultDatabaseMaxIdleConns,
 			ConnMaxLifetime:     defaultDatabaseConnMaxLifetime,
 			ConnMaxIdleTime:     defaultDatabaseConnMaxIdleTime,
+			ReadTimeout:         defaultDatabaseReadTimeout,
+			WriteTimeout:        defaultDatabaseWriteTimeout,
 		},
 		TaskQ: TaskQConfig{
 			DSN:                     envOrDefault(lookup, "TASKQ_DB_DSN", databaseDSN),
@@ -351,8 +375,10 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 		NodeID:                    envOrDefault(lookup, "WORKFLOW_NODE_ID", hostname),
 		PprofAddr:                 envOrDefault(lookup, "WORKFLOW_PPROF_ADDR", ""),
 		StartupTimeout:            defaultStartupTimeout,
+		PayloadSizeLimit:          protocol.DefaultPayloadSizeLimit,
 		ReconcileInterval:         defaultReconcileInterval,
 		ReconcileFullScanInterval: defaultReconcileFullScanInterval,
+		QueryConcurrency:          engine.DefaultQueryConcurrency,
 		Retention: RetentionConfig{
 			Retention:        defaultRetention,
 			Jitter:           defaultRetentionJitter,
@@ -455,11 +481,19 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 		{"WORKFLOW_WORKER_CONCURRENCY", &cfg.WorkflowWorker.Concurrency},
 		{"WORKFLOW_WORKER_CACHE_MAX_ENTRIES", &cfg.WorkflowWorker.CacheMaxEntries},
 		{"WORKFLOW_WORKER_CACHE_MAX_BYTES", &cfg.WorkflowWorker.CacheMaxBytes},
+		{"WORKFLOW_QUERY_CONCURRENCY", &cfg.QueryConcurrency},
+		{"WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES", &cfg.PayloadSizeLimit},
 	}
 	for _, value := range integers {
 		if err := applyPositiveInt(lookup, value.name, value.target); err != nil {
 			return Config{}, err
 		}
+	}
+	if err := applyPositiveInt(lookup, "WORKFLOW_HTTP_MAX_IN_FLIGHT", &cfg.HTTP.MaxInFlight); err != nil {
+		return Config{}, err
+	}
+	if cfg.HTTP.MaxInFlight == 0 {
+		cfg.HTTP.MaxInFlight = defaultMaxInFlightPerConn * cfg.Database.MaxOpenConns
 	}
 	// TASKQ_WORKFLOW_QUEUE_PARTITIONS 可选：>=1 才覆盖 workflow queue 分区，省略=0=不覆盖。
 	if err := applyPositiveInt(lookup, "TASKQ_WORKFLOW_QUEUE_PARTITIONS", &cfg.TaskQ.WorkflowQueuePartitions); err != nil {
@@ -473,6 +507,14 @@ func loadConfig(lookup envLookup, hostname string) (Config, error) {
 }
 
 // Validate 按「所有数据库均由本包依 DSN 自行拨号」校验配置。
+// payloadSizeLimit 是生效的载荷上限：<=0 取缺省值。
+func (c Config) payloadSizeLimit() int {
+	if c.PayloadSizeLimit <= 0 {
+		return protocol.DefaultPayloadSizeLimit
+	}
+	return c.PayloadSizeLimit
+}
+
 func (c Config) Validate() error {
 	return c.validate(false, false)
 }
@@ -482,6 +524,9 @@ func (c Config) Validate() error {
 func (c Config) validate(workflowDBInjected, taskQDBInjected bool) error {
 	if c.Backend != BackendMySQLTaskQ && c.Backend != BackendMemory {
 		return fmt.Errorf("WORKFLOW_BACKEND must be %q or %q", BackendMySQLTaskQ, BackendMemory)
+	}
+	if c.PayloadSizeLimit > protocol.MaxPayloadSizeLimit {
+		return fmt.Errorf("WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES must not exceed %d (a payload plus its request must fit the 4MB runtime request body)", protocol.MaxPayloadSizeLimit)
 	}
 	if strings.TrimSpace(c.HTTP.Address) == "" {
 		return fmt.Errorf("WORKFLOW_HTTP_ADDR is empty")
@@ -505,6 +550,9 @@ func (c Config) validate(workflowDBInjected, taskQDBInjected bool) error {
 	}
 	if c.StartupTimeout <= 0 || c.ReconcileInterval <= 0 || c.ReconcileFullScanInterval <= 0 || c.HTTP.ShutdownTimeout <= 0 || c.HTTP.ReadHeaderTimeout <= 0 || c.HTTP.IdleTimeout <= 0 {
 		return fmt.Errorf("workflow timeouts and reconcile interval must be positive")
+	}
+	if c.HTTP.MaxInFlight <= 0 {
+		return fmt.Errorf("WORKFLOW_HTTP_MAX_IN_FLIGHT must be positive")
 	}
 	// ReadTimeout / WriteTimeout 允许为 0（= 不限制，Go 的语义），但不允许为负。
 	if c.HTTP.ReadTimeout < 0 || c.HTTP.WriteTimeout < 0 {
@@ -588,6 +636,10 @@ func (c Config) validate(workflowDBInjected, taskQDBInjected bool) error {
 	}
 	if (c.TaskQ.TLS.CertFile == "") != (c.TaskQ.TLS.KeyFile == "") {
 		return fmt.Errorf("TASKQ_TLS_CERT_FILE and TASKQ_TLS_KEY_FILE must be configured together")
+	}
+	// 内嵌 matching 的 gRPC 监听是明文，按 TLS 拨号的 TaskQ 客户端（本进程与其他副本）握手全部失败。
+	if c.TaskQ.TLS.Enabled && c.TaskQ.MatchingEnabled() {
+		return fmt.Errorf("TASKQ_TLS_ENABLED=true requires an external matching service (TASKQ_MATCHING_ENABLED=false): the embedded matching server listens without TLS")
 	}
 	if !c.TaskQ.TLS.Enabled && (c.TaskQ.TLS.CAFile != "" || c.TaskQ.TLS.ServerName != "" || c.TaskQ.TLS.CertFile != "") {
 		return fmt.Errorf("TASKQ_TLS_ENABLED must be true when TaskQ TLS files or server name are configured")

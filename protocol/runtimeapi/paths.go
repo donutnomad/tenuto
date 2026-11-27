@@ -88,8 +88,8 @@ const (
 	ActivityRuntimeReleasePath   = "/runtime/activity/release"
 )
 
-// nonIdempotentPaths 是重发会再执行一次的端点：Reset 产生新的 Run，触发 Schedule 启动新的 Run，
-// 登记批量操作与创建 Schedule 各新建一条记录，请求里都没有去重键。
+// nonIdempotentPaths 是重发会再执行一次的端点：Reset 产生新的 Run（只有带 request_id 时去重），触发 Schedule
+// 启动新的 Run，登记批量操作与创建 Schedule 各新建一条记录，请求里没有必填的去重键。
 var nonIdempotentPaths = map[string]bool{
 	WorkflowRuntimeResetPath:           true,
 	WorkflowRuntimeCreateSchedulePath:  true,
@@ -101,4 +101,18 @@ var nonIdempotentPaths = map[string]bool{
 // Server 在非幂等端点上不以 503 应答可能已经部分生效的失败。
 func IsIdempotent(path string) bool {
 	return !nonIdempotentPaths[path]
+}
+
+// longPollPaths 是整个请求都在等待事件发生的端点：领取 Task、等 Run 结束。它们的时长由等待决定，
+// Server 的在途请求上限不计入它们，停机时它们立即结束。Update 与 update-with-start 先拿锁写库、再等结果，
+// 只有等结果的阶段不计入在途上限。
+var longPollPaths = map[string]bool{
+	WorkflowTaskRuntimePollPath:   true,
+	ActivityRuntimePollPath:       true,
+	WorkflowRuntimeWaitClosedPath: true,
+}
+
+// IsLongPoll 报告 path 是否是长轮询端点。
+func IsLongPoll(path string) bool {
+	return longPollPaths[path]
 }

@@ -10,7 +10,8 @@ import type { BatchOperationType, ResetType, RunListItem, RunStatus } from "@/li
 import { REFRESH_INTERVAL_LIST } from "@/lib/constants"
 import { DEFAULT_RESET_TYPE, batchAccepted, selectedRunsBatchRequest, type BatchOutcome } from "@/lib/batch-operations"
 import { scheduleRunsFilter } from "@/lib/schedule-runs"
-import { countNoun, truncateID, formatDateTimeColumn } from "@/lib/format"
+import { truncateID, formatDateTimeColumn } from "@/lib/format"
+import { FIRST_PAGE, nextPage, previousPage, runListPage } from "@/lib/run-list-page"
 import { RunStatusBadge } from "@/components/dashboard/run-status-badge"
 import { BlockedBadge } from "@/components/dashboard/blocked-badge"
 import { ActionFeedback } from "@/components/dashboard/action-feedback"
@@ -92,7 +93,9 @@ function RunsPageContent() {
   const [statusFilter, setStatusFilter] = useState<RunStatus[]>([])
   // blockedOnly 是派生 predicate 过滤开关，独立于 statusFilter/ALL_STATUSES（Blocked 非 RunStatus）。
   const [blockedOnly, setBlockedOnly] = useState(false)
-  const [page, setPage] = useState(0)
+  const [pageTokens, setPageTokens] = useState<readonly string[]>(FIRST_PAGE)
+  const page = pageTokens.length - 1
+  const pageToken = pageTokens[page]
   const [pageSize, setPageSize] = useState(20)
   const [orderDesc, setOrderDesc] = useState(true)
   const [batchDialogType, setBatchDialogType] = useState<BatchOperationType | null>(null)
@@ -102,7 +105,7 @@ function RunsPageContent() {
   const [batchResult, setBatchResult] = useState<BatchOutcome | null>(null)
   const [batchResetType, setBatchResetType] = useState<ResetType>(DEFAULT_RESET_TYPE)
 
-  const listKey = ["runs", namespace, workflowFilter, scheduleFilter, statusFilter, blockedOnly, page, pageSize, orderDesc]
+  const listKey = ["runs", namespace, workflowFilter, scheduleFilter, statusFilter, blockedOnly, pageToken, pageSize, orderDesc]
   // 勾选只属于当前这一页与这组筛选：换页、换筛选或换排序后勾选自动清空，批量操作不会作用到看不见的 Run。
   const selectionKey = JSON.stringify(listKey)
   const [selection, setSelection] = useState<{ key: string; ids: ReadonlySet<string> }>({ key: selectionKey, ids: NO_SELECTION })
@@ -120,9 +123,10 @@ function RunsPageContent() {
         statuses: statusFilter.length > 0 ? statusFilter : undefined,
         include_terminal: true,
         blocked_only: blockedOnly || undefined,
-        offset: page * pageSize,
+        page_token: pageToken || undefined,
         limit: pageSize,
         order_desc: orderDesc,
+        skip_total: true,
       }),
     {
       refreshInterval: (data) => {
@@ -135,7 +139,7 @@ function RunsPageContent() {
   const handleStatusToggle = useCallback(
     (status: RunStatus) => {
       setStatusFilter((prev) => {
-        setPage(0)
+        setPageTokens(FIRST_PAGE)
         return prev.includes(status)
           ? prev.filter((s) => s !== status)
           : [...prev, status]
@@ -144,9 +148,7 @@ function RunsPageContent() {
     []
   )
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1
-  const isFirstPage = page === 0
-  const isLastPage = page >= totalPages - 1
+  const pageInfo = runListPage(page, pageSize, data)
   const runs: RunListItem[] = data?.items ?? []
   const hasRunningRun = runs.some((r) => r.status === "running")
   const isAutoRefreshing = hasRunningRun && isValidating
@@ -203,7 +205,7 @@ function RunsPageContent() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-foreground">
-            {data ? countNoun(data.total, "Run") : "Runs"}
+            Runs
           </h1>
           {isAutoRefreshing && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-600">
@@ -231,7 +233,7 @@ function RunsPageContent() {
             value={workflowFilter}
             onChange={(e) => {
               setWorkflowFilter((e.target as HTMLInputElement).value)
-              setPage(0)
+              setPageTokens(FIRST_PAGE)
             }}
             className="pl-8 h-8 text-sm"
           />
@@ -271,7 +273,7 @@ function RunsPageContent() {
             size="sm"
             onClick={() => {
               setScheduleFilter("")
-              setPage(0)
+              setPageTokens(FIRST_PAGE)
               router.replace(`/${namespace}/runs`)
             }}
             title="Show runs of every schedule and of direct starts"
@@ -286,7 +288,7 @@ function RunsPageContent() {
         <Button
           variant={blockedOnly ? "default" : "outline"}
           size="sm"
-          onClick={() => { setBlockedOnly((v) => !v); setPage(0) }}
+          onClick={() => { setBlockedOnly((v) => !v); setPageTokens(FIRST_PAGE) }}
           aria-pressed={blockedOnly}
         >
           <AlertTriangle className="size-3.5" />
@@ -297,7 +299,7 @@ function RunsPageContent() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => { setStatusFilter([]); setPage(0) }}
+            onClick={() => { setStatusFilter([]); setPageTokens(FIRST_PAGE) }}
             className="text-sm"
           >
             Clear
@@ -366,7 +368,7 @@ function RunsPageContent() {
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
-                    onClick={() => { setOrderDesc((prev) => !prev); setPage(0) }}
+                    onClick={() => { setOrderDesc((prev) => !prev); setPageTokens(FIRST_PAGE) }}
                   >
                     Start
                     {orderDesc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />}
@@ -446,7 +448,7 @@ function RunsPageContent() {
                 value={pageSize}
                 onChange={(e) => {
                   setPageSize(Number(e.target.value))
-                  setPage(0)
+                  setPageTokens(FIRST_PAGE)
                 }}
                 className="h-7 rounded-md border border-input bg-transparent px-1.5 text-sm outline-none"
               >
@@ -458,14 +460,14 @@ function RunsPageContent() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon-sm" disabled={isFirstPage} onClick={() => setPage((p) => p - 1)}>
+              <Button variant="ghost" size="icon-sm" disabled={!pageInfo.hasPrevious} onClick={() => setPageTokens(previousPage)}>
                 <ChevronLeft className="size-4" />
               </Button>
-              <Button variant="ghost" size="icon-sm" disabled={isLastPage} onClick={() => setPage((p) => p + 1)}>
+              <Button variant="ghost" size="icon-sm" disabled={!pageInfo.hasNext} onClick={() => setPageTokens((tokens) => nextPage(tokens, data))}>
                 <ChevronRight className="size-4" />
               </Button>
               <span className="text-sm text-muted-foreground tabular-nums">
-                {page * pageSize + 1}–{Math.min((page + 1) * pageSize, data.total)} of {data.total}
+                {pageInfo.first}–{pageInfo.last}
               </span>
             </div>
           </div>

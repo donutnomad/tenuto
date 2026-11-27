@@ -42,6 +42,7 @@ func newTestSchedule(id, namespace, workflowType, cron string) *schedule.Schedul
 		Input:          map[string]any{"key": "value"},
 		Paused:         false,
 		OverlapPolicy:  "SKIP",
+		CatchupWindow:  schedule.DefaultCatchupWindow,
 		NextRunAt:      &nextRunAt,
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -90,21 +91,25 @@ func testRoundTrip(t *testing.T, store schedule.Repository) {
 	nextRunAt := now.Add(time.Hour)
 
 	sch := &schedule.Schedule{
-		ID:             "sch-roundtrip",
-		Namespace:      "default",
-		WorkflowType:   "wf-1",
-		Description:    "a test schedule",
-		CronExpression: "*/5 * * * *",
-		Timezone:       "Asia/Shanghai",
-		Input:          map[string]any{"order_id": "o-1", "amount": float64(100)},
-		Paused:         false,
-		OverlapPolicy:  "SKIP",
-		LastRunAt:      &lastRunAt,
-		NextRunAt:      &nextRunAt,
-		LastRunID:      "run-prev",
-		RunCount:       42,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                  "sch-roundtrip",
+		Namespace:           "default",
+		WorkflowType:        "wf-1",
+		Description:         "a test schedule",
+		CronExpression:      "*/5 * * * *",
+		Timezone:            "Asia/Shanghai",
+		Input:               map[string]any{"order_id": "o-1", "amount": float64(100)},
+		Paused:              false,
+		OverlapPolicy:       "SKIP",
+		CatchupWindow:       2 * time.Hour,
+		MissedCatchupWindow: 3,
+		BufferDropped:       4,
+		StartFailed:         5,
+		LastRunAt:           &lastRunAt,
+		NextRunAt:           &nextRunAt,
+		LastRunID:           "run-prev",
+		RunCount:            42,
+		CreatedAt:           now,
+		UpdatedAt:           now,
 	}
 
 	if err := store.CreateSchedule(sch); err != nil {
@@ -148,6 +153,10 @@ func testRoundTrip(t *testing.T, store schedule.Repository) {
 	}
 	if got.RunCount != sch.RunCount {
 		t.Errorf("RunCount: want %d, got %d", sch.RunCount, got.RunCount)
+	}
+	if got.CatchupWindow != sch.CatchupWindow || got.MissedCatchupWindow != sch.MissedCatchupWindow || got.BufferDropped != sch.BufferDropped || got.StartFailed != sch.StartFailed {
+		t.Errorf("catch-up fields: want (%s, %d, %d, %d), got (%s, %d, %d, %d)", sch.CatchupWindow, sch.MissedCatchupWindow, sch.BufferDropped, sch.StartFailed,
+			got.CatchupWindow, got.MissedCatchupWindow, got.BufferDropped, got.StartFailed)
 	}
 	if got.LastRunAt == nil || !got.LastRunAt.Equal(lastRunAt) {
 		t.Errorf("LastRunAt: want %v, got %v", lastRunAt, got.LastRunAt)

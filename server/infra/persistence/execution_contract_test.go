@@ -18,6 +18,10 @@ func TestGormEventNumberTypesContract(t *testing.T) {
 	executiontest.EventNumberTypesContract(t, newContractManager)
 }
 
+func TestGormEventsByDedupeKeysContract(t *testing.T) {
+	executiontest.EventsByDedupeKeysContract(t, newContractManager)
+}
+
 func TestGormStatePatchContract(t *testing.T) {
 	executiontest.StatePatchContract(t, newContractManager)
 }

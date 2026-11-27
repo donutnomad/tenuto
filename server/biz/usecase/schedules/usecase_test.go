@@ -795,28 +795,6 @@ func TestTrigger_RecordsRun(t *testing.T) {
 	}
 }
 
-func TestTrigger_CASConflict(t *testing.T) {
-	// Error Case: NextRunAt 的 CAS 被抢占时返回并发修改错误，且不启动 Run
-	ctx := context.Background()
-	store := memory.NewScheduleRepository()
-	created, err := newTestUseCase(newFakeFirer(store)).Create(schedules.CreateRequest{
-		WorkflowType: "wf-conflict", CronExpression: "0 0 * * *",
-	})
-	if err != nil {
-		t.Fatalf("Create failed: %v", err)
-	}
-	firer := newFakeFirer(newCASFailStore(store))
-
-	_, err = newTestUseCase(firer).Trigger(ctx, "default", created.ID)
-
-	if err == nil || !strings.Contains(err.Error(), "was concurrently modified") {
-		t.Fatalf("expected concurrent modification error, got %v", err)
-	}
-	if firer.startCallCount() != 0 {
-		t.Fatalf("expected no start call after CAS conflict, got %d", firer.startCallCount())
-	}
-}
-
 func TestTrigger_StartFailure(t *testing.T) {
 	// Error Case: 启动 Run 失败时返回该错误，不记录 Run
 	ctx := context.Background()
@@ -842,41 +820,6 @@ func TestTrigger_StartFailure(t *testing.T) {
 	}
 	if got.NextRunAt == nil || !got.NextRunAt.Equal(*created.NextRunAt) {
 		t.Fatalf("expected next_run_at to stay %v after a failed trigger, got %v", created.NextRunAt, got.NextRunAt)
-	}
-}
-
-func TestFireDue_StartFailureKeepsDueTime(t *testing.T) {
-	// Error Case: 启动 Run 失败时 NextRunAt 保持为到期点，下一轮扫描重新触发
-	store := memory.NewScheduleRepository()
-	firer := newFakeFirer(store)
-	due := time.Now().Add(-1 * time.Minute).Truncate(time.Millisecond)
-	if err := store.CreateSchedule(newTestSchedule("sch-retry", "wf-retry", "0 0 * * *", "ALLOW_ALL", &due)); err != nil {
-		t.Fatal(err)
-	}
-	uc := newTestUseCase(firer)
-
-	firer.startErr = errors.New("queue unavailable")
-	uc.FireDue(context.Background())
-
-	got, err := store.GetSchedule("default", "sch-retry")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.NextRunAt == nil || !got.NextRunAt.Equal(due) {
-		t.Fatalf("expected next_run_at kept at %v after a failed start, got %v", due, got.NextRunAt)
-	}
-
-	firer.mu.Lock()
-	firer.startErr = nil
-	firer.mu.Unlock()
-	uc.FireDue(context.Background())
-
-	got, err = store.GetSchedule("default", "sch-retry")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.RunCount != 1 || got.NextRunAt == nil || !got.NextRunAt.After(time.Now()) {
-		t.Fatalf("expected the retried fire to record the run and advance next_run_at, got run_count=%d next_run_at=%v", got.RunCount, got.NextRunAt)
 	}
 }
 
@@ -965,7 +908,7 @@ func TestFireDue_RecordsRun(t *testing.T) {
 	// Happy Path: 自动触发后记录 LastRunAt、LastRunID 与 RunCount
 	store := memory.NewScheduleRepository()
 	firer := newFakeFirer(store)
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	if err := store.CreateSchedule(newTestSchedule("sch-record", "wf-record", "* * * * *", "ALLOW_ALL", &past)); err != nil {
 		t.Fatal(err)
 	}

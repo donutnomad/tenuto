@@ -425,10 +425,11 @@ func ReplayMatchSideEffectFlow(ctx workflow.Context, input map[string]any) error
 	started := historypkg.NewWorkflowStartedEvent(nil, "", "", "", "", 0)
 	taskCompleted := historypkg.NewWorkflowTaskCompletedEvent(0, "")
 	signal := historypkg.Event{ID: 3, Timestamp: time.Now(), WorkflowSignaled: &historypkg.WorkflowSignaledEvent{Name: "go", Input: map[string]any{"k": "v"}}}
-	// 现在完整 replay：批1 replay + 批2 有历史 SideEffect marker → 比对不应误报。
-	marker := historypkg.Event{ID: 4, Timestamp: time.Now(), MarkerRecorded: &historypkg.MarkerRecordedEvent{MarkerName: "SideEffect", MarkerID: "#se1", Value: map[string]any{"value": map[string]any{"region": "sg"}}}}
+	// 现在完整 replay：批1 replay + 批2 有历史 SideEffect marker → 比对不应误报。marker 是批2 的命令事件，
+	// 排在批2 的 WorkflowTaskCompleted 之后。
 	wftc2 := historypkg.NewWorkflowTaskCompletedEvent(0, "")
-	_, err := NewWorkflowExecutor(nodes, []historypkg.Event{started, taskCompleted, signal, marker, wftc2}).Execute()
+	marker := historypkg.Event{ID: 5, Timestamp: time.Now(), MarkerRecorded: &historypkg.MarkerRecordedEvent{MarkerName: "SideEffect", MarkerID: "#se1", Value: map[string]any{"value": map[string]any{"region": "sg"}}}}
+	_, err := NewWorkflowExecutor(nodes, []historypkg.Event{started, taskCompleted, signal, wftc2, marker}).Execute()
 	if err != nil {
 		t.Fatalf("replay match with SideEffect marker must not report drift: %v", err)
 	}

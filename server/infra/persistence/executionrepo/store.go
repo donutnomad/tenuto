@@ -5,10 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"math"
-	"slices"
-	"strings"
 
 	"github.com/donutnomad/gsql"
 	"github.com/donutnomad/tenuto/protocol"
@@ -127,13 +124,18 @@ type runCountRow struct {
 	Count     int64
 }
 
-func (s *Repository) CountRuns() ([]execution.RunCount, error) {
-	rows, err := infradb.Find(s.db, gsql.SelectG[runCountRow](
+// CountRuns 按 (namespace, status) 分组计数，走 idx_workflow_runs_namespace_status 的索引扫描；给出 namespace 时只扫
+// 这个 namespace 的索引区间。
+func (s *Repository) CountRuns(namespace string) ([]execution.RunCount, error) {
+	query := gsql.SelectG[runCountRow](
 		RunSchema.Namespace,
 		RunSchema.Status,
 		RunSchema.ID.Count().As("count"),
-	).From(RunSchema).
-		GroupBy(RunSchema.Namespace, RunSchema.Status))
+	).From(RunSchema)
+	if namespace != "" {
+		query = query.Where(RunSchema.Namespace.Eq(namespace))
+	}
+	rows, err := infradb.Find(s.db, query.GroupBy(RunSchema.Namespace, RunSchema.Status))
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +148,27 @@ func (s *Repository) CountRuns() ([]execution.RunCount, error) {
 		})
 	}
 	return counts, nil
+}
+
+type targetWorkerRow struct {
+	Namespace            string
+	TargetWorkerIdentity string
+}
+
+// ListRunningTargetWorkers 走 idx_workflow_runs_status 的 running 区间。
+func (s *Repository) ListRunningTargetWorkers() ([]execution.TargetWorker, error) {
+	rows, err := infradb.Find(s.db, gsql.SelectG[targetWorkerRow](RunSchema.Namespace, RunSchema.TargetWorkerIdentity).
+		From(RunSchema).
+		Where(RunSchema.Status.Eq(string(history.StatusRunning)), RunSchema.TargetWorkerIdentity.Not("")).
+		Distinct())
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]execution.TargetWorker, 0, len(rows))
+	for _, row := range rows {
+		targets = append(targets, execution.TargetWorker{Namespace: row.Namespace, Identity: row.TargetWorkerIdentity})
+	}
+	return targets, nil
 }
 
 func runRowsToDomain(rows []*RunPO) ([]*execution.Run, error) {
@@ -168,11 +191,11 @@ var terminalRunStatuses = []string{
 	string(history.StatusContinuedAsNew),
 }
 
-// List 在分页之前应用全部过滤条件，Total 是过滤后的总数（SkipTotal 时不计数）。排序键是 (created_at, id)，
+// List 在分页之前应用全部过滤条件，Total 是过滤后的总数（SkipTotal 时不计数，与游标无关）。排序键是 (created_at, id)，
 // created_at 相同的 Run 跨页不重复也不丢失。
 //
-// blocked 与搜索属性取自 tenuto_execution_states 的投影列，经 EXISTS 子查询下推。
-// 两种方言都能表达的属性条件走 SQL；其余条件（见 splitSearchAttributeFilter）走 listByAttributeScan。
+// blocked 取自 tenuto_execution_states 的投影列，经 EXISTS 子查询下推；带搜索属性条件时由 listBySearchAttributes
+// 从 tenuto_run_search_attributes 的索引读。
 func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreListResult, error) {
 	runConds := []gsql.Expression{RunSchema.ID.In(filter.RunIDs...)}
 	if filter.Namespace != "" {
@@ -190,36 +213,24 @@ func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreList
 	} else if !filter.IncludeTerminal {
 		runConds = append(runConds, RunSchema.Status.NotIn(terminalRunStatuses...))
 	}
-	if filter.CreatedBefore != nil {
-		runConds = append(runConds, RunSchema.CreatedAt.Lt(*filter.CreatedBefore))
-	}
-	if after := filter.After; after != nil {
-		// 位于游标之后：created_at 更晚，或 created_at 相同而 id 更大（降序时反向）。
-		createdAfter, idAfter := RunSchema.CreatedAt.Gt(after.CreatedAt), gsql.Expr("? > ?", RunSchema.ID, after.RunID)
-		if filter.OrderDesc {
-			createdAfter, idAfter = RunSchema.CreatedAt.Lt(after.CreatedAt), gsql.Expr("? < ?", RunSchema.ID, after.RunID)
-		}
-		runConds = append(runConds, gsql.Or(createdAfter, gsql.And(RunSchema.CreatedAt.Eq(after.CreatedAt), idAfter)))
-	}
 
 	states := WorkflowExecutionStateSchema
 	var stateConds []gsql.Expression
 	if filter.BlockedOnly {
 		stateConds = append(stateConds, states.Blocked.Eq(true))
 	}
-	sqlAttributes, scanAttributes := splitSearchAttributeFilter(filter.SearchAttributes)
-	for _, key := range slices.Sorted(maps.Keys(sqlAttributes)) {
-		stateConds = append(stateConds, searchAttributeCondition(key, sqlAttributes[key]))
-	}
 
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	if len(scanAttributes) > 0 {
-		return s.listByAttributeScan(runConds, stateConds, scanAttributes, filter, limit)
+	if len(filter.SearchAttributes) > 0 {
+		return s.listBySearchAttributes(runConds, stateConds, filter, limit)
 	}
 
+	if filter.CreatedBefore != nil {
+		runConds = append(runConds, RunSchema.CreatedAt.Lt(*filter.CreatedBefore))
+	}
 	query := gsql.From[RunPO](RunSchema).Where(runConds...)
 	if len(stateConds) > 0 {
 		query = query.Where(gsql.Exists(
@@ -236,98 +247,31 @@ func (s *Repository) List(filter execution.StoreListFilter) (execution.StoreList
 			return execution.StoreListResult{}, err
 		}
 	}
+	if filter.After != nil {
+		query = query.Where(cursorCondition(RunSchema.CreatedAt, RunSchema.ID, filter.After, filter.OrderDesc))
+	}
+	// 多取一行判断是否还有下一页。
 	rows, err := infradb.Find(s.db, query.Order(RunSchema.CreatedAt, !filter.OrderDesc).
 		Order(RunSchema.ID, !filter.OrderDesc).
-		Offset(filter.Offset).Limit(limit))
+		Limit(limit+1))
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}
-	runs, err := runRowsToDomain(rows)
+	hasMore := len(rows) > limit
+	runs, err := runRowsToDomain(rows[:min(len(rows), limit)])
 	if err != nil {
 		return execution.StoreListResult{}, err
 	}
-	return execution.StoreListResult{Runs: runs, Total: int(total)}, nil
+	return execution.StoreListResult{Runs: runs, Total: int(total), HasMore: hasMore}, nil
 }
 
-// splitSearchAttributeFilter 把属性条件分成 SQL 可表达的全等条件与需要在 Go 中判定的条件。
-//
-// 走 Go 判定的两类：ChangeVersionSearchAttribute 的值是 JSON 数组编码成的字符串，成员匹配要把
-// 字符串再解析成数组；键含引号、反斜杠或控制字符时，拼进 JSON path 需要额外转义。
-func splitSearchAttributeFilter(attributes map[string]string) (sqlAttributes, scanAttributes map[string]string) {
-	sqlAttributes, scanAttributes = map[string]string{}, map[string]string{}
-	for key, value := range attributes {
-		unsafePath := key == "" || strings.ContainsFunc(key, func(r rune) bool { return r == '"' || r == '\\' || r < 0x20 })
-		if key == history.ChangeVersionSearchAttribute || unsafePath {
-			scanAttributes[key] = value
-			continue
-		}
-		sqlAttributes[key] = value
+// cursorCondition 表达「位于游标之后」：created_at 更晚，或 created_at 相同而 id 更大（降序时反向）。
+func cursorCondition(createdAt gsql.DateTimeField, id gsql.StringField, after *execution.RunCursor, desc bool) gsql.Expression {
+	createdAfter, idAfter := createdAt.Gt(after.CreatedAt), gsql.Expr("? > ?", id, after.RunID)
+	if desc {
+		createdAfter, idAfter = createdAt.Lt(after.CreatedAt), gsql.Expr("? < ?", id, after.RunID)
 	}
-	return sqlAttributes, scanAttributes
-}
-
-// searchAttributeCondition 表达 attrs[key] == value，缺失的键等同空串（与 execution.MatchSearchAttributes 一致）。
-// 列类型是 LONGBLOB，先 CAST 成字符再交给 JSON_EXTRACT。
-func searchAttributeCondition(key, value string) gsql.Expression {
-	extracted := gsql.JsonOf(WorkflowExecutionStateSchema.SearchAttributesJSON.CastChar()).Extract(`$."` + key + `"`)
-	if value == "" {
-		return gsql.Or(extracted.IsNull(), extracted.Eq(""))
-	}
-	return extracted.Eq(value)
-}
-
-type runAttributesRow struct {
-	RunID                string `gorm:"column:run_id"`
-	SearchAttributesJSON []byte `gorm:"column:search_attributes_json"`
-}
-
-// listByAttributeScan 按排序取出候选 Run 的 (run_id, 搜索属性)，用 execution.MatchSearchAttributes
-// 过滤后再分页，页内容与 Total 都来自过滤后的集合。候选集已经过全部 SQL 条件收窄。
-func (s *Repository) listByAttributeScan(runConds, stateConds []gsql.Expression, attributes map[string]string, filter execution.StoreListFilter, limit int) (execution.StoreListResult, error) {
-	states := WorkflowExecutionStateSchema
-	candidates, err := infradb.Find(s.db, gsql.SelectG[runAttributesRow](states.RunID, states.SearchAttributesJSON).
-		From(states).
-		Join(gsql.InnerJoin(RunSchema).On(RunSchema.ID.EqF(states.RunID))).
-		Where(runConds...).
-		Where(stateConds...).
-		Order(RunSchema.CreatedAt, !filter.OrderDesc).
-		Order(RunSchema.ID, !filter.OrderDesc))
-	if err != nil {
-		return execution.StoreListResult{}, err
-	}
-	matched := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		var attrs map[string]string
-		if len(candidate.SearchAttributesJSON) > 0 {
-			if err := json.Unmarshal(candidate.SearchAttributesJSON, &attrs); err != nil {
-				return execution.StoreListResult{}, fmt.Errorf("run %s search attributes: %w", candidate.RunID, err)
-			}
-		}
-		if execution.MatchSearchAttributes(attrs, attributes) {
-			matched = append(matched, candidate.RunID)
-		}
-	}
-	result := execution.StoreListResult{Total: len(matched)}
-	page := matched[min(max(filter.Offset, 0), len(matched)):]
-	page = page[:min(limit, len(page))]
-	if len(page) == 0 {
-		return result, nil
-	}
-	rows, err := infradb.Find(s.db, gsql.From[RunPO](RunSchema).Where(RunSchema.ID.In(page...)))
-	if err != nil {
-		return execution.StoreListResult{}, err
-	}
-	runs, err := runRowsToDomain(rows)
-	if err != nil {
-		return execution.StoreListResult{}, err
-	}
-	position := make(map[string]int, len(page))
-	for i, runID := range page {
-		position[runID] = i
-	}
-	slices.SortFunc(runs, func(a, b *execution.Run) int { return position[a.ID] - position[b.ID] })
-	result.Runs = runs
-	return result, nil
+	return gsql.Or(createdAfter, gsql.And(createdAt.Eq(after.CreatedAt), idAfter))
 }
 
 // ── EventStore ──
@@ -360,6 +304,8 @@ func (s *Repository) AppendWorkflowTaskScheduled(runID, treeID, branchID string,
 	var eventID int64
 	var inserted bool
 	err := s.inTx(func(tx *gormExecutionTx) error {
+		// 死锁重放时上一次尝试的结果作废。
+		eventID, inserted = 0, false
 		// open 的 Workflow Task 由 execution state 记录，在持有状态行锁的事务内判定并追加。
 		state, err := tx.lockedState(runID)
 		if err != nil {
@@ -393,6 +339,18 @@ func (s *Repository) GetWorkflowTaskScheduledEvent(runID string, scheduledEventI
 		return history.Event{}, false, err
 	}
 	return *event, true, nil
+}
+
+func (s *Repository) GetEventIDByDedupeKey(_, branchID, dedupeKey string) (int64, bool, error) {
+	row, err := gsql.From[EventPO](EventSchema).
+		Where(
+			EventSchema.BranchID.Eq(branchID),
+			EventSchema.DedupeKey.Eq(&dedupeKey),
+		).Take(s.db)
+	if err != nil || row == nil {
+		return 0, false, err
+	}
+	return row.NodeID, true, nil
 }
 
 func (s *Repository) AppendWorkflowTaskClosed(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
@@ -458,16 +416,28 @@ func (s *Repository) RunInTx(fn func(tx execution.ExecutionTx) error) error {
 	return s.inTx(func(tx *gormExecutionTx) error { return fn(tx) })
 }
 
+// maxDeadlockAttempts 是一个事务体因 InnoDB 死锁被回滚后的总执行次数上限。
+const maxDeadlockAttempts = 3
+
 // inTx 开一个事务并把事务句柄包成 gormExecutionTx，顶层方法与 RunInTx 共用同一份事务体。fn 成功后、提交之前把
 // 本事务改过的 execution state 写回（flushStates）。
+//
+// InnoDB 选中本事务作为死锁的牺牲者（Error 1213）时整个事务已回滚，inTx 用新事务把 fn 整体再执行一次，最多
+// maxDeadlockAttempts 次。fn 是可重放的闭包（见 execution.ExecutionManager.RunInTx），每次执行都从新的
+// gormExecutionTx 开始；fn 写到外层的结果变量在闭包开头重置，重放走了另一条分支时不残留上一次尝试的值。
 func (s *Repository) inTx(fn func(tx *gormExecutionTx) error) error {
-	return s.db.Transaction(func(db *gorm.DB) error {
-		tx := &gormExecutionTx{store: s, db: db}
-		if err := fn(tx); err != nil {
+	for attempt := 1; ; attempt++ {
+		err := s.db.Transaction(func(db *gorm.DB) error {
+			tx := &gormExecutionTx{store: s, db: db}
+			if err := fn(tx); err != nil {
+				return err
+			}
+			return tx.flushStates()
+		})
+		if attempt >= maxDeadlockAttempts || !infradb.IsDeadlock(err) {
 			return err
 		}
-		return tx.flushStates()
-	})
+	}
 }
 
 // gormExecutionTx 把事务内的 history append 与 state 写入路由到同一个 *gorm.DB(tx)，保证单事务原子。
@@ -476,6 +446,8 @@ type gormExecutionTx struct {
 	store  *Repository
 	db     *gorm.DB
 	states map[string]*execution.WorkflowExecutionState
+	// storedAttributes 是 states 里每个 Run 在加锁读取（或创建）时已写入库的搜索属性。
+	storedAttributes map[string]map[string]string
 }
 
 func (t *gormExecutionTx) AppendIdempotent(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
@@ -571,6 +543,19 @@ func (t *gormExecutionTx) CloseScheduledTimers(runID string) error {
 		}).Error
 }
 
+// CloseOpenActivities 是一条 UPDATE：runID 仍为 scheduled 或 started 的 Activity 置为 run_closed，清掉到期索引
+// timeout_at（终态 Activity 没有生效的超时）。
+func (t *gormExecutionTx) CloseOpenActivities(runID string) error {
+	return gsql.From[ActivityStatePO](ActivityStateSchema).
+		Where(ActivityStateSchema.RunID.Eq(runID), ActivityStateSchema.Status.In(
+			string(execution.ActivityStatusEnums.Scheduled), string(execution.ActivityStatusEnums.Started))).
+		Update(t.db, map[string]any{
+			"status":     string(execution.ActivityStatusEnums.RunClosed),
+			"timeout_at": nil,
+			"updated_at": t.store.clock.Now(),
+		}).Error
+}
+
 func (t *gormExecutionTx) UpsertChildWorkflowState(state *execution.ChildWorkflowState) error {
 	return t.store.upsertChildWorkflowState(t.db, state)
 }
@@ -620,6 +605,9 @@ func (t *gormExecutionTx) CreateRun(run *execution.Run) error {
 		return err
 	}
 	if err := createExecutionState(t.db, state); err != nil {
+		return err
+	}
+	if err := insertRunSearchAttributes(t.db, run.ID, row.Namespace, row.CreatedAt, execution.SearchAttributeTerms(state.SearchAttributes)); err != nil {
 		return err
 	}
 	t.keepState(state)
@@ -827,6 +815,19 @@ func (s *Repository) getEventsWithDB(db infradb.DB, run *execution.Run) ([]histo
 //
 // 已有索引 idx_workflow_events_branch_node (branch_id, node_id) 覆盖 OR 组的每一支加范围项。
 func (s *Repository) getEventsRangeWithDB(db infradb.DB, run *execution.Run, afterExclusive, throughInclusive int64) ([]history.Event, error) {
+	var filters []gsql.Expression
+	if afterExclusive > 0 {
+		filters = append(filters, EventSchema.NodeID.Gt(afterExclusive))
+	}
+	if throughInclusive > 0 {
+		filters = append(filters, EventSchema.NodeID.Lte(throughInclusive))
+	}
+	return s.getVisibleEventsWithDB(db, run, filters...)
+}
+
+// getVisibleEventsWithDB 读取 Run 可见 History（自己的 branch 加祖先前缀）里满足 filters 的事件，按事件 ID 升序。
+// filters 作为独立的 AND 项追加在 branch 可见性的 OR 组之外，结果与「先全量取出再过滤」一致（见 getEventsRangeWithDB）。
+func (s *Repository) getVisibleEventsWithDB(db infradb.DB, run *execution.Run, filters ...gsql.Expression) ([]history.Event, error) {
 	branch, err := runBranch(run)
 	if err != nil {
 		return nil, err
@@ -867,13 +868,9 @@ func (s *Repository) getEventsRangeWithDB(db infradb.DB, run *execution.Run, aft
 		branchRanges = append(branchRanges, gsql.And(conditions...))
 	}
 
-	// 范围项作为独立的 AND 项追加在整个 OR 组之外。
 	query = query.Where(gsql.Or(branchRanges...))
-	if afterExclusive > 0 {
-		query = query.Where(EventSchema.NodeID.Gt(afterExclusive))
-	}
-	if throughInclusive > 0 {
-		query = query.Where(EventSchema.NodeID.Lte(throughInclusive))
+	if len(filters) > 0 {
+		query = query.Where(filters...)
 	}
 	rows, err := infradb.Find(db, query.Order(EventSchema.NodeID))
 	if err != nil {

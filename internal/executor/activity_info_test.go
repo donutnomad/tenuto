@@ -22,14 +22,14 @@ func (r *startedActivityRuntime) BeginActivityTask(context.Context, protocol.Tas
 // Activity 从 activity.GetInfo 读到所属 Workflow、Activity ID、时间点与 Task Token；Deadline 取
 // StartToClose 与 ScheduleToClose 中先到的一个。
 func TestRunActivityTaskProvidesActivityInfo(t *testing.T) {
-	scheduled := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
-	started := scheduled.Add(50 * time.Second)
+	scheduled := time.Now().UTC().Truncate(time.Second).Add(-10 * time.Second)
+	started := scheduled.Add(5 * time.Second)
 	for name, tc := range map[string]struct {
 		startToClose, scheduleToClose time.Duration
 		deadline                      time.Time
 	}{
 		"start to close first":    {startToClose: 30 * time.Second, scheduleToClose: time.Hour, deadline: started.Add(30 * time.Second)},
-		"schedule to close first": {startToClose: 30 * time.Second, scheduleToClose: time.Minute, deadline: scheduled.Add(time.Minute)},
+		"schedule to close first": {startToClose: 30 * time.Second, scheduleToClose: 20 * time.Second, deadline: scheduled.Add(20 * time.Second)},
 		"no close timeout":        {},
 	} {
 		t.Run(name, func(t *testing.T) {

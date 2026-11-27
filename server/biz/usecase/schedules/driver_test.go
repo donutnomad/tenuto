@@ -35,10 +35,15 @@ import (
 
 // fakeFirer 是 schedule.Firer 的测试桩，支持注入 runStatus/err 和记录调用
 type fakeFirer struct {
-	mu                sync.Mutex
-	store             schedule.Repository
-	startCalls        []startCall
-	startErr          error
+	mu            sync.Mutex
+	store         schedule.Repository
+	startCalls    []startCall
+	startAttempts int
+	startErr      error
+	// commitDespiteErr 让 startErr 在启动提交之后返回（模拟提交后入队失败或应答丢失）。
+	commitDespiteErr bool
+	// cronRuns 是已提交的 Cron 启动：workflowID → runID，供 CronRunStarted 查询。
+	cronRuns          map[string]string
 	runStatuses       map[string]history.Status
 	runStatusErr      error
 	runStatusNotFound bool
@@ -55,6 +60,7 @@ type startCall struct {
 func newFakeFirer(store schedule.Repository) *fakeFirer {
 	return &fakeFirer{
 		store:       store,
+		cronRuns:    make(map[string]string),
 		runStatuses: make(map[string]history.Status),
 	}
 }
@@ -62,11 +68,20 @@ func newFakeFirer(store schedule.Repository) *fakeFirer {
 func (f *fakeFirer) StartWorkflowForCron(_ context.Context, namespace, workflowType, workflowID string, input map[string]any, attributes map[string]string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.startErr != nil {
+	f.startAttempts++
+	if f.startErr != nil && !f.commitDespiteErr {
 		return "", f.startErr
 	}
+	runID := "run-" + workflowType
 	f.startCalls = append(f.startCalls, startCall{namespace: namespace, workflowType: workflowType, workflowID: workflowID, input: input, attributes: attributes})
-	return "run-" + workflowType, nil
+	f.cronRuns[workflowID] = runID
+	return runID, f.startErr
+}
+
+func (f *fakeFirer) CronRunStarted(_, workflowID string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cronRuns[workflowID], nil
 }
 
 func (f *fakeFirer) CurrentRunStatus(runID string) (history.Status, error) {
@@ -105,6 +120,7 @@ func newTestSchedule(id, workflowType, cron, overlapPolicy string, nextRunAt *ti
 		CronExpression: cron,
 		Timezone:       "UTC",
 		OverlapPolicy:  overlapPolicy,
+		CatchupWindow:  schedule.DefaultCatchupWindow,
 		NextRunAt:      nextRunAt,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
@@ -144,7 +160,7 @@ func TestScheduleDriverTask_DueScheduleTriggered(t *testing.T) {
 	store := memory.NewScheduleRepository()
 	firer := newFakeFirer(store)
 
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	sch := newTestSchedule("sch-1", "wf-1", "* * * * *", string(schedule.OverlapPolicyEnums.AllowAll), &past)
 	if err := store.CreateSchedule(sch); err != nil {
 		t.Fatal(err)
@@ -209,7 +225,7 @@ func TestScheduleDriverTask_PausedNotTriggered(t *testing.T) {
 	store := memory.NewScheduleRepository()
 	firer := newFakeFirer(store)
 
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	sch := newTestSchedule("sch-paused", "wf-paused", "* * * * *", string(schedule.OverlapPolicyEnums.AllowAll), &past)
 	sch.Paused = true
 	if err := store.CreateSchedule(sch); err != nil {
@@ -230,13 +246,14 @@ func TestScheduleDriverTask_PausedNotTriggered(t *testing.T) {
 // TestScheduleDriverTask_CatchupWindowExceeded tests that over-due schedules are skipped
 // but NextRunAt is still advanced to the future
 func TestScheduleDriverTask_CatchupWindowExceeded(t *testing.T) {
-	// Edge Case: NextRunAt 超期超过 1h → 跳过触发，但仍重算 NextRunAt 到未来
+	// Edge Case: 到期点落后超过 catchup window → 跳过触发、计入 MissedCatchupWindow，NextRunAt 推进到未来
 	store := memory.NewScheduleRepository()
 	firer := newFakeFirer(store)
 
-	// 超过 catchup 窗口 (1h)
+	// 超过 catchup 窗口 (1h)；每年一次的 cron，下一个到期点在未来。
 	veryPast := time.Now().Add(-2 * time.Hour)
-	sch := newTestSchedule("sch-catchup", "wf-catchup", "* * * * *", string(schedule.OverlapPolicyEnums.AllowAll), &veryPast)
+	sch := newTestSchedule("sch-catchup", "wf-catchup", "0 0 1 1 *", string(schedule.OverlapPolicyEnums.AllowAll), &veryPast)
+	sch.CatchupWindow = time.Hour
 	if err := store.CreateSchedule(sch); err != nil {
 		t.Fatal(err)
 	}
@@ -263,6 +280,9 @@ func TestScheduleDriverTask_CatchupWindowExceeded(t *testing.T) {
 	if !got.NextRunAt.After(time.Now().Add(-1 * time.Second)) {
 		t.Fatalf("expected NextRunAt in future after catchup, got %v", *got.NextRunAt)
 	}
+	if got.MissedCatchupWindow != 1 {
+		t.Fatalf("missed_catchup_window = %d, want 1", got.MissedCatchupWindow)
+	}
 }
 
 // TestScheduleDriverTask_CASFailDoesNotTrigger tests CAS失败不触发（幂等）
@@ -271,7 +291,7 @@ func TestScheduleDriverTask_CASFailDoesNotRecordRun(t *testing.T) {
 	store := memory.NewScheduleRepository()
 	firer := newFakeFirer(newCASFailStore(store))
 
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	sch := newTestSchedule("sch-cas", "wf-cas", "* * * * *", string(schedule.OverlapPolicyEnums.AllowAll), &past)
 	if err := store.CreateSchedule(sch); err != nil {
 		t.Fatal(err)
@@ -299,7 +319,7 @@ func TestScheduleDriverTask_SKIP_RunningDoesNotTrigger(t *testing.T) {
 	firer := newFakeFirer(store)
 	firer.runStatuses["run-wf-skip"] = history.StatusRunning
 
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	sch := newTestSchedule("sch-skip", "wf-skip", "* * * * *", string(schedule.OverlapPolicyEnums.Skip), &past)
 	sch.LastRunID = "run-wf-skip"
 	if err := store.CreateSchedule(sch); err != nil {
@@ -324,7 +344,7 @@ func TestScheduleDriverTask_SKIP_CompletedTriggers(t *testing.T) {
 	firer := newFakeFirer(store)
 	firer.runStatuses["run-wf-completed"] = history.StatusCompleted
 
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	sch := newTestSchedule("sch-completed", "wf-completed", "* * * * *", string(schedule.OverlapPolicyEnums.Skip), &past)
 	sch.LastRunID = "run-wf-completed"
 	if err := store.CreateSchedule(sch); err != nil {
@@ -349,7 +369,7 @@ func TestScheduleDriverTask_SKIP_NotFoundTriggers(t *testing.T) {
 	firer := newFakeFirer(store)
 	firer.runStatusNotFound = true
 
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	sch := newTestSchedule("sch-notfound", "wf-notfound", "* * * * *", string(schedule.OverlapPolicyEnums.Skip), &past)
 	sch.LastRunID = "run-old"
 	if err := store.CreateSchedule(sch); err != nil {
@@ -374,7 +394,7 @@ func TestScheduleDriverTask_SKIP_OtherErrorSkips(t *testing.T) {
 	firer := newFakeFirer(store)
 	firer.runStatusErr = errors.New("database connection error")
 
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	sch := newTestSchedule("sch-err", "wf-err", "* * * * *", string(schedule.OverlapPolicyEnums.Skip), &past)
 	sch.LastRunID = "run-old"
 	if err := store.CreateSchedule(sch); err != nil {
@@ -399,7 +419,7 @@ func TestScheduleDriverTask_ALLOW_ALL_Triggers(t *testing.T) {
 	firer := newFakeFirer(store)
 	firer.runStatuses["run-last"] = history.StatusRunning // running 但不阻塞 ALLOW_ALL
 
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	sch := newTestSchedule("sch-allow", "wf-allow", "* * * * *", string(schedule.OverlapPolicyEnums.AllowAll), &past)
 	sch.LastRunID = "run-last"
 	if err := store.CreateSchedule(sch); err != nil {
@@ -424,7 +444,7 @@ func TestScheduleDriverTask_CtxCancelInLoop(t *testing.T) {
 	firer := newFakeFirer(store)
 
 	// 添加多个到期 schedule，确保循环有机会检查 ctx
-	past := time.Now().Add(-1 * time.Minute)
+	past := time.Now().Truncate(time.Minute) // 与 cron 对齐，下一个到期点在未来
 	for i := range 3 {
 		sch := newTestSchedule(
 			"sch-loop-"+string(rune('a'+i)),

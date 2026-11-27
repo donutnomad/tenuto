@@ -16,17 +16,36 @@ Tenuto 的 Go Client 使用 JSON Runtime HTTP API。业务系统通过 SDK 调�
 
 | 状态码 | 含义 | 例子 |
 | --- | --- | --- |
-| 400 | 请求本身的问题：参数不合法，或请求与目标当前的状态不相容。改正请求后重试 | `workflow type is empty`、`invalid cron_expression: ...`、对已结束的 Run 发 Signal（`workflow <run> is completed`）、过期的 task token |
+| 400 | 请求本身的问题：参数不合法，或请求与目标当前的状态不相容。改正请求后重试 | `workflow type is empty`、`invalid cron_expression: ...`、对已结束的 Run 发 Signal（`workflow <run> is completed`）、过期的 task token、标识超过长度上限（`workflow id has 200 characters, the limit is 191`，上限见下文[标识长度](#标识长度)） |
 | 401 | Server 配置了 `WORKFLOW_HTTP_AUTH_TOKEN`，请求没有带 `Authorization: Bearer <token>` 或 token 不对；应答带 `WWW-Authenticate: Bearer realm="tenuto"` | `unauthorized` |
 | 404 | 目标不存在 | Run、Workflow ID 没有 current Run（`no current run`）、Workflow Config、Definition、Schedule、Batch Operation |
 | 409 | 与已有记录或并发写入冲突。重新读取后重试 | Schedule ID 已存在、Schedule 被并发修改、current Run 已被其他请求切换、Run ID 已存在、取消已结束的 Batch Operation |
+| 413 | 请求体超过 4 MiB | `request body exceeds 4194304 bytes`；Workflow Task 的提交被拒绝时 Worker 改报 `payload_size_limit_exceeded`，见 [容量上限](/operations/capacity-limits#载荷大小) |
 | 415 | POST 的 `Content-Type` 不是 `application/json`（可带 `charset` 等参数），没有请求体的端点也一样 | 表单或 `text/plain` 提交：`Content-Type must be application/json` |
 | 500 | Server 故障：数据库返回的非瞬时错误（缺表、数据超长等）或代码错误。原因看 Server 日志 | `internal server error` |
-| 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发 | `service temporarily unavailable; the request may have taken effect` |
-| 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable` |
+| 502 | 同 503 的瞬时失败发生在重发会再执行一次的端点上：`reset`、`create-schedule`、`trigger-schedule`、`start-batch`。失败不说明请求有没有部分生效（例如 Reset 的事务已提交、随后入队时连接数打满），先读状态确认再决定是否重发；带 `request_id` 的 Reset 可以用同一个 `request_id` 直接重发 | `service temporarily unavailable; the request may have taken effect` |
+| 503 | Server 依赖的 MySQL 或任务队列暂时不可用：连接数打满（`Error 1040`、`1203`）、锁等待超时（`1205`）、死锁（`1213`）、连接没有建立或在途中断开（`2006`、`2013`、`invalid connection`、读写超时）、TaskQ matching 分区换主（gRPC `Unavailable`，或 TaskQ 的入队、`nack` 重试用完 `max retries exceeded`）；在途的非长轮询请求数超过 `WORKFLOW_HTTP_MAX_IN_FLIGHT`；同时重放的 Query 数达到 `WORKFLOW_QUERY_CONCURRENCY`；Signal 或 Update 遇到正在关闭的 Run（带结束命令的 Workflow Task 因新事实作废、重做的 Workflow Task 进行中，见 [Event History](/concepts/event-history)）；请求在生效之前被取消。带 `Retry-After: 1`，请求可以原样重试，Go SDK 自动重试 | `service temporarily unavailable`、`too many requests in flight; retry`、`request cancelled before taking effect; retry`、`workflow operation can not be applied because workflow is closing` |
 | 504 | 请求在 Server 端等待超时 | `context deadline exceeded` |
 
+成功应答总带 JSON 响应体（长轮询的 204 除外）；2xx 空响应体说明应答没有完整送达，Go SDK 把它当作传输错误。
+
 Update validator 的拒绝是 400，响应体是 `protocol.Failure` 的 JSON。长轮询到期没有任务时返回 204，没有响应体：请求的等待到期与队列（TaskQ）的长轮询先到期都是这个应答。
+
+## 标识长度
+
+标识按字符计数（不是字节），超过上限的请求应答 400：
+
+| 标识 | 上限 |
+| --- | --- |
+| Namespace、Task Queue、Build ID、Schedule 时区 | 64 |
+| Activity Type、Worker identity | 128 |
+| Workflow ID、Workflow Type、Activity ID、Timer ID、Update ID、marker 名与 ID、Schedule 描述与 cron 表达式 | 191 |
+| 启动与 Signal 的 `request_id` | 128 字节 |
+| Batch Operation 的 `reason` | 1024 |
+
+子 Workflow 的 Workflow ID 是 `<父 Run ID>/<ChildID>`，整体不超过 191。Workflow 代码发出的命令（Timer ID、子 Workflow ID 与 Type、Activity ID、Activity Type、Task Queue、marker 名与 ID）超长时，Workflow Task 以 `bad_start_timer_attributes`、`bad_start_child_workflow_attributes`、`bad_schedule_activity_attributes` 或 `bad_record_marker_attributes` 失败，Run 显示 Blocked，修复代码后恢复。
+
+MySQL 表（含 TaskQ 的表）的排序规则是 `utf8mb4_0900_bin`：标识按字节比较，区分大小写、重音与尾随空格，`order-ab12` 与 `order-AB12`、`Prod` 与 `prod`、`t` 与 `t ` 是不同的标识，与内存后端一致。
 
 ## Namespace 与寻址
 
@@ -49,7 +68,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 | POST | `/runtime/workflow/start-version` | 按 Config Version 启动 Workflow |
 | POST | `/runtime/workflow/get-run` | 获取 Run |
 | POST | `/runtime/workflow/wait-closed` | 长轮询等待 Run 结束；请求体见「等待 Run 结束」 |
-| POST | `/runtime/workflow/list` | 查询 Run List；给出 `run_ids` 时已结束的 Run 也返回，结束的 Run 带 `closed_at`。`limit` 缺省 50、最大 1000，`offset` 不能为负，`run_ids` 最多 1000 个，越界返回 400 |
+| POST | `/runtime/workflow/list` | 查询 Run List；给出 `run_ids` 时已结束的 Run 也返回，结束的 Run 带 `closed_at`。`limit` 缺省 50、最大 1000，`run_ids` 最多 1000 个，越界返回 400。应答 `{items, total, has_more, next_page_token}`：`total` 是满足条件的 Run 总数（与翻页无关），`has_more` 表示这一页之后还有 Run；`filter.skip_total: true` 时不计算总数（`total` 为 0），Run 很多时这一页更快。翻页用 `page_token`：应答的 `next_page_token`（有下一页时非空）原样放进下一次请求，Server 从上一页最后一行之后读，深页与第一页代价相同（同 Temporal `ListWorkflowExecutions` 的 next_page_token）。token 绑定签发时的过滤条件（namespace、`run_ids`、`workflow_id`、`statuses`、`search_attributes`、`include_terminal`、`blocked_only`、`order_desc`），条件变了再用返回 400；`limit` 与 `skip_total` 可以每页不同。 过滤语义：普通键按值全等，值为空串时只匹配显式写成空串的键，缺失的键不匹配（同 Temporal SQL visibility 的 `= ''`）；`TemporalChangeVersion` 按成员匹配；多个键是「与」。 MySQL 后端为每个 (Run, 键值) 维护一行索引（`tenuto_run_search_attributes`，与搜索属性同事务写入），按搜索属性过滤的列表以按键名排序的第一个属性走索引、在数据库侧按 (created_at, run_id) 游标分页，一页只读本页的行；其余属性逐行核对，代价与第一个属性的匹配数成正比，多属性过滤时让选择性最高的属性的键名排在最前（键名按字节序比较）。 |
 | POST | `/runtime/workflow/history` | 读取完整 Event History |
 | POST | `/runtime/workflow/history-page` | 分页读取 Event History |
 | POST | `/runtime/workflow/signal` | 发送 Signal |
@@ -104,10 +123,10 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 | POST | `/runtime/workflow/list-configs` | Workflow Definition 列表 |
 | POST | `/runtime/workflow/list-workers` | Worker 列表 |
 | POST | `/runtime/workflow/list-task-queues` | Task Queue 列表 |
-| POST | `/runtime/workflow/run-stats` | Run 聚合统计 |
+| POST | `/runtime/workflow/run-stats` | 一个 Namespace 内按状态聚合的 Run 数量 |
 | POST | `/runtime/workflow/activity-states` | Activity mutable state |
 | POST | `/runtime/workflow/register-activity-worker-version` | 注册 Activity Worker Build ID |
-| POST | `/runtime/workflow/heartbeat-activity-worker-version` | 刷新 Activity Worker Build ID TTL |
+| POST | `/runtime/workflow/heartbeat-activity-worker-version` | 刷新 Activity Worker Build ID TTL；登记不存在（从未登记，或到期超过一天后被清理）时应答 404，Worker 应重新调用 `register-activity-worker-version` |
 | POST | `/runtime/workflow/deregister-activity-worker-version` | 注销 Activity Worker 的路由，`{namespace, identity, build_id}`；`Worker.Stop()` 调用 |
 | POST | `/runtime/workflow/start-batch` | 受理批量操作：`{"req":{namespace,type,filter,reason,reset_type}}`，返回 202 与 `pending` 记录，后台异步处理；`type` 未知或 Reset 缺 `reset_type` 时返回 400，不产生记录 |
 | POST | `/runtime/workflow/get-batch` | `{namespace, operation_id}`，返回记录的状态与进度；不存在时 404 |
@@ -129,7 +148,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 /runtime/workflow/trigger-schedule
 ```
 
-`create-schedule` 的请求体用 `workflow_type` 指定要启动的 Workflow Type；`list-schedules` 的 `filter.workflow_type` 按它过滤。每次触发启动的 Run 的 Workflow ID 是 `schedule-<Schedule ID>-<名义触发时间>`，搜索属性带 `TemporalScheduledById`（Schedule ID）与 `TemporalScheduledStartTime`（名义触发时间，UTC RFC 3339 秒级）；`list` 与 `start-batch` 的 `filter.search_attributes` 写 `{"TemporalScheduledById": "<Schedule ID>"}` 选出这个 Schedule 的全部 Run。这两个键与 `TemporalChangeVersion` 由 Server 维护，`search-attributes` 写入它们返回 400。
+`create-schedule` 的请求体用 `workflow_type` 指定要启动的 Workflow Type，`catchup_window`（纳秒，可省略）是补触发窗口：省略或 0 取 365 天，小于 10 秒返回 400，`update-schedule` 的 `update.catchup_window` 同样校验；Schedule 的应答带 `catchup_window`、`missed_catchup_window`、`buffer_dropped` 与 `start_failed`（见 [错过触发](/develop/scheduling#触发流程与错过触发)）。`list-schedules` 的 `filter.workflow_type` 按它过滤。每次触发启动的 Run 的 Workflow ID 是 `schedule-<Schedule ID>-<名义触发时间>`，搜索属性带 `TemporalScheduledById`（Schedule ID）与 `TemporalScheduledStartTime`（名义触发时间，UTC RFC 3339 秒级）；`list` 与 `start-batch` 的 `filter.search_attributes` 写 `{"TemporalScheduledById": "<Schedule ID>"}` 选出这个 Schedule 的全部 Run。这两个键与 `TemporalChangeVersion` 由 Server 维护，`search-attributes` 写入它们返回 400。
 
 ## 启动请求体
 
@@ -146,7 +165,7 @@ Workflow Worker 的 `config`、`events`、`status` 不接受 Run ID，按请求�
 
 `start` 在该 Workflow ID 已有进行中的 Run 时返回 `current run conflict`；`signal-with-start` 与 `update-with-start` 复用进行中的 Run。三者在 current Run 已结束时都启动新 Run，新 Run 使用该 Workflow Type 当前 active 的 Program。
 
-`request_id`（至多 128 字节，超出返回 400）让调用方安全地重发应答丢失的请求。`start` 的 `request_id` 记在 `WorkflowStarted` 里：Workflow ID 的 current Run（运行中或已结束）由同一个 `request_id` 启动时，应答这个 Run，不报冲突、不启动新 Run。`signal` 与 `signal-with-start` 的 `request_id` 记在 `WorkflowSignaled` 里：同一个 Run 上同一个 `request_id` 只记一条，重发应答第一次的 `event_id`。Go SDK 为每次调用生成 request ID，见 [瞬时错误与重试](/sdk/client#瞬时错误与重试)。
+`request_id`（至多 128 字节，超出返回 400）让调用方安全地重发应答丢失的请求。`start` 的 `request_id` 记在 `WorkflowStarted` 里：Workflow ID 的 current Run（运行中或已结束）由同一个 `request_id` 启动时，应答这个 Run，不报冲突、不启动新 Run。`signal` 与 `signal-with-start` 的 `request_id` 记在 `WorkflowSignaled` 里：同一个 Run 上同一个 `request_id` 只记一条，重发应答第一次的 `event_id`。`signal-with-start` 启动新 Run 时 `request_id` 同时记在 `WorkflowStarted` 里；同一个 request ID 的重发：current Run（运行中或已结束）记过这条 Signal，或 current Run 的链（continue-as-new、失败重试）由这个 request ID 启动时，返回第一次的 Run 与 `event_id`，不启动新 Run、不再记 Signal。Go SDK 为每次调用生成 request ID，见 [瞬时错误与重试](/sdk/client#瞬时错误与重试)。
 
 ## 载荷中的数字
 
@@ -163,7 +182,7 @@ complete · activation · complete-activation · timed-out · failed
 
 `config`、`events`、`status` 的请求体是 `{task_token, program_version?}`，读取 token 所属的 Run。`complete` 提交按完整 History 重放得到的命令；`activation` 与 `complete-activation` 是 Execution Cache 命中时的增量激活与提交。两组端点都只接受 Workflow Task 的 token。
 
-`failed` 的请求体是 `{task_token, cause, reason}`，`cause` 只接受 Worker 的失败原因：`non_deterministic_error`（重放与 History 不一致）、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）。`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入（Workflow Task 需要重做，不计连续失败、不退避），Worker 上报它们或其他取值返回 400。
+`failed` 的请求体是 `{task_token, cause, reason}`，`cause` 只接受 Worker 的失败原因：`non_deterministic_error`（重放与 History 不一致）、`execution_session_invalid`（Execution Cache 的 session 校验失败，下一次从完整 History 恢复）、`workflow_panic`（Workflow 代码或解释器 panic，见 [Failure 参考](/reference/failures#workflow-代码的-panic)）、`payload_size_limit_exceeded`（命令总量超过上限，或 `complete` 被 413 拒绝，见 [容量上限](/operations/capacity-limits#载荷大小)）。`unhandled_events`、`run_resumed`、`reset_workflow` 由 Server 写入（Workflow Task 需要重做，不计连续失败、不退避），Worker 上报它们或其他取值返回 400。`unhandled_events` 只在一批含结束 Workflow 的命令（Complete、Fail、Cancel、ContinueAsNew）、而 Workflow Task 执行期间到达了 Worker 没有看到的事实时写入；其他命令照常提交，新事实交给下一个 Workflow Task。
 
 ## Update 请求体
 
@@ -213,24 +232,35 @@ poll · ack · nack · begin · heartbeat
 cancellation · complete · fail · release
 ```
 
-`begin` 把 Attempt 记为 started 并答复 `{execute, reason, started_time}`。`execute` 为 `true` 时 `started_time` 是 Server 记下的 Attempt 开始时间（`activity.Info.StartedTime`），Worker 立即 `ack` 队列租约，然后执行 Activity；之后 Attempt 的存活由 StartToClose、ScheduleToClose 与 Heartbeat 超时判定。Attempt 已开始、已结束或任务已过期时 `execute` 为 `false`（`reason` 如 `attempt_already_started`、`activity_closed`、`stale_task`），Worker `ack` 丢弃这份投递。Run 收到取消请求不影响 `begin`：Workflow 代码可能在取消之后调度清理 Activity。
+`begin`、`heartbeat`、`cancellation`、`complete`、`fail`、`release` 的请求体只寻址一次 Attempt，不带任务载荷（与 Temporal 的 task token 加 identity 相同）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `task_token` | 必填，租约里 `task.task_token` 的值 |
+| `worker_identity`、`worker_build_id` | 可选，记进 `ActivityStarted` 与 Activity state，只用于观测 |
+| `request_id` | 只用于 `begin`：Worker 为每份投递生成一次（SDK 用 UUID），最长 128 字节 |
+| `details` / `output` / `failure` | 分别用于 `heartbeat`、`complete`、`fail` |
+
+`begin` 把 Attempt 记为 started 并答复 `{execute, reason, started_time, payload_size_limit}`。`execute` 为 `true` 时 `started_time` 是 Server 记下的 Attempt 开始时间（`activity.Info.StartedTime`），`payload_size_limit` 是 Activity 结果与心跳详情的字节上限（见 [容量上限](/operations/capacity-limits#载荷大小)），Worker 立即 `ack` 队列租约，然后执行 Activity；之后 Attempt 的存活由 StartToClose、ScheduleToClose 与 Heartbeat 超时判定。应答丢失后重发的 `begin` 带同一个 `request_id`，Server 把它认作开始这次 Attempt 的同一个请求，返回 `execute: true` 与原来的 `started_time`（Temporal `RecordActivityTaskStarted` 的 RequestId 语义）。Attempt 已由别的请求开始、已结束或任务已过期时 `execute` 为 `false`（`reason` 如 `attempt_already_started`、`activity_closed`、`stale_task`），Worker `ack` 丢弃这份投递。Run 收到取消请求不影响 `begin`：Workflow 代码可能在取消之后调度清理 Activity。
 
 `ack` 只清理队列，结局在此之前已经落库（`begin` 记下 started，或 `begin` 判定不执行），因此任务队列的确认失败不让请求失败：TaskQ 分区换主期间重试用完、租约属于旧的 ownership epoch（`stale ack token`）时 `ack` 仍应答 200，Server 记 WARN `task queue ack failed`。任务在可见性超时（TaskQ 默认 60s）后重新投递，`begin` 按 started 返回 `attempt_already_started`，Worker 确认丢弃。`/runtime/workflow-task/ack` 相同：Worker 在结果上报之后确认，重新投递的 Workflow Task 已关闭，Server 在 `poll` 里确认丢弃。`nack` 发生在结局落库之前，任务队列暂时不可用时应答 503，Worker 重试。
 
 `heartbeat` 记录进度并答复 `{cancel_requested, reason}`：
 
 - Workflow 请求取消这个 Activity 时 `reason` 为 `activity_cancel_requested`。Worker 取消 Activity 的 `ctx`；Activity 以取消错误或 `context.Canceled` 结束时，Worker 用 `fail` 上报 `type` 为 `CanceledError` 的失败（带取消错误的 details），Server 记 `ActivityCancelled`；Activity 返回成功或其他错误时照常上报。
-- Run 已关闭（`run_closed`、`run_cancelled`、`run_terminated`）、Activity 已结束（`activity_closed`）或这次 Attempt 已过期（`stale_task`）时 Worker 取消 `ctx`，之后不上报这次 Attempt 的结果。
+- Run 已关闭（`run_closed`、`run_cancelled`、`run_terminated`）、Run 不存在（`run_not_found`，例如已被 retention 回收；以 200 答复而不是 404，Worker 才能与反向代理的 404 区分）、Activity 已结束（`activity_closed`）或这次 Attempt 已过期（`stale_task`）时 Worker 取消 `ctx`，之后不上报这次 Attempt 的结果。心跳请求得到其他错误时只算一次失败的心跳。
 
 `cancellation` 只做上面的取消检查，不记录心跳。
 
-`release` 交还一个已开始、因 Worker 停止而没有结果的 Attempt，请求体与 `begin` 相同（`{task_token, task}`）。Server 不记失败，把 Attempt 恢复为待派发、序号不变、stamp 递增（被交还的执行晚到的结果按过期丢弃），从交还时刻起算 Schedule-To-Start 并立即重新派发；Attempt 已结束、已过期或尚未开始时什么也不做。`Worker.Stop()` 调用它，见[运行 Worker](/develop/workers#优雅退出)。
+`release` 交还一个已开始、因 Worker 停止而没有结果的 Attempt，请求体是 `{task_token, worker_identity, worker_build_id}`。Server 不记失败，把 Attempt 恢复为待派发、序号不变、stamp 递增（被交还的执行晚到的结果按过期丢弃），从交还时刻起算 Schedule-To-Start 并立即重新派发；Attempt 已结束、已过期或尚未开始时什么也不做。`Worker.Stop()` 调用它，见[运行 Worker](/develop/workers#优雅退出)。
 
 `poll` 返回的租约是 `{task, token}`：`token` 是队列的租约凭据，`ack` / `nack` 原样带回；`task` 的字段是 snake_case（`type`、`namespace`、`workflow_id`、`workflow_type`、`run_id`、`activity_id`（即 `activity.Info.ActivityID`）、`scheduled_event_id`、`scheduled_time`、`attempt`、`stamp`、`activity_type`、`task_queue`、`input`、`task_token`、`last_heartbeat_details`、超时字段以纳秒计等）。
 
 ## Task Token
 
-Workflow Task 和 Activity Task 使用 Server 签发的 HMAC Task Token。Token 绑定 Namespace、Run、Scheduled Event、Attempt、Stamp、Task Queue 和 Worker 信息。Worker 应原样回传 Token。
+Workflow Task 和 Activity Task 使用 Server 签发的 HMAC Task Token。Token 只签寻址与 fence 字段：任务类型、Namespace、Workflow ID / Type、Run、Scheduled Event、Attempt、Stamp、Activity ID / Type、Task Queue、四个超时、execution 与 sticky generation、activation ID 和目标 Worker。Activity 输入、心跳详情、trace context 不进 Token，Token 的长度与载荷大小无关（与 Temporal `common/tasktoken` 相同）。Worker 应原样回传 Token。
+
+Token 的格式随这次改动变化，之前签发的 Token（包括外部系统为异步完成保存的 Token）不再能被校验：升级前完成或放弃在途的异步完成，升级后由 Activity 重新签发。
 
 ## 鉴权
 
@@ -264,6 +294,6 @@ The saved version applies to new runs, including future schedule starts. Existin
 
 `reset_event_id` 接受 WorkflowTaskStarted、Completed、Failed、TimedOut。Started 保留至该事件；关闭事件映射到同轮 Started。新运行保留此前已提交轮次的历史，重新执行所选轮次及后续步骤，沿用原运行配置版本与目标 worker。首次/末次 WorkflowTask 选择遵循相同映射。
 
-`/runtime/workflow/reset` 要求 `reset_type`（`first_workflow_task` 或 `last_workflow_task`）或 `reset_event_id`，二者选一；缺少定位时返回 400。Batch Reset 只接受 `reset_type`，缺少时创建被拒绝（400）。
+`/runtime/workflow/reset` 要求 `reset_type`（`first_workflow_task` 或 `last_workflow_task`）或 `reset_event_id`，二者选一；缺少定位时返回 400。可选的 `request_id`（最长 128 字节）让重复的请求返回第一次 Reset 出的 `run_id`，见 [Reset 的 request_id 去重](/operations/reset#request-id-去重)。Batch Reset 只接受 `reset_type`，缺少时创建被拒绝（400）。
 
 Reset 截止点必须满足此前调度的 activity/timer 均已闭合。仍有待处理项目时接口返回 400，错误包含截止事件 ID、项目类型及调度事件 ID；可以选择其调度前或完成后的工作流任务边界。校验发生在终止/替换当前运行之前，失败请求保留当前运行。终止被 reset 的运行与创建新运行在同一个事务里提交：写入失败时原运行保持运行，没有新运行。Console Reset 弹窗直接展示该错误。并行活动示例：A 已完成、B 仍待处理时，A 完成后的边界暂时无法 Reset；B 完成后的边界可执行 Reset。

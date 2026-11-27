@@ -34,6 +34,22 @@ func (s *Server) armRunTimers(run *execution.Run) {
 	}
 }
 
+// recoverRunTimers 是恢复路径的 armRunTimers：只挂 horizon 之前到期的截止时间（见 recoveryArmable）。
+func (s *Server) recoverRunTimers(run *execution.Run, horizon time.Time, armOverdue bool) {
+	if run.DeadlineAt != nil && s.recoveryArmable(*run.DeadlineAt, horizon, armOverdue) {
+		s.timers.Arm(timerRef{Kind: timerWorkflowExecution, RunID: run.ID}, *run.DeadlineAt)
+	}
+	if run.RunDeadlineAt != nil && s.recoveryArmable(*run.RunDeadlineAt, horizon, armOverdue) {
+		s.timers.Arm(timerRef{Kind: timerWorkflowRun, RunID: run.ID}, *run.RunDeadlineAt)
+	}
+}
+
+// recoveryArmable 报告恢复路径是否把 deadline 挂到本进程：只挂 horizon 之前到期的，更晚的由之后一轮周期补偿在
+// 进入 lookahead 时挂上；已过期的只在 armOverdue（启动恢复）时挂上、立即触发，周期补偿交给 FireOverdueTimers。
+func (s *Server) recoveryArmable(deadline, horizon time.Time, armOverdue bool) bool {
+	return deadline.Before(horizon) && (armOverdue || deadline.After(s.clock.Now()))
+}
+
 // restoreRunDeadlines 是启动恢复：Run 缺少配置声明的截止时间时（例如升级到声明了超时的 Program）从现在起算，
 // 在事务内按锁下读到的 Run 写回，返回写回后的 Run；配置没有声明超时时返回 nil。
 func (s *Server) restoreRunDeadlines(runID string) (*execution.Run, error) {
@@ -46,7 +62,7 @@ func (s *Server) restoreRunDeadlines(runID string) (*execution.Run, error) {
 		return nil, nil
 	}
 	var restored *execution.Run
-	err = s.telemetry.runInTx(context.Background(), "restore_run_deadlines", s.mgr, func(tx execution.ExecutionTx) error {
+	err = s.runInTx(context.Background(), "restore_run_deadlines", func(tx execution.ExecutionTx) error {
 		run, err := tx.GetRunForUpdate(runID)
 		if err != nil {
 			return err

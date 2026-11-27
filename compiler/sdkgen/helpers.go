@@ -32,7 +32,7 @@ type helperFunc struct {
 //
 // dir 为空时只检查 filename 这一个文件（GenerateFromSource）。
 func workflowHelpers(src []byte, filename, dir, funcName string, activityImpls map[string]bool) ([]helperFunc, error) {
-	fset, files, info, pkgPath, err := loadForHelpers(src, filename, dir)
+	fset, files, info, pkgPath, err := loadPackage(map[string][]byte{filename: src}, filename, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +64,9 @@ func workflowHelpers(src []byte, filename, dir, funcName string, activityImpls m
 	for len(queue) > 0 {
 		fn := queue[0]
 		queue = queue[1:]
+		if err := rejectFixedArrays(fset, info, fn); err != nil {
+			return nil, err
+		}
 		allowed := map[ast.Node]bool{}
 		var walkErr error
 		ast.Inspect(fn.Body, func(node ast.Node) bool {
@@ -106,25 +109,55 @@ func workflowHelpers(src []byte, filename, dir, funcName string, activityImpls m
 	return helpers, nil
 }
 
-// loadForHelpers 加载 helper 分析需要的语法树与类型信息。包里其他地方的类型错误不影响
-// 调用关系的解析，因此忽略。
-func loadForHelpers(src []byte, filename, dir string) (*token.FileSet, []*ast.File, *gotypes.Info, string, error) {
+// rejectFixedArrays 拒绝 workflow 函数（含签名）里类型为定长数组的表达式，包括 [N]T 类型字面量、
+// 底层是数组的具名类型与数组字段：Go 的数组赋值与传参是复制，WLang 只有引用语义的 slice，
+// 翻译后 b := a 会与 a 共享元素。
+func rejectFixedArrays(fset *token.FileSet, info *gotypes.Info, fn *ast.FuncDecl) error {
+	var found ast.Expr
+	ast.Inspect(fn, func(node ast.Node) bool {
+		if found != nil {
+			return false
+		}
+		if expr, ok := node.(ast.Expr); ok {
+			if tv, ok := info.Types[expr]; ok && tv.Type != nil {
+				if _, isArray := tv.Type.Underlying().(*gotypes.Array); isArray {
+					found = expr
+				}
+			}
+		}
+		return found == nil
+	})
+	if found == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: workflow 里不支持定长数组 %s（%s）：Go 的数组赋值与传参是复制，Workflow 程序里只有引用语义的 slice；改用 slice（[]T）",
+		fset.Position(found.Pos()), gotypes.ExprString(found), info.Types[found].Type)
+}
+
+// loadPackage 加载 filename 所在包的语法树与类型信息，files（路径 → 内容）覆盖磁盘上的同名文件。
+// 包里其他地方的类型错误不影响调用关系与表达式类型的解析，因此忽略。dir 为空时只检查 filename 这一个文件。
+func loadPackage(files map[string][]byte, filename, dir string) (*token.FileSet, []*ast.File, *gotypes.Info, string, error) {
 	fset := token.NewFileSet()
 	if dir != "" {
-		absolute, err := filepath.Abs(filename)
-		if err != nil {
-			return nil, nil, nil, "", err
+		overlay := make(map[string][]byte, len(files))
+		for name, content := range files {
+			absolute, err := filepath.Abs(name)
+			if err != nil {
+				return nil, nil, nil, "", err
+			}
+			overlay[absolute] = content
 		}
 		loaded, err := packages.Load(&packages.Config{
 			Dir:     dir,
 			Fset:    fset,
-			Overlay: map[string][]byte{absolute: src},
+			Overlay: overlay,
 			Mode:    packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
 		}, ".")
 		if err == nil && len(loaded) == 1 && loaded[0].TypesInfo != nil {
 			return fset, loaded[0].Syntax, loaded[0].TypesInfo, loaded[0].PkgPath, nil
 		}
 	}
+	src := files[filename]
 	file, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
 	if err != nil {
 		return nil, nil, nil, "", err
@@ -133,6 +166,7 @@ func loadForHelpers(src []byte, filename, dir string) (*token.FileSet, []*ast.Fi
 		Defs:       map[*ast.Ident]gotypes.Object{},
 		Uses:       map[*ast.Ident]gotypes.Object{},
 		Selections: map[*ast.SelectorExpr]*gotypes.Selection{},
+		Types:      map[ast.Expr]gotypes.TypeAndValue{},
 	}
 	config := gotypes.Config{Importer: singleFileImporter{std: importer.Default()}, Error: func(error) {}}
 	_, _ = config.Check(file.Name.Name, fset, []*ast.File{file}, info)

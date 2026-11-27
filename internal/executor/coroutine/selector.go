@@ -89,6 +89,14 @@ func (s *Selector) Reset() {
 	s.readyIndex = -1
 }
 
+// ReplaceFuture 把第 index 个 future case 换成 f。host 用它撤销一个已 Set、但选中时拿不到结果的 future
+// （同名 SignalFuture 的 Signal 已被别的 Future 取走），之后 TrySelect 按 f 重新试探。
+func (s *Selector) ReplaceFuture(index int, f *Future) {
+	if index >= 0 && index < len(s.cases) && s.cases[index].kind == caseFuture {
+		s.cases[index].future = f
+	}
+}
+
 // MarkConsumed 把第 index 个 case 标记为已消费。host 在执行回调前调用：future case 每次都调用，
 // receive case 在 more==false（channel 关闭）命中时调用；send case 不调用。
 func (s *Selector) MarkConsumed(index int) {

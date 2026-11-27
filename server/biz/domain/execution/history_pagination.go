@@ -36,9 +36,15 @@ type HistoryPage struct {
 	HistorySizeBytes   int64           `json:"history_size_bytes"`
 }
 
+// CloseEventScan 是读取 Run 结束事件时从最后一个事件向前查看的事件数：结束事件之后不再追加事件，留出余量即可。
+const CloseEventScan = 8
+
 type HistoryPageStore interface {
 	GetEventPage(request HistoryPageRequest) (HistoryPage, error)
 	GetEventsRange(runID string, afterExclusive, throughInclusive int64) ([]history.Event, error)
+	// GetEventsByDedupeKeys 返回 Run 可见 History 里去重键（history.DedupeKey）属于 keys 的事件，按事件 ID 升序。
+	// 范围与 GetEvents 相同（含 reset 从祖先 fork 来的前缀），读取走去重键索引，与 History 长度无关。
+	GetEventsByDedupeKeys(runID string, keys []string) ([]history.Event, error)
 }
 
 var (
@@ -54,8 +60,11 @@ type HistoryPageCursor struct {
 	RangeOrdinal        int              `json:"range_ordinal"`
 	NodeID              int64            `json:"node_id"`
 	SnapshotUpperBounds []int64          `json:"snapshot_upper_bounds"`
-	IssuedAtUnix        int64            `json:"issued_at"`
-	ExpiresAtUnix       int64            `json:"expires_at"`
+	// HistoryEventCount 与 HistorySizeBytes 是首页按快照上界算出的统计值，后续页沿用，不再重算。
+	HistoryEventCount int64 `json:"history_event_count"`
+	HistorySizeBytes  int64 `json:"history_size_bytes"`
+	IssuedAtUnix      int64 `json:"issued_at"`
+	ExpiresAtUnix     int64 `json:"expires_at"`
 }
 
 func NormalizeHistoryPageRequest(request HistoryPageRequest) (HistoryPageRequest, error) {

@@ -161,7 +161,7 @@ more := ch.Receive(ctx, &got)
 
 规则：
 
-- `Receive` 的目标是 `*map[string]any`。发送 map 或结构体时接收方得到对应的 map；发送标量时接收方得到 `{"value": v}`。
+- `Receive` 与 Go 一样按目标类型接收：目标与发送的值同类型（`var s string`、`var n int`、结构体、slice、map）时得到这个值，slice 与 map 与发送方共享。目标是 `map[string]any` 时，发送的结构体换成对应的 map，标量包成 `{"value": v}`。目标不能是接口类型（`var v any`），生成期报错：Channel 传递的值不带 Go 类型。
 - 向已关闭的 Channel 发送、发送阻塞期间 Channel 被关闭，都会 panic 并使当前 Workflow Task 失败。
 - Channel 的值只在内存中传递，不写入 History；重放时由协程重新执行得到相同的传递顺序。
 
@@ -189,7 +189,7 @@ sel.Select(ctx)
 | 方法 | case 就绪条件 | 回调签名 |
 | --- | --- | --- |
 | `AddFuture(ctx, f, cb)` | Activity 完成或失败 | `func(f workflow.ActivityFuture)` |
-| `AddSignalFuture(ctx, f, cb)` | `WaitSignal` 对应的 Signal 已到达 | `func(f workflow.SignalFuture)` |
+| `AddSignalFuture(ctx, f, cb)` | 此刻有未消费的同名 Signal（`f` 已消费过时恒就绪），每次 `Select` 重新判定；选中时 `f` 取走这条 Signal，同名 Signal 已被别的 Future 取走时继续等待 | `func(f workflow.SignalFuture)` |
 | `AddChildFuture(ctx, f, cb)` | Child Workflow 完成或失败 | `func(f workflow.ChildWorkflowFuture)` |
 | `AddReceive(ctx, ch, cb)` | Channel 有值可收或已关闭 | `func(ch workflow.Channel, more bool)` |
 | `AddSend(ctx, ch, v, cb)` | Channel 接受了值 | `func()` |
@@ -203,6 +203,7 @@ sel.Select(ctx)
 - 在回调里对 Future 调用 `Get` 取得结果或错误；`AddReceive` 的回调里调用 `ch.Receive` 取出值。
 - 方法返回 Selector，支持链式写法，也可以逐条调用。
 - 处理 N 个事件需要调用 N 次 `Select`。
+- `SignalFuture` 被选中时才消费 Signal，没被选中的不占 Signal，所以循环里每轮新建 Selector、内联调用 `WaitSignal` 不会漏掉 Signal（与 Temporal 的 Signal Channel 相同，见 [Signal](/develop/signals#接收-signal)）。
 
 Signal 与 Child Workflow 的 case：
 

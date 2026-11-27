@@ -82,7 +82,9 @@ CREATE TABLE IF NOT EXISTS tenuto_runs (
   -- 第二个置 current 写入相同 marker 会撞唯一约束失败，SetCurrentRunCAS 据此返回 false。
   current_marker            VARCHAR(383) DEFAULT NULL,
   PRIMARY KEY (id),
-  INDEX idx_workflow_runs_namespace (namespace),
+  -- Run 列表按 namespace（与状态）过滤、按 (created_at, id) 排序翻页；run-stats 按 namespace 分组计数。
+  INDEX idx_workflow_runs_namespace (namespace, created_at, id),
+  INDEX idx_workflow_runs_namespace_status (namespace, status, created_at, id),
   INDEX idx_workflow_runs_workflow_id (workflow_id),
   INDEX idx_workflow_runs_workflow_type (workflow_type),
   INDEX idx_workflow_runs_parent_run_id (parent_run_id),
@@ -94,7 +96,7 @@ CREATE TABLE IF NOT EXISTS tenuto_runs (
   INDEX idx_workflow_runs_status_run_deadline (status, run_deadline_at),
   INDEX idx_workflow_runs_is_current (namespace, workflow_id, is_current),
   UNIQUE INDEX uniq_run_current_marker (current_marker)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }
 
@@ -140,7 +142,7 @@ CREATE TABLE IF NOT EXISTS tenuto_events (
   -- dedupe 的范围是 branch：reset 出的 Run 不与 fork 来的祖先前缀去重。
   UNIQUE INDEX idx_workflow_events_branch_node (branch_id, node_id),
   UNIQUE INDEX idx_workflow_events_branch_dedupe (branch_id, dedupe_key)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }
 
@@ -166,7 +168,7 @@ CREATE TABLE IF NOT EXISTS tenuto_history_tree (
   info       VARCHAR(191) NOT NULL DEFAULT '',
   created_at DATETIME(3)  NOT NULL,
   PRIMARY KEY (tree_id, branch_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }
 
@@ -243,7 +245,32 @@ CREATE TABLE IF NOT EXISTS tenuto_execution_states (
   -- 前缀列 sticky_worker_identity 绝大多数行是 ''（无 sticky），选择性良好；
   -- 第二列 sticky_expires_at 支撑过期范围扫描。
   INDEX idx_wf_exec_states_sticky_fallback (sticky_worker_identity, sticky_expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
+`
+}
+
+// RunSearchAttributePO 是 tenuto_run_search_attributes 的一行：Run 的一个搜索属性 term。
+// @Gsql
+// @Setter(setter=false, patch=v2)
+type RunSearchAttributePO struct {
+	RunID     string    `gorm:"column:run_id"`
+	AttrHash  []byte    `gorm:"column:attr_hash"`
+	Namespace string    `gorm:"column:namespace"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+}
+
+func (RunSearchAttributePO) TableName() string { return "tenuto_run_search_attributes" }
+
+func (RunSearchAttributePO) MysqlCreateTable() string {
+	return `
+CREATE TABLE IF NOT EXISTS tenuto_run_search_attributes (
+  run_id     VARCHAR(191) NOT NULL,
+  attr_hash  BINARY(32)   NOT NULL,
+  namespace  VARCHAR(191) NOT NULL,
+  created_at DATETIME(3)  NOT NULL,
+  PRIMARY KEY (run_id, attr_hash),
+  INDEX idx_run_search_attributes_lookup (namespace, attr_hash, created_at, run_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }
 
@@ -264,6 +291,7 @@ type ActivityStatePO struct {
 	CancelRequested          bool       `gorm:"column:cancel_requested"`
 	WorkerIdentity           string     `gorm:"column:worker_identity"`
 	WorkerBuildID            string     `gorm:"column:worker_build_id"`
+	StartRequestID           string     `gorm:"column:start_request_id"`
 	LastHeartbeatJSON        []byte     `gorm:"column:last_heartbeat_json"`
 	LastHeartbeatAt          *time.Time `gorm:"column:last_heartbeat_at"`
 	RetryLastFailure         string     `gorm:"column:retry_last_failure"`
@@ -301,6 +329,7 @@ CREATE TABLE IF NOT EXISTS tenuto_activity_states (
   cancel_requested               BOOLEAN      NOT NULL DEFAULT FALSE,
   worker_identity                VARCHAR(191) NOT NULL DEFAULT '',
   worker_build_id                VARCHAR(191) NOT NULL DEFAULT '',
+  start_request_id               VARCHAR(128) NOT NULL DEFAULT '',
   last_heartbeat_json            LONGBLOB,
   last_heartbeat_at              DATETIME(3),
   retry_last_failure             LONGTEXT,
@@ -323,7 +352,7 @@ CREATE TABLE IF NOT EXISTS tenuto_activity_states (
   INDEX idx_activity_states_run_id (run_id),
   INDEX idx_activity_states_activity_id (activity_id),
   INDEX idx_activity_states_status (status, timeout_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }
 
@@ -360,7 +389,7 @@ CREATE TABLE IF NOT EXISTS tenuto_timer_states (
   INDEX idx_timer_states_run_id (run_id),
   INDEX idx_timer_states_timer_id (timer_id),
   INDEX idx_timer_states_status (status, deadline)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }
 
@@ -410,7 +439,7 @@ CREATE TABLE IF NOT EXISTS tenuto_child_workflow_states (
   INDEX idx_workflow_child_workflow_states_child_id (child_id),
   INDEX idx_workflow_child_workflow_states_child_run_id (child_run_id),
   INDEX idx_workflow_child_workflow_states_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }
 
@@ -442,6 +471,6 @@ CREATE TABLE IF NOT EXISTS tenuto_deletion_tasks (
   updated_at DATETIME(3)  NOT NULL,
   PRIMARY KEY (tree_id),
   INDEX idx_deletion_tasks_fire_at (fire_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 `
 }

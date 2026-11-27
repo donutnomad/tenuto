@@ -62,7 +62,7 @@ Run 固定了目标 Worker（`target_worker_identity`）时，`auto_upgrade` 换
 
 选择依据：
 
-- `auto_upgrade` 的 Run 会用新 Program 重放旧 History，新代码需要通过 `GetVersion` 兼容旧命令序列。
+- `auto_upgrade` 的 Run 会用新 Program 重放旧 History，新代码需要通过 `GetVersion` 兼容旧命令序列：每个已完成的 Workflow Task 产生的命令与 History 里该 Workflow Task 的命令事件一致。
 - `pinned` 的 Run 始终用启动时的 Program，新代码可以自由改动；旧 Program 的 Activity 仍需要有 Worker 提供。
 
 ## GetVersion

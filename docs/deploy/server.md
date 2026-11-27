@@ -45,13 +45,16 @@ export TASKQ_ACTIVITY_QUEUES_JSON='{"default/default":{"physical":"workflow-acti
 
 `WORKFLOW_TASK_TOKEN_SECRET` 至少包含 32 字节，并在所有 Server 副本间保持一致。`WORKFLOW_HISTORY_PAGE_TOKEN_KEY_BASE64` 同样需要跨副本共享。
 
-两个 DSN 的 `parseTime=true`、`loc=UTC` 与 `interpolateParams=true` 由 Server 设置，DSN 里写成别的值也不生效（`migrate` 相同）：
+两个 DSN 的 `parseTime=true`、`loc=UTC`、`interpolateParams=true` 与 `clientFoundRows=false` 由 Server 设置，DSN 里写成别的值也不生效（`migrate` 相同）：
 
 | 参数 | 作用 |
 | --- | --- |
 | `parseTime=true` | `DATETIME` 列读成时间值 |
 | `loc=UTC` | 写入与读取的时间都按 UTC 解释 |
 | `interpolateParams=true` | 驱动在客户端把参数插进 SQL 文本，每条带参数的语句一次往返。不插值时每条语句依次发 prepare、execute、close |
+| `clientFoundRows=false` | upsert 撞键、没有改动列时 affected rows 为 0。仓储按这个值区分新写入与去重命中（事件去重、state 写入） |
+
+经 `app.WithDatabase` 注入的 gorm 句柄不经过这一步，Server 启动时在 Workflow 库上执行一次回滚的 upsert 探测：句柄带 `clientFoundRows=true` 时启动失败。
 
 连接字符集用 `utf8mb4`（表都是 `utf8mb4`）。`charset` 或 `collation` 是 GBK、GB18030、Big5、SJIS、CP932 这类多字节字符集时 Server 启动失败：它们的字符尾字节可能是反斜杠，客户端插值无法安全转义。
 
@@ -98,6 +101,8 @@ go tool pprof http://127.0.0.1:6060/debug/pprof/mutex
 `WORKFLOW_PPROF_ADDR` 缺省关闭。开启后进程另开一个只提供 `/debug/pprof/` 的监听（CPU、heap、goroutine、mutex、block、trace），业务 HTTP 端口不提供这些路径。这个监听不鉴权，只绑定本机或内网地址；启动时记一条 WARN。
 
 ## 数据库 Schema
+
+数据库要求 MySQL 8.0 或更高：全部表（含 TaskQ 的表）使用 `utf8mb4_0900_bin` 排序规则，标识按字节比较，区分大小写、重音与尾随空格；MySQL 5.7 没有这个排序规则，迁移失败。
 
 Server 启动时不建表也不改表。表结构由二进制内嵌的版本化迁移维护，首次部署与每次升级都在启动新版本 Server 之前执行一次：
 
@@ -149,10 +154,12 @@ make run-server
 | 路径 | 用途 |
 | --- | --- |
 | `GET /health/live` | 进程存活 |
-| `GET /health/ready` | 数据库、matching（内嵌模式含 matching 自身在服务）、恢复和路由就绪 |
+| `GET /health/ready` | 数据库、matching（内嵌模式含 matching 自身在服务）、恢复和路由就绪。数据库检查用每个连接池里一条专用连接 Ping，不在业务连接池上排队：池被业务请求占满时 readiness 照常通过，数据库失联时失败 |
 
 Tenuto Server 在完成 Run 恢复、pending task 补投递和 sticky assignment 校正后开放 readiness。
 
 ## 优雅退出
 
-收到 `SIGTERM` 后，Server 会撤销 readiness、取消内嵌 workflow worker 的 poll 与在途 Workflow Task、停止 reconciliation、Schedule 与 Batch Operation 驱动的 leadership（处理到一半的 Batch 页不保存，由下一任驱动从游标重做）、排空 HTTP 请求、等待内嵌 workflow worker 退出（在途 lease 完成 ack/nack）、关闭 Timer、TaskQ Frontend、内嵌 matching（释放 7235）、membership 观察与数据库连接。被取消的 Workflow Task 经 nack 或超时重新投递，由其他副本执行。
+收到 `SIGTERM` 后，Server 会撤销 readiness、结束进行中的长轮询（`poll` 应答 204，`wait-closed` 应答 204，`update` 返回当前阶段，客户端照常重来）、取消内嵌 workflow worker 的 poll 与在途 Workflow Task、停止 reconciliation、Schedule 与 Batch Operation 驱动与 retention GC（处理到一半的 Batch 页不保存，由下一任驱动从游标重做），等各自的任务退出后释放 `tenuto_leader_lock` 里持有的锁，其他副本在下一次选主轮询（Schedule 与 Batch 驱动 5s，reconciliation 与 GC 10s）时接任，不等租约到期、排空 HTTP 请求、等待内嵌 workflow worker 退出（在途 lease 完成 ack/nack）、关闭 Timer、TaskQ Frontend、内嵌 matching（释放 7235）、membership 观察与数据库连接。被取消的 Workflow Task 经 nack 或超时重新投递，由其他副本执行。
+
+其余在途请求（Signal、Cancel、Activity 完成等写请求）不随停机取消，在 `WORKFLOW_HTTP_SHUTDOWN_TIMEOUT` 内照常做完并应答结果。请求在生效之前被取消（例如客户端断开时仍在等同一个 Workflow 的锁）时应答 `503` 与 `Retry-After`，没有写入任何内容；进入事务的请求要么提交并应答成功，要么不提交。Go SDK 把 2xx 空应答体当作传输错误重试，不当作成功。

@@ -10,7 +10,9 @@ status: Stable
 
 Query 在 Workflow 重放到最后一个已完成的 Workflow Task 后执行只读 Handler。Query 结果不会写入 Event History。
 
-Query 读到的是已提交状态：最后一个 `WorkflowTaskCompleted` 之后到达的 Signal、Activity 结果等事实，在下一个 Workflow Task 完成后才体现在 Query 结果里。Workflow Task 正在执行时发起的 Query 读到的是它开始之前的状态。
+Server 为每个 Query 读一次 History 并在进程内重放。一个 Server 进程同时重放的 Query 数受 [`WORKFLOW_QUERY_CONCURRENCY`](/reference/configuration)（默认 8）限制，超出的 Query 不排队，立即应答 503 与 `Retry-After: 1`（对标 Temporal 的 `RESOURCE_EXHAUSTED`），Go SDK 按瞬时错误退避重发；`__stack_trace` 不重放，不占名额。
+
+Query 读到的是已提交状态：最后一个已完成的 Workflow Task 没有看到的 Signal、Activity 结果等事实（它完成之后到达的，以及它执行期间到达的），在下一个 Workflow Task 完成后才体现在 Query 结果里。Workflow Task 正在执行时发起的 Query 读到的是它开始之前的状态。
 
 ## 注册 Handler
 
@@ -31,7 +33,7 @@ if err != nil {
 
 `SetQueryHandler` 返回 `error`：Query 名为空或 Handler 形状不对时登记失败。生成器在生成期做同样的检查并给出文件行号。
 
-Handler 可以读取 Workflow 内存变量和闭包捕获。Query 执行期间生成的 Command 会被隔离，业务设计应保持 Handler 纯读。Handler 不能阻塞或起协程：调用 `workflow.Await`、`Sleep`、Future 的 `Get`、Channel 收发、`Selector.Select`、`WaitGroup.Wait` 或 `workflow.Go` 时，这次 Query 以 `query handler must not block or start coroutines` 被拒。
+Handler 可以读取 Workflow 内存变量和闭包捕获。Query 执行期间生成的 Command 会被隔离，业务设计应保持 Handler 纯读。Handler 不能阻塞或起协程：调用 `workflow.Await`、`Sleep`、Future 的 `Get`、Channel 收发、`Selector.Select`、`WaitGroup.Wait` 或 `workflow.Go` 时，这次 Query 以 `query handler must not block or start coroutines` 被拒。Handler 也不能改变 Signal 的消费：对还没取到 Signal 的 `SignalFuture` 调用 `Get` 或把它放进 `Selector.Select`、而此时有同名 Signal 可取时，这次 Query 以 `query handler must not consume a Signal` 被拒；已经取到 Signal 的 Future 可以 `Get`，返回原值。
 
 ## 调用与结果
 
@@ -75,6 +77,7 @@ Server 将其映射为 Query 拒绝（`query_rejected=true`、`query_error`，Go
 | Query Context 截止 | 调用返回 Context 错误 |
 | Handler 尝试调度 Activity | Command 被查询隔离层丢弃 |
 | Handler 调用阻塞原语或 `workflow.Go` | 拒绝：`query handler must not block or start coroutines ...` |
+| Handler 让 `SignalFuture` 取走一条 Signal | 拒绝：`query handler must not consume a Signal ...` |
 | 旧 Program 缺少用户 Handler | 用户 Query 返回 unknown；内置 stack trace 仍可使用 |
 
 ## 内置 Query

@@ -135,7 +135,9 @@ func runListResultToWire(result execution.RunListResult, err error) (runtimeapi.
 				Blocked:               blocked,
 			}
 		}),
-		Total: result.Total,
+		Total:         result.Total,
+		HasMore:       result.HasMore,
+		NextPageToken: result.NextPageToken,
 	}, err
 }
 
@@ -183,6 +185,7 @@ func activityStateToWire(state *execution.ActivityState) *runtimeapi.ActivitySta
 		StartedTime:              state.StartedTime,
 		WorkerIdentity:           state.WorkerIdentity,
 		WorkerBuildID:            state.WorkerBuildID,
+		StartRequestID:           state.StartRequestID,
 		LastHeartbeat:            state.LastHeartbeat,
 		LastHeartbeatAt:          state.LastHeartbeatAt,
 		RetryLastFailure:         state.RetryLastFailure,
@@ -206,21 +209,25 @@ func scheduleToWire(s *schedule.Schedule) *runtimeapi.Schedule {
 		return nil
 	}
 	return &runtimeapi.Schedule{
-		ID:             s.ID,
-		Namespace:      s.Namespace,
-		WorkflowType:   s.WorkflowType,
-		Description:    s.Description,
-		CronExpression: s.CronExpression,
-		Timezone:       s.Timezone,
-		Input:          s.Input,
-		Paused:         s.Paused,
-		OverlapPolicy:  s.OverlapPolicy,
-		LastRunAt:      s.LastRunAt,
-		NextRunAt:      s.NextRunAt,
-		LastRunID:      s.LastRunID,
-		RunCount:       s.RunCount,
-		CreatedAt:      s.CreatedAt,
-		UpdatedAt:      s.UpdatedAt,
+		ID:                  s.ID,
+		Namespace:           s.Namespace,
+		WorkflowType:        s.WorkflowType,
+		Description:         s.Description,
+		CronExpression:      s.CronExpression,
+		Timezone:            s.Timezone,
+		Input:               s.Input,
+		Paused:              s.Paused,
+		OverlapPolicy:       s.OverlapPolicy,
+		LastRunAt:           s.LastRunAt,
+		NextRunAt:           s.NextRunAt,
+		LastRunID:           s.LastRunID,
+		RunCount:            s.RunCount,
+		CatchupWindow:       s.CatchupWindow,
+		MissedCatchupWindow: s.MissedCatchupWindow,
+		BufferDropped:       s.BufferDropped,
+		StartFailed:         s.StartFailed,
+		CreatedAt:           s.CreatedAt,
+		UpdatedAt:           s.UpdatedAt,
 	}
 }
 

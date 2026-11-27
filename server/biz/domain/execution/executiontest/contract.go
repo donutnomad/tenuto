@@ -11,22 +11,21 @@ import (
 	"github.com/donutnomad/tenuto/server/biz/domain/execution"
 )
 
-// weirdAttributeKey 含引号，GORM 实现对这类键走按属性扫描的列表路径。
-const weirdAttributeKey = `we"ird`
+// weirdAttributeKey 含引号与反斜杠：搜索属性的键原样参与匹配，不拼进 SQL 或 JSON path。
+const weirdAttributeKey = `we"ird\\`
 
 // RunListOrderContract 断言 Run 列表按 (created_at, id) 排序，分页不重复也不丢失：
 // created_at 相同的 Run 以 id 决定先后，升序与降序互为逆序。每个子测试拿到一个空仓储。
 func RunListOrderContract(t *testing.T, newStore func(t *testing.T) execution.ExecutionManager) {
 	for name, filter := range map[string]execution.StoreListFilter{
-		"Plain":         {},
-		"AttributeScan": {SearchAttributes: map[string]string{weirdAttributeKey: ""}},
+		"Plain": {},
+		// 显式写成空串的键匹配空串过滤。
+		"Attribute":     {SearchAttributes: map[string]string{weirdAttributeKey: ""}},
+		"TwoAttributes": {SearchAttributes: map[string]string{weirdAttributeKey: "", "env": "prod"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
 			want := seedRunsSharingCreatedAt(t, store)
-			if got := listAllPages(t, store, filter, false); !slices.Equal(got, want) {
-				t.Fatalf("ascending pages:\n got %v\nwant %v", got, want)
-			}
 			if got := listCursorPages(t, store, filter, false); !slices.Equal(got, want) {
 				t.Fatalf("ascending cursor pages:\n got %v\nwant %v", got, want)
 			}
@@ -38,9 +37,6 @@ func RunListOrderContract(t *testing.T, newStore func(t *testing.T) execution.Ex
 				t.Fatalf("cursor pages created before %s:\n got %v\nwant %v", before, got, want[:16])
 			}
 			slices.Reverse(want)
-			if got := listAllPages(t, store, filter, true); !slices.Equal(got, want) {
-				t.Fatalf("descending pages:\n got %v\nwant %v", got, want)
-			}
 			if got := listCursorPages(t, store, filter, true); !slices.Equal(got, want) {
 				t.Fatalf("descending cursor pages:\n got %v\nwant %v", got, want)
 			}
@@ -79,7 +75,10 @@ func seedRunsSharingCreatedAt(t *testing.T, store execution.ExecutionManager) []
 		createdAt := base.Add(time.Duration(group) * time.Minute)
 		for _, n := range []int{5, 2, 7, 0, 3, 6, 1, 4} {
 			id := fmt.Sprintf("run-g%d-%d", group, n)
-			run := execution.NewRun(execution.NewRunOptions{ID: id, WorkflowID: "wf-" + id, WorkflowConfigVersion: "v1", CreatedAt: createdAt})
+			run := execution.NewRun(execution.NewRunOptions{
+				ID: id, WorkflowID: "wf-" + id, WorkflowConfigVersion: "v1", CreatedAt: createdAt,
+				SearchAttributes: map[string]string{weirdAttributeKey: "", "env": "prod"},
+			})
 			createRun(t, store, run)
 		}
 		for n := range 8 {
@@ -87,26 +86,6 @@ func seedRunsSharingCreatedAt(t *testing.T, store execution.ExecutionManager) []
 		}
 	}
 	return want
-}
-
-func listAllPages(t *testing.T, store execution.Store, filter execution.StoreListFilter, desc bool) []string {
-	t.Helper()
-	const pageSize = 5
-	filter.OrderDesc, filter.Limit = desc, pageSize
-	var ids []string
-	for {
-		page, err := store.List(filter)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, run := range page.Runs {
-			ids = append(ids, run.ID)
-		}
-		filter.Offset += pageSize
-		if filter.Offset >= page.Total {
-			return ids
-		}
-	}
 }
 
 // RunListVisibilityContract 断言列表的两条可见性规则：显式给出 RunIDs 时已结束的 Run 也在结果里，

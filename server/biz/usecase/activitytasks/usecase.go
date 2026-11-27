@@ -3,6 +3,7 @@ package activitytasks
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/donutnomad/tenuto/protocol"
@@ -38,6 +39,8 @@ type Backend interface {
 	// RefuseIncompatibleActivityClaim 对照 Run 当前 Program 的契约声明与领取 Worker 自己的上报：不兼容时不开始
 	// 这次 attempt，按重派延迟重新投递任务，返回 true。
 	RefuseIncompatibleActivityClaim(ctx context.Context, task protocol.Task, run *execution.Run) (bool, error)
+	// PayloadSizeLimit 是 Activity 输出与心跳详情的字节上限，随开始结果告诉 Worker。
+	PayloadSizeLimit() int
 }
 
 // ReasonWorkerContractMismatch 是领取 Activity 的 Worker 的契约与 Workflow 声明不兼容时 BeginActivityTask 的拒绝原因。
@@ -53,6 +56,9 @@ func NewUseCase(backend Backend) *UseCase {
 
 func (s *UseCase) BeginActivityTask(ctx context.Context, task protocol.Task) (protocol.ActivityTaskBeginResult, error) {
 	if err := validateRuntimeTask(task); err != nil {
+		return protocol.ActivityTaskBeginResult{}, err
+	}
+	if err := execution.ValidateRequestID(task.RequestID); err != nil {
 		return protocol.ActivityTaskBeginResult{}, err
 	}
 	run, err := s.backend.TaskRun(task)
@@ -83,8 +89,12 @@ func (s *UseCase) BeginActivityTask(ctx context.Context, task protocol.Task) (pr
 	if st.Stamp != task.Stamp || st.Attempt != history.NormalizeActivityAttempt(task.Attempt) {
 		return protocol.ActivityTaskBeginResult{Reason: "stale_task"}, nil // stamp/attempt 不符 → 丢弃
 	}
-	// 已开始的 attempt 由 StartToClose 与 heartbeat 超时负责；队列重投的副本不再执行。
+	// 已开始的 attempt 由 StartToClose 与 heartbeat 超时负责；队列重投的副本不再执行。开始它的那次 Begin 的重发
+	// （应答在途中丢失）带着相同的 RequestID，得到原来的开始结果（Temporal recordActivityTaskStarted 的 RequestId）。
 	if st.StartedEventID != execution.EmptyEventID {
+		if task.RequestID != "" && task.RequestID == st.StartRequestID && st.StartedTime != nil {
+			return protocol.ActivityTaskBeginResult{Execute: true, StartedTime: *st.StartedTime, PayloadSizeLimit: s.backend.PayloadSizeLimit()}, nil
+		}
 		return protocol.ActivityTaskBeginResult{Reason: "attempt_already_started"}, nil
 	}
 	// 任务不绑定 build，任何订阅队列的 Worker 都能领取：契约不兼容的 Worker 不开始 attempt，attempt 不消耗，
@@ -107,7 +117,7 @@ func (s *UseCase) BeginActivityTask(ctx context.Context, task protocol.Task) (pr
 		return protocol.ActivityTaskBeginResult{Reason: "attempt_already_started"}, nil
 	}
 	// StartedTime 以 Server 记下的开始时间为准，Worker 据此算出本次 attempt 的截止时间。
-	return protocol.ActivityTaskBeginResult{Execute: true, StartedTime: startedTime}, nil
+	return protocol.ActivityTaskBeginResult{Execute: true, StartedTime: startedTime, PayloadSizeLimit: s.backend.PayloadSizeLimit()}, nil
 }
 
 func (s *UseCase) RecordActivityHeartbeat(ctx context.Context, task protocol.Task, details map[string]any) (protocol.ActivityHeartbeatResult, error) {
@@ -115,7 +125,8 @@ func (s *UseCase) RecordActivityHeartbeat(ctx context.Context, task protocol.Tas
 		return protocol.ActivityHeartbeatResult{}, err
 	}
 	if _, err := s.backend.TaskRun(task); err != nil {
-		return protocol.ActivityHeartbeatResult{}, err
+		result, err := runNotFoundCancellation(err)
+		return protocol.ActivityHeartbeatResult(result), err
 	}
 	// 先记录心跳 details，再检查取消。即使 activity 即将被取消，最新的
 	// heartbeat details 仍需持久化，以便重试时通过 LastHeartbeatDetails 恢复进度。
@@ -134,9 +145,21 @@ func (s *UseCase) CheckActivityTaskCancellation(ctx context.Context, task protoc
 		return protocol.ActivityCancellationResult{}, err
 	}
 	if _, err := s.backend.TaskRun(task); err != nil {
-		return protocol.ActivityCancellationResult{}, err
+		return runNotFoundCancellation(err)
 	}
 	return s.checkCancellation(task)
+}
+
+// ActivityRunNotFoundReason 是 Run 不存在（例如已被 retention 回收）时取消结果的 Reason。
+const ActivityRunNotFoundReason = "run_not_found"
+
+// runNotFoundCancellation 把 Run 不存在答复为明确的停止（同 closed / stale，Worker 放弃这次 attempt），其余错误原样返回。
+// 不用 404 表达：反向代理同样会返回 404，Worker 分不出来，只按普通心跳失败处理。
+func runNotFoundCancellation(err error) (protocol.ActivityCancellationResult, error) {
+	if errors.Is(err, execution.ErrRunNotFound) {
+		return protocol.ActivityCancellationResult{CancelRequested: true, Reason: ActivityRunNotFoundReason}, nil
+	}
+	return protocol.ActivityCancellationResult{}, err
 }
 
 // checkCancellation 按 execution state 与 Activity state 判定 task 的 attempt 是否应停止；调用方已校验 task。

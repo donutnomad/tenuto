@@ -100,7 +100,7 @@ func newGCHarness(t *testing.T, retention time.Duration) *gcHarness {
 // start 启动 worker 并注册清理。
 func (h *gcHarness) start(t *testing.T, ctx context.Context) {
 	t.Helper()
-	if err := h.server.RecoverRunningWorkflows(ctx); err != nil {
+	if err := h.server.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatalf("recover running workflows: %v", err)
 	}
 	// 用例在 Worker 启动之后才注册 Activity 实现，Worker 启动时没有可登记的类型：这里登记它们的路由。

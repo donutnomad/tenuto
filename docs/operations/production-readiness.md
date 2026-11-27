@@ -33,7 +33,7 @@ description: Tenuto 的正确性保证、生产必需配置、多副本故障注
 
 | 项目 | 要求 | 参考 |
 | --- | --- | --- |
-| 数据库 | MySQL 8。首次部署与每次升级先执行新版本的 `tenuto-server migrate`，再启动或滚动替换副本；DDL 权限只给执行 migrate 的账号 | [数据库 Schema](/deploy/server#数据库-schema) |
+| 数据库 | MySQL 8.0 或更高（表使用 `utf8mb4_0900_bin`）。首次部署与每次升级先执行新版本的 `tenuto-server migrate`，再启动或滚动替换副本；DDL 权限只给执行 migrate 的账号 | [数据库 Schema](/deploy/server#数据库-schema) |
 | DSN | Server 强制设置 `parseTime=true`、`loc=UTC`、`interpolateParams=true`；连接字符集 `utf8mb4` | [必需配置](/deploy/server#必需配置) |
 | 连接池 | `副本数 × 2 × WORKFLOW_DB_MAX_OPEN_CONNS + 余量 < max_connections`（每个副本 Workflow 与 TaskQ 两个池） | [数据库连接数](/deploy/production#数据库连接数) |
 | 认证 | 开启 `WORKFLOW_HTTP_AUTH_TOKEN`（或 `_FILE`）与 / 或 mTLS（`WORKFLOW_HTTP_TLS_CLIENT_CA_FILE`）；开启 mTLS 时配置明文的 `WORKFLOW_HEALTH_ADDR` 供探针使用；HTTPS 用 `WORKFLOW_HTTP_TLS_CERT_FILE` / `_KEY_FILE` | [安全部署](/deploy/security) |

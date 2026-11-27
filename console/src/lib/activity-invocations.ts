@@ -339,6 +339,7 @@ export function buildActivityInvocationIndex(events: Event[]): Map<number, Activ
       attempt.errorEventID = event.id
       attempt.error = event.activityFailed.error
       attempt.retryState = event.activityFailed.retryState
+      attempt.lastHeartbeatDetails = event.activityFailed.lastHeartbeatDetails
       invocation.status = "failed"
       invocation.error = event.activityFailed.error
     }

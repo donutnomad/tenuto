@@ -22,11 +22,11 @@ import (
 // 按 eventID 交错投递 → defaultUpdateHandler → scheduler.Spawn）。批间调用（applyBatch 后、RunBatch 前）：handler 在其
 // UpdateAccepted 所属批的视界执行 → handler 内前缀一致性成立。
 //
-// 确定性铁律：按 AcceptedEventID（历史全局序）升序 spawn → 入队序 = 调度序，每次 replay 相同。
-// 用 Spawn（直入 s.coroutines 普通队列，照 Temporal newState 非 eager 分支）而非
-// SpawnEager：批间调用点无「当前正在执行的协程」，SpawnEager 的暂存区只在 RunBatch 迭代中
-// resume 某个非 done 协程之后被纳入——「body 已结束 + 旧 handler 已 done + 新 update 到达」时
-// 暂存协程永不被插入，RunBatch 立即收敛、静默吞 update。
+// 调度顺序对标 Temporal Go SDK 的 SDKPriorityUpdateHandling：name 已登记 handler 的 update 以高优先级协程起，
+// 本批先于 main 与已有协程运行；name 尚未登记的进 queuedUpdates，SetUpdateHandler 登记时立即起
+// （eager，排在登记它的协程之后），本批收敛后仍未登记的由 runDecisionBatch 以 UnknownUpdate 失败。
+//
+// 确定性铁律：按 AcceptedEventID（历史全局序）升序处理 → 同一批多个 update 的 handler 按事件顺序运行，每次 replay 相同。
 func (e *WorkflowExecutor) spawnUpdateHandlers() {
 	if e.spawnedUpdates == nil {
 		e.spawnedUpdates = make(map[string]bool)
@@ -44,37 +44,48 @@ func (e *WorkflowExecutor) spawnUpdateHandlers() {
 	})
 	for _, rec := range fresh {
 		e.spawnedUpdates[rec.UpdateID] = true
-		e.spawnUpdateHandlerCoroutine(rec)
+		if _, registered := e.updateHandler(rec.Name); registered {
+			e.sched.SpawnPriority("update:"+rec.UpdateID, e.updateHandlerCoroutine(rec))
+		} else {
+			e.queuedUpdates = append(e.queuedUpdates, rec)
+		}
 	}
 }
 
-// spawnUpdateHandlerCoroutine 起单个 update 的 handler 协程（runner 照 Temporal defaultUpdateHandler
+// startQueuedUpdates 在 name 的 handler 登记时立即起排队的同名 update 的 handler 协程，按事件顺序排在当前协程之后。
+func (e *WorkflowExecutor) startQueuedUpdates(name string) {
+	e.queuedUpdates = slices.DeleteFunc(e.queuedUpdates, func(rec history.WorkflowUpdateRecord) bool {
+		if rec.Name != name {
+			return false
+		}
+		e.sched.SpawnEager("update:"+rec.UpdateID, e.updateHandlerCoroutine(rec))
+		return true
+	})
+}
+
+// updateHandler 返回 name 当前登记的 update handler。
+func (e *WorkflowExecutor) updateHandler(name string) (registeredUpdateHandler, bool) {
+	if e.activeAPI == nil {
+		return registeredUpdateHandler{}, false
+	}
+	handler, ok := e.activeAPI.updateHandlers[name]
+	return handler, ok
+}
+
+// updateHandlerCoroutine 返回单个 update 的 handler 协程体（runner 照 Temporal defaultUpdateHandler
 // 的批模型等价物）。确定性键：lanePath = "update:"+UpdateID
 // （UpdateID 历史锚定、全局唯一；不占用户 lane 的 spawnSeq 游标）——handler 内
 // ExecuteActivity 的 laneKey 落 update:<id>#aN 专属桶，不再混用 main root 桶。
-func (e *WorkflowExecutor) spawnUpdateHandlerCoroutine(rec history.WorkflowUpdateRecord) {
-	e.sched.Spawn("update:"+rec.UpdateID, func(yield func()) {
-		// per-coroutine recover（照 Temporal 每协程 run() 的 defer/recover）：
-		// 承接本协程 body 内 InvokeClosure 之外的【直接 Go panic】（如 activeWLExec 为 nil 的 deref、
-		// emitCommand 等非-safeCall 宿主逻辑 panic）。InvokeClosure 里 wlang host 调用的
-		// panic 已由 safeCall 转 error 走下方错误路由；本 recover 兜的是那【之外】的直接 panic。
-		// 无它则 panic 逃逸到协程 goroutine 边界 → 崩整个 worker 进程；有它则收拢为 e.evalErr → Execute 返回
-		// 错误 → 仅本 workflow 失败（与 body 内 R 类 panic 升级为 executor 级错误的处置一致）。非确定性 panic
-		// 透传 nonDeterministicError（令 classifyWorkflowError 走 Block）。
+func (e *WorkflowExecutor) updateHandlerCoroutine(rec history.WorkflowUpdateRecord) func(yield func()) {
+	return func(yield func()) {
 		defer func() {
 			if r := recover(); r != nil {
 				e.recordCoroutinePanic(r)
 			}
 		}()
-		// handler 由 main 在首次阻塞前经 SetUpdateHandler 登记。main 是 Scheduler 的第一个协程，
-		// 每轮先于本协程被 resume，所以本协程首次运行时 main 已经跑到第一个阻塞点或已结束。
-		// 此时该 name 仍没有 handler → 以 UnknownUpdate 失败完成这次 update。
+		// 本批收敛后 name 仍没有 handler → 以 UnknownUpdate 失败完成这次 update。
 		// replay 批同样走到这里并产出同一条命令，与历史 WorkflowUpdateCompleted 配对。
-		var handler registeredUpdateHandler
-		registered := false
-		if api := e.activeAPI; api != nil {
-			handler, registered = api.updateHandlers[rec.Name]
-		}
+		handler, registered := e.updateHandler(rec.Name)
 		e.progressed()
 		if !registered {
 			e.emitUpdateHandlerFailure(rec, &protocol.Failure{
@@ -94,12 +105,12 @@ func (e *WorkflowExecutor) spawnUpdateHandlerCoroutine(rec history.WorkflowUpdat
 		invokeArgs = append(invokeArgs, businessArgs...)
 		out, err := e.activeWLExec.InvokeClosure(handler.Closure, invokeArgs)
 		if err != nil {
-			// 错误路由：先判非确定性——handler 内 R 类护栏 panic 经 wlang safeCall
-			// 上浮（LangError.Cause 保留错误链，typed non-det 传播已落地）。非确定性绝不降级为
-			// update 失败：升级为 executor 级错误 → Execute 返回错误 → worker 失败路径（与 body
-			// 内 R 类 panic 的处置一致），本 update 不产完成命令。
-			var nd executor.NonDeterministicError
-			if errors.As(err, &nd) {
+			// 错误路由：非确定性与 panic（越界、nil 解引用、显式 panic，经 wlang safeCall 上浮，LangError.Cause
+			// 保留错误链）不降级为 update 失败：升级为 executor 级错误 → Execute 返回错误 → Worker 以
+			// non_deterministic_error / workflow_panic 让 Workflow Task 失败，与主流程一致（Temporal Go SDK 的
+			// update handler panic 同样按 WorkflowPanicPolicy 处理，缺省 BlockWorkflow）。本 update 不产完成命令，
+			// 修复代码后重放时重新执行 handler。handler 显式返回的 error 走 completeUpdateHandlerResult，仍是 update 失败。
+			if executor.WorkflowTaskBlockedCause(err) != "" {
 				e.evalErr = err
 				return
 			}
@@ -119,7 +130,7 @@ func (e *WorkflowExecutor) spawnUpdateHandlerCoroutine(rec history.WorkflowUpdat
 			Type: history.CmdCompleteWorkflowUpdate, Name: rec.Name, UpdateID: rec.UpdateID,
 			UpdateOutcome: outcome,
 		})
-	})
+	}
 }
 
 // emitUpdateHandlerFailure 用统一的 Outcome.Failure 表达失败（指针非 nil 即失败），
@@ -161,6 +172,7 @@ func (api *runtimeWorkflowAPI) SetUpdateHandler(ctx workflowContext, name string
 	api.updateHandlers[name] = registeredUpdateHandler{
 		Closure: handler, Signature: signature, ABI: abi, Registry: api.registry,
 	}
+	api.executor.startQueuedUpdates(name)
 	return nil
 }
 

@@ -124,7 +124,7 @@ more := ch.Receive(ctx, &got)
 | `ch.Receive(ctx, &out) bool` | 返回 `more`；已关闭且取空时为 `false` |
 | `ch.Close(ctx)` | 关闭并唤醒所有等待的接收方 |
 
-- `Receive` 的目标是 `*map[string]any`：发送 map 或 struct 得到对应的 map，发送标量得到 `{"value": v}`。
+- `Receive` 按目标类型接收：目标与发送值同类型（`string`、`int`、struct、slice、map）时得到这个值；目标是 `map[string]any` 时 struct 换成 map、标量包成 `{"value": v}`；目标是接口类型（`var v any`）生成期报错。
 - 向已关闭的 Channel 发送、发送阻塞期间 Channel 被关闭，会 panic 并使当前 Workflow Task 失败。
 - Channel 的值只在内存中传递，不写入 History。
 
@@ -170,7 +170,7 @@ sel.Select(ctx)
 | 方法 | 就绪条件 | 回调签名 |
 | --- | --- | --- |
 | `AddFuture(ctx, f, cb)` | Activity 完成或失败 | `func(f workflow.ActivityFuture)` |
-| `AddSignalFuture(ctx, f, cb)` | `WaitSignal` 对应的 Signal 已到达 | `func(f workflow.SignalFuture)` |
+| `AddSignalFuture(ctx, f, cb)` | 此刻有未消费的同名 Signal（每次 `Select` 重新判定）；选中时 `f` 取走它，没被选中不占；同名 Signal 被别的 Future 取走后继续等待 | `func(f workflow.SignalFuture)` |
 | `AddChildFuture(ctx, f, cb)` | Child Workflow 完成或失败 | `func(f workflow.ChildWorkflowFuture)` |
 | `AddReceive(ctx, ch, cb)` | Channel 有值可收或已关闭 | `func(ch workflow.Channel, more bool)` |
 | `AddSend(ctx, ch, v, cb)` | Channel 接受了值 | `func()` |

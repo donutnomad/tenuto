@@ -227,6 +227,8 @@ type WorkflowRuntimeResetRequest struct {
 	ResetType           string   `json:"reset_type,omitempty"`
 	ResetEventID        int64    `json:"reset_event_id,omitempty"`
 	ReapplyExcludeTypes []string `json:"reapply_exclude_types,omitempty"`
+	// RequestID 是可选的幂等键：同一个 Run 上带同一个 request_id 的 Reset 只生效一次，重复的请求返回第一次 reset 出的 Run。
+	RequestID string `json:"request_id,omitempty"`
 }
 
 // WorkflowRuntimeResetActivityRequest 按 ActivityID 寻址 Run 里一个未关闭的 Activity。
@@ -329,28 +331,35 @@ type ActivityRuntimeLeaseRequest struct {
 	Lease protocol.TaskLease `json:"lease"`
 }
 
+// ActivityRuntimeTaskRequest 寻址一次 Activity attempt：只带 task token 与 Worker 身份（Temporal 的 task token 加
+// identity）。载荷不随请求重发，Server 从 token 的寻址字段与 mutable state 取其余信息。
 type ActivityRuntimeTaskRequest struct {
-	TaskToken protocol.TaskToken `json:"task_token,omitempty"`
-	Task      protocol.Task      `json:"task,omitempty"`
+	TaskToken      protocol.TaskToken `json:"task_token"`
+	WorkerIdentity string             `json:"worker_identity,omitempty"`
+	WorkerBuildID  string             `json:"worker_build_id,omitempty"`
+}
+
+// ActivityRuntimeBeginRequest 开始一次 attempt。RequestID 由 Worker 为每份投递生成一次，同一 RequestID 的重发
+// 得到原来的开始结果。
+type ActivityRuntimeBeginRequest struct {
+	ActivityRuntimeTaskRequest
+	RequestID string `json:"request_id,omitempty"`
 }
 
 type ActivityRuntimeHeartbeatRequest struct {
-	TaskToken protocol.TaskToken `json:"task_token,omitempty"`
-	Task      protocol.Task      `json:"task,omitempty"`
-	Details   map[string]any     `json:"details,omitempty"`
+	ActivityRuntimeTaskRequest
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // ActivityRuntimeCompleteRequest 是异步完成请求：failure 为 nil 表示成功，非 nil 表示失败。
 type ActivityRuntimeCompleteRequest struct {
-	TaskToken protocol.TaskToken `json:"task_token,omitempty"`
-	Task      protocol.Task      `json:"task,omitempty"`
-	Output    map[string]any     `json:"output,omitempty"`
-	Failure   *protocol.Failure  `json:"failure,omitempty"`
+	ActivityRuntimeTaskRequest
+	Output  map[string]any    `json:"output,omitempty"`
+	Failure *protocol.Failure `json:"failure,omitempty"`
 }
 
 // ActivityRuntimeFailRequest 是失败请求：失败载荷统一用 failure。
 type ActivityRuntimeFailRequest struct {
-	TaskToken protocol.TaskToken `json:"task_token,omitempty"`
-	Task      protocol.Task      `json:"task,omitempty"`
-	Failure   *protocol.Failure  `json:"failure,omitempty"`
+	ActivityRuntimeTaskRequest
+	Failure *protocol.Failure `json:"failure,omitempty"`
 }

@@ -196,16 +196,10 @@ var wallClockReplacements = map[string]string{
 	"NewTicker": "循环里的 workflow.Sleep(ctx, d)",
 }
 
-// unsupportedConversions 是没有 WLang 对应写法的数值/字符串类型转换。
-// int 与 int64 在 WLang 里是同一个类型，转换直接省略（见 foldProgram）。
-var unsupportedConversions = map[string]bool{
-	"int8": true, "int16": true, "int32": true, "uint": true, "uint8": true, "uint16": true,
-	"uint32": true, "uint64": true, "uintptr": true, "byte": true, "rune": true,
-	"float32": true, "float64": true, "string": true, "complex64": true, "complex128": true,
-}
-
 // reject 拒绝在 workflow 里没有确定性语义、或运行期必然失败的写法。
 func (p *lowerPass) reject(fn *ast.FuncDecl) {
+	// callArgs 是直接作为调用实参的表达式：&x 只在这里有意义（输出参数）。
+	callArgs := map[ast.Expr]bool{}
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
 		if p.err != nil {
 			return false
@@ -223,13 +217,28 @@ func (p *lowerPass) reject(fn *ast.FuncDecl) {
 			if x.Op == token.ARROW {
 				p.fail(x, "workflow 里不能用 <-ch；用 workflow.Channel 的 Receive(ctx, &v)")
 			}
+			if x.Op == token.AND && !callArgs[x] && isOutOperand(x.X) {
+				p.fail(x, "workflow 里 %s 只能直接作为调用实参（输出参数，如 Get(ctx, &out)）：Workflow 程序没有指针别名，`p := &a` 之后经 p 的读写不会作用到 a；直接使用值 a", p.source(x))
+			}
 		case *ast.SelectorExpr:
 			p.rejectPackageUse(x)
 		case *ast.CallExpr:
-			p.rejectCall(x)
+			for _, arg := range x.Args {
+				callArgs[arg] = true
+			}
 		}
 		return true
 	})
+}
+
+// isOutOperand 报告 &x 的 x 是否为 go2wlang 当作输出参数翻译的形态（标识符或字段选择）；
+// 其他取址表达式由 go2wlang 报诊断。
+func isOutOperand(expr ast.Expr) bool {
+	switch unparen(expr).(type) {
+	case *ast.Ident, *ast.SelectorExpr:
+		return true
+	}
+	return false
 }
 
 func (p *lowerPass) rejectPackageUse(sel *ast.SelectorExpr) {
@@ -263,16 +272,6 @@ func (p *lowerPass) rejectPackageUse(sel *ast.SelectorExpr) {
 	}
 }
 
-func (p *lowerPass) rejectCall(call *ast.CallExpr) {
-	ident, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return
-	}
-	if ident.Obj == nil && unsupportedConversions[ident.Name] && len(call.Args) == 1 {
-		p.fail(call, "workflow 里不支持类型转换 %s(...)；WLang 的数值运算要求两侧类型一致，int 与 int64 可以互转，其余转换放进 Activity", ident.Name)
-	}
-}
-
 // lowerBlock 处理语句级改写：只有直接位于语句列表里的语句可以展开成多条语句。
 func (p *lowerPass) lowerBlock(block *ast.BlockStmt) {
 	if block == nil {
@@ -294,7 +293,7 @@ func (p *lowerPass) lowerListStmt(stmt ast.Stmt) {
 	}
 	switch s := stmt.(type) {
 	case *ast.AssignStmt:
-		if p.lowerMakeAssign(s) {
+		if p.lowerBlankAssign(s) {
 			return
 		}
 		p.hoistAssertedFields(s)
@@ -318,9 +317,9 @@ func (p *lowerPass) lowerListStmt(stmt ast.Stmt) {
 			p.lowerListStmt(branch)
 		}
 	case *ast.ForStmt:
-		p.lowerStmtList(s.Body.List)
+		p.lowerLoopBody(s.Body)
 	case *ast.RangeStmt:
-		p.lowerStmtList(s.Body.List)
+		p.lowerLoopBody(s.Body)
 	case *ast.SwitchStmt:
 		p.lowerCaseBodies(s.Body)
 	case *ast.TypeSwitchStmt:
@@ -329,6 +328,36 @@ func (p *lowerPass) lowerListStmt(stmt ast.Stmt) {
 		p.lowerListStmt(s.Stmt)
 	}
 	p.lowerFuncLits(stmt)
+}
+
+// lowerLoopBody 在每个循环体开头插入一条语句，再处理循环体。执行步数按执行的语句计（见解释器的
+// workflowMaxBatchSteps）；循环体在 Go 里非空也可能翻译成空的 WLang 语句列表（`_ = i` 整句省略），
+// 不插入时这样的循环每轮不执行任何语句，不受步数上限约束，一个 Workflow Task 会永远执行下去。
+func (p *lowerPass) lowerLoopBody(body *ast.BlockStmt) {
+	if hasLoopStep(body) {
+		p.lowerStmtList(body.List[1:])
+		return
+	}
+	name := p.freeName(loopStepPrefix)
+	offset := p.fset.File(body.Lbrace).Offset(body.Lbrace) + 1
+	p.edits = append(p.edits, sourceEdit{start: offset, end: offset, text: fmt.Sprintf(" %s := 0; _ = %s; ", name, name)})
+	p.lowerStmtList(body.List)
+}
+
+// loopStepPrefix 是 lowerLoopBody 插入的计数变量的名字前缀。
+const loopStepPrefix = "zzLoopStep"
+
+// hasLoopStep 报告循环体是否已经以 lowerLoopBody 插入的语句开头（上一轮改写插入的）。
+func hasLoopStep(body *ast.BlockStmt) bool {
+	if len(body.List) == 0 {
+		return false
+	}
+	assign, ok := body.List[0].(*ast.AssignStmt)
+	if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 {
+		return false
+	}
+	ident, ok := assign.Lhs[0].(*ast.Ident)
+	return ok && strings.HasPrefix(ident.Name, loopStepPrefix)
 }
 
 func (p *lowerPass) lowerCaseBodies(body *ast.BlockStmt) {
@@ -360,62 +389,38 @@ func (p *lowerPass) lowerFuncLits(stmt ast.Stmt) {
 	})
 }
 
-// lowerMakeAssign 把 `x := make([]T, n)` 展开成空切片加循环追加零值。n 在清空 x 之前求值一次，
-// `x = make([]T, len(x))` 因此得到与原切片等长的结果。
-func (p *lowerPass) lowerMakeAssign(stmt *ast.AssignStmt) bool {
-	if len(stmt.Lhs) != 1 || len(stmt.Rhs) != 1 || (stmt.Tok != token.DEFINE && stmt.Tok != token.ASSIGN) {
+// lowerBlankAssign 把 `_ = expr`（expr 不是调用）改写成先求值再丢弃：wlang 的翻译把赋给 `_` 的非调用表达式
+// 整句省略，Go 却会求值它，越界与 nil 指针取字段在 Go 里 panic。改写后同样报运行时错误。标识符、字面量与
+// 包成员引用（`_ = strings.ToUpper`）保持原样；含类型断言的表达式由 hoistAssertedFields 处理，也保持原样。
+func (p *lowerPass) lowerBlankAssign(stmt *ast.AssignStmt) bool {
+	if len(stmt.Lhs) != 1 || len(stmt.Rhs) != 1 || stmt.Tok != token.ASSIGN {
 		return false
 	}
-	target, ok := stmt.Lhs[0].(*ast.Ident)
-	if !ok || target.Name == "_" {
+	if target, ok := stmt.Lhs[0].(*ast.Ident); !ok || target.Name != "_" {
 		return false
 	}
-	call, array, ok := sizedSliceMake(stmt.Rhs[0])
-	if !ok {
+	rhs := ast.Unparen(stmt.Rhs[0])
+	switch x := rhs.(type) {
+	case *ast.CallExpr, *ast.Ident, *ast.BasicLit, *ast.FuncLit:
+		return false
+	case *ast.SelectorExpr:
+		if p.packageOf(x.X) != "" {
+			return false
+		}
+	}
+	assertion := false
+	ast.Inspect(rhs, func(node ast.Node) bool {
+		if _, ok := node.(*ast.TypeAssertExpr); ok {
+			assertion = true
+		}
+		return !assertion
+	})
+	if assertion {
 		return false
 	}
-	typeText := p.source(array)
-	size := p.freeName("zzMakeLen")
-	index := p.freeName("zzMake")
-	p.replace(stmt, fmt.Sprintf("%s := (%s); %s %s %s{}; for %s := 0; %s < %s; %s++ { %s = append(%s, %s) }",
-		size, p.source(call.Args[1]), target.Name, stmt.Tok, typeText, index, index, size, index,
-		target.Name, target.Name, p.zeroLiteral(array.Elt)))
+	value := p.freeName("zzDiscard")
+	p.replace(stmt, fmt.Sprintf("%s := (%s); _ = %s", value, p.source(stmt.Rhs[0]), value))
 	return true
-}
-
-// sizedSliceMake 识别 `make([]T, n)`（n 不是字面量 0）。
-func sizedSliceMake(expr ast.Expr) (*ast.CallExpr, *ast.ArrayType, bool) {
-	call, ok := expr.(*ast.CallExpr)
-	if !ok || len(call.Args) < 2 {
-		return nil, nil, false
-	}
-	if ident, ok := call.Fun.(*ast.Ident); !ok || ident.Name != "make" || ident.Obj != nil {
-		return nil, nil, false
-	}
-	array, ok := call.Args[0].(*ast.ArrayType)
-	if !ok || array.Len != nil {
-		return nil, nil, false
-	}
-	if literal, ok := call.Args[1].(*ast.BasicLit); ok && literal.Value == "0" {
-		return nil, nil, false
-	}
-	return call, array, true
-}
-
-// zeroLiteral 是元素类型零值的 Go 写法：内建标量用 *new(T)，引用类型与 any 用 nil，其余按 struct 写 T{}。
-func (p *lowerPass) zeroLiteral(elem ast.Expr) string {
-	switch x := elem.(type) {
-	case *ast.Ident:
-		if x.Name == "any" {
-			return "nil"
-		}
-		if isPredeclaredTypeName(x.Name) && x.Obj == nil {
-			return "*new(" + x.Name + ")"
-		}
-	case *ast.StarExpr, *ast.ArrayType, *ast.MapType, *ast.FuncType, *ast.InterfaceType:
-		return "nil"
-	}
-	return p.source(elem) + "{}"
 }
 
 // hoistAssertedFields 把简单语句里的 `x.(T).Field` 改成先赋值给临时变量再取字段。
@@ -486,7 +491,6 @@ func containsCall(expr ast.Expr) bool {
 
 // lowerExprs 处理表达式级改写与只能在特定位置出现的写法的诊断。
 func (p *lowerPass) lowerExprs(fn *ast.FuncDecl) {
-	listed := listStatements(fn.Body)
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
 		if p.err != nil {
 			return false
@@ -501,33 +505,10 @@ func (p *lowerPass) lowerExprs(fn *ast.FuncDecl) {
 				p.fail(x, "%s 需要先把类型断言赋值给变量：`v := %s`，再写 v.%s", p.source(x), p.source(assertion), x.Sel.Name)
 			}
 		case *ast.CallExpr:
-			p.lowerMake(x, listed)
+			p.lowerMake(x)
 		}
 		return true
 	})
-}
-
-// listStatements 返回直接位于语句列表里的语句集合。
-func listStatements(body *ast.BlockStmt) map[ast.Stmt]bool {
-	listed := map[ast.Stmt]bool{}
-	ast.Inspect(body, func(node ast.Node) bool {
-		switch x := node.(type) {
-		case *ast.BlockStmt:
-			for _, stmt := range x.List {
-				listed[stmt] = true
-			}
-		case *ast.CaseClause:
-			for _, stmt := range x.Body {
-				listed[stmt] = true
-			}
-		case *ast.CommClause:
-			for _, stmt := range x.Body {
-				listed[stmt] = true
-			}
-		}
-		return true
-	})
-	return listed
 }
 
 func (p *lowerPass) hasEditAt(node ast.Node) bool {
@@ -541,43 +522,23 @@ func (p *lowerPass) hasEditAt(node ast.Node) bool {
 	return false
 }
 
-// lowerMake 把 `make(map[K]V)`、`make([]T, 0[, n])` 改成空字面量；`make([]T, n)` 只接受独立赋值语句。
-func (p *lowerPass) lowerMake(call *ast.CallExpr, listed map[ast.Stmt]bool) {
+// lowerMake 把 `make(map[K]V)` 改成空字面量；slice 的 make（含容量）由 go2wlang 翻译成 arr.make。
+func (p *lowerPass) lowerMake(call *ast.CallExpr) {
 	ident, ok := call.Fun.(*ast.Ident)
 	if !ok || ident.Name != "make" || ident.Obj != nil || len(call.Args) == 0 {
 		return
 	}
-	switch target := call.Args[0].(type) {
-	case *ast.MapType:
+	if target, ok := call.Args[0].(*ast.MapType); ok {
 		p.replace(call, p.source(target)+"{}")
-	case *ast.ArrayType:
-		if _, _, sized := sizedSliceMake(call); !sized {
-			p.replace(call, p.source(target)+"{}")
-			return
-		}
-		if !p.coveredByEdit(call) {
-			p.fail(call, "%s 只能写成独立的赋值语句：`x := %s`（生成器把它展开成循环追加零值）", p.source(call), p.source(call))
-		}
 	}
-}
-
-// coveredByEdit 判断节点是否落在某个已登记的改写区间内。
-func (p *lowerPass) coveredByEdit(node ast.Node) bool {
-	file := p.fset.File(node.Pos())
-	start, end := file.Offset(node.Pos()), file.Offset(node.End())
-	for _, edit := range p.edits {
-		if edit.start <= start && end <= edit.end {
-			return true
-		}
-	}
-	return false
 }
 
 // foldProgram 在翻译产物上完成编译期求值，使程序不带 time 包符号：
 //
 //   - `time.Second` 等常量换成 int64 / string 字面量；
 //   - `time.Duration(x)` 与 `int(x)` 换成 x（Duration、int、int64 在 WLang 里都是 int64）；
-//   - 类型名 time.Duration 换成 int64。
+//   - 类型名 time.Duration 换成 int64；
+//   - 目标是 []any、map[string]any 的类型断言换成宿主函数调用（见 anyContainerAssertion）。
 //
 // timeAliases 是产物 import 表里指向 time 包的别名。
 func foldProgram(node any, timeAliases map[string]bool) any {
@@ -588,6 +549,9 @@ func foldProgram(node any, timeAliases map[string]bool) any {
 		}
 		return value
 	case map[string]any:
+		if call, ok := anyContainerAssertion(value); ok {
+			return foldProgram(call, timeAliases)
+		}
 		if symbol, ok := value["symbol"].(string); ok && len(value) == 1 {
 			if alias, name, found := strings.Cut(symbol, "."); found && timeAliases[alias] {
 				switch constant := timeConstants[name].(type) {
@@ -626,4 +590,32 @@ func foldProgram(node any, timeAliases map[string]bool) any {
 		return value
 	}
 	return node
+}
+
+// anyContainerTargets 是 WLang 的类型断言不能按 Go 语义判断的目标：解释器里 []any、map[string]any 值的类型名与
+// 断言目标不同，`x.([]any)`、`x.(map[string]any)` 与对应的 type switch case 永远不成立。
+var anyContainerTargets = map[string]bool{"array<any>": true, "map<string,any>": true}
+
+// anyContainerAssertion 把目标是 []any、map[string]any 的 type.assert、type.assert.ok、type.is 改写成
+// workflow 包的 TypeAssert、TypeAssertOK、TypeIs 调用（解释器的宿主函数，按 Go 的动态类型判断）：断言失败时
+// 非 comma-ok 形式 panic，comma-ok 形式得到 nil 与 false；type switch 的 case 经 type.is 判断。
+func anyContainerAssertion(node map[string]any) (map[string]any, bool) {
+	if len(node) != 1 {
+		return nil, false
+	}
+	hosts := map[string]string{"type.assert": "TypeAssert", "type.assert.ok": "TypeAssertOK", "type.is": "TypeIs"}
+	for op, args := range node {
+		host, ok := hosts[op]
+		list, isList := args.([]any)
+		if !ok || !isList || len(list) != 2 {
+			return nil, false
+		}
+		targetNode, _ := list[1].(map[string]any)
+		literal, _ := targetNode["literal"].(map[string]any)
+		if target, _ := literal["value"].(string); literal["type"] != "string" || !anyContainerTargets[target] {
+			return nil, false
+		}
+		return map[string]any{host: []any{map[string]any{"pkg": "workflow"}, list[0], list[1]}}, true
+	}
+	return nil, false
 }

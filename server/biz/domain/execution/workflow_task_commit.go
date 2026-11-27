@@ -28,8 +28,6 @@ type WorkflowTaskCommit struct {
 	ChildTargets  map[int]ChildWorkflowTarget
 	TraceContext  map[string]string
 	Now           time.Time
-	// SeenThroughEventID 是 Worker 做决策时已看到的最后一个事件 ID；增量激活路径提供它，全量路径为 0。
-	SeenThroughEventID int64
 	// ProgramVersion 是本次 Workflow Task 采用的 Program 版本。
 	ProgramVersion string
 }
@@ -37,10 +35,16 @@ type WorkflowTaskCommit struct {
 // CommitWorkflowTask writes a workflow decision and every resulting mutable
 // state in one transaction. Queue delivery and timers start after commit.
 //
-// A fact that lands after WorkflowTaskStarted was not part of the worker's
-// decision. Committing the completion would place that fact inside this
-// task's replay batch, and no later task would process it. The task is closed
-// as failed instead and the caller schedules a new one.
+// CloseEvent.WorkflowTaskCompleted.SeenThroughEventID is the last event the
+// worker saw. Facts that landed after it were not part of the decision; they
+// stay before WorkflowTaskCompleted in History and replay puts them into the
+// next decision batch (executor.SplitBatches). A non-terminal decision commits
+// and leaves them to the next workflow task (result.UnseenFacts). A decision
+// that closes the Workflow would drop them, so it is closed as failed with
+// unhandled_events and the caller schedules a new task, like Temporal's
+// UNHANDLED_COMMAND. The failure marks the Run closing
+// (WorkflowExecutionState.WorkflowClosing): while the retried task is started,
+// new Signals and Updates are rejected, so the retried close commits.
 //
 // A Run that already holds a terminal event accepts no further decision: the
 // result reports nothing inserted and History stays unchanged.
@@ -62,12 +66,8 @@ func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTask
 		return WorkflowTaskCompletionResult{}, nil
 	}
 	scheduledEventID := commit.CloseEvent.FlatScheduledEventID()
-	superseded := state.WorkflowTaskSuperseded(scheduledEventID)
-	if commit.SeenThroughEventID > 0 {
-		// Worker 报告了它看到的位置：只有在那之后落库的事实才是它没处理的。
-		superseded = state.WorkflowTaskOpen(scheduledEventID) && state.LastEventID > commit.SeenThroughEventID
-	}
-	if superseded {
+	unseen := state.WorkflowTaskOpen(scheduledEventID) && state.UnseenFacts(commit.CloseEvent.WorkflowTaskCompleted.SeenThroughEventID)
+	if unseen && slices.ContainsFunc(commit.Commands, func(command history.Command) bool { return command.Type.ClosesWorkflow() }) {
 		_, inserted, err := tx.AppendWorkflowTaskClosed(run.ID, commit.TreeID, commit.BranchID, history.NewWorkflowTaskFailedEvent(history.WorkflowTaskFailedEvent{
 			ScheduledEventID: scheduledEventID,
 			Cause:            WorkflowTaskFailedCauseUnhandledEvents,
@@ -84,6 +84,7 @@ func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTask
 	if err != nil || !result.ClosedInserted {
 		return result, err
 	}
+	result.UnseenFacts = unseen
 	runChanged := run.adoptProgramVersion(commit.ProgramVersion)
 	if slices.ContainsFunc(commit.Commands, func(command history.Command) bool { return command.Type == history.CmdUpsertSearchAttributes }) {
 		if err := tx.SyncRunSearchAttributes(run.ID); err != nil {
@@ -186,8 +187,8 @@ func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTask
 		}
 	}
 	if history.IsTerminalStatus(run.Status) {
-		// 完成或取消 Workflow 的命令关闭了 Run：它仍未触发的 timer 随之关闭（含本批命令新建的）。
-		if err := tx.CloseScheduledTimers(run.ID); err != nil {
+		// 完成或取消 Workflow 的命令关闭了 Run：它仍未触发的 timer 与未结束的 Activity 随之关闭（含本批命令新建的）。
+		if err := closePendingStates(tx, run.ID); err != nil {
 			return WorkflowTaskCompletionResult{}, err
 		}
 	}
@@ -196,8 +197,9 @@ func CommitWorkflowTask(tx ExecutionTx, commit WorkflowTaskCommit) (WorkflowTask
 
 // checkActivityIDs 拒绝与仍未关闭的 Activity 重复的 ActivityID（对标 Temporal 的 SCHEDULE_ACTIVITY_DUPLICATE_ID）：
 // Run 的 open waits 里的 Activity 与本批排在前面的调度命令都算未关闭，已请求取消、尚未确认的也算。前一个
-// Activity 关闭（完成、失败、超时或取消确认）之后同一 ID 可以再用。open waits 与 Worker 决策时看到的
-// 历史一致（之后落库的事实使提交按 superseded 失败），所以判定是确定的。
+// Activity 关闭（完成、失败、超时或取消确认）之后同一 ID 可以再用。Worker 决策之后落库的事实只会关闭
+// Activity（调度只来自命令），Worker 看到的已关闭 Activity 在 open waits 里也已关闭，所以 Worker 按自己看到的历史
+// 复用 ID 时判定与它一致。
 func checkActivityIDs(state *WorkflowExecutionState, commands []history.Command) error {
 	open := make(map[string]bool)
 	for _, wait := range state.OpenWaits {

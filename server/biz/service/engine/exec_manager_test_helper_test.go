@@ -16,6 +16,9 @@ import (
 	"github.com/donutnomad/tenuto/server/infra/memory"
 )
 
+// testRecoveryHorizon 让直接调用恢复步骤的测试挂上全部定时器，不受 lookahead 限制。
+var testRecoveryHorizon = time.Now().Add(100 * 365 * 24 * time.Hour)
+
 // failingEventManager 在内存执行存储外加一层故障注入：failOn 指定的事件类型写入时返回错误，模拟数据库写失败；
 // 事务内命中时整个事务回滚。未指定类型时调用原样转给内存存储。
 type failingEventManager struct {
@@ -59,6 +62,13 @@ func (m *failingEventManager) AppendIdempotent(runID, treeID, branchID string, e
 		return 0, false, errAppendEventFailed
 	}
 	return m.ExecutionManager.AppendIdempotent(runID, treeID, branchID, event)
+}
+
+func (m *failingEventManager) AppendWorkflowTaskScheduled(runID, treeID, branchID string, event history.Event) (int64, bool, error) {
+	if m.fails(event) {
+		return 0, false, errAppendEventFailed
+	}
+	return m.ExecutionManager.AppendWorkflowTaskScheduled(runID, treeID, branchID, event)
 }
 
 func (m *failingEventManager) RunInTx(fn func(tx execution.ExecutionTx) error) error {
@@ -219,7 +229,7 @@ func (s *Server) HandleActivityStarted(runID string, scheduledEventID int64, att
 
 // RecoverRun 对单个 run 做一次启动恢复级别的补偿。
 func (s *Server) RecoverRun(ctx context.Context, runID string) error {
-	_, err := s.reconcileRun(ctx, runID, true)
+	_, err := s.reconcileRun(ctx, runID, true, testRecoveryHorizon)
 	return err
 }
 

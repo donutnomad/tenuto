@@ -66,7 +66,8 @@ func TestActivityWorkerRouteRestoresAfterWorkflowAppRestart(t *testing.T) {
 	}
 	firstServer.Stop()
 	activityTasks := memory.NewActivityQueueRouter(16)
-	recoveredServer := assembly.NewServer(assembly.Options{Stores: openStores(), WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
+	recoveredStores := openStores()
+	recoveredServer := assembly.NewServer(assembly.Options{Stores: recoveredStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
 	defer recoveredServer.Stop()
 
 	ref, err := recoveredServer.Definitions().RegisterWorkflowInNamespace(protocol.DefaultNamespace, sdkgentest.Sequential(t, &program.WorkflowConfig{Type: "route-restore"},
@@ -93,7 +94,7 @@ func TestActivityWorkerRouteRestoresAfterWorkflowAppRestart(t *testing.T) {
 		t.Fatal("workflow task scheduled event missing")
 	}
 
-	if err := recoveredServer.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, recoveredServer, runID, workflowTaskID), runID, workflowTaskID, []historypkg.Command{{
+	if err := recoveredServer.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, recoveredServer, recoveredStores.Executions, runID, workflowTaskID), runID, workflowTaskID, []historypkg.Command{{
 		StartToCloseTimeout: time.Minute,
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
@@ -187,7 +188,7 @@ func TestScheduleToStartTimeoutRecoversAfterServerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
+	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, workflowStores.Executions, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
 		StartToCloseTimeout:    time.Minute,
 		Type:                   historypkg.CmdScheduleActivity,
 		ActivityID:             "#a1",
@@ -201,7 +202,7 @@ func TestScheduleToStartTimeoutRecoversAfterServerRestart(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	recovered := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	if err := recovered.RecoverRunningWorkflows(ctx); err != nil {
+	if err := recovered.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	defer recovered.Stop()
@@ -228,7 +229,7 @@ func TestHeartbeatTimeoutRecoversAfterServerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
+	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, workflowStores.Executions, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
 		StartToCloseTimeout: time.Minute,
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
@@ -252,7 +253,7 @@ func TestHeartbeatTimeoutRecoversAfterServerRestart(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	recovered := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	if err := recovered.RecoverRunningWorkflows(ctx); err != nil {
+	if err := recovered.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	defer recovered.Stop()
@@ -279,7 +280,7 @@ func TestStartToCloseTimeoutRecoversAfterServerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
+	if err := server.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, server, workflowStores.Executions, runID, openWorkflowTaskID(t, server, runID)), runID, openWorkflowTaskID(t, server, runID), []historypkg.Command{{
 		Type:                historypkg.CmdScheduleActivity,
 		ActivityID:          "#a1",
 		ActivityType:        "slow_activity",
@@ -299,7 +300,7 @@ func TestStartToCloseTimeoutRecoversAfterServerRestart(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	recovered := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	if err := recovered.RecoverRunningWorkflows(ctx); err != nil {
+	if err := recovered.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	defer recovered.Stop()
@@ -330,7 +331,7 @@ func TestWorkflowExecutionTimeoutRecoversAfterServerRestart(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	recovered := assembly.NewServer(assembly.Options{Stores: workflowStores, WorkflowQueue: workflowTasks, ActivityRouter: activityTasks})
-	if err := recovered.RecoverRunningWorkflows(ctx); err != nil {
+	if err := recovered.RecoverRunningWorkflows(ctx, engine.DefaultReconcileLookahead); err != nil {
 		t.Fatal(err)
 	}
 	defer recovered.Stop()
@@ -365,13 +366,15 @@ func TestConcurrentServersDeduplicateScheduleCommandByStore(t *testing.T) {
 		ActivityType:        "work",
 	}
 
+	// 像 poll 一样先 start 一次，两个 Server 只在提交上竞争。
+	startWorkflowTaskLikePoll(t, workflowStores.Executions, run.ID, workflowTaskID)
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for _, server := range []*engine.Server{serverA, serverB} {
 		wg.Add(1)
 		go func(s *engine.Server) {
 			defer wg.Done()
-			errs <- s.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, s, run.ID, workflowTaskID), run.ID, workflowTaskID, []historypkg.Command{cmd}, "")
+			errs <- s.HandleWorkflowTaskCompleted(workflowTaskContext(t, ctx, s, workflowStores.Executions, run.ID, workflowTaskID), run.ID, workflowTaskID, []historypkg.Command{cmd}, "")
 		}(server)
 	}
 	wg.Wait()

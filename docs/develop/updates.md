@@ -73,15 +73,17 @@ if err := handle.Get(ctx, &result); err != nil {
 
 等待 `Completed` 的请求在 Server 上最多等 20s：Update 完成时应答带结果；Run 在 Update 完成之前结束时，History 里这个 Update 已是失败的终态，应答带这个失败；20s 到期仍未完成时应答 `Accepted`，`handle.Get` 以同一个 Update ID 再发一次（按 Update ID 幂等，不会重复执行 Handler）。
 
+Run 显示 Blocked 时，新的 Update 照常写入 `WorkflowUpdateAccepted`，Handler 等失败退避到期的那次重试执行（退避从 1s 起、最长 1 分钟；导致 Blocked 的原因没修好时重试仍会失败）。等待方不会无限挂起：Server 每次请求最多等 20s，`handle.Get` 在 `ctx` 结束时返回 `ctx.Err()`，用带截止时间的 `ctx` 限定调用方愿意等多久。
+
 ### 跨副本唤醒
 
 多副本部署时，受理 Update 请求的副本与处理完成它的 Workflow Task 的副本通常不同。等待方（Update 等 `Completed`，以及 [`WorkflowRun.Get`](/sdk/client#get-跟随执行链) 用的 `wait-closed`）在受理请求的副本上按 Run 登记，结果总从数据库读取：
 
-1. 先读 Run 的 execution state 的 `next_event_id`，再读 History（Update 的记录或 Run 的结束事件）。满足条件就返回。
+1. 先读 Run 的 execution state（`next_event_id` 与状态），再读这个 Update 的事件：第一轮按 Update ID 的索引读取，之后每轮只读上一轮之后新增的事件。Update 已完成或 Run 已结束就返回。
 2. 不满足时带着读到的 `next_event_id` 等待 Run 变化。History 每追加一条事件 `next_event_id` 就增大，并与事件在同一事务提交，所以第 1 步之后的任何提交都会被看到，不会漏掉唤醒。
 3. 唤醒有两个来源：本副本提交 Update 完成或 Run 结束后立即唤醒；有等待者期间，副本每 100ms 用一条 `SELECT ... FROM tenuto_execution_states WHERE run_id IN (...)` 读取本副本全部被等待的 Run（每 500 个 Run 一条），`next_event_id` 变大的 Run 唤醒它的等待者，等待者回到第 1 步。
 
-代价：没有等待者的副本不读库、不排定定时器。有等待者时每个副本每秒 10 条批量读取，与等待者数量无关（被等待的 Run 超过 500 个时按 500 个一条增加）；Run 每变化一次，它的每个等待者多读一次 execution state 与 History（Update 等待者）或 execution state（`wait-closed`）。
+代价：没有等待者的副本不读库、不排定定时器。有等待者时每个副本每秒 10 条批量读取，与等待者数量无关（被等待的 Run 超过 500 个时按 500 个一条增加）；Run 每变化一次，它的每个等待者多读一次 execution state 与新增的事件（Update 等待者）或 execution state（`wait-closed`）。Update 的去重与结果查找按 Update ID 的索引一次读出这个 Update 的事件与 Run 的终态事件，读取量与 History 长度无关；与 Run 结束同批提交的 Update 结果和终态事件同时可见，不会被当成「Run 结束了这个 Update」。
 
 等待者只存在于受理请求的副本内存里。副本重启或下线时进行中的请求随连接断开，调用方重发：`handle.Get` 与 `WorkflowRun.Get` 收到连接错误时返回错误，对同一个句柄再调用一次即可，Update 按 Update ID 幂等。
 
@@ -104,9 +106,39 @@ Validator 是 Server 侧按 Update Name 注册的无状态输入校验器，在�
 
 依赖 Workflow 状态的校验写在 Handler 里，通过返回 `workflow.NewApplicationError` 表达拒绝。
 
+## 执行顺序
+
+Handler 的调度顺序与 Temporal Go SDK（`SDKPriorityUpdateHandling`）相同：
+
+- 同一个 Workflow Task 里到达的 Update，Handler 在主流程与其他 `workflow.Go` 协程之前运行，到第一个阻塞点为止；之后与其他协程一起按确定性顺序推进。
+- 同一批里的多个 Update 按 Accepted 事件顺序执行 Handler。
+- Signal 没有 Handler 协程：同批到达的 Signal 写进对应的 Signal 队列，由等待它的协程在之后的推进里取走，所以同一批里 Update Handler 先于读取 Signal 的代码运行。
+- 冷重放、sticky 会话与 Query 重放按同一顺序执行。
+
+因此“Handler 里计数、主流程等计数归零后再结束或 Continue-As-New”的写法成立：同一批到达的 Update 在主流程检查条件之前已经计入。
+
+```go
+inflight := 0
+_ = workflow.SetUpdateHandler(ctx, "add", func(ctx workflow.Context, v int) (int, error) {
+    inflight++
+    if err := workflow.Sleep(ctx, time.Second); err != nil {
+        inflight--
+        return 0, err
+    }
+    total += v
+    inflight--
+    return total, nil
+})
+// ... 主流程
+if err := workflow.Await(ctx, func() bool { return inflight == 0 }); err != nil {
+    return err
+}
+return workflow.ContinueAsNew(ctx, "", state)
+```
+
 ## Handler 缺失
 
-Update 进入 Accepted 后，Worker 在 Workflow 主流程第一次阻塞（或返回）时查找同名 Handler。没有找到时，Worker 用 `Failure{Type: "UnknownUpdate", Message: "no update handler registered for \"<name>\""}` 完成这个 Update，History 写入 `WorkflowUpdateCompleted`（failure）。调用端的 `handle.Get` 或 `WaitForStage=Completed` 得到 `*apperror.Error`，`Type()` 为 `UnknownUpdate`。
+Update 到达时同名 Handler 还没有注册，这个 Update 排队等待：主流程在同一个 Workflow Task 里调用 `SetUpdateHandler` 注册它时，排队的 Update 立即执行（排在注册它的协程这次推进之后）。这个 Workflow Task 的所有协程都阻塞（或主流程返回）后仍没有注册时，Worker 用 `Failure{Type: "UnknownUpdate", Message: "no update handler registered for \"<name>\""}` 完成这个 Update，History 写入 `WorkflowUpdateCompleted`（failure）。调用端的 `handle.Get` 或 `WaitForStage=Completed` 得到 `*apperror.Error`，`Type()` 为 `UnknownUpdate`。
 
 Handler 在主流程第一次阻塞之前注册，才能接到 Run 启动时就已到达的 Update。调用端和 Workflow 共享稳定的 Update Name。
 

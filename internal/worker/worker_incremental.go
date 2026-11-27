@@ -42,8 +42,7 @@ func (w *Worker) handleWorkflowTaskIncrementally(
 		},
 		ActivationID: history.WorkflowActivationID(task),
 	}, executor.WorkflowTaskOptions{
-		BlocksOnError: func(err error) bool { return executor.ClassifyWorkflowError(err) == executor.WorkflowErrorBlock },
-		BlockedCause:  history.WorkflowTaskFailedCauseNonDeterministic,
+		BlockedCause: executor.WorkflowTaskBlockedCause,
 	})
 }
 
