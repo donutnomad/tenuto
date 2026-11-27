@@ -219,15 +219,12 @@ func (h scheduleHandle) Unpause(ctx context.Context) error {
 }
 
 func (h scheduleHandle) Trigger(ctx context.Context) (WorkflowRun, error) {
-	runID, err := h.client.workflows().TriggerSchedule(ctx, h.request())
+	// 应答带 Workflow ID 与 Run ID：触发生效之后不再发其他请求，返回的错误只可能来自触发本身。
+	triggered, err := h.client.workflows().TriggerSchedule(ctx, h.request())
 	if err != nil {
 		return nil, mapError(callOther, err)
 	}
-	run, err := h.client.getRun(ctx, "", runID)
-	if err != nil {
-		return nil, err
-	}
-	return &workflowRun{client: h.client, workflowID: run.Run.WorkflowID, runID: runID}, nil
+	return &workflowRun{client: h.client, workflowID: triggered.WorkflowID, runID: triggered.RunID}, nil
 }
 
 func (h scheduleHandle) Delete(ctx context.Context) error {

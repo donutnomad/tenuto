@@ -19,7 +19,7 @@ Tenuto 将程序失败、业务拒绝、超时、取消和确定性错误映射�
 | Workflow | WorkflowFailed | Run 终态或 Workflow Retry |
 | Update | Completed failure | `*apperror.Error` |
 | Query | Query 拒绝（`query_rejected`） | Go 调用端得到 `*client.QueryFailedError` |
-| Runtime | Go error / HTTP error | 按状态码处理：400 改正请求，404 目标不存在，409 重新读取后重试，500 是 Server 故障、可原样重试，见 [Runtime HTTP API](/reference/http-api#失败应答) |
+| Runtime | Go error / HTTP error | 按状态码处理：400 改正请求，404 目标不存在，409 重新读取后重试，503 是依赖暂时不可用、可原样重试（Go SDK 自动重试），500 是 Server 故障、原因看 Server 日志，见 [Runtime HTTP API](/reference/http-api#失败应答) |
 | Determinism | Blocked State | 代码回滚或 GetVersion |
 | Workflow panic | Blocked State（`workflow_panic`） | 修复代码后重新部署，Run 从失败处继续 |
 

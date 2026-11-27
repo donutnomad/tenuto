@@ -46,8 +46,8 @@ type Options struct {
 
 // RetryOptions 配置瞬时错误的重试，对应 Temporal Go SDK 的 gRPC 重试：指数退避加 ±20% 抖动；ctx 有 deadline 时
 // 重试到 deadline 为止，没有 deadline 时从第一次失败起最多重试 MaximumElapsedTime。重发会再执行一次的调用
-// （ResetWorkflowExecution、Schedule 的 Create 与 Trigger、StartBatchOperation）只在请求确定没有到达 Server
-// （连接没有建立、HTTP 429/503）时重试。零值字段取缺省值。
+// （不带 RequestID 的 ResetWorkflowExecution、Schedule 的 Create 与 Trigger、StartBatchOperation）只在请求确定
+// 没有到达 Server（连接没有建立、HTTP 429/503）时重试。零值字段取缺省值。
 type RetryOptions struct {
 	// Disabled 关闭重试，每个调用只发一次。
 	Disabled bool

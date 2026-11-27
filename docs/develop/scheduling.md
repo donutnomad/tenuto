@@ -144,7 +144,7 @@ err = handle.Delete(ctx)
 | `Update` | 只修改非 nil 字段；cron 或时区变化且未暂停时重算下一次执行时间 |
 | `Pause` | 停止触发并清空下一次执行时间；已启动的 Run 继续执行 |
 | `Unpause` | 从当前时间起重算下一次执行时间 |
-| `Trigger` | 立即启动一次并返回它的 `WorkflowRun`，同样遵守 Overlap Policy：`SKIP` 下上一次触发的 Run 仍在运行时返回 `ErrConflict`（`previous scheduled run is still running`，HTTP 409）；启动失败时返回错误，下一次执行时间保持原值 |
+| `Trigger` | 立即启动一次并返回它的 `WorkflowRun`，同样遵守 Overlap Policy：`SKIP` 下上一次触发的 Run 仍在运行时返回 `ErrConflict`（`previous scheduled run is still running`，HTTP 409）。与 Temporal 的 TriggerImmediately 相同，不改变下一次执行时间，积压的到期点照常补触发；同一秒内重复触发得到同一个 Run |
 | `Delete` | 删除 Schedule |
 
 `Describe` 返回的 `ScheduleDescription` 包含 `NextRunAt`、`LastRunAt`、`LastRunID`、`RunCount` 与跳过计数 `MissedCatchupWindow`、`BufferDropped`、`StartFailed`，用于观察执行情况。

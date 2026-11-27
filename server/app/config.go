@@ -210,7 +210,8 @@ type HTTPConfig struct {
 	IdleTimeout  time.Duration
 	// MaxInFlight 是 /runtime/* 上同时处理的非长轮询请求数上限（WORKFLOW_HTTP_MAX_IN_FLIGHT），超出时应答 503 与
 	// Retry-After。缺省为 WORKFLOW_DB_MAX_OPEN_CONNS 的 defaultMaxInFlightPerConn 倍：请求在连接池上排队的深度
-	// 有界，数据库变慢时积压不会无限增长。长轮询（领取 Task、wait-closed、Update）不计入。
+	// 有界，数据库变慢时积压不会无限增长。长轮询（领取 Task、wait-closed）不计入；Update 只在拿锁与写库阶段计入，
+	// 等结果的长等待不计入。
 	MaxInFlight int
 }
 

@@ -42,7 +42,7 @@ Reset 请求可以带 `request_id`（Go Client 的 `ResetWorkflowExecutionOption
 
 ## Activity Reset
 
-Activity Reset 以 Run ID 和 Scheduled Event ID 定位 Call：
+Activity Reset 以 Run ID 和 Activity ID 定位 Run 里一个尚未关闭的 Activity（`reset-activity` 的 `activity_id`）：
 
 - Attempt 重新从 1 开始，Schedule-To-Start 从 reset 时刻起算。
 - Schedule-To-Close 的起点不变，仍是这次调用最初的调度时间（`ActivityScheduled` 的时间），所以 Reset 不会延长整个调用的期限，期限快到时应改用 Workflow Reset。Temporal 的 `ResetActivity` 同样只把 Attempt 置 1、不改首次调度时间。
@@ -81,7 +81,7 @@ Activity Reset 以 Run ID 和 Scheduled Event ID 定位 Call：
 
 1. 保存目标 Run 的 History、Program Version 和 Worker Build ID。
 2. 确认故障原因已经通过代码、配置或下游修复。
-3. 选择 Workflow Task 边界或 Activity Scheduled Event。
+3. 选择 Workflow Task 边界或要重置的 Activity（Activity ID）。
 4. 填写 Reason 和稳定 Request ID。
 5. 执行 Reset 并记录新 Run ID。
 6. 观察首个 Workflow Task、Activity 路由和 Sticky fallback。

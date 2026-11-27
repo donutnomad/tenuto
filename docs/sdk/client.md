@@ -56,7 +56,7 @@ c, err := client.Dial(client.Options{
 
 ## 瞬时错误与重试
 
-Server 副本滚动重启、网关切换时，请求会遇到连接被拒绝、连接中断或网关的 502/503/504；Server 依赖的 MySQL 或任务队列暂时不可用（连接数打满、锁等待超时、死锁、连接中断、分区换主）时，Server 对可以重发的调用应答 503（带 `Retry-After`），对重发会再执行一次的调用应答 502。SDK 在传输层的同一个位置重试这些瞬时错误，与 Temporal Go SDK 的 gRPC 重试一致：指数退避（200ms 起，每次翻倍，最长 10s）加 ±20% 抖动；`ctx` 有 deadline 时重试到 deadline 为止，没有 deadline 时从第一次失败起重试 1 分钟，之后返回最后一次的错误。4xx 与 500 是确定的结果，不重试。
+Server 副本滚动重启、网关切换时，请求会遇到连接被拒绝、连接中断或网关的 502/503/504；Server 依赖的 MySQL 或任务队列暂时不可用（连接数打满、锁等待超时、死锁、连接中断、分区换主）时，Server 对可以重发的调用应答 503（带 `Retry-After`），对重发会再执行一次的调用应答 502。SDK 在传输层的同一个位置重试这些瞬时错误，与 Temporal Go SDK 的 gRPC 重试一致：指数退避（200ms 起，每次翻倍，最长 10s）加 ±20% 抖动；`ctx` 有 deadline 时重试到 deadline 为止，没有 deadline 时从第一次失败起重试 1 分钟，之后返回最后一次的错误。429 以外的 4xx 与 500 是确定的结果，不重试。
 
 ```go
 c, err := client.Dial(client.Options{
@@ -92,7 +92,7 @@ c, err := client.Dial(client.Options{
 | Schedule 的 `Trigger` | 再执行一次 | 每次触发启动一个 Run |
 | `StartBatchOperation` | 再执行一次 | 每次受理一个新的批量操作 |
 
-「再执行一次」的调用遇到连接中断、502、504 时，调用方先读状态（`ListWorkflow`、`List`、`ListBatchOperations`）确认第一次是否生效，再决定是否重发。
+「再执行一次」的调用遇到连接中断、502、504 时，调用方先读状态（`ListWorkflow`、`List`、`ListBatchOperations`）确认第一次是否生效，再决定是否重发。Schedule 的 `Trigger` 的应答带启动的 Workflow ID 与 Run ID，触发生效之后不再发其他请求，所以它返回的错误都来自触发请求本身。
 
 Worker 的长轮询、任务上报（完成、失败、心跳）都由 task token 定界，按可以重发的调用重试。重试用尽后轮询循环再按 100ms 起、最长 10s 的指数退避重新轮询：一段连续失败只在开始时记一条 WARN（其后的失败记 DEBUG），恢复时记一条 INFO。
 
@@ -287,12 +287,14 @@ Server 的非 2xx 应答映射成 `*client.ServiceError{StatusCode, Message}`，
 | HTTP 状态 | 匹配的错误 |
 | --- | --- |
 | 400 | `ErrInvalidArgument`（Update 的 validator 拒绝除外） |
+| 413 | `ErrInvalidArgument`（请求体超过 4 MiB；单个载荷超过 `WORKFLOW_PAYLOAD_SIZE_LIMIT_BYTES` 是 400） |
 | 400 + Failure JSON（update、update-with-start） | `ErrUpdateRejected`，并可 `errors.As` 到 `*apperror.Error` |
 | 401 | `ErrUnauthenticated`（`AuthToken` 缺失或不对，不重试） |
 | 404 | `ErrNotFound` |
 | 409 | `ErrConflict`；启动类调用（ExecuteWorkflow、SignalWithStartWorkflow）同时是 `ErrWorkflowExecutionAlreadyStarted` |
 | 504 | `ErrDeadlineExceeded` |
 | 503、502 | `ErrUnavailable`（重试用尽后返回；502 出现在重发会再执行一次的调用上，请求可能已经生效，重发前先读状态确认） |
+| 429 | `ErrUnavailable`（网关限流，重试用尽后返回） |
 | 500 | `ErrInternal`（细节只在 Server 日志里） |
 
 重试用尽后的网络错误与 `ctx` 的错误原样返回。

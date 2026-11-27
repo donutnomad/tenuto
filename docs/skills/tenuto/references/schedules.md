@@ -55,7 +55,7 @@ HTTP：`list` / `start-batch` 的 `filter.search_attributes` 写 `{"TemporalSche
 | `handle.Update(ctx, client.ScheduleUpdateOptions{...})` | 修改；字段是指针，只改非 nil 的：`Description`、`CronExpression`、`TimeZone`、`Args`、`OverlapPolicy`、`CatchupWindow` |
 | `handle.Pause(ctx)` | 暂停：清空下一次触发时间，已启动的 Run 继续 |
 | `handle.Unpause(ctx)` | 恢复：从当前时间重新计算下一次触发 |
-| `handle.Trigger(ctx) (client.WorkflowRun, error)` | 立即触发一次；遵守 Overlap Policy，`SKIP` 下执行链仍在运行时返回 `client.ErrConflict`（`previous scheduled run is still running`，HTTP 409） |
+| `handle.Trigger(ctx) (client.WorkflowRun, error)` | 立即触发一次；遵守 Overlap Policy，`SKIP` 下执行链仍在运行时返回 `client.ErrConflict`（`previous scheduled run is still running`，HTTP 409）；不改变 `next_run_at`，同一秒内重复触发返回同一个 Run |
 | `handle.Delete(ctx)` | 删除；已有 Run 保留 |
 | `c.ScheduleClient().List(ctx, client.ScheduleListOptions{WorkflowType, Paused, Offset, Limit})` | 列表；`Paused` 是 `*bool` |
 
@@ -74,6 +74,8 @@ err := handle.Update(ctx, client.ScheduleUpdateOptions{CronExpression: &cron})
 | `get-schedule`、`delete-schedule`、`pause-schedule`、`resume-schedule`、`trigger-schedule` | `{namespace, schedule_id}` |
 | `update-schedule` | `{namespace, schedule_id, update:{description, cron_expression, timezone, input, overlap_policy, catchup_window}}` |
 | `list-schedules` | `{filter:{namespace, workflow_type, paused, offset, limit}}` |
+
+`trigger-schedule` 应答启动的 Run `{workflow_id, run_id}`；Go 的 `handle.Trigger` 直接用它构造 `WorkflowRun`，触发生效后不再发其他请求。
 
 ```bash
 curl -sS -X POST http://127.0.0.1:7400/runtime/workflow/create-schedule \
@@ -95,6 +97,6 @@ curl -sS -X POST http://127.0.0.1:7400/runtime/workflow/create-schedule \
 | 重启后没有补跑 | `MissedCatchupWindow` / `BufferDropped` 是否增长；到期点是否落后超过 `CatchupWindow` |
 | `StartFailed` 增长、到期点没有 Run | Server 日志 `schedule driver: start workflow failed` 的 `err`：`config_error=true` 时登记缺少的 Workflow 定义或修正输入；其他错误检查数据库。丢弃的到期点不会补跑 |
 | 触发时间偏移 | `timezone` 与 Cron 的组合；夏令时前拨日跳过不存在的时刻，回拨日重复的时刻只触发一次 |
-| `Trigger` 返回 409（`client.ErrConflict`） | `SKIP` 下执行链仍在运行（`previous scheduled run is still running`），或同一秒内重复触发 |
+| `Trigger` 返回 409（`client.ErrConflict`） | `SKIP` 下执行链仍在运行（`previous scheduled run is still running`）；同一秒内重复触发不报错，返回同一个 Run |
 | `Trigger` 返回其他错误 | Schedule 状态、定义是否存在；`Trigger` 遇到连接中断 / 502 / 504 不自动重试（重发会再触发一次），先按 `TemporalScheduledById` 列 Run 确认 |
 | 创建/更新返回 `invalid overlap_policy` | 取值只能是 `SKIP` 或 `ALLOW_ALL`（大写） |

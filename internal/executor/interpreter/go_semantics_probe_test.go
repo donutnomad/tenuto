@@ -157,6 +157,8 @@ func TestGoSemanticsDocumentedDifferences(t *testing.T) {
 		// 类型化的 slice、map 存进 map[string]any、[]any 之后断言成 []any、map[string]any 成立（1、10）。
 		{SemDifferenceAnyContainerNested, "SemDifferenceAnyContainerNested", `{}`, `{"Count":11,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
 		{SemDifferenceAnyNamed, "SemDifferenceAnyNamed", `{"Status": "ok"}`, `{"Count":11,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
+		// 具名 slice、map 放进 any 后断言成底层类型成立（1、100），断言回具名类型也成立（10、1000）。
+		{SemDifferenceAnyNamedContainers, "SemDifferenceAnyNamedContainers", `{}`, `{"Count":1111,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
 		// 指针放进 any 后比较（1）、含指针字段的结构体比较（10）按内容。
 		{SemDifferencePointerContent, "SemDifferencePointerContent", `{"Plain": {"a": {"Qty": 1}, "b": {"Qty": 1}}}`, `{"Count":11,"Flag":false,"List":null,"Sum":0,"Text":"","Value":null}`},
 		{SemDifferencePointerInAnyPanics, "SemDifferencePointerInAnyPanics", `{"Ptrs": {"a": {"Qty": 1}, "b": {"Qty": 1}}}`, "panic"},

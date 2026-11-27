@@ -91,7 +91,7 @@ func TestScheduleTriggerKeepsPause(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	runID, err := service.Trigger(context.Background(), entity.Namespace, entity.ID)
+	_, runID, err := service.Trigger(context.Background(), entity.Namespace, entity.ID)
 	require.NoError(t, err)
 	got, err := store.Schedules.GetSchedule(entity.Namespace, entity.ID)
 	require.NoError(t, err)

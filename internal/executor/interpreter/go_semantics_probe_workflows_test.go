@@ -1221,6 +1221,30 @@ func SemDifferenceAnyNamed(ctx workflow.Context, in SemInput) (SemOut, error) {
 	return SemOut{Count: count}, nil
 }
 
+type SemTags []string
+
+type SemCounts map[string]int
+
+// 具名 slice、map 放进 any 后对底层类型的断言成立（Go 不成立），断言回具名类型同样成立。
+func SemDifferenceAnyNamedContainers(ctx workflow.Context, in SemInput) (SemOut, error) {
+	var x any = SemTags{"a"}
+	var m any = SemCounts{"a": 1}
+	count := 0
+	if _, ok := x.([]string); ok {
+		count += 1
+	}
+	if tags, ok := x.(SemTags); ok {
+		count += 10 * len(tags)
+	}
+	if _, ok := m.(map[string]int); ok {
+		count += 100
+	}
+	if counts, ok := m.(SemCounts); ok {
+		count += 1000 * len(counts)
+	}
+	return SemOut{Count: count}, nil
+}
+
 type SemRef struct {
 	P *SemPlain
 }

@@ -645,7 +645,7 @@ func TestTriggerSchedule_NotFound(t *testing.T) {
 	ctx := context.Background()
 	uc := newTestUseCase(newFakeFirer(memory.NewScheduleRepository()))
 
-	_, err := uc.Trigger(ctx, "default", "non-existent")
+	_, _, err := uc.Trigger(ctx, "default", "non-existent")
 	if err == nil {
 		t.Fatal("expected error for triggering non-existent schedule")
 	}
@@ -768,7 +768,7 @@ func TestTrigger_RecordsRun(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	runID, err := uc.Trigger(ctx, "ns-trigger", created.ID)
+	workflowID, runID, err := uc.Trigger(ctx, "ns-trigger", created.ID)
 	if err != nil {
 		t.Fatalf("Trigger failed: %v", err)
 	}
@@ -782,6 +782,9 @@ func TestTrigger_RecordsRun(t *testing.T) {
 	call := firer.startCalls[0]
 	if call.namespace != "ns-trigger" || call.workflowType != "wf-trigger" || !strings.HasPrefix(call.workflowID, "schedule-"+created.ID+"-") || call.input["source"] != "schedule" {
 		t.Fatalf("unexpected start call %+v", call)
+	}
+	if workflowID != call.workflowID {
+		t.Fatalf("Trigger returned workflow id %q, the run was started as %q", workflowID, call.workflowID)
 	}
 	got, err := uc.Get("ns-trigger", created.ID)
 	if err != nil {
@@ -806,7 +809,7 @@ func TestTrigger_StartFailure(t *testing.T) {
 	}
 	firer.startErr = errors.New("workflow not registered")
 
-	_, err = uc.Trigger(ctx, "default", created.ID)
+	_, _, err = uc.Trigger(ctx, "default", created.ID)
 
 	if !errors.Is(err, firer.startErr) {
 		t.Fatalf("expected start error, got %v", err)

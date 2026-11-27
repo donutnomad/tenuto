@@ -91,6 +91,23 @@ func TestRetryUnsentCallOnlyOnUnprocessedStatus(t *testing.T) {
 	}
 }
 
+// 带 request_id 的 Reset 重发返回第一次 reset 出的 Run：502/504 与连接中断照常重试。
+func TestRetryResetWithRequestIDAsIdempotent(t *testing.T) {
+	for _, status := range []int{http.StatusBadGateway, http.StatusGatewayTimeout} {
+		server, attempts := statusServer(t, status, 2, func(w http.ResponseWriter) {
+			_ = json.NewEncoder(w).Encode(runtimeapi.WorkflowRuntimeResetResponse{RunID: "run-2"})
+		})
+		client := NewWorkflowRuntimeHTTPClient(server.URL, nil, RuntimeHTTPClientOptions{Retry: fastRetry})
+		runID, err := client.ResetWorkflow(context.Background(), runtimeapi.WorkflowRuntimeResetRequest{RunID: "run-1", RequestID: "reset-1"})
+		if err != nil || runID != "run-2" {
+			t.Fatalf("status %d: reset with request id = %q, %v", status, runID, err)
+		}
+		if got := attempts.Load(); got != 3 {
+			t.Fatalf("status %d: reset attempts = %d, want 3", status, got)
+		}
+	}
+}
+
 // 连接没有建立（拒绝连接）时请求确定没有到达 Server：重发会再执行一次的调用也重试。
 func TestRetryUnsentCallOnDialFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

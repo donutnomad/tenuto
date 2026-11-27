@@ -200,8 +200,10 @@ type WorkflowRuntimeListSchedulesRequest struct {
 	Filter ScheduleListFilter `json:"filter"`
 }
 
+// WorkflowRuntimeTriggerScheduleResponse 是这次触发启动的 Run。
 type WorkflowRuntimeTriggerScheduleResponse struct {
-	RunID string `json:"run_id"`
+	WorkflowID string `json:"workflow_id"`
+	RunID      string `json:"run_id"`
 }
 
 type WorkflowRuntimeStartBatchRequest struct {

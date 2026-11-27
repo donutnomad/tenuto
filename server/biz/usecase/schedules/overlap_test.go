@@ -73,7 +73,7 @@ func TestFireDueUsesTheDueTimeInTheWorkflowID(t *testing.T) {
 func TestTriggerFollowsSkipPolicy(t *testing.T) {
 	ctx := context.Background()
 	uc, firer, clk, created := newOverlapUseCase(t, "SKIP")
-	firstRunID, err := uc.Trigger(ctx, "default", created.ID)
+	_, firstRunID, err := uc.Trigger(ctx, "default", created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestTriggerFollowsSkipPolicy(t *testing.T) {
 	}
 
 	clk.Advance(time.Second)
-	if _, err := uc.Trigger(ctx, "default", created.ID); !errors.Is(err, schedule.ErrOverlapSkipped) {
+	if _, _, err := uc.Trigger(ctx, "default", created.ID); !errors.Is(err, schedule.ErrOverlapSkipped) {
 		t.Fatalf("trigger while running: err = %v, want ErrOverlapSkipped", err)
 	}
 	after, err := uc.Get("default", created.ID)
@@ -96,7 +96,7 @@ func TestTriggerFollowsSkipPolicy(t *testing.T) {
 	}
 
 	firer.runStatuses[firstRunID] = history.StatusCompleted
-	if _, err := uc.Trigger(ctx, "default", created.ID); err != nil {
+	if _, _, err := uc.Trigger(ctx, "default", created.ID); err != nil {
 		t.Fatalf("trigger after the chain finished: %v", err)
 	}
 }

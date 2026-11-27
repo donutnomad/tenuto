@@ -113,7 +113,7 @@ Tenuto 是 Go 实现的持久化 Workflow 引擎（模块 `github.com/donutnomad
    err = run.Get(ctx, &out) // 等 Run 结束；跟随 continue-as-new 与重试；失败时 *client.WorkflowExecutionError
    ```
 
-   Update 用 `c.UpdateWorkflow` → `handle.Get`。载荷里的整数经 HTTP 原样保留（int64 / uint64），超过 2^53 不丢精度。SDK 自动重试连接失败、连接中断与 429/502/503/504（Server 滚动重启时）；Start / Signal 带 SDK 生成的 request ID、Update 带 Update ID，重发不重复生效，Reset、Schedule Create/Trigger、批量操作启动只在请求确定没送达时重试（`client.Options.Retry` 调整）。完整签名、错误、重试归类、HTTP 请求体与状态码见 `references/client-api.md`。
+   Update 用 `c.UpdateWorkflow` → `handle.Get`。载荷里的整数经 HTTP 原样保留（int64 / uint64），超过 2^53 不丢精度。SDK 自动重试连接失败、连接中断与 429/502/503/504（Server 滚动重启时）；Start / Signal 带 SDK 生成的 request ID、Update 带 Update ID，重发不重复生效（带 `RequestID` 的 Reset 同样），不带 `RequestID` 的 Reset、Schedule Create/Trigger、批量操作启动只在请求确定没送达时重试（`client.Options.Retry` 调整）。完整签名、错误、重试归类、HTTP 请求体与状态码见 `references/client-api.md`。
 
 ## 硬规则
 

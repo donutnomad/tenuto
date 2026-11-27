@@ -17,15 +17,15 @@ defer c.Close()
 
 ## 瞬时错误重试
 
-SDK 在传输层统一重试瞬时错误（Server 滚动重启、网关切换），与 Temporal Go SDK 一致：200ms 起翻倍、最长 10s、±20% 抖动；`ctx` 有 deadline 时重试到 deadline，没有时最多 1 分钟。`client.Options.Retry`（`client.RetryOptions{Disabled, InitialInterval, MaximumInterval, BackoffCoefficient, MaximumElapsedTime}`）调整，零值取缺省值；从这个 Client 创建的 Worker 用同一个策略。4xx 与 500 不重试。
+SDK 在传输层统一重试瞬时错误（Server 滚动重启、网关切换），与 Temporal Go SDK 一致：200ms 起翻倍、最长 10s、±20% 抖动；`ctx` 有 deadline 时重试到 deadline，没有时最多 1 分钟。`client.Options.Retry`（`client.RetryOptions{Disabled, InitialInterval, MaximumInterval, BackoffCoefficient, MaximumElapsedTime}`）调整，零值取缺省值；从这个 Client 创建的 Worker 用同一个策略。429 以外的 4xx 与 500 不重试。
 
 | 失败 | 可以重发的调用 | 重发会再执行一次的调用 |
 | --- | --- | --- |
 | 连接没有建立、HTTP 429 / 503 | 重试 | 重试 |
 | 连接中断、读应答中断、HTTP 502 / 504 | 重试 | 不重试 |
 
-- 可以重发：`ExecuteWorkflow`（SDK 生成 request ID，`ID` 为空时也生成 Workflow ID；Server 对同一 request ID 返回这次启动开启的 Run 链的 current Run，失败重试、continue-as-new 之后是接替的 Run，链已结束也一样）、`SignalWorkflow` / `SignalWithStartWorkflow`（request ID：同一 Run 上只记一条 Signal；SignalWithStart 的 request ID 同时记在 `WorkflowStarted`，重发时 current Run（含已结束）或链首记过这条 Signal 就返回第一次的 Run 与 `event_id`，不启动新 Run）、Update（`UpdateID` 为空时 SDK 生成）、`CancelWorkflow`、`TerminateWorkflow` 与 Schedule 的 `Delete`（第一次应答丢失时重发报告 Run 已结束 / Schedule 不存在）、`UpsertSearchAttributes`、`UpdateWorkflowExecutionOptions`、Schedule 的 `Update` / `Pause` / `Unpause`、`StopBatchOperation`、全部读取与长轮询（`Get`、Update 句柄的 `Get`、Worker poll），以及 Worker 的任务上报（task token 定界）。
-- 再执行一次：`ResetWorkflowExecution`（不带 `RequestID` 时）、Schedule 的 `Create` 与 `Trigger`、`StartBatchOperation`。遇到连接中断 / 502 / 504 时先读状态确认第一次是否生效，再决定是否重发；带 `RequestID` 的 Reset 用同一个 `RequestID` 重发即可。
+- 可以重发：`ExecuteWorkflow`（SDK 生成 request ID，`ID` 为空时也生成 Workflow ID；Server 对同一 request ID 返回这次启动开启的 Run 链的 current Run，失败重试、continue-as-new 之后是接替的 Run，链已结束也一样）、`SignalWorkflow` / `SignalWithStartWorkflow`（request ID：同一 Run 上只记一条 Signal；SignalWithStart 的 request ID 同时记在 `WorkflowStarted`，重发时 current Run（含已结束）或链首记过这条 Signal 就返回第一次的 Run 与 `event_id`，不启动新 Run）、Update（`UpdateID` 为空时 SDK 生成）、`CancelWorkflow`、`TerminateWorkflow` 与 Schedule 的 `Delete`（第一次应答丢失时重发报告 Run 已结束 / Schedule 不存在）、带 `RequestID` 的 `ResetWorkflowExecution`（重发返回第一次 reset 出的 Run ID）、`UpsertSearchAttributes`、`UpdateWorkflowExecutionOptions`、Schedule 的 `Update` / `Pause` / `Unpause`、`StopBatchOperation`、全部读取与长轮询（`Get`、Update 句柄的 `Get`、Worker poll），以及 Worker 的任务上报（task token 定界）。
+- 再执行一次：`ResetWorkflowExecution`（不带 `RequestID` 时）、Schedule 的 `Create` 与 `Trigger`、`StartBatchOperation`。遇到连接中断 / 502 / 504 时先读状态确认第一次是否生效，再决定是否重发；需要自动重试的 Reset 带上 `RequestID`。`Trigger` 的应答带启动的 Workflow ID 与 Run ID，触发生效后不再发其他请求。
 - 应用代码自己再调用一次 `SignalWorkflow` 是另一个 Signal（新的 request ID）；需要跨进程去重时在 Signal 载荷里带业务幂等键。
 - Worker 轮询在重试用尽后再按 100ms 起、最长 10s 退避；一段连续失败只记一条 WARN（`poll failed; retrying with backoff`），其余 DEBUG，恢复时 INFO（`poll recovered`）。
 
@@ -181,7 +181,7 @@ if err := handle.Get(ctx, &result); err != nil {
 
 ## 错误
 
-Server 的非 2xx 应答是 `*client.ServiceError{StatusCode, Message}`，用 `errors.Is` 判断：400 `ErrInvalidArgument`（Update 的 validator 拒绝是 `ErrUpdateRejected`）、401 `ErrUnauthenticated`（token 缺失或不对，不重试）、404 `ErrNotFound`、409 `ErrConflict`（启动类调用同时是 `ErrWorkflowExecutionAlreadyStarted`）、504 `ErrDeadlineExceeded`、503 与 502 `ErrUnavailable`（Server 依赖的数据库或任务队列暂时不可用；503 自动重试，502 只出现在 Reset、Schedule Create / Trigger、批量操作启动上，可能已生效）、500 `ErrInternal`。重试用尽后的网络错误与 `ctx` 的错误原样返回；TLS 握手被拒（证书不受信任）不重试。
+Server 的非 2xx 应答是 `*client.ServiceError{StatusCode, Message}`，用 `errors.Is` 判断：400 与 413（请求体超过 4 MiB）`ErrInvalidArgument`（Update 的 validator 拒绝是 `ErrUpdateRejected`）、401 `ErrUnauthenticated`（token 缺失或不对，不重试）、404 `ErrNotFound`、409 `ErrConflict`（启动类调用同时是 `ErrWorkflowExecutionAlreadyStarted`）、504 `ErrDeadlineExceeded`、503、502 与网关的 429 `ErrUnavailable`（Server 依赖的数据库或任务队列暂时不可用；503 自动重试，502 只出现在 Reset、Schedule Create / Trigger、批量操作启动上，可能已生效）、500 `ErrInternal`。重试用尽后的网络错误与 `ctx` 的错误原样返回；TLS 握手被拒（证书不受信任）不重试。
 
 ## HTTP
 

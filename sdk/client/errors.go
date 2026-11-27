@@ -13,7 +13,8 @@ import (
 
 // 下列哨兵错误按 Server 应答的状态码分类，经 errors.Is 判断；具体应答是 *ServiceError。
 var (
-	// ErrInvalidArgument 表示请求本身有问题（HTTP 400）：缺字段、取值非法、Run 已结束不接受这个操作等。
+	// ErrInvalidArgument 表示请求本身有问题（HTTP 400）：缺字段、取值非法、载荷超过上限、Run 已结束不接受这个操作等；
+	// 请求体超过 4 MiB 的 HTTP 413 同样是它。
 	ErrInvalidArgument = errors.New("invalid argument")
 	// ErrUnauthenticated 表示 Server 拒绝了请求的凭证（HTTP 401）：Options.AuthToken 缺失或与 Server 的
 	// WORKFLOW_HTTP_AUTH_TOKEN 不符。重试不会改变结果，SDK 不重试它。
@@ -27,8 +28,8 @@ var (
 	ErrWorkflowExecutionAlreadyStarted = errors.New("workflow execution already started")
 	// ErrDeadlineExceeded 表示 Server 端的等待到期（HTTP 504）。
 	ErrDeadlineExceeded = errors.New("server deadline exceeded")
-	// ErrUnavailable 表示 Server 或它依赖的数据库、任务队列暂时不可用（HTTP 503 或 502），SDK 按 Options.Retry
-	// 重试用尽后返回。502 出现在重发会再执行一次的调用（Reset、Schedule 的 Create 与 Trigger、批量操作的启动）上，
+	// ErrUnavailable 表示 Server 或它依赖的数据库、任务队列暂时不可用（HTTP 503 或 502，以及网关的 429），SDK 按
+	// Options.Retry 重试用尽后返回。502 出现在重发会再执行一次的调用（Reset、Schedule 的 Create 与 Trigger、批量操作的启动）上，
 	// 请求可能已经生效，重发前先读状态确认。
 	ErrUnavailable = errors.New("service unavailable")
 	// ErrInternal 表示 Server 内部错误（HTTP 500），细节只记在 Server 日志里。
@@ -147,7 +148,7 @@ func mapError(kind callKind, err error) error {
 	}
 	serviceErr := &ServiceError{StatusCode: status.Code, Message: status.Body}
 	switch status.Code {
-	case http.StatusBadRequest:
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge:
 		serviceErr.kind = ErrInvalidArgument
 	case http.StatusUnauthorized:
 		serviceErr.kind = ErrUnauthenticated
@@ -160,7 +161,7 @@ func mapError(kind callKind, err error) error {
 		}
 	case http.StatusGatewayTimeout:
 		serviceErr.kind = ErrDeadlineExceeded
-	case http.StatusBadGateway, http.StatusServiceUnavailable:
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusTooManyRequests:
 		serviceErr.kind = ErrUnavailable
 	case http.StatusInternalServerError:
 		serviceErr.kind = ErrInternal

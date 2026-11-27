@@ -226,8 +226,9 @@ const (
 	ResetTypeLastWorkflowTask ResetType = "last_workflow_task"
 )
 
-// ResetWorkflowExecutionOptions 描述一次 Reset。ResetType 与 EventID 二选一；分叉点之前调度的 Activity 与
-// timer 必须都已结束。
+// ResetWorkflowExecutionOptions 描述一次 Reset。ResetType 与 EventID 二选一。分叉点上未结束的 Activity 与 timer
+// 在新 Run 里按 Reset 的规则处理（未开始的 Activity 重新派发，已开始的以 ResetWorkflowError 失败，timer 保留原
+// deadline）；分叉点上有未结束的子 Workflow 时返回 ErrInvalidArgument。
 type ResetWorkflowExecutionOptions struct {
 	// WorkflowID 与 RunID 寻址被 Reset 的 Run；RunID 为空时取 Workflow ID 的当前 Run。
 	WorkflowID string
@@ -239,7 +240,8 @@ type ResetWorkflowExecutionOptions struct {
 	// ReapplyExcludeTypes 是不重新应用到新 Run 的外部输入；缺省把分叉点之后的 Signal 与 Update 重新应用到新 Run。
 	ReapplyExcludeTypes []ResetReapplyExcludeType
 	// RequestID 是可选的幂等键：同一个 Run 上带同一个 RequestID 的 Reset 只生效一次，重复的调用返回第一次
-	// reset 出的 Run ID。为空时不去重。
+	// reset 出的 Run ID。设置后 SDK 按可以重发的调用重试连接中断与 502/504；为空时不去重，只在请求确定没有
+	// 被处理时重试。
 	RequestID string
 }
 
